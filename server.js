@@ -91,7 +91,21 @@ async function createApp(config, { db } = {}) {
   // Pagine
   const pub = path.join(__dirname, 'public');
   app.get('/', (req, res) => (req.user ? res.redirect('/app') : res.sendFile(path.join(pub, 'index.html'))));
-  app.get('/app', (req, res) => (req.user ? res.set('Cache-Control', 'no-cache').sendFile(path.join(pub, 'app.html')) : res.redirect('/auth/login?returnTo=/app')));
+  // Ogni deploy serve JS e CSS da /b/<deploy>/…: un browser con file vecchi in cache non può riusarli
+  // (mescolare moduli vecchi e nuovi rompeva Gantt, chat e organigramma). I percorsi relativi degli
+  // import restano sotto lo stesso /b/<deploy>/, quindi tutta l'app arriva dalla stessa versione.
+  const build = (process.env.RAILWAY_DEPLOYMENT_ID || String(Date.now())).replace(/[^\w-]/g, '').slice(0, 16);
+  let appHtml = null;
+  const renderApp = () => (appHtml = appHtml || require('fs').readFileSync(path.join(pub, 'app.html'), 'utf8')
+    .replace(/(src|href)="\/(js|css)\//g, `$1="/b/${build}/$2/`));
+  app.get('/app', (req, res) => (req.user
+    ? res.set('Cache-Control', 'no-cache').type('html').send(config.production ? renderApp() : (appHtml = null, renderApp()))
+    : res.redirect('/auth/login?returnTo=/app')));
+  app.use('/b/:build', (req, res, next) => {
+    // la versione corrente si tiene in cache a lungo; quelle vecchie (schede aperte prima del deploy) si ricontrollano
+    const current = config.production && req.params.build === build;
+    express.static(pub, { index: false, setHeaders: r => r.set('Cache-Control', current ? 'public, max-age=31536000, immutable' : 'no-cache') })(req, res, next);
+  });
   app.use('/vendor/frappe-gantt', express.static(path.join(__dirname, 'node_modules', 'frappe-gantt', 'dist'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar', express.static(path.join(__dirname, 'node_modules', 'fullcalendar'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar-locales', express.static(path.join(__dirname, 'node_modules', '@fullcalendar', 'core', 'locales'), { maxAge: '7d' }));
