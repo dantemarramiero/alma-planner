@@ -178,3 +178,7 @@ export function debounce(fn, ms = 250) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
+
+// Telefono: sotto i 760 px l'app usa la barra in basso, le schede dei ticket e le attività in lista (css/mobile.css).
+export const mobileQuery = window.matchMedia('(max-width: 760px)');
+export const isMobile = () => mobileQuery.matches;

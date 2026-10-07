@@ -1,9 +1,9 @@
 // Progetti: griglia, scheda del progetto (Gantt, ticket, documenti, cartella OneDrive), creazione e modifica.
 // Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
-import { h, clear, modal, confirmDialog, toast, fmtDate, avatar, loading, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
-import { post, patch, del } from './api.js';
+import { h, clear, fill, modal, confirmDialog, toast, fmtDate, avatar, loading, today, isMobile, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
+import { get, post, patch, del } from './api.js';
 import { store, loadProjects, projectById, userById } from './store.js';
-import { ticketsView } from './tickets.js';
+import { ticketsView, openTicket } from './tickets.js';
 import { driveBrowser, pickDriveItem } from './drive.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
@@ -63,11 +63,11 @@ export async function projectDetail(container, id) {
         h('div.sub', [PROJECT_STATUS[p.status], dates(p), owner ? `Responsabile: ${owner.name}` : null].filter(Boolean).join(' · '))),
       h('div.row',
         h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica'))),
-    p.description ? h('p', { style: { marginTop: 0, color: 'var(--mid)', whiteSpace: 'pre-wrap', maxWidth: '760px' } }, p.description) : null,
+    p.description ? h('p', { style: { marginTop: 0, color: 'var(--mid)', whiteSpace: 'pre-wrap', maxWidth: '760px' } }, p.description) : '', // append() scriverebbe «null»
     h('div.card', { style: { padding: '12px 14px', maxWidth: '520px', '--c': p.color } },
       h('div.spread.small.muted', { style: { marginBottom: '6px' } }, h('span', `${p.done_count} di ${p.ticket_count} ticket fatti`), h('span', `${pct(p)}%`)),
       h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
-    h('div.section', h('div.spread', h('h2', 'Gantt')), ganttBox),
+    h('div.section', h('div.spread', h('h2', isMobile() ? 'Attività' : 'Gantt')), ganttBox),
     h('div.section', h('div.spread', h('h2', 'Ticket')), ticketsBox),
     h('div.section', h('div.spread', h('h2', 'Documenti')), docsBox),
     h('div.section', h('div.spread', h('h2', 'Cartella OneDrive'),
@@ -77,10 +77,11 @@ export async function projectDetail(container, id) {
   // Gantt, bacheca e documenti si tengono allineati: un cambio in uno ricarica gli altri.
   let board = null;
   const docs = projectDocuments(docsBox, p.id);
-  const gantt = ganttView(ganttBox, new URLSearchParams({ project: String(p.id) }), {
-    embedded: true,
-    onChange: () => { board?.reload(); docs.then(d => d.reload()); },
-  });
+  const onChange = () => { board?.reload(); docs.then(d => d.reload()); };
+  // sul telefono il Gantt non si legge: al suo posto le attività in lista, con una barra ciascuna
+  const gantt = isMobile()
+    ? Promise.resolve(timeline(ganttBox, p, onChange))
+    : ganttView(ganttBox, new URLSearchParams({ project: String(p.id) }), { embedded: true, onChange });
   let firstLoad = true;
   board = ticketsView(ticketsBox, { fixed: { project: String(p.id) }, view: 'board', onLoaded: () => {
     if (!firstLoad) gantt.then(g => g.reload());
@@ -103,6 +104,34 @@ export async function projectDetail(container, id) {
     toast('Cartella collegata');
     projectDetail(container, id);
   }
+}
+
+// Attività del progetto (ticket con date) come barre su un'unica scala, con la riga di oggi. Un tocco apre il ticket.
+function timeline(box, p, onChange) {
+  const day = iso => new Date(`${iso}T12:00:00`).getTime();
+  async function reload() {
+    fill(box, loading());
+    const list = (await get(`/api/tickets?project=${p.id}`)).filter(t => t.start_date || t.due_date);
+    if (!list.length) return fill(box, h('div.card.empty', 'Nessuna attività con date. Le attività sono i ticket del progetto con inizio e scadenza.'));
+    for (const t of list) { t._s = t.start_date || t.due_date; t._e = t.due_date || t.start_date; }
+    list.sort((a, b) => a._s.localeCompare(b._s) || a._e.localeCompare(b._e));
+    const min = day(list.reduce((m, t) => (t._s < m ? t._s : m), list[0]._s));
+    const max = day(list.reduce((m, t) => (t._e > m ? t._e : m), list[0]._e)) + 86400000;
+    const span = Math.max(max - min, 86400000);
+    const pos = ms => `${Math.min(100, Math.max(0, ((ms - min) / span) * 100))}%`;
+    const now = day(today());
+    const label = t => (t._s === t._e ? fmtDate(t._s) : `${fmtDate(t._s)} – ${fmtDate(t._e)}`);
+    fill(box, h('div.card.m-timeline', { style: { '--c': p.color } },
+      h('div.m-tl-axis', h('span', fmtDate(list[0]._s)), h('span', fmtDate(new Date(max - 86400000).toISOString().slice(0, 10)))),
+      h('div.m-tl-rows',
+        now >= min && now <= max ? h('span.m-tl-today', { style: { left: pos(now) }, title: 'Oggi' }) : null,
+        list.map(t => h('button.m-tl-row', { type: 'button', class: t.status === 'done' ? 'done' : '', on: { click: () => openTicket(t.id, { onSaved: () => { reload(); onChange(); } }) } },
+          h('span.m-tl-top', h('strong', t.title), h('span', label(t))),
+          h('span.m-tl-track', h('span.m-tl-bar', { style: { left: pos(day(t._s)), width: `calc(${pos(day(t._e) + 86400000)} - ${pos(day(t._s))})` } }))))),
+      now >= min && now <= max ? h('p.m-tl-note', 'La riga arancione è oggi. Tocca un\'attività per aprirla.') : null));
+  }
+  reload();
+  return { reload };
 }
 
 export function editProject(p, onSaved) {

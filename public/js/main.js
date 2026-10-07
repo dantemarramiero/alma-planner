@@ -13,6 +13,7 @@ import { homeView, openPost, openComposer } from './feed.js';
 import { profileView } from './profile.js';
 import { notificationsView } from './notifications.js';
 import { startLive, onLive } from './live.js';
+import { setupMobile } from './mobile.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -33,6 +34,7 @@ async function route() {
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home' : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-chat', section === 'chat');
+  document.body.classList.toggle('on-direct', section === 'direct');
   document.title = section === 'direct' ? 'Chat · Alma Planner' : 'Alma Planner';
   cleanup?.();
   cleanup = null;
@@ -82,7 +84,7 @@ async function route() {
       await ganttView(view, params);
       break;
     case 'calendar': {
-      const c = calendarView(view);
+      const c = calendarView(view, params);
       cleanup = c.destroy;
       break;
     }
@@ -128,6 +130,7 @@ async function start() {
   store.me = await get('/api/me');
   await Promise.all([loadUsers(), loadProjects()]);
   drawMe();
+  setupMobile();
   document.addEventListener('me-changed', drawMe);
   document.getElementById('logout').addEventListener('click', async () => {
     await post('/auth/logout');

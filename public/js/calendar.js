@@ -1,6 +1,6 @@
 // Calendario: eventi del calendario Outlook + ticket (dall'inizio alla scadenza), nello stesso calendario.
 // Trascinare un ticket ne cambia le date; trascinare un evento Outlook di cui si è organizzatori lo sposta.
-import { h, clear, modal, confirmDialog, toast, fmtDateTime, toISODate, addDays } from './ui.js';
+import { h, clear, modal, confirmDialog, toast, fmtDateTime, toISODate, addDays, isMobile } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { openTicket } from './tickets.js';
@@ -8,11 +8,13 @@ import { openTicket } from './tickets.js';
 const SCOPE_KEY = 'alma.calScope';
 const GANTT_KEY = 'alma.calGantt';
 
-export function calendarView(container) {
+// params: ?new=1 apre subito «Nuovo evento» (dal tasto + del telefono).
+export function calendarView(container, params = new URLSearchParams()) {
+  const mobile = isMobile();
   let scope = (() => { try { return localStorage.getItem(SCOPE_KEY) || 'mine'; } catch { return 'mine'; } })();
   // attività dei Gantt = ticket che stanno in un progetto; si possono nascondere per vedere solo Outlook e i ticket sciolti
   let showGantt = (() => { try { return localStorage.getItem(GANTT_KEY) !== '0'; } catch { return true; } })();
-  const ganttToggle = h('label.check', h('input', { type: 'checkbox', checked: showGantt, on: { change: e => {
+  const ganttToggle = h('label.check.m-hide', h('input', { type: 'checkbox', checked: showGantt, on: { change: e => {
     showGantt = e.target.checked;
     try { localStorage.setItem(GANTT_KEY, showGantt ? '1' : '0'); } catch { /* niente */ }
     cal.refetchEvents();
@@ -38,8 +40,11 @@ export function calendarView(container) {
   // eslint-disable-next-line no-undef
   const cal = new FullCalendar.Calendar(calEl, {
     locale: 'it',
-    initialView: window.innerWidth < 700 ? 'listWeek' : 'timeGridWeek',
-    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' },
+    // sul telefono: elenco della settimana (agenda), frecce e «oggi»
+    initialView: mobile ? 'listWeek' : 'timeGridWeek',
+    headerToolbar: mobile
+      ? { left: 'prev,next', center: 'title', right: 'today' }
+      : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' },
     firstDay: 1,
     height: 'auto',
     slotMinTime: '07:00:00',
@@ -187,6 +192,11 @@ export function calendarView(container) {
       toast(payload.attendees.length ? 'Evento creato, inviti inviati' : 'Evento creato');
       cal.refetchEvents();
     }
+  }
+
+  if (params.get('new')) {
+    history.replaceState(null, '', '#/calendar');
+    newEvent();
   }
 
   return { destroy: () => cal.destroy() };
