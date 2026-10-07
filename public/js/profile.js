@@ -4,7 +4,8 @@ import { get, patch } from './api.js';
 import { store, loadUsers } from './store.js';
 import { mediaUrl, pickImages, uploadImage } from './media.js';
 import { icon, richText, ringAvatar } from './social.js';
-import { openPost, teamsChatUrl } from './feed.js';
+import { openPost } from './feed.js';
+import { messageButton } from './teams.js';
 import { loadStories, openStories } from './stories.js';
 
 export async function profileView(view, id) {
@@ -24,7 +25,7 @@ export async function profileView(view, id) {
       h('div.profile-name-row', h('h1', p.name),
         own
           ? h('button.btn', { type: 'button', on: { click: () => editProfile(() => profileView(view, id)) } }, 'Modifica profilo')
-          : h('a.btn.btn-primary', { href: teamsChatUrl(p), target: '_blank', rel: 'noopener', title: 'Chatta su Teams' }, 'Messaggio')),
+          : messageButton(p)),
       h('div.profile-stats', stat(p.post_count, p.post_count === 1 ? 'post' : 'post'), stat(p.likes_received, 'mi piace ricevuti'), stat(p.open_tickets, 'ticket aperti')),
       h('div.profile-handle', `@${p.handle}`, p.job_title ? h('span', ` · ${p.job_title}`) : null),
       p.bio ? h('p.profile-bio', richText(p.bio)) : own ? h('p.profile-bio.muted', 'Aggiungi una presentazione: cosa fai, su cosa lavori.') : null,

@@ -119,12 +119,25 @@ function registerTeams(app, { db, auth, tenantId, live }) {
     res.json({ ok: true });
   });
 
-  // Apre (o ritrova) la chat con una o più persone: con una sola è la chat 1:1 di Teams, sempre la stessa.
+  // id Microsoft di un collega partendo dall'email (UPN o indirizzo di posta).
+  async function oidByEmail(token, email) {
+    const u = await graph(token, 'GET', `/users/${encodeURIComponent(email)}?$select=id`).catch(() => null);
+    if (u?.id) return u.id;
+    const found = await graph(token, 'GET', `/users?$filter=${encodeURIComponent(`mail eq '${email.replace(/'/g, "''")}'`)}&$select=id`);
+    if (!found.value?.[0]) throw new HttpError(404, `${email} non è un account Microsoft 365 di Almacis`);
+    return found.value[0].id;
+  }
+
+  // Apre (o ritrova) la chat con una o più persone, indicate per id Microsoft (oids) o per email (emails):
+  // con una sola è la chat 1:1 di Teams, sempre la stessa.
   app.post('/api/teams/chats', async (req, res) => {
     const b = req.body || {};
-    if (!Array.isArray(b.oids) || !b.oids.length || b.oids.length > 50) throw new HttpError(400, 'Scegli almeno una persona');
-    const oids = [...new Set(b.oids.map(o => v.text(o, 'persona', { max: 100, required: true })))];
+    const listed = [...(Array.isArray(b.oids) ? b.oids : []), ...(Array.isArray(b.emails) ? b.emails : [])];
+    if (!listed.length || listed.length > 50) throw new HttpError(400, 'Scegli almeno una persona');
     const [token, me] = await Promise.all([auth.graphToken(req.user.id), meOid(req.user.id)]);
+    const fromEmails = await Promise.all((Array.isArray(b.emails) ? b.emails : [])
+      .map(e => oidByEmail(token, v.text(e, 'email', { max: 300, required: true }).toLowerCase())));
+    const oids = [...new Set([...(Array.isArray(b.oids) ? b.oids : []).map(o => v.text(o, 'persona', { max: 100, required: true })), ...fromEmails])];
     const others = oids.filter(o => o !== me);
     if (!others.length) throw new HttpError(400, 'Scegli almeno un collega');
     const member = oid => ({

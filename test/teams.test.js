@@ -15,7 +15,7 @@ function fakeGraph(url, opts = {}) {
   const body = opts.body ? JSON.parse(opts.body) : undefined;
   graphCalls.push({ method: opts.method || 'GET', path: u.pathname, body });
   const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
-  const p = u.pathname.replace('/v1.0', '');
+  const p = decodeURIComponent(u.pathname.replace('/v1.0', ''));
   if (p === '/me/chats' && (opts.method || 'GET') === 'GET') {
     return json({ value: [
       { id: 'c1', chatType: 'oneOnOne', topic: null, webUrl: 'https://teams/c1', lastUpdatedDateTime: '2026-10-07T10:00:00Z',
@@ -32,6 +32,10 @@ function fakeGraph(url, opts = {}) {
     return json({ id: 'm9', createdDateTime: '2026-10-07T11:00:00Z', messageType: 'message', from: { user: { id: 'me-oid', displayName: 'Dante' } }, body: { content: body.body.content } }, 201);
   }
   if (p === '/chats' && opts.method === 'POST') return json({ id: 'new-chat' }, 201);
+  if (p === '/users/giulia@almacis.it') return json({ id: 'g-oid' });
+  if (p.startsWith('/users/')) return json({ error: { message: 'non trovato' } }, 404);
+  if (p === '/users' && u.searchParams.get('$filter') === "mail eq 'marco@almacis.it'") return json({ value: [{ id: 'm-oid' }] });
+  if (p === '/users') return json({ value: [] });
   if (p === '/me/sendMail') return new Response(null, { status: 202 });
   return json({ error: { message: `non simulato: ${p}` } }, 404);
 }
@@ -100,6 +104,13 @@ test('chat Teams: elenco con non letti, invio, nuova chat 1:1 e di gruppo; email
     assert.equal(graphCalls.at(-1).body.chatType, 'group');
     assert.equal(graphCalls.at(-1).body.topic, 'Cantiere');
     assert.equal((await api('POST', '/api/teams/chats', { oids: ['me-oid'] })).status, 400);
+
+    // dalle email: UPN diretto, poi ricerca per indirizzo di posta; chi non è nel tenant → 404
+    await api('POST', '/api/teams/chats', { emails: ['Giulia@almacis.it'] });
+    assert.equal(graphCalls.at(-1).body.members[1]['user@odata.bind'], "https://graph.microsoft.com/v1.0/users('g-oid')");
+    await api('POST', '/api/teams/chats', { emails: ['giulia@almacis.it', 'marco@almacis.it'] });
+    assert.equal(graphCalls.at(-1).body.chatType, 'group');
+    assert.equal((await api('POST', '/api/teams/chats', { emails: ['esterno@gmail.com'] })).status, 404);
 
     assert.equal((await api('POST', '/api/mail/send', { to: [], subject: 'x' })).status, 400);
     assert.equal((await api('POST', '/api/mail/send', { to: ['non-email'], subject: 'x' })).status, 400);

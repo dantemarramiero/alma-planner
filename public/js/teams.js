@@ -205,14 +205,20 @@ export async function openChatWith(oids, topic) {
   location.hash = chatHash(id);
 }
 
-// Come openChatWith, partendo dalle email (le persone dell'app non hanno l'id Microsoft a portata di mano).
-export async function openChatWithEmails(emails) {
-  const people = await orgPeople().catch(() => []);
-  const wanted = new Set(emails.map(e => e.toLowerCase()));
-  const oids = people.filter(p => wanted.has(p.email.toLowerCase())).map(p => p.oid);
-  if (!oids.length) return toast('Queste persone non sono nell\'organigramma: aggiornalo da Microsoft nella pagina Organigramma', 'err');
-  if (oids.length < wanted.size) toast('Alcune persone non sono nell\'organigramma e non sono state aggiunte alla chat');
-  await openChatWith(oids);
+// Come openChatWith, partendo dalle email: il server trova i colleghi su Microsoft 365 (serve solo che siano nel tenant).
+export async function openChatWithEmails(emails, topic) {
+  if (!store.me.microsoft) return toast('Microsoft 365 non è collegato', 'err');
+  const { id } = await post('/api/teams/chats', { emails, topic });
+  location.hash = chatHash(id);
+}
+
+// Pulsante «Messaggio» per una persona: apre la sua chat Teams dentro Alma Planner.
+export function messageButton(person, { className = 'btn.btn-primary', label = 'Messaggio' } = {}) {
+  return h(`button.${className}`, { type: 'button', title: `Scrivi a ${person.name} (chat di Teams)`, on: { click: e => {
+    e.preventDefault();
+    e.stopPropagation();
+    openChatWithEmails([person.email]);
+  } } }, label);
 }
 
 export async function newChat() {
