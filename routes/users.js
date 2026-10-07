@@ -1,15 +1,53 @@
 // Persone del team: chi ha già fatto accesso, più i colleghi aggiunti dalla rubrica Microsoft.
+// Ognuno ha un profilo dell'intranet: foto, presentazione e i suoi post.
 const { HttpError, v } = require('../lib/http');
 const { graph } = require('../lib/graph');
+const { checkOwnMedia } = require('../lib/media');
 
-function registerUsers(app, { db, auth }) {
-  app.get('/api/me', (req, res) => {
-    res.json({ ...req.user, microsoft: auth.msConfigured });
+// handle = parte dell'email prima della chiocciola, usata per le @menzioni.
+const USER_COLS = "u.id, u.email, u.name, u.job_title, split_part(u.email, '@', 1) AS handle, u.avatar_id, u.bio, u.last_login IS NOT NULL AS active";
+
+function registerUsers(app, { db, auth, isAdmin }) {
+  const getUser = async id => (await db.query(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [id])).rows[0];
+
+  app.get('/api/me', async (req, res) => {
+    res.json({ ...(await getUser(req.user.id)), microsoft: auth.msConfigured, is_admin: isAdmin(req) });
+  });
+
+  app.patch('/api/me', async (req, res) => {
+    const b = req.body || {};
+    const bio = v.text(b.bio, 'presentazione', { max: 300 });
+    const avatarId = v.int(b.avatar_id, 'foto', { min: 1, nullable: true });
+    if (avatarId) await checkOwnMedia(db, [avatarId], req.user.id);
+    if (bio !== undefined) await db.query('UPDATE users SET bio = $2 WHERE id = $1', [req.user.id, bio]);
+    if (avatarId !== undefined) await db.query('UPDATE users SET avatar_id = $2 WHERE id = $1', [req.user.id, avatarId]);
+    res.json({ ...(await getUser(req.user.id)), microsoft: auth.msConfigured, is_admin: isAdmin(req) });
   });
 
   app.get('/api/users', async (_req, res) => {
-    const { rows } = await db.query('SELECT id, email, name, job_title, last_login IS NOT NULL AS active FROM users ORDER BY name');
+    const { rows } = await db.query(`SELECT ${USER_COLS} FROM users u ORDER BY u.name`);
     res.json(rows);
+  });
+
+  // Profilo: dati della persona, numeri e griglia dei post.
+  app.get('/api/profiles/:id', async (req, res) => {
+    const id = v.int(req.params.id, 'persona', { min: 1 });
+    const { rows } = await db.query(
+      `SELECT ${USER_COLS},
+              (SELECT COUNT(*)::int FROM posts p WHERE p.author_id = u.id) AS post_count,
+              (SELECT COUNT(*)::int FROM post_likes l JOIN posts p ON p.id = l.post_id WHERE p.author_id = u.id) AS likes_received,
+              (SELECT COUNT(*)::int FROM ticket_assignees a JOIN tickets t ON t.id = a.ticket_id WHERE a.user_id = u.id AND t.status <> 'done') AS open_tickets
+         FROM users u WHERE u.id = $1`, [id]);
+    if (!rows[0]) throw new HttpError(404, 'Persona non trovata');
+    const posts = await db.query(
+      `SELECT p.id, left(p.body, 200) AS body, p.pinned_at,
+              (SELECT json_build_object('id', m.id, 'w', m.width, 'h', m.height) FROM post_media pm JOIN media m ON m.id = pm.media_id
+                WHERE pm.post_id = p.id ORDER BY pm.position LIMIT 1) AS cover,
+              (SELECT COUNT(*)::int FROM post_media pm WHERE pm.post_id = p.id) AS media_count,
+              (SELECT COUNT(*)::int FROM post_likes l WHERE l.post_id = p.id) AS like_count,
+              (SELECT COUNT(*)::int FROM post_comments c WHERE c.post_id = p.id) AS comment_count
+         FROM posts p WHERE p.author_id = $1 ORDER BY p.id DESC LIMIT 90`, [id]);
+    res.json({ ...rows[0], posts: posts.rows });
   });
 
   // Cerca nella rubrica del tenant (per assegnare ticket a chi non è ancora entrato).

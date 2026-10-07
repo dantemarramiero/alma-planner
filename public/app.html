@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/vendor/frappe-gantt/frappe-gantt.css">
   <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/intranet.css">
   <script src="/vendor/frappe-gantt/frappe-gantt.umd.js"></script>
   <script src="/vendor/fullcalendar/index.global.min.js"></script>
   <script src="/vendor/fullcalendar-locales/it.global.min.js"></script>
@@ -20,7 +21,14 @@
     <aside class="sidebar">
       <a class="brand" href="#/"><span class="brand-mark">a</span><span>Alma Planner</span></a>
       <nav class="nav">
-        <a href="#/" data-nav="mine"><span class="nav-ico">◎</span>I miei ticket</a>
+        <span class="nav-label">Intranet</span>
+        <a href="#/" data-nav="home"><span class="nav-ico">⌂</span>Home</a>
+        <a href="#/direct" data-nav="direct"><span class="nav-ico">✉</span>Messaggi<span class="nav-badge" data-badge="direct" hidden></span></a>
+        <a href="#/notifications" data-nav="notifications"><span class="nav-ico">♡</span>Notifiche<span class="nav-badge" data-badge="notifications" hidden></span></a>
+        <a href="#/" data-nav="me"><span class="nav-ico">◉</span>Profilo</a>
+        <button class="nav-create" id="create" type="button"><span class="nav-ico">＋</span>Crea un post</button>
+        <span class="nav-label">Planner</span>
+        <a href="#/mine" data-nav="mine"><span class="nav-ico">◎</span>I miei ticket</a>
         <a href="#/tickets" data-nav="tickets"><span class="nav-ico">☰</span>Tutti i ticket</a>
         <a href="#/projects" data-nav="projects"><span class="nav-ico">▣</span>Progetti</a>
         <a href="#/gantt" data-nav="gantt"><span class="nav-ico">▤</span>Gantt</a>

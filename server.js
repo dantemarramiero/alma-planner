@@ -10,6 +10,14 @@ const { registerTickets } = require('./routes/tickets');
 const { registerCalendar } = require('./routes/calendar');
 const { registerDrive } = require('./routes/drive');
 const { registerProjectFiles } = require('./routes/project-files');
+const { registerMedia } = require('./routes/media');
+const { registerFeed } = require('./routes/feed');
+const { registerStories } = require('./routes/stories');
+const { registerDirect } = require('./routes/direct');
+const { registerNotifications } = require('./routes/notifications');
+const { createLive } = require('./lib/live');
+const { createNotifier } = require('./lib/notifier');
+const { importMicrosoftPhoto, purgeMedia } = require('./lib/media');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -28,6 +36,8 @@ function readConfig(env = process.env) {
     clientId: env.MS_CLIENT_ID?.trim(),
     clientSecret: env.MS_CLIENT_SECRET?.trim(),
     devLogin: !production && env.DEV_LOGIN === '1',
+    // Amministratori dell'intranet (post in evidenza, moderazione): email separate da virgole.
+    adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
   };
 }
 
@@ -59,7 +69,12 @@ async function createApp(config, { db } = {}) {
     next();
   });
 
-  const auth = createAuth({ db, config });
+  const auth = createAuth({
+    db,
+    config,
+    onLogin: (userId, accessToken) => importMicrosoftPhoto(db, userId, accessToken)
+      .catch(err => console.warn(`[foto] utente ${userId}: foto Microsoft non importata (${err.message})`)),
+  });
   app.use((req, res, next) => auth.loadUser(req, res, next));
 
   app.get('/healthz', async (_req, res) => {
@@ -88,13 +103,21 @@ async function createApp(config, { db } = {}) {
   });
   app.use('/api', express.json({ limit: '1mb' }));
 
-  const deps = { db, auth, baseUrl: config.baseUrl };
+  const live = createLive();
+  const isAdmin = req => config.adminEmails.includes(req.user.email);
+  const deps = { db, auth, baseUrl: config.baseUrl, live, isAdmin, notifier: createNotifier({ db, live }) };
+  live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);
   registerTickets(app, deps);
   registerCalendar(app, deps);
   registerDrive(app, deps);
   registerProjectFiles(app, deps);
+  registerMedia(app, deps);
+  registerFeed(app, deps);
+  registerStories(app, deps);
+  registerDirect(app, deps);
+  registerNotifications(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
 
@@ -106,14 +129,15 @@ async function createApp(config, { db } = {}) {
     res.status(status).send(message);
   });
 
-  return { app, db, auth };
+  return { app, db, auth, live };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, auth } = await createApp(config);
+    const { app, db, auth } = await createApp(config);
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
+    setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Planner su ${config.baseUrl} (porta ${config.port})`);
       if (!auth.msConfigured) {

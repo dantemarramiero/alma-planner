@@ -35,6 +35,8 @@ function append(el, children) {
 }
 
 export const clear = el => { el.replaceChildren(); return el; };
+// Svuota e riempie, accettando come h() liste annidate e valori vuoti (null/false) che vengono saltati.
+export const fill = (el, ...children) => { el.replaceChildren(); append(el, children); return el; };
 
 // ── avvisi ──────────────────────────────────────────────────────────────────
 export function toast(message, kind = 'ok') {
@@ -136,6 +138,17 @@ export const PRIORITY = { low: 'Bassa', normal: 'Normale', high: 'Alta', urgent:
 export const PROJECT_STATUS = { active: 'Attivo', paused: 'In pausa', done: 'Concluso', archived: 'Archiviato' };
 export const PROJECT_COLORS = ['#E85A0A', '#0057B8', '#1B7A45', '#8A1538', '#4A3082', '#009260', '#B84207', '#5B6770', '#C2185B', '#00838F'];
 
+// «ora», «5 min», «3 h», «2 g», poi la data.
+export function timeAgo(iso) {
+  if (!iso) return '';
+  const sec = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (sec < 60) return 'ora';
+  if (sec < 3600) return `${Math.floor(sec / 60)} min`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} h`;
+  if (sec < 7 * 86400) return `${Math.floor(sec / 86400)} g`;
+  return fmtDate(new Date(iso).toISOString());
+}
+
 export const statusPill = s => h('span.pill', { class: `st-${s}` }, h('span.dot'), STATUS[s]);
 
 // ── avatar ──────────────────────────────────────────────────────────────────
@@ -144,11 +157,13 @@ export function initials(name = '?') {
   const parts = name.replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/);
   return ((parts[0]?.[0] || '?') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
+// Con la foto del profilo (avatar_id) mostra l'immagine, altrimenti le iniziali su un colore fisso per persona.
 export function avatar(user, size) {
   if (!user) return null;
   let hash = 0;
   for (const c of user.email || user.name || '') hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-  const el = h('span.avatar', { title: user.name, style: { background: AV_COLORS[hash % AV_COLORS.length] } }, initials(user.name));
+  const el = h('span.avatar', { title: user.name, style: { background: AV_COLORS[hash % AV_COLORS.length] } },
+    user.avatar_id ? h('img', { src: `/api/media/${user.avatar_id}`, alt: '', loading: 'lazy' }) : initials(user.name));
   if (size) Object.assign(el.style, { width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.4)}px` });
   return el;
 }

@@ -14,5 +14,7 @@ export async function loadProjects() {
 }
 
 export const userById = id => store.users.find(u => u.id === id);
+export const userByHandle = handle => store.users.find(u => u.handle === String(handle).toLowerCase());
+export const firstName = u => (u?.name || '').split(/\s+/)[0];
 export const projectById = id => store.projects.find(p => p.id === id);
 export const activeProjects = () => store.projects.filter(p => p.status !== 'archived');
