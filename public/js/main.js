@@ -33,6 +33,7 @@ async function route() {
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home' : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-chat', section === 'chat');
+  document.title = section === 'direct' ? 'Chat · Alma Planner' : 'Alma Planner';
   cleanup?.();
   cleanup = null;
   clear(view).append(loading());
@@ -49,7 +50,7 @@ async function route() {
       await profileView(view, Number(parts[1]));
       break;
     case 'direct': {
-      // Messaggi = chat di Microsoft Teams (public/js/teams.js, a cura della sessione Teams).
+      // Chat = chat di Microsoft Teams (public/js/teams.js, a cura della sessione Teams).
       const teams = await import('./teams.js').catch(() => null);
       if (teams) cleanup = (await teams.teamsView(view, params)) || null;
       else {

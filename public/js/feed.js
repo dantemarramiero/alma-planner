@@ -7,6 +7,7 @@ import { mediaUrl, pickImages, uploadImage } from './media.js';
 import { icon, richText, withMentions, popMenu, ringAvatar, userLink } from './social.js';
 import { storiesBar, loadStories, openStories } from './stories.js';
 import { onLive } from './live.js';
+import { messageButton } from './teams.js';
 
 const MAX_PHOTOS = 10;
 const CAPTION_CUT = 220;
@@ -419,8 +420,6 @@ export function copyPostLink(p) {
   navigator.clipboard.writeText(url).then(() => toast('Link copiato: incollalo in Teams o in una email'), () => toast(url));
 }
 
-// Chat di Teams con un collega (si apre nell'app Teams o nel browser).
-export const teamsChatUrl = u => `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(u.email)}`;
 
 // ── colonna a lato ──────────────────────────────────────────────────────────
 function sideColumn() {
@@ -438,7 +437,7 @@ function sideColumn() {
   people.append(...colleagues.slice(0, 8).map(u => h('div.side-person',
     h('a', { href: `#/u/${u.id}` }, avatar(u, 34)),
     h('div.grow', h('a.user-link.strong', { href: `#/u/${u.id}` }, u.name), h('small', u.job_title || `@${u.handle}`)),
-    h('a.link-btn.strong.accent', { href: teamsChatUrl(u), target: '_blank', rel: 'noopener', title: `Chatta con ${u.name} su Teams` }, 'Messaggio'))));
+    messageButton(u, { className: 'link-btn.strong.accent' }))));
   if (!colleagues.length) people.append(h('div.muted.small', 'I colleghi compaiono qui dopo il loro primo accesso.'));
 
   return h('aside.home-side',
