@@ -2,7 +2,7 @@
 import { h, clear, modal, toast, avatar, loading, fmtDateTime, debounce } from './ui.js';
 import { get, post } from './api.js';
 import { store } from './store.js';
-import { openChatWith, openMailComposer } from './teams.js';
+import { openChatWith, openMailComposer, loadPresence, presenceDot, presenceLabel } from './teams.js';
 
 const VIEW_KEY = 'alma.orgView';
 const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'tree'; } catch { return 'tree'; } };
@@ -155,7 +155,8 @@ export async function orgView(container) {
       p.open_tickets ? h('span.pill.st-doing', { title: 'Ticket aperti assegnati' }, String(p.open_tickets)) : null);
   }
 
-  function openPerson(p) {
+  async function openPerson(p) {
+    await loadPresence([p.oid]); // pallino di Teams (dal server, tenuto 60 s)
     const people = byOid();
     const reports = reportsOf().get(p.oid) || [];
     const manager = people.get(p.manager_oid);
@@ -163,7 +164,7 @@ export async function orgView(container) {
     for (let m = manager; m && chain.length < 10; m = people.get(m.manager_oid)) chain.unshift(m);
     const link = x => h('a', { href: '#', on: { click: e => { e.preventDefault(); md.close(); openPerson(x); } } }, x.name);
     const md = modal({
-      title: h('span.row', avatar(p, 32), p.name),
+      title: h('span.row', h('span.tm-av', avatar(p, 32), presenceDot(p.oid)), p.name, presenceLabel(p.oid) ? h('span.muted.small', presenceLabel(p.oid)) : null),
       body: [
         h('div', h('strong', p.job_title || 'Ruolo non indicato'), p.department ? ` · ${p.department}` : '', p.office ? ` · ${p.office}` : ''),
         p.email ? h('div.row', h('span.muted', p.email),

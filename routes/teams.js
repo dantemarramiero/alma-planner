@@ -85,6 +85,30 @@ function registerTeams(app, { db, auth, tenantId, live }) {
   }
   const forget = userId => chatCache.delete(userId);
 
+  // Presenza di Teams (Available, Busy, Away, DoNotDisturb, Offline…) per un gruppo di persone, per id Microsoft.
+  // Tenuta 60 s per persona: tutti gli utenti dell'app vedono gli stessi stati e Graph si interroga poco.
+  const PRESENCE_TTL = 60000;
+  const presenceCache = new Map(); // oid → { at, availability, activity }
+  app.get('/api/teams/presence', async (req, res) => {
+    const oids = [...new Set(String(req.query.oids || '').split(',').map(s => s.trim()).filter(s => /^[0-9a-f-]{36}$/i.test(s)))].slice(0, 200);
+    if (!oids.length || !auth.msConfigured) return res.json({});
+    const now = Date.now();
+    const missing = oids.filter(o => !(presenceCache.get(o)?.at > now - PRESENCE_TTL));
+    if (missing.length) {
+      try {
+        const token = await auth.graphToken(req.user.id);
+        for (let i = 0; i < missing.length; i += 650) { // limite di Graph per chiamata
+          const r = await graph(token, 'POST', '/communications/getPresencesByUserId', { body: { ids: missing.slice(i, i + 650) } });
+          for (const p of r.value || []) presenceCache.set(p.id, { at: now, availability: p.availability, activity: p.activity });
+        }
+      } catch (err) {
+        if (err.code === 'reauth') throw err;
+        // senza presenza la chat funziona lo stesso: si restituisce quello che c'è
+      }
+    }
+    res.json(Object.fromEntries(oids.filter(o => presenceCache.has(o)).map(o => [o, presenceCache.get(o).availability])));
+  });
+
   // Elenco delle chat, le più recenti in alto.
   app.get('/api/teams/chats', async (req, res) => {
     if (req.query.fresh === '1') forget(req.user.id);

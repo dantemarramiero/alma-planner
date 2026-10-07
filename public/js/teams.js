@@ -15,10 +15,34 @@ export function chatTitle(c) {
   if (!o.length) return 'Solo tu';
   return c.type === 'oneOnOne' ? o[0].name : o.map(m => (m.name || '').split(' ')[0]).join(', ');
 }
-// Persona: avatar tondo. Gruppo: riquadro con le iniziali del nome. Riunione: riquadro con il calendario.
+// ── presenza di Teams (pallino) ──────────────────────────────────────────────
+const presence = new Map(); // oid → availability di Teams
+const PRESENCE_LABEL = {
+  Available: 'Disponibile', AvailableIdle: 'Disponibile', Busy: 'Occupato', BusyIdle: 'Occupato',
+  DoNotDisturb: 'Non disturbare', BeRightBack: 'Torno subito', Away: 'Assente', Offline: 'Offline',
+};
+const presenceClass = a => ({ Available: 'on', AvailableIdle: 'on', Busy: 'busy', BusyIdle: 'busy', DoNotDisturb: 'dnd', BeRightBack: 'away', Away: 'away' })[a] || 'off';
+export const presenceLabel = oid => PRESENCE_LABEL[presence.get(oid)] || '';
+
+// Chiede la presenza di queste persone (il server la tiene 60 s); ritorna quando è arrivata.
+export async function loadPresence(oids) {
+  const want = [...new Set(oids.filter(Boolean))];
+  if (!want.length || !store.me.microsoft) return;
+  try {
+    const r = await get(`/api/teams/presence?oids=${want.join(',')}`, { quiet: true });
+    for (const [oid, a] of Object.entries(r)) presence.set(oid, a);
+  } catch { /* senza presenza si va avanti */ }
+}
+export function presenceDot(oid) {
+  const a = presence.get(oid);
+  if (!a || a === 'PresenceUnknown') return null;
+  return h('i.tm-dot', { class: presenceClass(a), title: PRESENCE_LABEL[a] || a });
+}
+
+// Persona: avatar tondo (con il pallino). Gruppo: riquadro con le iniziali del nome. Riunione: riquadro con il calendario.
 const isPerson = c => c.type === 'oneOnOne';
 function chatAvatar(c, size = 44) {
-  if (isPerson(c)) return h('span.tm-av', avatar(others(c)[0] || { name: chatTitle(c) }, size));
+  if (isPerson(c)) return h('span.tm-av', avatar(others(c)[0] || { name: chatTitle(c) }, size), presenceDot(others(c)[0]?.oid));
   const box = h('span.tm-av.tm-box', { class: c.type === 'meeting' ? 'meeting' : 'group', style: { width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.36)}px` } });
   if (c.type === 'meeting') box.textContent = '📅';
   else box.textContent = chatTitle(c).split(/[\s,]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '#';
@@ -91,6 +115,9 @@ export function teamsView(view) {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(chats)); } catch { /* niente */ }
     if (stopped) return;
     drawList();
+    // pallini di presenza delle persone con cui si ha una chat 1:1 (arrivano dopo, non rallentano l'elenco)
+    await loadPresence(chats.filter(isPerson).map(c => others(c)[0]?.oid));
+    if (!stopped) drawList();
   }
 
   function drawList() {
@@ -132,7 +159,7 @@ export function teamsView(view) {
     }
     fill(head, h('a.btn.btn-ghost.btn-sm.tm-back', { href: '#/direct' }, '‹'), chatAvatar(current, 36),
       h('div.grow', h('strong', chatTitle(current)), isPerson(current)
-        ? h('div.muted.small', others(current)[0]?.email || '')
+        ? h('div.muted.small', [presenceLabel(others(current)[0]?.oid), others(current)[0]?.email].filter(Boolean).join(' · '))
         : h('button.tm-members', { type: 'button', title: 'Vedi chi c\'è nel gruppo', on: { click: () => showMembers(current) } }, chatKind(current))),
       current.webUrl ? h('a.btn.btn-sm', { href: current.webUrl, target: '_blank', rel: 'noopener' }, 'Apri in Teams') : null,
       others(current).some(m => m.email) ? h('button.btn.btn-sm', { type: 'button', on: { click: () => openMailComposer({ to: others(current).map(m => m.email).filter(Boolean) }) } }, '✉ Email') : null);
@@ -225,7 +252,7 @@ function showMembers(c) {
   const members = [...c.members].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it'));
   const md = modal({
     title: `${chatTitle(c)} · ${members.length} persone`,
-    body: members.map(m => h('div.picker-item', avatar(m), h('div.grow', m.name || m.email, h('small', m.email || '')),
+    body: members.map(m => h('div.picker-item', h('span.tm-av', avatar(m), presenceDot(m.oid)), h('div.grow', m.name || m.email, h('small', [presenceLabel(m.oid), m.email].filter(Boolean).join(' · '))),
       m.email && m.email.toLowerCase() !== store.me.email.toLowerCase()
         ? h('button.btn.btn-sm', { type: 'button', on: { click: () => { md.close(); openChatWithEmails([m.email]); } } }, 'Chat')
         : h('span.muted.small', 'tu'))),

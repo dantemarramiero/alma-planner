@@ -37,6 +37,7 @@ function fakeGraph(url, opts = {}) {
   if (p === '/users' && u.searchParams.get('$filter') === "mail eq 'marco@almacis.it'") return json({ value: [{ id: 'm-oid' }] });
   if (p === '/users') return json({ value: [] });
   if (p === '/me/sendMail') return new Response(null, { status: 202 });
+  if (p === '/communications/getPresencesByUserId') return json({ value: body.ids.map(id => ({ id, availability: id.startsWith('aaaaaaaa') ? 'Available' : 'Busy', activity: 'x' })) });
   return json({ error: { message: `non simulato: ${p}` } }, 404);
 }
 
@@ -116,6 +117,13 @@ test('chat Teams: elenco con non letti, invio, nuova chat 1:1 e di gruppo; email
     await api('POST', '/api/teams/chats', { emails: ['giulia@almacis.it', 'marco@almacis.it'] });
     assert.equal(graphCalls.at(-1).body.chatType, 'group');
     assert.equal((await api('POST', '/api/teams/chats', { emails: ['esterno@gmail.com'] })).status, 404);
+
+    // presenza: id non validi scartati, risposta dalla memoria la seconda volta
+    const a = 'aaaaaaaa-0000-0000-0000-000000000001', b = 'bbbbbbbb-0000-0000-0000-000000000002';
+    assert.deepEqual((await api('GET', `/api/teams/presence?oids=${a},${b},non-valido`)).body, { [a]: 'Available', [b]: 'Busy' });
+    const presCalls = graphCalls.filter(c => c.path.endsWith('getPresencesByUserId')).length;
+    await api('GET', `/api/teams/presence?oids=${a}`);
+    assert.equal(graphCalls.filter(c => c.path.endsWith('getPresencesByUserId')).length, presCalls);
 
     assert.equal((await api('POST', '/api/mail/send', { to: [], subject: 'x' })).status, 400);
     assert.equal((await api('POST', '/api/mail/send', { to: ['non-email'], subject: 'x' })).status, 400);

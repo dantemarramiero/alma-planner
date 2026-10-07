@@ -58,3 +58,9 @@ textarea.input.tm-input { min-height: 0; }
 .tm-filter { margin: 0 16px 8px; align-self: flex-start; }
 .tm-members { border: 0; background: transparent; padding: 0; color: var(--blue, #0057B8); font-size: 12px; cursor: pointer; }
 .tm-members:hover { text-decoration: underline; }
+/* pallino di presenza di Teams */
+.tm-av { position: relative; }
+.tm-dot { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--card, #fff); background: #b7b2ab; }
+.tm-dot.on { background: #2BB673; }
+.tm-dot.busy, .tm-dot.dnd { background: #D13438; }
+.tm-dot.away { background: #F5B400; }
