@@ -1,0 +1,26 @@
+{
+  "name": "alma-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alma Planner — gestione del team interno Almacis: progetti, ticket, Gantt, calendario Outlook e OneDrive",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@azure/msal-node": "^7.0.1",
+    "@fullcalendar/core": "^6.1.21",
+    "express": "^5.2.1",
+    "frappe-gantt": "^1.2.2",
+    "fullcalendar": "^6.1.21",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}
