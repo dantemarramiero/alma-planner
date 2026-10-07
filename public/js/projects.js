@@ -1,9 +1,12 @@
-// Progetti: griglia, scheda del progetto (Gantt, ticket, documenti, cartella OneDrive), creazione e modifica.
+// Progetti: griglia, scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Cartella OneDrive, Membri), creazione e modifica.
+// Ognuno vede solo i progetti di cui è responsabile o membro (lib/access.js lato server).
 // Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
 import { h, clear, fill, modal, confirmDialog, toast, fmtDate, avatar, loading, today, isMobile, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
 import { get, post, patch, del } from './api.js';
 import { store, loadProjects, projectById, userById } from './store.js';
 import { ticketsView, openTicket } from './tickets.js';
+import { peoplePicker, avatarsFor } from './people.js';
+import { openChatWithEmails } from './teams.js';
 import { driveBrowser, pickDriveItem } from './drive.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
@@ -23,7 +26,7 @@ export async function projectsView(container) {
   const grid = h('div.proj-grid');
   const archivedToggle = h('label.check', h('input', { type: 'checkbox', on: { change: e => { showArchived = e.target.checked; draw(); } } }), 'Mostra archiviati');
   clear(container).append(
-    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'Ogni progetto raccoglie il suo Gantt, i ticket e i documenti.')),
+    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'I progetti di cui sei responsabile o membro: ognuno raccoglie Gantt, ticket, documenti e persone.')),
       h('div.row', archivedToggle, h('button.btn.btn-primary', { type: 'button', on: { click: () => editProject(null, async p => { location.hash = `#/projects/${p.id}`; }) } }, '+ Nuovo progetto'))),
     grid);
 
@@ -38,72 +41,190 @@ export async function projectsView(container) {
         p.description ? h('p', p.description) : null,
         h('div', h('div.spread.small.muted', { style: { marginBottom: '5px' } }, h('span', `${p.done_count}/${p.ticket_count} ticket fatti`), h('span', `${pct(p)}%`)),
           h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
-        h('div.spread.small.muted', h('span', dates(p)), owner ? h('span.row', avatar(owner, 22), owner.name) : null)));
+        h('div.spread.small.muted', h('span', dates(p)), owner ? h('span.row', avatar(owner, 22), owner.name, p.member_count ? ` +${p.member_count}` : '') : null),
+        p.my_role === 'member' ? h('span.pill.pj-member', 'Sei membro') : null));
     }
   }
   draw();
 }
 
+// ── scheda del progetto: intestazione, fatti, tab laterali (come la scheda opportunità di BOSS) ──────────
+const TABS = [
+  ['panoramica', 'Panoramica'],
+  ['gantt', 'Gantt'],
+  ['ticket', 'Ticket'],
+  ['documenti', 'Documenti'],
+  ['cartella', 'Cartella OneDrive'],
+  ['membri', 'Membri'],
+];
+const canManage = p => p.my_role === 'owner' || p.my_role === 'admin';
+
 export async function projectDetail(container, id) {
   clear(container).append(loading());
   await loadProjects();
   const p = projectById(id);
-  if (!p) return clear(container).append(h('div.card.empty', 'Progetto non trovato. ', h('a', { href: '#/projects' }, 'Torna ai progetti')));
+  if (!p) return clear(container).append(h('div.card.empty', 'Progetto non trovato, oppure non sei tra i suoi membri. ', h('a', { href: '#/projects' }, 'Torna ai progetti')));
   const owner = userById(p.owner_id);
+  const tabFromHash = () => {
+    const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2];
+    return TABS.some(([k]) => k === t) ? t : 'panoramica';
+  };
+  let tab = tabFromHash();
+  let cleanupTab = null;
 
-  const ticketsBox = h('div');
-  const ganttBox = h('div');
-  const docsBox = h('div');
-  const driveBox = h('div');
+  // intestazione
+  const open = p.ticket_count - p.done_count;
+  const head = h('header.pj-head', { style: { '--c': p.color } },
+    h('div.pj-top', h('a.pj-crumb', { href: '#/projects' }, '← Progetti'), h('span.pj-crumb-sep', '›'), h('span.pj-crumb-cur', p.name)),
+    h('div.pj-row',
+      h('div.pj-title',
+        h('h1', h('span.pj-swatch'), p.name),
+        h('div.pj-meta',
+          h('span.pill', { class: `pj-st-${p.status}` }, h('span.dot'), PROJECT_STATUS[p.status]),
+          h('span', [owner ? `Responsabile ${owner.name}` : 'Senza responsabile', `${p.member_count + 1} ${p.member_count ? 'persone' : 'persona'}`,
+            p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  ')))),
+      h('div.pj-actions',
+        h('button.btn', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, '＋ Ticket'),
+        canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica') : null)),
+    h('div.pj-facts',
+      fact('Stato', PROJECT_STATUS[p.status]),
+      fact('Durata', dates(p)),
+      fact('Avanzamento', `${pct(p)} %`, h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
+      fact('Ticket aperti', `${open} di ${p.ticket_count}`),
+      fact('Responsabile', owner ? h('span.row', avatar(owner, 22), owner.name) : h('span.muted', 'Non assegnato'))));
 
-  clear(container).append(
-    h('div.page-head',
-      h('div', h('div.small', h('a', { href: '#/projects', class: 'muted' }, '← Progetti')),
-        h('h1.row', h('span', { style: { width: '14px', height: '14px', borderRadius: '4px', background: p.color, display: 'inline-block' } }), p.name),
-        h('div.sub', [PROJECT_STATUS[p.status], dates(p), owner ? `Responsabile: ${owner.name}` : null].filter(Boolean).join(' · '))),
-      h('div.row',
-        h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica'))),
-    p.description ? h('p', { style: { marginTop: 0, color: 'var(--mid)', whiteSpace: 'pre-wrap', maxWidth: '760px' } }, p.description) : '', // append() scriverebbe «null»
-    h('div.card', { style: { padding: '12px 14px', maxWidth: '520px', '--c': p.color } },
-      h('div.spread.small.muted', { style: { marginBottom: '6px' } }, h('span', `${p.done_count} di ${p.ticket_count} ticket fatti`), h('span', `${pct(p)}%`)),
-      h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
-    h('div.section', h('div.spread', h('h2', isMobile() ? 'Attività' : 'Gantt')), ganttBox),
-    h('div.section', h('div.spread', h('h2', 'Ticket')), ticketsBox),
-    h('div.section', h('div.spread', h('h2', 'Documenti')), docsBox),
-    h('div.section', h('div.spread', h('h2', 'Cartella OneDrive'),
-      store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null),
-    driveBox));
+  // tab laterali (sul telefono diventano una barra scorrevole in alto)
+  const nav = h('nav.pj-nav', TABS.map(([k, label]) => h('button.pj-tab', {
+    type: 'button', 'data-k': k, class: k === tab ? 'on' : '',
+    on: { click: () => show(k) },
+  }, k === 'gantt' && isMobile() ? 'Attività' : label, counter(k))));
+  const content = h('div.pj-content');
+  clear(container).append(h('div.pj', head, h('div.pj-body', nav, content)));
+  show(tab);
 
-  // Gantt, bacheca e documenti si tengono allineati: un cambio in uno ricarica gli altri.
-  let board = null;
-  const docs = projectDocuments(docsBox, p.id);
-  const onChange = () => { board?.reload(); docs.then(d => d.reload()); };
-  // sul telefono il Gantt non si legge: al suo posto le attività in lista, con una barra ciascuna
-  const gantt = isMobile()
-    ? Promise.resolve(timeline(ganttBox, p, onChange))
-    : ganttView(ganttBox, new URLSearchParams({ project: String(p.id) }), { embedded: true, onChange });
-  let firstLoad = true;
-  board = ticketsView(ticketsBox, { fixed: { project: String(p.id) }, view: 'board', onLoaded: () => {
-    if (!firstLoad) gantt.then(g => g.reload());
-    firstLoad = false;
-  } });
+  function counter(k) {
+    const n = k === 'ticket' ? open : k === 'membri' ? p.member_count + 1 : null;
+    return n ? h('span.pj-count', String(n)) : null;
+  }
+  function fact(label, value, extra) {
+    return h('div.pj-fact', h('span.pj-fact-label', label), h('span.pj-fact-value', value), extra || null);
+  }
 
-  if (!store.me.microsoft) driveBox.append(h('div.card.empty', 'OneDrive non è ancora collegato.'));
-  else if (!p.onedrive_item_id) driveBox.append(h('div.card.empty', 'Nessuna cartella collegata. Collegane una per avere qui i documenti del progetto.'));
-  else {
-    driveBox.append(h('div.small.muted', { style: { marginBottom: '8px' } }, h('a', { href: p.onedrive_url, target: '_blank', rel: 'noopener' }, `Apri «${p.onedrive_name}» in OneDrive ↗`)));
+  // Ogni tab si disegna quando lo si apre, quindi mostra sempre dati aggiornati.
+  function show(k) {
+    tab = k;
+    history.replaceState(null, '', `#/projects/${p.id}/${k}`);
+    nav.querySelectorAll('.pj-tab').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+    cleanupTab?.();
+    cleanupTab = null;
+    const box = h('div.pj-pane');
+    clear(content).append(box);
+    if (k === 'panoramica') overview(box);
+    else if (k === 'gantt') {
+      if (isMobile()) timeline(box, p, () => {});
+      else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
+    } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
+    else if (k === 'documenti') projectDocuments(box, p.id);
+    else if (k === 'cartella') folder(box);
+    else if (k === 'membri') members(box);
+  }
+
+  // ── Panoramica: descrizione, prossime scadenze, persone ──────────────────────
+  async function overview(box) {
+    const desc = h('section.card.pj-card', h('h3', 'Descrizione'),
+      p.description ? h('p.pj-desc', p.description) : h('p.muted', canManage(p) ? 'Nessuna descrizione. Aggiungila con «Modifica».' : 'Nessuna descrizione.'));
+    const due = h('section.card.pj-card', h('div.spread', h('h3', 'Prossime scadenze'), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show('ticket') } }, 'Tutti i ticket →')), loading());
+    const ppl = h('section.card.pj-card', h('div.spread', h('h3', 'Persone'), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show('membri') } }, canManage(p) ? 'Gestisci →' : 'Vedi →')), loading());
+    box.append(h('div.pj-grid', desc, ppl), due);
+
+    const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);
+    const late = t => t.due_date && t.due_date < today();
+    const upcoming = tickets.filter(t => t.due_date).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6);
+    due.lastChild.replaceWith(upcoming.length
+      ? h('div.pj-list', upcoming.map(t => h('button.pj-line', { type: 'button', on: { click: () => openTicket(t.id, { onSaved: () => show('panoramica') }) } },
+        h('span.grow', t.title), avatarsFor(t.assignee_ids, 3), h('span', { class: late(t) ? 'due-late' : 'muted' }, late(t) ? `scaduto ${fmtDate(t.due_date)}` : fmtDate(t.due_date)))))
+      : h('p.muted', 'Nessun ticket aperto con scadenza.'));
+    ppl.lastChild.replaceWith(h('div.pj-people', team.map(m => h('span.pj-person', { title: `${m.name}${m.owner ? ' · responsabile' : ''}` },
+      avatar(m, 30), h('span', h('strong', m.name.split(' ')[0]), h('small', m.owner ? 'Responsabile' : `${m.open_tickets} aperti`))))));
+  }
+
+  // ── Cartella OneDrive del progetto ───────────────────────────────────────────
+  function folder(box) {
+    const head = h('div.spread', h('h3', 'Cartella OneDrive'),
+      store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null);
+    box.append(head);
+    if (!store.me.microsoft) return box.append(h('div.card.empty', 'OneDrive non è ancora collegato.'));
+    if (!p.onedrive_item_id) return box.append(h('div.card.empty', 'Nessuna cartella collegata. Collegane una (meglio se condivisa con il team) per avere qui i documenti del progetto.'));
+    box.append(h('div.small.muted', { style: { margin: '6px 0 10px' } }, h('a', { href: p.onedrive_url, target: '_blank', rel: 'noopener' }, `Apri «${p.onedrive_name}» in OneDrive ↗`)));
     const inner = h('div');
-    driveBox.append(inner);
+    box.append(inner);
     driveBrowser(inner, { root: { driveId: p.onedrive_drive_id, id: p.onedrive_item_id, name: p.onedrive_name }, tabs: false });
   }
 
   async function linkFolder() {
-    const folder = await pickDriveItem({ title: 'Scegli la cartella del progetto', folders: true });
-    if (!folder) return;
-    await patch(`/api/projects/${p.id}`, { onedrive_drive_id: folder.driveId, onedrive_item_id: folder.id, onedrive_name: folder.name, onedrive_url: folder.webUrl || null });
+    const f = await pickDriveItem({ title: 'Scegli la cartella del progetto', folders: true });
+    if (!f) return;
+    await patch(`/api/projects/${p.id}`, { onedrive_drive_id: f.driveId, onedrive_item_id: f.id, onedrive_name: f.name, onedrive_url: f.webUrl || null });
     toast('Cartella collegata');
     projectDetail(container, id);
   }
+
+  // ── Membri: chi vede e lavora al progetto ────────────────────────────────────
+  async function members(box) {
+    const list = h('div.card.table-wrap', loading());
+    box.append(
+      h('div.spread', h('div', h('h3', 'Membri'), h('p.muted.small', { style: { margin: '2px 0 0' } },
+        'Il progetto e i suoi ticket li vedono solo queste persone (e gli amministratori). Chi viene assegnato a un ticket del progetto entra da solo.')),
+      canManage(p) ? h('button.btn.btn-primary', { type: 'button', on: { click: addPeople } }, '＋ Aggiungi persone') : null),
+      list);
+    await draw();
+
+    async function draw() {
+      const team = await get(`/api/projects/${p.id}/members`);
+      fill(list, h('table.list',
+        h('thead', h('tr', h('th', 'Persona'), h('th', 'Ruolo'), h('th', 'Ticket aperti'), h('th', 'Aggiunto'), h('th', ''))),
+        h('tbody', team.map(m => h('tr', { style: { cursor: 'default' } },
+          h('td', h('div.row', avatar(m, 30), h('div', h('div.t-title', m.name), h('div.t-meta', m.job_title || m.email)))),
+          h('td', m.owner ? h('span.pill.st-review', 'Responsabile') : h('span.pill', 'Membro'), !m.active ? h('span.muted.small', ' · non ancora entrato') : null),
+          h('td', String(m.open_tickets)),
+          h('td.muted.small', m.owner ? '—' : [m.added_at ? fmtDate(m.added_at.slice(0, 10)) : null, m.added_by_name ? `da ${m.added_by_name}` : null].filter(Boolean).join(' ')),
+          h('td', h('div.row-actions',
+            m.id !== store.me.id && store.me.microsoft ? h('button.btn.btn-ghost.btn-sm', { type: 'button', title: `Chat con ${m.name}`, on: { click: () => openChatWithEmails([m.email]) } }, '💬') : null,
+            !m.owner && m.id === store.me.id ? h('button.btn.btn-sm', { type: 'button', on: { click: () => remove(m, true) } }, 'Esci dal progetto') : null,
+            !m.owner && m.id !== store.me.id && canManage(p) ? h('button.btn.btn-ghost.btn-sm.btn-danger', { type: 'button', title: 'Togli dal progetto', on: { click: () => remove(m, false) } }, 'Togli') : null)))))));
+    }
+
+    async function remove(m, self) {
+      const msg = self
+        ? `Uscire dal progetto «${p.name}»? Non lo vedrai più, tranne i ticket assegnati a te.`
+        : `Togliere ${m.name} dal progetto? Non lo vedrà più, tranne i ticket assegnati a lui o a lei.`;
+      if (!await confirmDialog(msg, { ok: self ? 'Esci' : 'Togli', danger: true })) return;
+      await del(`/api/projects/${p.id}/members/${m.id}`);
+      if (self) { await loadProjects(); location.hash = '#/projects'; return; }
+      toast(`${m.name} non è più nel progetto`);
+      projectDetail(container, id); // ricarica anche intestazione e contatori
+    }
+
+    function addPeople() {
+      const picker = peoplePicker({ selected: [], label: '＋ Scegli' });
+      const md = modal({
+        title: `Aggiungi persone a «${p.name}»`,
+        body: [h('p.muted.small', { style: { margin: 0 } }, 'Puoi scegliere anche colleghi che non sono ancora entrati in Alma Planner: cercali per nome nella rubrica.'), picker.el],
+        actions: [
+          h('button.btn', { type: 'button', on: { click: () => md.close() } }, 'Annulla'),
+          h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+            if (!picker.value.length) return toast('Scegli almeno una persona', 'err');
+            await post(`/api/projects/${p.id}/members`, { user_ids: picker.value });
+            md.close();
+            toast(picker.value.length === 1 ? 'Persona aggiunta al progetto' : `${picker.value.length} persone aggiunte al progetto`);
+            projectDetail(container, id); // ricarica anche intestazione e contatori
+          } } }, 'Aggiungi'),
+        ],
+      });
+    }
+  }
+
+  return () => cleanupTab?.();
 }
 
 // Attività del progetto (ticket con date) come barre su un'unica scala, con la riga di oggi. Un tocco apre il ticket.
@@ -142,6 +263,8 @@ export function editProject(p, onSaved) {
   const desc = h('textarea.input', { rows: 3 }, p.description);
   const status = h('select.select', Object.entries(PROJECT_STATUS).map(([k, l]) => h('option', { value: k, selected: k === p.status }, l)));
   const owner = h('select.select', h('option', { value: '' }, '—'), store.users.map(u => h('option', { value: String(u.id), selected: u.id === p.owner_id }, u.name)));
+  // in un progetto nuovo si possono invitare subito le persone (poi dal tab Membri)
+  const invite = isNew ? peoplePicker({ selected: [], label: '＋ Persona' }) : null;
   const swatches = h('div.swatches', PROJECT_COLORS.map(c => h('button.swatch', { type: 'button', title: c, class: c === color ? 'on' : '', style: { background: c }, on: { click: e => {
     color = c; swatches.querySelectorAll('.swatch').forEach(s => s.classList.remove('on')); e.currentTarget.classList.add('on');
   } } })));
@@ -164,6 +287,7 @@ export function editProject(p, onSaved) {
         h('label.field', h('span', 'Stato'), status),
         h('label.field', h('span', 'Responsabile'), owner)),
       h('div.field', h('span', 'Colore'), swatches),
+      invite ? h('div.field', h('span', 'Membri'), invite.el, h('small.muted', 'Solo il responsabile, i membri e gli amministratori vedono il progetto e i suoi ticket.')) : null,
       h('div.muted.small', 'La durata del progetto la danno le sue attività nel Gantt.'),
     ],
     left,
@@ -180,6 +304,7 @@ export function editProject(p, onSaved) {
       owner_id: owner.value ? Number(owner.value) : null,
     };
     const r = isNew ? await post('/api/projects', payload) : await patch(`/api/projects/${p.id}`, payload);
+    if (isNew && invite.value.length) await post(`/api/projects/${r.id}/members`, { user_ids: invite.value });
     m.close();
     await loadProjects();
     toast(isNew ? 'Progetto creato' : 'Progetto salvato');

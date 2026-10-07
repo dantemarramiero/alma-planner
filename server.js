@@ -19,6 +19,7 @@ const { registerStories } = require('./routes/stories');
 const { registerNotifications } = require('./routes/notifications');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
+const { createAccess } = require('./lib/access');
 const { importMicrosoftPhoto, purgeMedia } = require('./lib/media');
 const { rateLimit, createAudit } = require('./lib/security');
 const { registerAudit } = require('./routes/audit');
@@ -141,6 +142,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   const live = createLive();
   const isAdmin = req => config.adminEmails.includes(req.user.email);
   const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
+  deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);

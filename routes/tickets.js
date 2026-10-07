@@ -41,7 +41,7 @@ function readBody(body, { partial }) {
   };
 }
 
-function registerTickets(app, { db, auth, baseUrl }) {
+function registerTickets(app, { db, auth, baseUrl, access }) {
   async function getTicket(id, q = db) {
     const { rows } = await q.query(`${SELECT} WHERE t.id = $1`, [id]);
     if (!rows[0]) throw new HttpError(404, 'Ticket non trovato');
@@ -131,6 +131,9 @@ function registerTickets(app, { db, auth, baseUrl }) {
     if (q) add('(t.title ILIKE ? OR t.description ILIKE $' + (params.length + 1) + ')', `%${String(q).slice(0, 100)}%`);
     if (from) add('COALESCE(t.due_date, t.start_date) >= ?', v.date(from, 'da'));
     if (to) add('COALESCE(t.start_date, t.due_date) <= ?', v.date(to, 'a'));
+    // solo i ticket dei progetti che si vedono (lib/access.js); per un amministratore il filtro è TRUE e non ha parametri
+    const visible = access.ticketFilter(req, 't', `$${params.length + 1}`);
+    if (visible !== 'TRUE') { params.push(req.user.id); where.push(visible); }
     const { rows } = await db.query(
       `${SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
        ORDER BY t.position, t.id LIMIT 2000`, params);
@@ -139,6 +142,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
 
   app.get('/api/tickets/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const t = await getTicket(id);
     const [files, comments] = await Promise.all([
       db.query('SELECT f.*, u.name AS added_by_name FROM ticket_files f LEFT JOIN users u ON u.id = f.added_by WHERE f.ticket_id = $1 ORDER BY f.created_at', [id]),
@@ -150,6 +154,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
   app.post('/api/tickets', async (req, res) => {
     const { fields, assigneeIds, dependsOn } = readBody(req.body || {}, { partial: false });
     if (fields.start_date && fields.due_date && fields.start_date > fields.due_date) throw new HttpError(400, 'La scadenza è prima dell\'inizio');
+    if (fields.project_id) await access.assertProject(req, fields.project_id);
     const id = await db.tx(async q => {
       if (fields.position === undefined) {
         const { rows } = await q.query('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM tickets');
@@ -162,6 +167,8 @@ function registerTickets(app, { db, auth, baseUrl }) {
         Object.values(fields));
       const newId = rows[0].id;
       await setAssignees(q, newId, assigneeIds || []);
+      // chi viene assegnato a un ticket del progetto entra nel progetto
+      if (fields.project_id) await access.addMembers(q, fields.project_id, assigneeIds || [], req.user.id);
       await setDeps(q, newId, dependsOn || []);
       return newId;
     });
@@ -170,7 +177,9 @@ function registerTickets(app, { db, auth, baseUrl }) {
 
   app.patch('/api/tickets/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const { fields, assigneeIds, dependsOn } = readBody(req.body || {}, { partial: true });
+    if (fields.project_id) await access.assertProject(req, fields.project_id); // spostarlo in un progetto che si vede
     await db.tx(async q => {
       const before = await getTicket(id, q);
       const start = fields.start_date !== undefined ? fields.start_date : before.start_date;
@@ -182,6 +191,10 @@ function registerTickets(app, { db, auth, baseUrl }) {
           [id, ...Object.values(fields)]);
       }
       if (assigneeIds) await setAssignees(q, id, assigneeIds);
+      const projectId = fields.project_id !== undefined ? fields.project_id : before.project_id;
+      if (projectId && (assigneeIds || fields.project_id)) {
+        await access.addMembers(q, projectId, assigneeIds || before.assignee_ids, req.user.id);
+      }
       if (dependsOn) await setDeps(q, id, dependsOn);
     });
     const touchesEvent = ['title', 'description', 'start_date', 'due_date', 'status', 'project_id'].some(k => k in fields);
@@ -191,6 +204,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
 
   app.delete('/api/tickets/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const t = await getTicket(id);
     if (t.outlook_event_id && t.outlook_event_owner) {
       try {
@@ -207,6 +221,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
   // Aggiunge il ticket al calendario Outlook di chi clicca (o aggiorna l'evento che ha già).
   app.post('/api/tickets/:id/outlook', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const t = await getTicket(id);
     if (!t.start_date && !t.due_date) throw new HttpError(400, 'Dai al ticket almeno una data prima di metterlo in calendario');
     const token = await auth.graphToken(req.user.id);
@@ -224,6 +239,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
 
   app.delete('/api/tickets/:id/outlook', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const t = await getTicket(id);
     if (!t.outlook_event_id) return res.json({ ok: true });
     if (t.outlook_event_owner !== req.user.id) throw new HttpError(403, 'L\'evento è nel calendario di un collega: può toglierlo solo lui');
@@ -236,6 +252,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
   // ── file OneDrive collegati ────────────────────────────────────────────────
   app.post('/api/tickets/:id/files', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     await getTicket(id);
     const b = req.body || {};
     const row = [
@@ -252,6 +269,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
 
   app.delete('/api/tickets/:id/files/:fileId', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const fileId = v.int(req.params.fileId, 'file', { min: 1 });
     await db.query('DELETE FROM ticket_files WHERE id = $1 AND ticket_id = $2', [fileId, id]);
     res.json({ ok: true });
@@ -260,6 +278,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
   // ── commenti ───────────────────────────────────────────────────────────────
   app.post('/api/tickets/:id/comments', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     await getTicket(id);
     const body = v.text(req.body?.body, 'commento', { max: 10000, required: true });
     await db.query('INSERT INTO ticket_comments (ticket_id, user_id, body) VALUES ($1, $2, $3)', [id, req.user.id, body]);
@@ -268,6 +287,7 @@ function registerTickets(app, { db, auth, baseUrl }) {
 
   app.delete('/api/tickets/:id/comments/:commentId', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
     const cid = v.int(req.params.commentId, 'commento', { min: 1 });
     const { rowCount } = await db.query('DELETE FROM ticket_comments WHERE id = $1 AND ticket_id = $2 AND user_id = $3', [cid, id, req.user.id]);
     if (!rowCount) throw new HttpError(403, 'Puoi cancellare solo i tuoi commenti');

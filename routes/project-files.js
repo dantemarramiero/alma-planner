@@ -5,8 +5,10 @@ const express = require('express');
 const { HttpError, v } = require('../lib/http');
 const { uploadFile } = require('../lib/onedrive');
 
-function registerProjectFiles(app, { db, auth }) {
-  async function getProject(id) {
+function registerProjectFiles(app, { db, auth, access }) {
+  // Solo chi vede il progetto (responsabile, membri, amministratori) ne vede e tocca i documenti.
+  async function getProject(req, id) {
+    await access.assertProject(req, id);
     const { rows } = await db.query('SELECT * FROM projects WHERE id = $1', [id]);
     if (!rows[0]) throw new HttpError(404, 'Progetto non trovato');
     return rows[0];
@@ -24,6 +26,7 @@ function registerProjectFiles(app, { db, auth }) {
   // Tutti i documenti del progetto: del progetto intero e dei suoi ticket/attività.
   app.get('/api/projects/:id/files', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await access.assertProject(req, id);
     const [own, fromTickets] = await Promise.all([
       db.query(
         `SELECT f.*, u.name AS added_by_name FROM project_files f LEFT JOIN users u ON u.id = f.added_by
@@ -39,7 +42,7 @@ function registerProjectFiles(app, { db, auth }) {
   // Collega al progetto un file già presente su OneDrive.
   app.post('/api/projects/:id/files', async (req, res) => {
     const projectId = v.int(req.params.id, 'progetto', { min: 1 });
-    await getProject(projectId);
+    await getProject(req, projectId);
     const b = req.body || {};
     await db.query(
       `INSERT INTO project_files (project_id, drive_id, item_id, name, web_url, size, added_by)
@@ -57,7 +60,7 @@ function registerProjectFiles(app, { db, auth }) {
   // Carica un file dal computer nella cartella del progetto.
   app.post('/api/projects/:id/files/upload', express.raw({ type: () => true, limit: '250mb' }), async (req, res) => {
     const projectId = v.int(req.params.id, 'progetto', { min: 1 });
-    const p = await getProject(projectId);
+    const p = await getProject(req, projectId);
     const name = readUpload(req, p);
     const token = await auth.graphToken(req.user.id);
     const item = await uploadFile(token, folderPath(p), { name, data: req.body });
@@ -71,6 +74,7 @@ function registerProjectFiles(app, { db, auth }) {
   app.delete('/api/projects/:id/files/:fileId', async (req, res) => {
     const projectId = v.int(req.params.id, 'progetto', { min: 1 });
     const fileId = v.int(req.params.fileId, 'file', { min: 1 });
+    await access.assertProject(req, projectId);
     await db.query('DELETE FROM project_files WHERE id = $1 AND project_id = $2', [fileId, projectId]);
     res.json({ ok: true });
   });
@@ -78,11 +82,12 @@ function registerProjectFiles(app, { db, auth }) {
   // Carica un file su un ticket: nella cartella del suo progetto, sottocartella del ticket.
   app.post('/api/tickets/:id/files/upload', express.raw({ type: () => true, limit: '250mb' }), async (req, res) => {
     const ticketId = v.int(req.params.id, 'ticket', { min: 1 });
+    await access.assertTicket(req, ticketId);
     const { rows } = await db.query('SELECT id, title, project_id FROM tickets WHERE id = $1', [ticketId]);
     const t = rows[0];
     if (!t) throw new HttpError(404, 'Ticket non trovato');
     if (!t.project_id) throw new HttpError(400, 'Il ticket non è in un progetto: collega un file da OneDrive', 'no_folder');
-    const p = await getProject(t.project_id);
+    const p = await getProject(req, t.project_id);
     const name = readUpload(req, p);
     const token = await auth.graphToken(req.user.id);
     const item = await uploadFile(token, folderPath(p), { name, data: req.body, subfolders: [`Ticket ${t.id} - ${t.title}`] });
