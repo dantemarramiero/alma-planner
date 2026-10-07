@@ -20,6 +20,8 @@ const { registerNotifications } = require('./routes/notifications');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
 const { importMicrosoftPhoto, purgeMedia } = require('./lib/media');
+const { rateLimit, createAudit } = require('./lib/security');
+const { registerAudit } = require('./routes/audit');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -32,6 +34,8 @@ function readConfig(env = process.env) {
     production,
     baseUrl,
     sessionSecret,
+    // Chiave per cifrare i token Microsoft salvati, separata da SESSION_SECRET (su Railway: variabile sealed).
+    tokenKey: env.TOKEN_ENC_KEY?.trim() || null,
     databaseUrl: env.DATABASE_URL,
     dataDir: env.DATA_DIR || path.join(__dirname, 'data', 'pglite'),
     tenantId: env.MS_TENANT_ID?.trim(),
@@ -45,7 +49,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db } = {}) {
+async function createApp(config, { db, confirmAccount } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
 
@@ -73,13 +77,24 @@ async function createApp(config, { db } = {}) {
     next();
   });
 
+  const audit = createAudit(db);
   const auth = createAuth({
     db,
     config,
+    audit,
+    confirmAccount,
     onLogin: (userId, accessToken) => importMicrosoftPhoto(db, userId, accessToken)
       .catch(err => console.warn(`[foto] utente ${userId}: foto Microsoft non importata (${err.message})`)),
   });
   app.use((req, res, next) => auth.loadUser(req, res, next));
+  const rekeyed = await auth.rekeyTokenCaches();
+  if (rekeyed) console.log(`[auth] ${rekeyed} cache di token ricifrate con TOKEN_ENC_KEY`);
+
+  // Limiti di frequenza: accesso per IP, API per utente (le modifiche più strette delle letture).
+  const perMinute = 60 * 1000;
+  app.use('/auth', rateLimit({ windowMs: perMinute, max: 30, key: req => req.ip, message: 'Troppi tentativi di accesso, riprova tra un minuto' }));
+  const apiReads = rateLimit({ windowMs: perMinute, max: 600, key: req => req.user?.id });
+  const apiWrites = rateLimit({ windowMs: perMinute, max: 120, key: req => req.user?.id });
 
   app.get('/healthz', async (_req, res) => {
     await db.query('SELECT 1');
@@ -91,7 +106,21 @@ async function createApp(config, { db } = {}) {
   // Pagine
   const pub = path.join(__dirname, 'public');
   app.get('/', (req, res) => (req.user ? res.redirect('/app') : res.sendFile(path.join(pub, 'index.html'))));
-  app.get('/app', (req, res) => (req.user ? res.set('Cache-Control', 'no-cache').sendFile(path.join(pub, 'app.html')) : res.redirect('/auth/login?returnTo=/app')));
+  // Ogni deploy serve JS e CSS da /b/<deploy>/…: un browser con file vecchi in cache non può riusarli
+  // (mescolare moduli vecchi e nuovi rompeva Gantt, chat e organigramma). I percorsi relativi degli
+  // import restano sotto lo stesso /b/<deploy>/, quindi tutta l'app arriva dalla stessa versione.
+  const build = (process.env.RAILWAY_DEPLOYMENT_ID || String(Date.now())).replace(/[^\w-]/g, '').slice(0, 16);
+  let appHtml = null;
+  const renderApp = () => (appHtml = appHtml || require('fs').readFileSync(path.join(pub, 'app.html'), 'utf8')
+    .replace(/(src|href)="\/(js|css)\//g, `$1="/b/${build}/$2/`));
+  app.get('/app', (req, res) => (req.user
+    ? res.set('Cache-Control', 'no-cache').type('html').send(config.production ? renderApp() : (appHtml = null, renderApp()))
+    : res.redirect('/auth/login?returnTo=/app')));
+  app.use('/b/:build', (req, res, next) => {
+    // la versione corrente si tiene in cache a lungo; quelle vecchie (schede aperte prima del deploy) si ricontrollano
+    const current = config.production && req.params.build === build;
+    express.static(pub, { index: false, setHeaders: r => r.set('Cache-Control', current ? 'public, max-age=31536000, immutable' : 'no-cache') })(req, res, next);
+  });
   app.use('/vendor/frappe-gantt', express.static(path.join(__dirname, 'node_modules', 'frappe-gantt', 'dist'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar', express.static(path.join(__dirname, 'node_modules', 'fullcalendar'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar-locales', express.static(path.join(__dirname, 'node_modules', '@fullcalendar', 'core', 'locales'), { maxAge: '7d' }));
@@ -105,11 +134,13 @@ async function createApp(config, { db } = {}) {
     if (!['GET', 'HEAD'].includes(req.method) && req.get('X-Alma') !== '1') return next(new HttpError(403, 'Richiesta non valida'));
     next();
   });
+  app.use('/api', (req, res, next) => (['GET', 'HEAD'].includes(req.method) ? apiReads : apiWrites)(req, res, next));
+  app.use('/api', audit.middleware);
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
   const isAdmin = req => config.adminEmails.includes(req.user.email);
-  const deps = { db, auth, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
+  const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
   live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);
@@ -123,6 +154,7 @@ async function createApp(config, { db } = {}) {
   registerFeed(app, deps);
   registerStories(app, deps);
   registerNotifications(app, deps);
+  registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
@@ -135,14 +167,15 @@ async function createApp(config, { db } = {}) {
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live };
+  return { app, db, auth, live, audit };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth } = await createApp(config);
+    const { app, db, auth, audit } = await createApp(config);
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
+    setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Planner su ${config.baseUrl} (porta ${config.port})`);
@@ -150,6 +183,7 @@ if (require.main === module) {
         const missing = [['MS_TENANT_ID', config.tenantId], ['MS_CLIENT_ID', config.clientId], ['MS_CLIENT_SECRET', config.clientSecret]].filter(([, val]) => !val).map(([k]) => k);
         console.warn(`[auth] Microsoft non configurato: manca ${missing.join(', ')}`);
       }
+      if (config.production && !config.tokenKey) console.warn('[auth] TOKEN_ENC_KEY mancante: i token Microsoft sono cifrati con la chiave derivata da SESSION_SECRET');
     });
   })().catch(err => {
     console.error(err);

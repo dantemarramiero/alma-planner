@@ -15,10 +15,20 @@ export function chatTitle(c) {
   if (!o.length) return 'Solo tu';
   return c.type === 'oneOnOne' ? o[0].name : o.map(m => (m.name || '').split(' ')[0]).join(', ');
 }
+// Persona: avatar tondo. Gruppo: riquadro con le iniziali del nome. Riunione: riquadro con il calendario.
+const isPerson = c => c.type === 'oneOnOne';
 function chatAvatar(c, size = 44) {
-  const o = others(c);
-  if (c.type === 'oneOnOne' || o.length < 2) return h('span.tm-av', avatar(o[0] || { name: chatTitle(c) }, size));
-  return h('span.tm-av.group', { style: { width: `${size}px`, height: `${size}px` } }, avatar(o[0], Math.round(size * 0.68)), avatar(o[1], Math.round(size * 0.68)));
+  if (isPerson(c)) return h('span.tm-av', avatar(others(c)[0] || { name: chatTitle(c) }, size));
+  const box = h('span.tm-av.tm-box', { class: c.type === 'meeting' ? 'meeting' : 'group', style: { width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.36)}px` } });
+  if (c.type === 'meeting') box.textContent = '📅';
+  else box.textContent = chatTitle(c).split(/[\s,]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '#';
+  return box;
+}
+// «Gruppo · 4 persone», «Riunione · 6 persone»: chi scrive conta anche sé stesso, come in Teams.
+function chatKind(c) {
+  if (isPerson(c)) return null;
+  const n = c.members.length;
+  return `${c.type === 'meeting' ? 'Riunione' : 'Gruppo'}${n ? ` · ${n} persone` : ''}`;
 }
 const dayLabel = iso => new Date(iso).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
 const timeLabel = iso => new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -40,11 +50,20 @@ export function teamsView(view) {
   const timers = [];
 
   const listBox = h('div.tm-items', loading());
+  // Tutte | Persone | Gruppi (le riunioni stanno con i gruppi)
+  let filter = 'all';
+  const filterSeg = h('div.seg.tm-filter', [['all', 'Tutte'], ['people', 'Persone'], ['groups', 'Gruppi']].map(([k, l]) =>
+    h('button', { type: 'button', 'data-k': k, class: k === filter ? 'on' : '', on: { click: () => {
+      filter = k;
+      filterSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+      drawList();
+    } } }, l)));
   const chat = h('section.tm-chat');
   const root = h('div.tm.card', { class: chatId ? 'tm-open' : '' },
     h('aside.tm-list',
       h('div.tm-list-head', h('h2', 'Chat'),
         h('button.btn.btn-sm', { type: 'button', title: 'Nuova chat', on: { click: () => newChat() } }, '＋ Nuova')),
+      filterSeg,
       listBox),
     chat);
   clear(view).append(root);
@@ -54,27 +73,34 @@ export function teamsView(view) {
     return () => {};
   }
 
+  // L'ultimo elenco visto si mostra subito (Microsoft ci mette qualche secondo); poi arriva quello aggiornato.
+  const CACHE_KEY = `alma.teamsChats.${store.me.id}`;
+  try { chats = JSON.parse(localStorage.getItem(CACHE_KEY)) || []; } catch { chats = []; }
+  if (chats.length) drawList();
   loadList();
   timers.push(setInterval(() => { if (!document.hidden) loadList(); }, POLL_LIST));
   if (chatId) openChat(chatId); else placeholder();
 
-  async function loadList() {
+  async function loadList({ fresh = false } = {}) {
     try {
-      chats = await get('/api/teams/chats', { quiet: true });
+      chats = await get(`/api/teams/chats${fresh ? '?fresh=1' : ''}`, { quiet: true });
     } catch (err) {
       if (!chats.length) fill(listBox, h('div.empty', err.code === 'reauth' ? 'Serve un nuovo accesso.' : err.message));
       return;
     }
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(chats)); } catch { /* niente */ }
     if (stopped) return;
     drawList();
   }
 
   function drawList() {
     if (!chats.length) return fill(listBox, h('div.empty', 'Nessuna chat in Teams. Iniziane una con «＋ Nuova».'));
-    fill(listBox, chats.map(c => h('a.tm-item', { href: chatHash(c.id), class: [c.id === current?.id ? 'on' : '', c.unread ? 'unread' : ''].join(' ') },
+    const shown = chats.filter(c => filter === 'all' || (filter === 'people') === isPerson(c));
+    if (!shown.length) return fill(listBox, h('div.empty', filter === 'people' ? 'Nessuna chat con una persona.' : 'Nessun gruppo.'));
+    fill(listBox, shown.map(c => h('a.tm-item', { href: chatHash(c.id), class: [c.id === current?.id ? 'on' : '', c.unread ? 'unread' : ''].join(' ') },
       chatAvatar(c),
       h('div.grow',
-        h('div.tm-item-title', chatTitle(c)),
+        h('div.tm-item-title', chatTitle(c), chatKind(c) ? h('span.tm-kind', chatKind(c)) : null),
         h('div.tm-item-sub', h('span.tm-preview', c.last ? `${c.last.mine ? 'Tu: ' : c.type !== 'oneOnOne' && c.last.from ? `${c.last.from.split(' ')[0]}: ` : ''}${c.last.text || 'Allegato'}` : 'Nessun messaggio'),
           c.updated_at ? h('span', ` · ${timeAgo(c.updated_at)}`) : null)))));
   }
@@ -105,7 +131,9 @@ export function teamsView(view) {
       return;
     }
     fill(head, h('a.btn.btn-ghost.btn-sm.tm-back', { href: '#/direct' }, '‹'), chatAvatar(current, 36),
-      h('div.grow', h('strong', chatTitle(current)), h('div.muted.small', others(current).map(m => m.name).join(', '))),
+      h('div.grow', h('strong', chatTitle(current)), isPerson(current)
+        ? h('div.muted.small', others(current)[0]?.email || '')
+        : h('button.tm-members', { type: 'button', title: 'Vedi chi c\'è nel gruppo', on: { click: () => showMembers(current) } }, chatKind(current))),
       current.webUrl ? h('a.btn.btn-sm', { href: current.webUrl, target: '_blank', rel: 'noopener' }, 'Apri in Teams') : null,
       others(current).some(m => m.email) ? h('button.btn.btn-sm', { type: 'button', on: { click: () => openMailComposer({ to: others(current).map(m => m.email).filter(Boolean) }) } }, '✉ Email') : null);
     drawList();
@@ -190,6 +218,19 @@ export function teamsView(view) {
     stopped = true;
     timers.forEach(clearInterval);
   };
+}
+
+// Membri di un gruppo o di una riunione, con la chat 1:1 a un clic.
+function showMembers(c) {
+  const members = [...c.members].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it'));
+  const md = modal({
+    title: `${chatTitle(c)} · ${members.length} persone`,
+    body: members.map(m => h('div.picker-item', avatar(m), h('div.grow', m.name || m.email, h('small', m.email || '')),
+      m.email && m.email.toLowerCase() !== store.me.email.toLowerCase()
+        ? h('button.btn.btn-sm', { type: 'button', on: { click: () => { md.close(); openChatWithEmails([m.email]); } } }, 'Chat')
+        : h('span.muted.small', 'tu'))),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => md.close() } }, 'Chiudi')],
+  });
 }
 
 // ── nuova chat ───────────────────────────────────────────────────────────────

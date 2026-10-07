@@ -1,7 +1,7 @@
 // Messaggi = chat di Microsoft Teams, ed email da Outlook. Tutto a nome dell'utente collegato (permessi
 // delegati Chat.ReadWrite e Mail.Send): quello che si scrive qui compare in Teams/Outlook e viceversa.
 const { HttpError, v } = require('../lib/http');
-const { graph, graphAll } = require('../lib/graph');
+const { graph } = require('../lib/graph');
 
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const textToHtml = s => escapeHtml(s).replace(/\r?\n/g, '<br>');
@@ -64,22 +64,38 @@ function registerTeams(app, { db, auth, tenantId, live }) {
 
   const chatPath = id => `/me/chats/${encodeURIComponent(v.text(id, 'chat', { max: 300, required: true }))}`;
 
+  // Le 50 chat più recenti in una sola richiesta a Graph (con i partecipanti è la parte lenta, qualche secondo).
+  // Tenute 20 s per utente: elenco e contatore del menu le condividono, e richieste uguali in volo si uniscono.
+  // Si azzera quando l'utente scrive, legge o apre una chat.
+  const CHATS_TTL = 20000;
+  const chatCache = new Map(); // userId → { at, promise }
+  function recentChats(userId) {
+    const hit = chatCache.get(userId);
+    if (hit && Date.now() - hit.at < CHATS_TTL) return hit.promise;
+    const promise = (async () => {
+      const [token, me] = await Promise.all([auth.graphToken(userId), meOid(userId)]);
+      const page = await graph(token, 'GET', '/me/chats?$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc&$top=50');
+      const list = (page.value || []).filter(c => !c.viewpoint?.isHidden).map(c => mapChat(c, me));
+      list.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+      return list;
+    })();
+    chatCache.set(userId, { at: Date.now(), promise });
+    promise.catch(() => chatCache.delete(userId)); // un errore non resta in memoria
+    return promise;
+  }
+  const forget = userId => chatCache.delete(userId);
+
   // Elenco delle chat, le più recenti in alto.
   app.get('/api/teams/chats', async (req, res) => {
-    const [token, me] = await Promise.all([auth.graphToken(req.user.id), meOid(req.user.id)]);
-    const chats = await graphAll(token, '/me/chats?$expand=members,lastMessagePreview&$top=50', { max: 200 });
-    const list = chats.filter(c => !c.viewpoint?.isHidden).map(c => mapChat(c, me));
-    list.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-    res.json(list);
+    if (req.query.fresh === '1') forget(req.user.id);
+    res.json(await recentChats(req.user.id));
   });
 
   // Quante chat hanno messaggi non letti (per il contatore nel menu).
   app.get('/api/teams/unread', async (req, res) => {
     if (!auth.msConfigured) return res.json({ chats: 0 });
     try {
-      const [token, me] = await Promise.all([auth.graphToken(req.user.id), meOid(req.user.id)]);
-      const chats = await graphAll(token, '/me/chats?$expand=lastMessagePreview&$top=50', { max: 200 });
-      res.json({ chats: chats.filter(c => !c.viewpoint?.isHidden).map(c => mapChat(c, me)).filter(c => c.unread).length });
+      res.json({ chats: (await recentChats(req.user.id)).filter(c => c.unread).length });
     } catch {
       res.json({ chats: 0 });
     }
@@ -106,6 +122,7 @@ function registerTeams(app, { db, auth, tenantId, live }) {
     const m = await graph(token, 'POST', `/chats/${encodeURIComponent(req.params.id)}/messages`, {
       body: { body: { contentType: 'html', content: textToHtml(text) } },
     });
+    forget(req.user.id);
     res.status(201).json(mapMessage(m, me));
   });
 
@@ -115,6 +132,7 @@ function registerTeams(app, { db, auth, tenantId, live }) {
     await graph(token, 'POST', `/chats/${encodeURIComponent(req.params.id)}/markChatReadForUser`, {
       body: { user: { id: me, tenantId } },
     }).catch(() => {});
+    forget(req.user.id);
     live?.send([req.user.id], 'badges'); // il contatore di Messaggi nel menu si ricalcola
     res.json({ ok: true });
   });
@@ -149,6 +167,7 @@ function registerTeams(app, { db, auth, tenantId, live }) {
       ? { chatType: 'oneOnOne', members: [member(me), member(others[0])] }
       : { chatType: 'group', members: [me, ...others].map(member), ...(b.topic ? { topic: v.text(b.topic, 'nome della chat', { max: 250 }) } : {}) };
     const c = await graph(token, 'POST', '/chats', { body });
+    forget(req.user.id);
     res.status(201).json({ id: c.id });
   });
 

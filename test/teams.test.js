@@ -88,7 +88,12 @@ test('chat Teams: elenco con non letti, invio, nuova chat 1:1 e di gruppo; email
     assert.deepEqual(chats.map(c => [c.id, c.unread]), [['c1', true], ['c2', false]]); // c3 nascosta
     assert.equal(chats[0].last.text, 'Ciao Dante');
     assert.equal(chats[0].last.mine, false);
+    const listCalls = () => graphCalls.filter(c => c.path === '/v1.0/me/chats').length;
+    const before = listCalls();
     assert.deepEqual((await api('GET', '/api/teams/unread')).body, { chats: 1 });
+    assert.equal(listCalls(), before, 'il contatore riusa l\'elenco appena letto, senza chiedere di nuovo a Microsoft');
+    await api('GET', '/api/teams/chats?fresh=1');
+    assert.equal(listCalls(), before + 1);
 
     const sent = await api('POST', '/api/teams/chats/c1/messages', { text: 'Ok <arrivo>\nalle 10' });
     assert.equal(sent.status, 201);

@@ -49,3 +49,12 @@ textarea.input.tm-input { min-height: 0; }
   .tm-msg { max-width: 85%; }
 }
 .tm-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* persone, gruppi, riunioni */
+.tm-box { border-radius: 12px; display: inline-grid; place-items: center; font-weight: 700; color: #fff; flex: none; letter-spacing: .02em; }
+.tm-box.group { background: var(--violet, #4A3082); }
+.tm-box.meeting { background: var(--blue-soft, #E5EEF8); }
+.tm-kind { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+.tm-item.unread .tm-kind { font-weight: 500; color: var(--muted); }
+.tm-filter { margin: 0 16px 8px; align-self: flex-start; }
+.tm-members { border: 0; background: transparent; padding: 0; color: var(--blue, #0057B8); font-size: 12px; cursor: pointer; }
+.tm-members:hover { text-decoration: underline; }
