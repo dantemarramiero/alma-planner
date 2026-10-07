@@ -14,8 +14,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const readStore = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const writeStore = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* niente */ } };
 
-export async function ganttView(container, params) {
+// opts.embedded: Gantt di un solo progetto dentro la sua pagina (senza intestazione, ticket sempre aperti).
+export async function ganttView(container, params, { embedded = false } = {}) {
   const onlyProject = params.get('project') ? Number(params.get('project')) : null;
+  const loadTickets = () => get(`/api/tickets${onlyProject ? `?project=${onlyProject}` : ''}`);
   let open = new Set(readStore(OPEN_KEY, []));
   if (onlyProject) open.add(onlyProject);
   let mode = readStore(MODE_KEY, 'Week');
@@ -42,20 +44,32 @@ export async function ganttView(container, params) {
     draw();
   } } }, 'Apri/chiudi tutti i ticket');
 
-  clear(container).append(
-    h('div.page-head',
-      h('div', h('h1', 'Gantt'), h('div.sub', 'Trascina le barre per spostare le date. Clicca un progetto per vedere i suoi ticket come attività.')),
-      onlyProject ? h('a.btn', { href: '#/gantt' }, 'Mostra tutti i progetti') : null),
-    h('div.toolbar', modeSeg, expandAll,
+  // scelta del progetto: «Tutti» oppure il Gantt di un progetto solo
+  const projectSelect = h('select.select', { 'aria-label': 'Progetto', on: { change: e => {
+    location.hash = e.target.value ? `#/gantt?project=${e.target.value}` : '#/gantt';
+  } } },
+  h('option', { value: '' }, 'Tutti i progetti'),
+  store.projects.filter(p => p.status !== 'archived' || p.id === onlyProject)
+    .map(p => h('option', { value: String(p.id), selected: p.id === onlyProject }, p.name)));
+
+  clear(container).append(...[
+    embedded ? null : h('div.page-head',
+      h('div', h('h1', 'Gantt'), h('div.sub', onlyProject
+        ? 'I ticket del progetto come attività. Trascina le barre per spostare le date, la maniglia per l\'avanzamento.'
+        : 'Trascina le barre per spostare le date. Clicca un progetto per vedere i suoi ticket come attività.')),
+      projectSelect),
+    h('div.toolbar', modeSeg, onlyProject ? null : expandAll,
       h('label.check', h('input', { type: 'checkbox', on: { change: e => { showDone = e.target.checked; draw(); } } }), 'Ticket fatti'),
       onlyProject ? null : h('label.check', h('input', { type: 'checkbox', on: { change: e => { showLoose = e.target.checked; draw(); } } }), 'Ticket senza progetto'),
-      h('span.grow')),
+      h('span.grow'),
+      embedded ? h('a.btn.btn-sm', { href: `#/gantt?project=${onlyProject}` }, 'Apri a tutta pagina') : null),
     styleEl, chartBox, undatedBox,
-    h('div.gantt-legend', h('span', '▬ barra piena: progetto'), h('span', '▭ barra chiara: ticket'), h('span', '→ frecce: dipendenze tra ticket')));
+    h('div.gantt-legend', h('span', '▬ barra piena: progetto'), h('span', '▭ barra chiara: ticket'), h('span', '→ frecce: dipendenze tra ticket')),
+  ].filter(Boolean));
 
   chartBox.append(loading());
   await loadProjects();
-  tickets = await get('/api/tickets');
+  tickets = await loadTickets();
   draw();
 
   function visibleProjects() {
@@ -135,7 +149,7 @@ export async function ganttView(container, params) {
       padding: 16,
       container_height: 'auto',
       today_button: true,
-      scroll_to: 'today',
+      scroll_to: onlyProject ? addDays(rows[0].start, -3) : 'today', // un progetto: si parte dal suo inizio
       move_dependencies: false,
       auto_move_label: true,
       popup_on: 'click',
@@ -202,7 +216,7 @@ export async function ganttView(container, params) {
 
   function toggle(id) {
     if (open.has(id)) open.delete(id); else open.add(id);
-    writeStore(OPEN_KEY, [...open]);
+    if (!onlyProject) writeStore(OPEN_KEY, [...open]); // la vista di un progetto non cambia quella generale
     gantt?.popup?.hide?.();
     draw();
   }
@@ -218,7 +232,7 @@ export async function ganttView(container, params) {
 
   async function reload() {
     await loadProjects();
-    tickets = await get('/api/tickets');
+    tickets = await loadTickets();
     draw();
   }
 }

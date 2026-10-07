@@ -68,6 +68,7 @@ export function ticketsView(container, opts = {}) {
     body.replaceChildren(loading());
     tickets = await get(`/api/tickets${qs({ q: state.q, project: state.project, assignee: state.assignee, status: state.view === 'board' ? '' : state.status })}`);
     render();
+    opts.onLoaded?.(tickets);
   }
 
   function render() {

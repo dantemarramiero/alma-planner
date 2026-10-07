@@ -4,6 +4,7 @@ import { post, patch, del } from './api.js';
 import { store, loadProjects, projectById, userById } from './store.js';
 import { ticketsView } from './tickets.js';
 import { driveBrowser, pickDriveItem } from './drive.js';
+import { ganttView } from './gantt.js';
 
 const dates = p => {
   const s = p.start_date || p.tickets_start, e = p.end_date || p.tickets_end;
@@ -49,6 +50,7 @@ export async function projectDetail(container, id) {
   const owner = userById(p.owner_id);
 
   const ticketsBox = h('div');
+  const ganttBox = h('div');
   const driveBox = h('div');
 
   clear(container).append(
@@ -57,18 +59,22 @@ export async function projectDetail(container, id) {
         h('h1.row', h('span', { style: { width: '14px', height: '14px', borderRadius: '4px', background: p.color, display: 'inline-block' } }), p.name),
         h('div.sub', [PROJECT_STATUS[p.status], dates(p), owner ? `Responsabile: ${owner.name}` : null].filter(Boolean).join(' · '))),
       h('div.row',
-        h('a.btn', { href: `#/gantt?project=${p.id}` }, '▤ Gantt'),
         h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica'))),
     p.description ? h('p', { style: { marginTop: 0, color: 'var(--mid)', whiteSpace: 'pre-wrap', maxWidth: '760px' } }, p.description) : null,
     h('div.card', { style: { padding: '12px 14px', maxWidth: '520px', '--c': p.color } },
       h('div.spread.small.muted', { style: { marginBottom: '6px' } }, h('span', `${p.done_count} di ${p.ticket_count} ticket fatti`), h('span', `${pct(p)}%`)),
       h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
     h('div.section', h('div.spread', h('h2', 'Ticket')), ticketsBox),
+    h('div.section', h('div.spread', h('h2', 'Gantt del progetto')), ganttBox),
     h('div.section', h('div.spread', h('h2', 'Cartella OneDrive'),
       store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null),
     driveBox));
 
-  ticketsView(ticketsBox, { fixed: { project: String(p.id) }, view: 'board' });
+  // il Gantt si ridisegna quando cambiano i ticket (nuovi, spostati, chiusi)
+  const drawGantt = () => ganttView(ganttBox, new URLSearchParams({ project: String(p.id) }), { embedded: true });
+  let firstLoad = true;
+  ticketsView(ticketsBox, { fixed: { project: String(p.id) }, view: 'board', onLoaded: () => { if (!firstLoad) drawGantt(); firstLoad = false; } });
+  drawGantt();
 
   if (!store.me.microsoft) driveBox.append(h('div.card.empty', 'OneDrive non è ancora collegato.'));
   else if (!p.onedrive_item_id) driveBox.append(h('div.card.empty', 'Nessuna cartella collegata. Collegane una per avere qui i documenti del progetto.'));
