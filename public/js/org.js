@@ -2,10 +2,10 @@
 import { h, clear, modal, toast, avatar, loading, fmtDateTime, debounce } from './ui.js';
 import { get, post } from './api.js';
 import { store } from './store.js';
+import { openChatWith, openMailComposer } from './teams.js';
 
 const VIEW_KEY = 'alma.orgView';
 const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'tree'; } catch { return 'tree'; } };
-const teamsChat = email => `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(email)}`;
 
 export async function orgView(container) {
   let data = { people: [], sync: null };
@@ -166,7 +166,9 @@ export async function orgView(container) {
       title: h('span.row', avatar(p, 32), p.name),
       body: [
         h('div', h('strong', p.job_title || 'Ruolo non indicato'), p.department ? ` · ${p.department}` : '', p.office ? ` · ${p.office}` : ''),
-        p.email ? h('div.row', h('a', { href: `mailto:${p.email}` }, p.email), h('a.btn.btn-sm', { href: teamsChat(p.email), target: '_blank', rel: 'noopener' }, 'Chat su Teams')) : null,
+        p.email ? h('div.row', h('span.muted', p.email),
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => { md.close(); openChatWith([p.oid]); } } }, '💬 Chat'),
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => { md.close(); openMailComposer({ to: [p.email] }); } } }, '✉ Email')) : null,
         chain.length ? h('div.field', h('span', 'Linea di riporto'), h('div.small', ...chain.flatMap((m, i) => [i ? ' › ' : '', link(m)]))) : h('div.muted.small', 'Nessun responsabile indicato in Microsoft 365.'),
         reports.length ? h('div.field', h('span', `Collaboratori diretti (${reports.length})`), h('div.org-grid', reports.map(r => h('div', link(r), r.job_title ? h('div.muted.small', r.job_title) : null)))) : null,
         p.user_id ? h('div.muted.small', p.open_tickets ? `${p.open_tickets} ticket aperti in Alma Planner.` : 'Nessun ticket aperto in Alma Planner.') : h('div.muted.small', 'Non è ancora entrato in Alma Planner.'),

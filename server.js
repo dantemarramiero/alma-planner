@@ -10,6 +10,7 @@ const { registerTickets } = require('./routes/tickets');
 const { registerCalendar } = require('./routes/calendar');
 const { registerDrive } = require('./routes/drive');
 const { registerOrg } = require('./routes/org');
+const { registerTeams } = require('./routes/teams');
 const { registerProjectFiles } = require('./routes/project-files');
 const { registerDirect } = require('./routes/direct');
 const { registerMedia } = require('./routes/media');
@@ -116,6 +117,7 @@ async function createApp(config, { db } = {}) {
   registerCalendar(app, deps);
   registerDrive(app, deps);
   registerOrg(app, deps);
+  registerTeams(app, { ...deps, tenantId: config.tenantId });
   registerProjectFiles(app, deps);
   registerMedia(app, deps);
   registerFeed(app, deps);

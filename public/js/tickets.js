@@ -5,6 +5,7 @@ import { store, userById, activeProjects, projectById, loadProjects } from './st
 import { peoplePicker, avatarsFor } from './people.js';
 import { pickDriveItem } from './drive.js';
 import { uploadButton, fileRow } from './activities.js';
+import { openChatWithEmails, openMailComposer } from './teams.js';
 
 const VIEW_KEY = 'alma.ticketView';
 const savedView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
@@ -302,6 +303,19 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       outlook.append(row);
     } else {
       outlook.append(h('div.muted.small', 'Outlook non è ancora collegato.'));
+    }
+
+    // Scrivere agli assegnati: chat di Teams o email da Outlook, con il link al ticket
+    const assignees = t.assignee_ids.map(userById).filter(u => u && u.id !== store.me.id);
+    if (store.me.microsoft && assignees.length) {
+      const link = `${location.origin}/app#/tickets/${t.id}`;
+      outlook.append(h('div.row', { style: { marginTop: '8px' } },
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => openChatWithEmails(assignees.map(u => u.email)) } }, '💬 Chat con gli assegnati'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => openMailComposer({
+          to: assignees.map(u => u.email),
+          subject: `[Alma] ${t.title}`,
+          text: `\n\n—\nTicket: ${t.title}\n${link}`,
+        }) } }, '✉ Email agli assegnati')));
     }
 
     // File: caricati nella cartella OneDrive del progetto (sottocartella del ticket) o collegati da OneDrive
