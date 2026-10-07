@@ -23,9 +23,9 @@ function readConfig(env = process.env) {
     sessionSecret,
     databaseUrl: env.DATABASE_URL,
     dataDir: env.DATA_DIR || path.join(__dirname, 'data', 'pglite'),
-    tenantId: env.MS_TENANT_ID,
-    clientId: env.MS_CLIENT_ID,
-    clientSecret: env.MS_CLIENT_SECRET,
+    tenantId: env.MS_TENANT_ID?.trim(),
+    clientId: env.MS_CLIENT_ID?.trim(),
+    clientSecret: env.MS_CLIENT_SECRET?.trim(),
     devLogin: !production && env.DEV_LOGIN === '1',
   };
 }
@@ -112,7 +112,10 @@ if (require.main === module) {
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Planner su ${config.baseUrl} (porta ${config.port})`);
-      if (!auth.msConfigured) console.warn('[auth] Microsoft non configurato: mancano MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET');
+      if (!auth.msConfigured) {
+        const missing = [['MS_TENANT_ID', config.tenantId], ['MS_CLIENT_ID', config.clientId], ['MS_CLIENT_SECRET', config.clientSecret]].filter(([, val]) => !val).map(([k]) => k);
+        console.warn(`[auth] Microsoft non configurato: manca ${missing.join(', ')}`);
+      }
     });
   })().catch(err => {
     console.error(err);
