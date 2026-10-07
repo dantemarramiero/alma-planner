@@ -14,7 +14,6 @@ const { registerProjectFiles } = require('./routes/project-files');
 const { registerMedia } = require('./routes/media');
 const { registerFeed } = require('./routes/feed');
 const { registerStories } = require('./routes/stories');
-const { registerDirect } = require('./routes/direct');
 const { registerNotifications } = require('./routes/notifications');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
@@ -118,7 +117,6 @@ async function createApp(config, { db } = {}) {
   registerMedia(app, deps);
   registerFeed(app, deps);
   registerStories(app, deps);
-  registerDirect(app, deps);
   registerNotifications(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));

@@ -210,7 +210,7 @@ export function postCard(p, opts = {}) {
 
   const more = h('button.btn-icon', { type: 'button', title: 'Altre azioni', on: { click: () => popMenu(more, [
     { label: 'Vai al post', onClick: () => openPost(p.id, { onChange: refresh }) },
-    { label: 'Invia in chat', onClick: () => sharePost(p) },
+    { label: 'Copia link', onClick: () => copyPostLink(p) },
     store.me.is_admin ? { label: p.pinned_at ? 'Togli dall\'evidenza' : 'Metti in evidenza', onClick: async () => {
       replace(await (p.pinned_at ? del(`/api/posts/${p.id}/pin`) : post(`/api/posts/${p.id}/pin`)));
       toast(p.pinned_at ? 'Tolto dall\'evidenza' : 'In evidenza in cima alla bacheca per tutti');
@@ -236,7 +236,7 @@ export function postCard(p, opts = {}) {
     h('button.btn-icon.like', { type: 'button', class: p.liked ? 'on' : '', title: p.liked ? 'Non mi piace più' : 'Mi piace', on: { click: () => toggleLike() } },
       icon('heart', { size: 24, filled: p.liked })),
     h('button.btn-icon', { type: 'button', title: 'Commenta', on: { click: () => openPost(p.id, { onChange: refresh, focus: true }) } }, icon('comment', { size: 24 })),
-    h('button.btn-icon', { type: 'button', title: 'Invia in chat', on: { click: () => sharePost(p) } }, icon('send', { size: 23 })));
+    h('button.btn-icon', { type: 'button', title: 'Copia il link del post', on: { click: () => copyPostLink(p) } }, icon('send', { size: 23 })));
 
   const commentInput = h('input.input.comment-input', { placeholder: 'Aggiungi un commento…', maxLength: 2200 });
   const sendBtn = h('button.link-btn.strong', { type: 'submit', hidden: true }, 'Pubblica');
@@ -397,7 +397,7 @@ export async function openPost(id, { onChange, focus = false } = {}) {
     h('div.pm-bottom',
       h('div.post-actions', likeBtn,
         h('button.btn-icon', { type: 'button', title: 'Commenta', on: { click: () => input.focus() } }, icon('comment', { size: 24 })),
-        h('button.btn-icon', { type: 'button', title: 'Invia in chat', on: { click: () => sharePost(p) } }, icon('send', { size: 23 }))),
+        h('button.btn-icon', { type: 'button', title: 'Copia il link del post', on: { click: () => copyPostLink(p) } }, icon('send', { size: 23 }))),
       likesBox,
       h('div.post-meta.pm-date', fmtDate(p.created_at.slice(0, 10), { year: true })),
       replyBar, form));
@@ -413,26 +413,14 @@ export async function openPost(id, { onChange, focus = false } = {}) {
   if (focus) input.focus();
 }
 
-// ── condividi un post in chat ───────────────────────────────────────────────
-export async function sharePost(p) {
-  const convs = await get('/api/conversations');
-  const others = store.users.filter(u => u.id !== store.me.id && u.active);
-  const note = h('input.input', { placeholder: 'Scrivi un messaggio… (facoltativo)' });
-  const sendTo = async target => {
-    const c = target.conversation || await post('/api/conversations', { user_ids: [target.userId] });
-    if (note.value.trim()) await post(`/api/conversations/${c.id}/messages`, { body: note.value.trim() });
-    await post(`/api/conversations/${c.id}/messages`, { post_id: p.id });
-    m.close();
-    toast('Inviato');
-  };
-  const { convTitle, convAvatar } = await import('./direct.js');
-  const rows = [
-    ...convs.map(c => h('button.people-row', { type: 'button', on: { click: () => sendTo({ conversation: c }) } }, convAvatar(c, 40), h('div.grow', h('strong', convTitle(c))))),
-    ...others.filter(u => !convs.some(c => !c.is_group && c.members.some(x => x.user_id === u.id)))
-      .map(u => h('button.people-row', { type: 'button', on: { click: () => sendTo({ userId: u.id }) } }, avatar(u, 40), h('div.grow', h('strong', u.name), h('small', u.job_title || '')))),
-  ];
-  const m = modal({ title: 'Invia in chat', body: [note, h('div.people-list', rows.length ? rows : h('p.muted', 'Nessun collega ancora entrato.'))] });
+// ── link al post, da incollare in Teams o in una email ──────────────────────
+export function copyPostLink(p) {
+  const url = `${location.origin}/app#/p/${p.id}`;
+  navigator.clipboard.writeText(url).then(() => toast('Link copiato: incollalo in Teams o in una email'), () => toast(url));
 }
+
+// Chat di Teams con un collega (si apre nell'app Teams o nel browser).
+export const teamsChatUrl = u => `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(u.email)}`;
 
 // ── colonna a lato ──────────────────────────────────────────────────────────
 function sideColumn() {
@@ -450,7 +438,7 @@ function sideColumn() {
   people.append(...colleagues.slice(0, 8).map(u => h('div.side-person',
     h('a', { href: `#/u/${u.id}` }, avatar(u, 34)),
     h('div.grow', h('a.user-link.strong', { href: `#/u/${u.id}` }, u.name), h('small', u.job_title || `@${u.handle}`)),
-    h('button.link-btn.strong.accent', { type: 'button', on: { click: () => openChatWith(u.id) } }, 'Messaggio'))));
+    h('a.link-btn.strong.accent', { href: teamsChatUrl(u), target: '_blank', rel: 'noopener', title: `Chatta con ${u.name} su Teams` }, 'Messaggio'))));
   if (!colleagues.length) people.append(h('div.muted.small', 'I colleghi compaiono qui dopo il loro primo accesso.'));
 
   return h('aside.home-side',
@@ -458,9 +446,4 @@ function sideColumn() {
     h('section', h('div.side-title', h('span', 'Da fare per te'), h('a', { href: '#/mine' }, 'Tutti')), tickets),
     h('section', h('div.side-title', h('span', 'Colleghi')), people),
     h('div.side-foot', 'Intranet Almacis · Alma Planner'));
-}
-
-export async function openChatWith(userId) {
-  const c = await post('/api/conversations', { user_ids: [userId] });
-  location.hash = `#/direct/${c.id}`;
 }

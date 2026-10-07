@@ -13,11 +13,7 @@ function registerMedia(app, { db }) {
 
   app.get('/api/media/:id', async (req, res) => {
     const id = v.int(req.params.id, 'immagine', { min: 1 });
-    const { rows } = await db.query(
-      `SELECT m.mime, m.data FROM media m
-        WHERE m.id = $1 AND (m.conversation_id IS NULL OR EXISTS (
-          SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = m.conversation_id AND cm.user_id = $2))`,
-      [id, req.user.id]);
+    const { rows } = await db.query('SELECT mime, data FROM media WHERE id = $1', [id]);
     if (!rows[0]) throw new HttpError(404, 'Immagine non trovata');
     // L'id non cambia mai contenuto: il browser può tenerla in cache a lungo.
     res.set({ 'Content-Type': rows[0].mime, 'Cache-Control': 'private, max-age=31536000, immutable' });

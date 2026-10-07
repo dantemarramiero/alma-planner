@@ -1,6 +1,6 @@
-// Aggiornamenti in tempo reale dal server (messaggi, notifiche, nuovi post e storie).
+// Aggiornamenti in tempo reale dal server (notifiche, nuovi post e storie).
 const handlers = new Map();
-const EVENTS = ['message', 'read', 'notification', 'post', 'story', 'conversation', 'badges'];
+const EVENTS = ['notification', 'post', 'story', 'badges'];
 
 export function startLive() {
   const es = new EventSource('/api/stream');

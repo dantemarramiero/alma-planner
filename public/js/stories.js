@@ -110,26 +110,6 @@ export function openStories(userId, { onChange } = {}) {
       class: i < si ? 'done' : i === si ? 'run' : '',
       style: i === si ? { animationDuration: `${DURATION}ms` } : null,
     }))));
-    const reply = own ? null : h('form.story-reply', {
-      on: {
-        submit: async e => {
-          e.preventDefault();
-          const text = input.value.trim();
-          if (!text) return;
-          const c = await post('/api/conversations', { user_ids: [g.user_id] });
-          await post(`/api/conversations/${c.id}/messages`, { body: `Risposta alla tua storia${s.caption ? ` «${s.caption}»` : ''}: ${text}` });
-          input.value = '';
-          toast('Messaggio inviato');
-          input.blur();
-        },
-      },
-    }, null);
-    const input = h('input.input', {
-      placeholder: `Rispondi a ${firstName(u)}…`,
-      on: { focus: pause, blur: resume, keydown: e => e.stopPropagation() },
-    });
-    reply?.append(input, h('button.btn-icon.light', { type: 'submit', title: 'Invia' }, icon('send', { size: 22 })));
-
     const actions = [];
     if (own) {
       actions.push(h('button.story-seen', { type: 'button', on: { click: async () => { pause(); await showViewers(s); resume(); } } },
@@ -149,7 +129,7 @@ export function openStories(userId, { onChange } = {}) {
       s.caption ? h('div.story-caption', s.caption) : null,
       h('button.story-tap.left', { type: 'button', 'aria-label': 'Storia precedente', on: { click: prev } }),
       h('button.story-tap.right', { type: 'button', 'aria-label': 'Storia successiva', on: { click: next } }),
-      h('div.story-foot', reply, ...actions));
+      actions.length ? h('div.story-foot', actions) : null);
     schedule(DURATION);
   }
 

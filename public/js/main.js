@@ -1,7 +1,7 @@
 // Avvio e navigazione (#/percorso?parametri).
-import { h, clear, avatar, loading, toast } from './ui.js';
+import { h, clear, avatar, loading } from './ui.js';
 import { get, post } from './api.js';
-import { store, loadUsers, loadProjects, userById, firstName } from './store.js';
+import { store, loadUsers, loadProjects } from './store.js';
 import { ticketsView, openTicket } from './tickets.js';
 import { projectsView, projectDetail } from './projects.js';
 import { ganttView } from './gantt.js';
@@ -10,7 +10,6 @@ import { driveView } from './drive.js';
 import { orgView } from './org.js';
 import { homeView, openPost, openComposer } from './feed.js';
 import { profileView } from './profile.js';
-import { directView } from './direct.js';
 import { notificationsView } from './notifications.js';
 import { startLive, onLive } from './live.js';
 
@@ -32,7 +31,6 @@ async function route() {
   closeOverlays();
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home' : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
-  document.body.classList.toggle('on-direct', section === 'direct');
   cleanup?.();
   cleanup = null;
   clear(view).append(loading());
@@ -48,9 +46,17 @@ async function route() {
     case 'u':
       await profileView(view, Number(parts[1]));
       break;
-    case 'direct':
-      cleanup = directView(view, parts[1] ? Number(parts[1]) : null);
+    case 'direct': {
+      // Messaggi = chat di Microsoft Teams (public/js/teams.js, a cura della sessione Teams).
+      const teams = await import('./teams.js').catch(() => null);
+      if (teams) cleanup = (await teams.teamsView(view, params)) || null;
+      else {
+        clear(view).append(h('div.card.empty',
+          h('p', 'Qui arriveranno le chat di Microsoft Teams.'),
+          h('a.btn.btn-primary', { href: 'https://teams.microsoft.com/', target: '_blank', rel: 'noopener' }, 'Apri Teams')));
+      }
       break;
+    }
     case 'notifications':
       cleanup = notificationsView(view);
       break;
@@ -90,8 +96,12 @@ let badgeTimer = null;
 function refreshBadges() {
   clearTimeout(badgeTimer);
   badgeTimer = setTimeout(async () => {
-    const b = await get('/api/badges', { quiet: true }).catch(() => null);
+    const [b, teams] = await Promise.all([
+      get('/api/badges', { quiet: true }).catch(() => null),
+      get('/api/teams/unread', { quiet: true }).catch(() => null), // chat di Teams non lette, quando c'è
+    ]);
     if (!b) return;
+    b.direct = teams?.chats || 0;
     for (const [key, n] of Object.entries(b)) {
       for (const el of document.querySelectorAll(`[data-badge="${key}"]`)) {
         el.hidden = !n;
@@ -121,13 +131,7 @@ async function start() {
   }));
 
   startLive();
-  for (const ev of ['notification', 'message', 'read', 'badges']) onLive(ev, refreshBadges);
-  // un messaggio arrivato mentre si è altrove: avviso in basso
-  onLive('message', d => {
-    if (d.message.user_id === store.me.id || location.hash === `#/direct/${d.conversation_id}`) return;
-    toast(`Nuovo messaggio da ${firstName(userById(d.message.user_id)) || 'un collega'}`);
-  });
-  onLive('conversation', () => loadUsers());
+  for (const ev of ['notification', 'badges']) onLive(ev, refreshBadges);
   refreshBadges();
 
   window.addEventListener('hashchange', route);

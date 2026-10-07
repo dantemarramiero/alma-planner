@@ -1,4 +1,4 @@
-// Notifiche dell'intranet e contatori per il menu (notifiche nuove, chat con messaggi non letti).
+// Notifiche dell'intranet e contatore per il menu (le chat sono su Teams: il loro contatore è /api/teams/unread).
 function registerNotifications(app, { db, live }) {
   app.get('/api/notifications', async (req, res) => {
     const { rows } = await db.query(
@@ -21,11 +21,7 @@ function registerNotifications(app, { db, live }) {
 
   app.get('/api/badges', async (req, res) => {
     const { rows } = await db.query(
-      `SELECT (SELECT COUNT(*)::int FROM notifications WHERE user_id = $1 AND read_at IS NULL) AS notifications,
-              (SELECT COUNT(*)::int FROM conversation_members cm
-                WHERE cm.user_id = $1 AND EXISTS (
-                  SELECT 1 FROM messages m WHERE m.conversation_id = cm.conversation_id
-                     AND m.id > cm.last_read_id AND m.user_id IS DISTINCT FROM $1)) AS direct`, [req.user.id]);
+      'SELECT COUNT(*)::int AS notifications FROM notifications WHERE user_id = $1 AND read_at IS NULL', [req.user.id]);
     res.json(rows[0]);
   });
 }
