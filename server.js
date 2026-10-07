@@ -72,11 +72,13 @@ async function createApp(config, { db } = {}) {
   // Pagine
   const pub = path.join(__dirname, 'public');
   app.get('/', (req, res) => (req.user ? res.redirect('/app') : res.sendFile(path.join(pub, 'index.html'))));
-  app.get('/app', (req, res) => (req.user ? res.sendFile(path.join(pub, 'app.html')) : res.redirect('/auth/login?returnTo=/app')));
+  app.get('/app', (req, res) => (req.user ? res.set('Cache-Control', 'no-cache').sendFile(path.join(pub, 'app.html')) : res.redirect('/auth/login?returnTo=/app')));
   app.use('/vendor/frappe-gantt', express.static(path.join(__dirname, 'node_modules', 'frappe-gantt', 'dist'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar', express.static(path.join(__dirname, 'node_modules', 'fullcalendar'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar-locales', express.static(path.join(__dirname, 'node_modules', '@fullcalendar', 'core', 'locales'), { maxAge: '7d' }));
-  app.use(express.static(pub, { index: false, maxAge: config.production ? '1h' : 0 }));
+  // no-cache: il browser ricontrolla sempre (ETag, risposta 304 se uguale). Con una cache a tempo, dopo un
+  // aggiornamento mescolava moduli vecchi e nuovi e il Gantt chiamava API non più esistenti.
+  app.use(express.static(pub, { index: false, setHeaders: res => res.set('Cache-Control', 'no-cache') }));
 
   // API: sempre con utente; le modifiche richiedono l'header X-Alma (protezione CSRF insieme a SameSite=Lax).
   app.use('/api', (req, res, next) => auth.requireUser(req, res, next));
