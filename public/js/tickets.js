@@ -1,5 +1,5 @@
 // Ticket: lista, bacheca con trascinamento, scheda di dettaglio (drawer).
-import { h, clear, modal, confirmDialog, toast, fmtDate, fmtDateTime, today, statusPill, projChip, avatar, loading, debounce, STATUS, PRIORITY } from './ui.js';
+import { h, clear, modal, confirmDialog, toast, fmtDate, fmtDateTime, today, addDays, statusPill, projChip, avatar, loading, debounce, isMobile, STATUS, PRIORITY } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store, userById, activeProjects, projectById, loadProjects } from './store.js';
 import { peoplePicker, avatarsFor } from './people.js';
@@ -17,8 +17,9 @@ const isLate = t => t.due_date && t.status !== 'done' && t.due_date < today();
 // opts: { title, subtitle, fixed: { assignee?, project? }, embedded }
 export function ticketsView(container, opts = {}) {
   const fixed = opts.fixed || {};
+  const mobile = isMobile(); // sul telefono: solo schede, stato scelto con i pulsanti tondi
   const state = {
-    view: opts.view || savedView(),
+    view: mobile ? 'list' : opts.view || savedView(),
     q: '',
     project: fixed.project ?? '',
     assignee: fixed.assignee ?? '',
@@ -36,7 +37,7 @@ export function ticketsView(container, opts = {}) {
     h('option', { value: 'me' }, 'Assegnati a me'),
     h('option', { value: 'none' }, 'Non assegnati'),
     store.users.map(u => h('option', { value: String(u.id) }, u.name)));
-  const statusSelect = h('select.select', { on: { change: e => { state.status = e.target.value; load(); } } },
+  const statusSelect = h('select.select.st-select', { on: { change: e => { state.status = e.target.value; load(); } } },
     h('option', { value: 'open', selected: state.status === 'open' }, 'Aperti'),
     h('option', { value: '', selected: state.status === '' }, 'Tutti gli stati'),
     Object.entries(STATUS).map(([k, l]) => h('option', { value: k }, l)));
@@ -57,14 +58,21 @@ export function ticketsView(container, opts = {}) {
     onSaved: load,
   }) } }, '+ Nuovo ticket');
 
-  const toolbar = h('div.toolbar', search,
+  const toolbar = h('div.toolbar.tickets-tools', search,
     fixed.project === undefined ? projectSelect : null,
     fixed.assignee === undefined ? peopleSelect : null,
     statusSelect, h('span.grow'), viewSeg, newBtn);
 
   clear(container);
   if (opts.title) container.append(h('div.page-head', h('div', h('h1', opts.title), opts.subtitle ? h('div.sub', opts.subtitle) : null)));
-  container.append(toolbar, body);
+  // telefono: Aperti / In corso / Fatti al posto del menu dello stato
+  const pills = mobile ? h('div.m-pills', [['open', 'Aperti'], ['doing', 'In corso'], ['done', 'Fatti']].map(([k, l]) =>
+    h('button.m-pill', { type: 'button', class: state.status === k ? 'on' : '', 'aria-pressed': String(state.status === k), on: { click: e => {
+      state.status = k;
+      for (const b of pills.children) { b.classList.toggle('on', b === e.currentTarget); b.setAttribute('aria-pressed', String(b === e.currentTarget)); }
+      load();
+    } } }, l))) : null;
+  container.append(...(mobile ? [pills, toolbar] : [toolbar]), body);
 
   async function load() {
     body.replaceChildren(loading());
@@ -75,6 +83,7 @@ export function ticketsView(container, opts = {}) {
 
   function render() {
     clear(body);
+    if (mobile) return body.append(mobileList(tickets, { onChange: load, hideProject: fixed.project !== undefined, done: state.status === 'done' }));
     if (state.view === 'board') return body.append(board(tickets, { onChange: load, hideProject: fixed.project !== undefined }));
     if (!tickets.length) return body.append(h('div.card.empty', 'Nessun ticket. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newBtn.click(); } } }, 'Creane uno')));
     const sorted = [...tickets].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
@@ -92,6 +101,75 @@ export function ticketsView(container, opts = {}) {
 
   load();
   return { reload: load };
+}
+
+// ── telefono: schede raggruppate per scadenza ──────────────────────────────
+function dueGroup(t) {
+  if (t.status === 'done') return 'Fatti';
+  if (!t.due_date) return 'Senza scadenza';
+  const d = today();
+  if (t.due_date < d) return 'In ritardo';
+  if (t.due_date === d) return 'Oggi';
+  if (t.due_date <= addDays(d, 7)) return 'Prossimi 7 giorni';
+  return 'Più avanti';
+}
+const GROUP_ORDER = ['In ritardo', 'Oggi', 'Prossimi 7 giorni', 'Più avanti', 'Senza scadenza', 'Fatti'];
+
+function mobileList(tickets, { onChange, hideProject, done }) {
+  if (!tickets.length) return h('div.m-empty', done ? 'Ancora nessun ticket fatto.' : 'Niente qui. Bel lavoro.');
+  const sorted = [...tickets].sort((a, b) => done
+    ? String(b.updated_at).localeCompare(String(a.updated_at))
+    : (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
+  const groups = new Map();
+  for (const t of sorted) {
+    const g = dueGroup(t);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(t);
+  }
+  return h('div', GROUP_ORDER.filter(g => groups.has(g)).map(g => h('section',
+    h('h2.m-group', g), groups.get(g).map(t => ticketCard(t, { onChange, hideProject })))));
+}
+
+// Scheda di un ticket per il telefono: il cerchio lo segna come fatto (o lo riapre), il resto apre il dettaglio.
+export function ticketCard(t, { onChange, hideProject = false } = {}) {
+  let isDone = t.status === 'done';
+  const mark = h('span.m-check');
+  const paint = () => {
+    card.classList.toggle('done', isDone);
+    mark.classList.toggle('on', isDone);
+    mark.replaceChildren(...(isDone ? [checkIcon()] : []));
+    btn.setAttribute('aria-label', isDone ? 'Riapri il ticket' : 'Segna come fatto');
+  };
+  const btn = h('button.m-check-btn', { type: 'button', on: { click: async e => {
+    e.stopPropagation();
+    isDone = !isDone;
+    paint();
+    try {
+      await patch(`/api/tickets/${t.id}`, isDone ? { status: 'done' } : { status: 'todo' });
+      toast(isDone ? 'Fatto ✓' : 'Ticket riaperto');
+      setTimeout(() => onChange?.(), 700);
+    } catch {
+      isDone = !isDone;
+      paint();
+    }
+  } } }, mark);
+  const card = h('div.m-ticket', { on: { click: () => openTicket(t.id, { onSaved: onChange }) } },
+    btn,
+    h('div.grow',
+      h('div.m-ticket-title', t.title),
+      h('div.m-ticket-meta',
+        !hideProject && t.project_name ? projChip(t.project_name, t.project_color) : null,
+        t.status === 'doing' || t.status === 'review' ? statusPill(t.status) : null,
+        t.due_date && t.status !== 'done' ? h('span.m-due', { class: isLate(t) ? 'late' : '' }, t.due_date === today() ? 'Oggi' : fmtDate(t.due_date)) : null)),
+    avatarsFor(t.assignee_ids, 3));
+  paint();
+  return card;
+}
+
+function checkIcon() {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
+  return tpl.content.firstChild;
 }
 
 // Bacheca a colonne: trascinando una scheda cambia stato e ordine.

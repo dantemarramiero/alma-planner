@@ -1,0 +1,139 @@
+/* Alma Planner sul telefono: barra in alto, barra in basso a cinque tasti, fogli che salgono dal basso (come Instagram) */
+.m-top, .m-tabs, .m-only { display: none; }
+
+/* ── fogli dal basso: «Crea» e menu ─────────────────────────────────────── */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(17,17,17,.45); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--card); width: 100%; max-width: 520px; border-radius: 22px 22px 0 0; padding: 8px 16px calc(20px + env(safe-area-inset-bottom)); animation: sheet-up .18s ease-out; max-height: 90dvh; overflow-y: auto; }
+.sheet-grip { width: 40px; height: 5px; border-radius: 3px; background: #D9D4CE; margin: 0 auto 12px; }
+.sheet h2 { text-align: center; font-size: 18px; font-weight: 700; margin-bottom: 14px; }
+@keyframes sheet-up { from { transform: translateY(48px); opacity: .5; } }
+.create-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.create-opt { min-height: 116px; border: 0; border-radius: 18px; background: var(--bg); padding: 14px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 10px; text-align: left; cursor: pointer; }
+.create-opt:hover { background: #EFECE8; }
+.create-opt i { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: #fff; }
+.create-opt strong { display: block; font-size: 16px; }
+.create-opt small { display: block; color: var(--mid); font-size: 13px; margin-top: 1px; }
+.menu-list { display: grid; }
+.menu-list a, .menu-list button { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 6px; font-size: 16px; font-weight: 500; text-decoration: none; color: var(--ink); border: 0; border-bottom: 1px solid #EFECE8; background: none; width: 100%; cursor: pointer; text-align: left; }
+.menu-list > :last-child { border-bottom: 0; }
+.menu-list .nav-ico { width: 22px; font-size: 16px; color: var(--mid); }
+.menu-list .danger { color: var(--red); }
+
+/* ── ticket a schede (telefono) ─────────────────────────────────────────── */
+.m-pills { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.m-pills::-webkit-scrollbar { display: none; }
+.m-pill { height: 38px; padding: 0 16px; border-radius: 19px; border: 0; background: #ECE8E3; font-weight: 600; color: #3a3733; white-space: nowrap; cursor: pointer; flex: none; }
+.m-pill.on { background: var(--ink); color: #fff; }
+.m-group { font-size: 12px; font-weight: 600; color: var(--mid); text-transform: uppercase; letter-spacing: .06em; margin: 18px 2px 8px; }
+.m-ticket { display: flex; align-items: flex-start; gap: 6px; padding: 8px 12px 10px 4px; background: var(--card); border-radius: 16px; border: 1px solid #EFECE8; margin-bottom: 8px; cursor: pointer; }
+.m-check-btn { width: 44px; height: 44px; flex: none; border: 0; background: none; padding: 0; display: grid; place-items: center; cursor: pointer; }
+.m-check { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #A8A29B; background: var(--card); display: grid; place-items: center; color: #fff; }
+.m-check.on { background: var(--green); border-color: var(--green); }
+.m-ticket .grow { min-width: 0; flex: 1; padding-top: 4px; }
+.m-ticket-title { font-weight: 600; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.m-ticket.done .m-ticket-title { text-decoration: line-through; color: var(--muted); }
+.m-ticket-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.m-ticket .avatars { align-self: center; }
+.m-due { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: #EFECE8; color: #4a4642; }
+.m-due.late { background: var(--orange-soft); color: var(--orange-dark); }
+.m-empty { text-align: center; color: var(--mid); padding: 48px 16px; }
+
+/* «Da fare per te» in cima alla bacheca */
+.m-today { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px 12px 4px; }
+.m-today-head { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 6px; }
+.m-today-head h2 { font-size: 16px; font-weight: 700; }
+.m-today-head a { color: var(--orange-dark); font-weight: 600; text-decoration: none; }
+.m-today .m-ticket { border: 0; background: var(--bg); }
+
+/* attività del progetto: barre semplici al posto del Gantt */
+.m-timeline { padding: 14px 14px 10px; }
+.m-tl-axis { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--mid); margin-bottom: 8px; }
+.m-tl-rows { display: grid; gap: 12px; position: relative; }
+.m-tl-today { position: absolute; top: -6px; bottom: 0; width: 2px; background: var(--orange); opacity: .7; border-radius: 1px; }
+.m-tl-row { display: grid; gap: 5px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; width: 100%; }
+.m-tl-top { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.m-tl-top strong { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.m-tl-top span { color: var(--mid); white-space: nowrap; font-size: 13px; }
+.m-tl-track { display: block; height: 12px; border-radius: 6px; background: #F0EDE9; position: relative; }
+.m-tl-bar { position: absolute; top: 0; height: 12px; border-radius: 6px; min-width: 8px; background: var(--c, var(--orange)); }
+.m-tl-row.done strong { color: var(--muted); text-decoration: line-through; }
+.m-tl-row.done .m-tl-bar { opacity: .35; }
+.m-tl-note { font-size: 13px; color: var(--mid); margin: 12px 0 0; }
+
+/* riquadri dei progetti nel profilo */
+.proj-tile { position: relative; aspect-ratio: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 12px; color: #fff; text-decoration: none; background: var(--c, var(--orange)); overflow: hidden; }
+.proj-tile strong { font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; }
+.proj-tile small { font-size: 12px; font-weight: 600; }
+.proj-tile .bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,.35); margin-top: 4px; }
+.proj-tile .bar i { display: block; height: 4px; border-radius: 2px; background: #fff; }
+.profile-tabs button { border: 0; background: none; padding: 14px 0; margin: 0 24px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); cursor: pointer; border-top: 1px solid transparent; margin-top: -1px; }
+.profile-tabs button.on { color: var(--ink); border-top-color: var(--ink); }
+
+@media (max-width: 760px) {
+  body { font-size: 15px; }
+  .shell { display: block; min-height: 100dvh; }
+  .sidebar { display: none; }
+  .m-only { display: block; }
+  .m-hide { display: none !important; }
+
+  .m-top { display: flex; position: sticky; top: 0; z-index: 30; height: 52px; padding: 0 4px 0 14px; padding-top: env(safe-area-inset-top); box-sizing: content-box; align-items: center; justify-content: space-between; background: var(--card); border-bottom: 1px solid #EFECE8; }
+  .m-top .brand { font-size: 20px; }
+  .m-icons { display: flex; }
+  .m-ico { position: relative; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--ink); cursor: pointer; text-decoration: none; border-radius: 50%; }
+  .m-ico.active { color: var(--orange-dark); }
+  .m-ico .nav-badge { position: absolute; top: 3px; right: 1px; margin: 0; min-width: 18px; height: 18px; font-size: 10px; padding: 0 5px; border: 2px solid var(--card); box-sizing: content-box; }
+
+  .m-tabs { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; height: 56px; padding-bottom: env(safe-area-inset-bottom); background: var(--card); border-top: 1px solid #EFECE8; }
+  .m-tab { display: grid; place-items: center; color: var(--ink); text-decoration: none; border: 0; background: none; cursor: pointer; padding: 0; }
+  .m-tab .ico-on { display: none; }
+  .m-tab.active .ico-on { display: block; }
+  .m-tab.active .ico-off { display: none; }
+  .m-plus span { width: 46px; height: 34px; border-radius: 11px; background: var(--orange); color: #fff; display: grid; place-items: center; }
+  .m-me .avatar { width: 28px; height: 28px; font-size: 11px; border: 0; }
+  .m-me.active .avatar { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
+
+  .main { padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); }
+  .page-head { margin-bottom: 12px; }
+  .page-head .sub { display: none; }
+  .page-head h1 { font-size: 24px; font-weight: 700; }
+  .toasts { bottom: calc(68px + env(safe-area-inset-bottom)); left: 12px; right: 12px; }
+  .toast { max-width: none; }
+
+  /* finestre: salgono dal basso, a tutta larghezza */
+  .backdrop { padding: 0; align-items: flex-end; }
+  .modal, .modal.wide { max-width: none; border-radius: 20px 20px 0 0; max-height: 94dvh; }
+  .drawer { width: 100%; }
+  .drawer-backdrop { align-items: stretch; }
+  .modal-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .modal-foot .btn { min-height: 44px; }
+  .input, .select, textarea.input { font-size: 16px; min-height: 42px; } /* sotto i 16px iPhone ingrandisce la pagina */
+  .x { min-width: 44px; min-height: 44px; }
+
+  /* bacheca */
+  .stories { margin: -12px -12px 0; border-radius: 0; border-width: 0 0 1px; }
+  .composer, .home-side { display: none; }
+  .feed-col { gap: 12px; }
+  .feed-list { gap: 12px; }
+  .post { margin: 0 -12px; border-radius: 0; border-left: 0; border-right: 0; }
+
+  /* ticket: sul telefono solo le schede */
+  .tickets-tools .seg, .tickets-tools .btn-primary, .tickets-tools .st-select { display: none; }
+  .tickets-tools .input[type="search"] { flex: 1 1 100%; }
+  .tickets-tools .select { flex: 1 1 140px; }
+
+  /* progetti: due per riga */
+  .proj-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .proj-card { padding: 12px; gap: 8px; }
+  .proj-card p, .proj-card > .spread.small { display: none; }
+  .proj-card h2 { font-size: 15px; }
+
+  /* calendario */
+  .cal-card { padding: 8px; }
+  .fc .fc-toolbar-title { font-size: 17px; }
+  .fc .fc-toolbar { flex-direction: row !important; }
+
+  /* chat di Teams: tra la barra in alto e quella in basso */
+  .on-direct .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .tm { height: calc(100dvh - 52px - 80px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+}
+.proj-tile > span { display: block; }

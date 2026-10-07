@@ -1,6 +1,6 @@
 // Home dell'intranet: storie, nuovo post, bacheca (in evidenza + cronologica a scorrimento infinito),
 // e a lato il proprio profilo, i ticket da fare e i colleghi.
-import { h, clear, fill, avatar, modal, toast, timeAgo, fmtDate, confirmDialog, today, loading } from './ui.js';
+import { h, clear, fill, avatar, modal, toast, timeAgo, fmtDate, confirmDialog, today, loading, isMobile } from './ui.js';
 import { get, post, del } from './api.js';
 import { store, userById, firstName } from './store.js';
 import { mediaUrl, pickImages, uploadImage } from './media.js';
@@ -8,6 +8,7 @@ import { icon, richText, withMentions, popMenu, ringAvatar, userLink } from './s
 import { storiesBar, loadStories, openStories } from './stories.js';
 import { onLive } from './live.js';
 import { messageButton } from './teams.js';
+import { ticketCard } from './tickets.js';
 
 const MAX_PHOTOS = 10;
 const CAPTION_CUT = 220;
@@ -27,7 +28,7 @@ export function homeView(view, params) {
     newPill,
     tag
       ? h('div.tag-head', h('h1', `#${tag}`), h('a.btn.btn-sm', { href: '#/' }, '← Tutta la bacheca'))
-      : [stories.el, composerCard(() => reload())],
+      : [stories.el, isMobile() ? todayCard() : null, composerCard(() => reload())],
     pinnedBox, list, sentinel);
 
   fill(view, h('div.home', feedCol, sideColumn()));
@@ -422,6 +423,22 @@ export function copyPostLink(p) {
 
 
 // ── colonna a lato ──────────────────────────────────────────────────────────
+// Telefono: i ticket più urgenti in cima alla bacheca (sul computer stanno nella colonna a destra).
+function todayCard() {
+  const box = h('div', loading());
+  const card = h('section.m-today', h('div.m-today-head', h('h2', 'Da fare per te'), h('a', { href: '#/mine' }, 'Tutti')), box);
+  const draw = async () => {
+    const list = await get('/api/tickets?assignee=me&status=open', { quiet: true }).catch(() => null);
+    if (!list) return card.remove();
+    list.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
+    fill(box, list.length
+      ? list.slice(0, 3).map(t => ticketCard(t, { onChange: draw }))
+      : h('p.muted', { style: { margin: '0 4px 10px' } }, 'Niente in sospeso. Bel lavoro.'));
+  };
+  draw();
+  return card;
+}
+
 function sideColumn() {
   const tickets = h('div.side-list', loading());
   const people = h('div.side-list');

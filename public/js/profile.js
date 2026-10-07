@@ -1,7 +1,7 @@
 // Profilo di una persona: foto, ruolo, presentazione, numeri e griglia dei post.
 import { h, clear, fill, avatar, modal, toast, loading } from './ui.js';
 import { get, patch } from './api.js';
-import { store, loadUsers } from './store.js';
+import { store, loadUsers, activeProjects } from './store.js';
 import { mediaUrl, pickImages, uploadImage } from './media.js';
 import { icon, richText, ringAvatar } from './social.js';
 import { openPost } from './feed.js';
@@ -41,9 +41,27 @@ export async function profileView(view, id) {
     grid.append(tile);
   }
 
-  fill(view, h('div.profile', head,
-    h('div.profile-tabs', h('span.on', 'Post')),
-    p.posts.length ? grid : h('div.empty', own ? 'Non hai ancora pubblicato nulla. Il tuo primo post compare qui.' : 'Nessun post per ora.')));
+  const postsBox = p.posts.length ? grid : h('div.empty', own ? 'Non hai ancora pubblicato nulla. Il tuo primo post compare qui.' : 'Nessun post per ora.');
+  if (!own) return fill(view, h('div.profile', head, h('div.profile-tabs', h('span.on', 'Post')), postsBox));
+
+  // Nel proprio profilo, come la griglia di Instagram: i post e i progetti (un riquadro colorato per progetto)
+  const projects = activeProjects().filter(x => x.status !== 'done');
+  const projBox = projects.length
+    ? h('div.profile-grid', projects.map(x => {
+      const pct = x.ticket_count ? Math.round((x.done_count / x.ticket_count) * 100) : 0;
+      return h('a.proj-tile', { href: `#/projects/${x.id}`, style: { '--c': x.color } },
+        h('strong', x.name),
+        h('span', h('small', `${pct}%`), h('span.bar', { style: { display: 'block' } }, h('i', { style: { width: `${pct}%` } }))));
+    }))
+    : h('div.empty', 'Nessun progetto attivo.');
+  const tabs = h('div.profile-tabs', [['post', 'Post'], ['progetti', 'Progetti']].map(([k, l]) =>
+    h('button', { type: 'button', 'data-k': k, class: k === 'post' ? 'on' : '', 'aria-pressed': String(k === 'post'), on: { click: () => show(k) } }, l)));
+  const body = h('div', postsBox);
+  function show(k) {
+    for (const b of tabs.children) { b.classList.toggle('on', b.dataset.k === k); b.setAttribute('aria-pressed', String(b.dataset.k === k)); }
+    body.replaceChildren(k === 'post' ? postsBox : projBox);
+  }
+  fill(view, h('div.profile', head, tabs, body));
 }
 
 function editProfile(onSaved) {

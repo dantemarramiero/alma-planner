@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Alma Planner</title>
   <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/css/intranet.css">
   <link rel="stylesheet" href="/css/org.css">
   <link rel="stylesheet" href="/css/teams.css">
+  <link rel="stylesheet" href="/css/mobile.css">
   <script src="/vendor/frappe-gantt/frappe-gantt.umd.js"></script>
   <script src="/vendor/fullcalendar/index.global.min.js"></script>
   <script src="/vendor/fullcalendar-locales/it.global.min.js"></script>
@@ -44,7 +45,42 @@
         <button class="btn btn-ghost btn-sm" id="logout" type="button">Esci</button>
       </div>
     </aside>
+    <!-- Sul telefono: barra in alto (notifiche, chat, menu) e barra in basso a cinque tasti, come Instagram -->
+    <header class="m-top">
+      <a class="brand" href="#/"><span class="brand-mark">a</span><span>Alma</span></a>
+      <div class="m-icons">
+        <a class="m-ico" href="#/notifications" data-nav="notifications" aria-label="Notifiche">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          <span class="nav-badge" data-badge="notifications" hidden></span>
+        </a>
+        <a class="m-ico" href="#/direct" data-nav="direct" aria-label="Chat">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.7 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.3a8.5 8.5 0 1 1 15.7-4.2z"/></svg>
+          <span class="nav-badge" data-badge="direct" hidden></span>
+        </a>
+        <button class="m-ico" id="m-menu" type="button" aria-label="Menu">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </header>
     <main class="main" id="view" tabindex="-1"></main>
+    <nav class="m-tabs" aria-label="Menu principale">
+      <a class="m-tab" href="#/" data-nav="home" aria-label="Home">
+        <svg class="ico-off" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>
+        <svg class="ico-on" width="27" height="27" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>
+      </a>
+      <a class="m-tab" href="#/mine" data-nav="mine" aria-label="I miei ticket">
+        <svg class="ico-off" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="m8 12 3 3 5-6"/></svg>
+        <svg class="ico-on" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor" stroke="currentColor"/><path d="m8 12 3 3 5-6" stroke="#fff" stroke-width="2.2"/></svg>
+      </a>
+      <button class="m-tab m-plus" id="m-create" type="button" aria-label="Crea">
+        <span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+      </button>
+      <a class="m-tab" href="#/calendar" data-nav="calendar" aria-label="Calendario">
+        <svg class="ico-off" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        <svg class="ico-on" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="currentColor" stroke="currentColor"/><path d="M3 10h18" stroke="#fff"/><path d="M8 3v4M16 3v4" stroke="currentColor"/></svg>
+      </a>
+      <a class="m-tab m-me" href="#/" data-nav="me" id="m-me" aria-label="Profilo"></a>
+    </nav>
   </div>
   <div id="overlay-root"></div>
   <div class="toasts" id="toasts" aria-live="polite"></div>
