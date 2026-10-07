@@ -43,7 +43,7 @@ export function teamsView(view) {
   const chat = h('section.tm-chat');
   const root = h('div.tm.card', { class: chatId ? 'tm-open' : '' },
     h('aside.tm-list',
-      h('div.tm-list-head', h('h2', 'Messaggi'),
+      h('div.tm-list-head', h('h2', 'Chat'),
         h('button.btn.btn-sm', { type: 'button', title: 'Nuova chat', on: { click: () => newChat() } }, '＋ Nuova')),
       listBox),
     chat);
