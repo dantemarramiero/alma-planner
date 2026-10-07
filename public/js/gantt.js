@@ -1,10 +1,13 @@
-// Gantt: una barra per progetto; aprendo un progetto i suoi ticket diventano attività sotto la barra.
-// Trascinare o allungare una barra cambia le date (progetto o ticket); la maniglia cambia l'avanzamento del ticket.
-import { h, clear, toast, loading, fmtDate, today, addDays, toISODate, STATUS } from './ui.js';
+// Gantt. Le righe sono attività: i ticket del progetto con date e le attività create a mano.
+// - Gantt di un progetto (?project=id): il progetto è solo il titolo, le barre sono le sue attività.
+// - Gantt generale: una barra per progetto lunga quanto le sue attività (non si sposta a mano);
+//   aprendo un progetto compaiono le sue attività sotto.
+// Trascinare/allungare una barra cambia le date dell'attività o del ticket; la maniglia cambia l'avanzamento.
+import { h, clear, toast, loading, fmtDate, addDays, toISODate, STATUS } from './ui.js';
 import { get, patch } from './api.js';
-import { store, loadProjects, userById } from './store.js';
+import { store, loadProjects, userById, projectById } from './store.js';
 import { openTicket } from './tickets.js';
-import { editProject } from './projects.js';
+import { openActivity } from './activities.js';
 
 const OPEN_KEY = 'alma.ganttOpen';
 const MODE_KEY = 'alma.ganttMode';
@@ -13,17 +16,18 @@ const MODES = [['Day', 'Giorni'], ['Week', 'Settimane'], ['Month', 'Mesi']];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const readStore = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const writeStore = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* niente */ } };
+const firstNames = ids => ids.map(id => userById(id)?.name.split(' ')[0]).filter(Boolean).join(', ');
 
-// opts.embedded: Gantt di un solo progetto dentro la sua pagina (senza intestazione, ticket sempre aperti).
-export async function ganttView(container, params, { embedded = false } = {}) {
+// opts.embedded: Gantt di un progetto dentro la sua pagina (senza intestazione);
+// opts.onChange: chiamata quando attività o ticket vengono cambiati dal Gantt (non quando lo ricarica qualcun altro).
+export async function ganttView(container, params, { embedded = false, onChange } = {}) {
   const onlyProject = params.get('project') ? Number(params.get('project')) : null;
-  const loadTickets = () => get(`/api/tickets${onlyProject ? `?project=${onlyProject}` : ''}`);
   let open = new Set(readStore(OPEN_KEY, []));
-  if (onlyProject) open.add(onlyProject);
   let mode = readStore(MODE_KEY, 'Week');
   let showDone = false;
   let showLoose = false;
   let tickets = [];
+  let activities = [];
   let gantt = null;
 
   const chartBox = h('div.card.gantt-card');
@@ -38,13 +42,11 @@ export async function ganttView(container, params, { embedded = false } = {}) {
 
   const expandAll = h('button.btn', { type: 'button', on: { click: () => {
     const ids = visibleProjects().map(p => p.id);
-    const allOpen = ids.every(id => open.has(id));
-    open = allOpen ? new Set() : new Set(ids);
+    open = ids.every(id => open.has(id)) ? new Set() : new Set(ids);
     writeStore(OPEN_KEY, [...open]);
     draw();
-  } } }, 'Apri/chiudi tutti i ticket');
+  } } }, 'Apri/chiudi tutte le attività');
 
-  // scelta del progetto: «Tutti» oppure il Gantt di un progetto solo
   const projectSelect = h('select.select', { 'aria-label': 'Progetto', on: { change: e => {
     location.hash = e.target.value ? `#/gantt?project=${e.target.value}` : '#/gantt';
   } } },
@@ -52,71 +54,98 @@ export async function ganttView(container, params, { embedded = false } = {}) {
   store.projects.filter(p => p.status !== 'archived' || p.id === onlyProject)
     .map(p => h('option', { value: String(p.id), selected: p.id === onlyProject }, p.name)));
 
+  const newActivity = onlyProject
+    ? h('button.btn.btn-primary', { type: 'button', on: { click: () => openActivity(null, { projectId: onlyProject, onSaved: refresh }) } }, '+ Attività')
+    : null;
+  const project = onlyProject ? projectById(onlyProject) : null;
+
   clear(container).append(...[
     embedded ? null : h('div.page-head',
-      h('div', h('h1', 'Gantt'), h('div.sub', onlyProject
-        ? 'I ticket del progetto come attività. Trascina le barre per spostare le date, la maniglia per l\'avanzamento.'
-        : 'Trascina le barre per spostare le date. Clicca un progetto per vedere i suoi ticket come attività.')),
+      h('div', h('h1', project ? project.name : 'Gantt'), h('div.sub', onlyProject
+        ? 'Gantt del progetto: ticket con date e attività. Trascina le barre per spostare le date, la maniglia per l\'avanzamento.'
+        : 'Ogni barra è un progetto, lunga quanto le sue attività. Clicca un progetto per vederle.')),
       projectSelect),
     h('div.toolbar', modeSeg, onlyProject ? null : expandAll,
-      h('label.check', h('input', { type: 'checkbox', on: { change: e => { showDone = e.target.checked; draw(); } } }), 'Ticket fatti'),
+      h('label.check', h('input', { type: 'checkbox', on: { change: e => { showDone = e.target.checked; draw(); } } }), 'Mostra completate'),
       onlyProject ? null : h('label.check', h('input', { type: 'checkbox', on: { change: e => { showLoose = e.target.checked; draw(); } } }), 'Ticket senza progetto'),
       h('span.grow'),
-      embedded ? h('a.btn.btn-sm', { href: `#/gantt?project=${onlyProject}` }, 'Apri a tutta pagina') : null),
+      embedded ? h('a.btn.btn-sm', { href: `#/gantt?project=${onlyProject}` }, 'Apri a tutta pagina') : null,
+      newActivity),
     styleEl, chartBox, undatedBox,
-    h('div.gantt-legend', h('span', '▬ barra piena: progetto'), h('span', '▭ barra chiara: ticket'), h('span', '→ frecce: dipendenze tra ticket')),
+    h('div.gantt-legend',
+      onlyProject ? null : h('span', '▬ barra piena: progetto'),
+      h('span', '▭ ticket'), h('span', '▤ attività'), h('span', '→ dipendenze tra ticket')),
   ].filter(Boolean));
 
   chartBox.append(loading());
-  await loadProjects();
-  tickets = await loadTickets();
-  draw();
+  await reload();
 
   function visibleProjects() {
     return store.projects.filter(p => (onlyProject ? p.id === onlyProject : p.status === 'active' || p.status === 'paused'));
   }
 
-  function ticketTask(t, groupClass) {
-    const s = t.start_date || t.due_date, e = t.due_date || t.start_date;
-    const who = t.assignee_ids.map(id => userById(id)?.name.split(' ')[0]).filter(Boolean).join(', ');
+  function ticketRow(t, group) {
     return {
       id: `t-${t.id}`,
-      name: esc(who ? `${t.title} · ${who}` : t.title),
-      start: s, end: e,
-      progress: t.progress,
-      dependencies: '',
-      custom_class: `${groupClass}${t.status === 'done' ? '-done' : ''}`, // un solo nome di classe: Frappe non ne accetta di più
+      name: esc(`${t.title}${t.assignee_ids.length ? ` · ${firstNames(t.assignee_ids)}` : ''}`),
+      start: t.start_date || t.due_date, end: t.due_date || t.start_date,
+      progress: t.progress, dependencies: '',
+      custom_class: `gt-${group}${t.status === 'done' ? '-done' : ''}`, // un solo nome di classe: Frappe non ne accetta di più
       _ticket: t,
     };
+  }
+
+  function activityRow(a, group) {
+    return {
+      id: `a-${a.id}`,
+      name: esc(`${a.title}${a.assignee_ids.length ? ` · ${firstNames(a.assignee_ids)}` : ''}`),
+      start: a.start_date, end: a.end_date,
+      progress: a.progress, dependencies: '',
+      custom_class: `ga-${group}${a.progress >= 100 ? '-done' : ''}`,
+      _activity: a,
+    };
+  }
+
+  // attività di un progetto (ticket con date + manuali), in ordine di inizio
+  function projectItems(pid) {
+    const ts = tickets.filter(t => t.project_id === pid && (t.start_date || t.due_date) && (showDone || t.status !== 'done'))
+      .map(t => ticketRow(t, pid));
+    const as = activities.filter(a => a.project_id === pid && (showDone || a.progress < 100)).map(a => activityRow(a, pid));
+    return [...ts, ...as].sort((x, y) => x.start.localeCompare(y.start) || x.end.localeCompare(y.end));
+  }
+
+  function colors(group, color) {
+    return [
+      `.gantt :is(.gt-${group},.gt-${group}-done) .bar{fill:${color}2e;stroke:${color}88;stroke-width:1}`,
+      `.gantt :is(.gt-${group},.gt-${group}-done) .bar-progress{fill:${color}99}`,
+      `.gantt :is(.ga-${group},.ga-${group}-done) .bar{fill:${color}55;stroke:${color};stroke-width:1;stroke-dasharray:4 2}`,
+      `.gantt :is(.ga-${group},.ga-${group}-done) .bar-progress{fill:${color}}`,
+    ];
   }
 
   function build() {
     const rows = [];
     const css = [];
     for (const p of visibleProjects()) {
-      const s = p.start_date || p.tickets_start || today();
-      let e = p.end_date || p.tickets_end || addDays(s, 13);
-      if (e < s) e = s;
+      css.push(...colors(p.id, p.color));
+      const items = projectItems(p.id);
+      if (onlyProject) { rows.push(...items); continue; }
+      // vista generale: barra del progetto = arco delle sue attività
+      if (!p.span_start) continue;
       const isOpen = open.has(p.id);
       const pct = p.ticket_count ? Math.round((p.done_count / p.ticket_count) * 100) : 0;
       rows.push({
-        id: `p-${p.id}`, name: esc(`${isOpen ? '▾' : '▸'} ${p.name}`), start: s, end: e, progress: pct,
+        id: `p-${p.id}`, name: esc(`${isOpen ? '▾' : '▸'} ${p.name}`), start: p.span_start, end: p.span_end, progress: pct,
         dependencies: '', custom_class: `gp-${p.id}`, _project: p,
       });
       css.push(`.gantt .gp-${p.id} .bar{fill:${p.color}}`,
         `.gantt .gp-${p.id} .bar-progress{fill:rgba(0,0,0,.22)}`,
-        `.gantt .gp-${p.id} .bar-label:not(.big){fill:#fff;font-weight:700}`,
-        `.gantt :is(.gt-${p.id},.gt-${p.id}-done) .bar{fill:${p.color}2e;stroke:${p.color}88;stroke-width:1}`,
-        `.gantt :is(.gt-${p.id},.gt-${p.id}-done) .bar-progress{fill:${p.color}99}`);
-      if (isOpen) {
-        tickets.filter(t => t.project_id === p.id && (t.start_date || t.due_date) && (showDone || t.status !== 'done'))
-          .sort((a, b) => (a.start_date || a.due_date).localeCompare(b.start_date || b.due_date))
-          .forEach(t => rows.push(ticketTask(t, `gt-${p.id}`)));
-      }
+        `.gantt .gp-${p.id} .bar-label:not(.big){fill:#fff;font-weight:700}`);
+      if (isOpen) rows.push(...items);
     }
     if (showLoose && !onlyProject) {
       tickets.filter(t => !t.project_id && (t.start_date || t.due_date) && (showDone || t.status !== 'done'))
-        .forEach(t => rows.push(ticketTask(t, 'gt-none')));
+        .forEach(t => rows.push(ticketRow(t, 'none')));
       css.push('.gantt :is(.gt-none,.gt-none-done) .bar{fill:#E6E2DD;stroke:#cfcac4}', '.gantt :is(.gt-none,.gt-none-done) .bar-progress{fill:#bdb7b0}');
     }
     // dipendenze solo tra ticket visibili
@@ -134,7 +163,9 @@ export async function ganttView(container, params, { embedded = false } = {}) {
     clear(chartBox);
     drawUndated();
     if (!rows.length) {
-      chartBox.append(h('div.empty', 'Nessun progetto attivo. ', h('a', { href: '#/projects' }, 'Crea un progetto')));
+      chartBox.append(h('div.empty', onlyProject
+        ? ['Nessuna attività. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newActivity.click(); } } }, 'Crea la prima'), ' oppure dai una data ai ticket del progetto.']
+        : ['Nessun progetto con attività. ', h('a', { href: '#/projects' }, 'Vai ai progetti')]));
       gantt = null;
       return;
     }
@@ -149,7 +180,7 @@ export async function ganttView(container, params, { embedded = false } = {}) {
       padding: 16,
       container_height: 'auto',
       today_button: true,
-      scroll_to: onlyProject ? addDays(rows[0].start, -3) : 'today', // un progetto: si parte dal suo inizio
+      scroll_to: onlyProject ? addDays(rows[0].start, -3) : 'today', // un progetto: si parte dalla prima attività
       move_dependencies: false,
       auto_move_label: true,
       popup_on: 'click',
@@ -161,17 +192,23 @@ export async function ganttView(container, params, { embedded = false } = {}) {
           const p = r._project;
           ctx.set_title(esc(p.name));
           ctx.set_subtitle(`${fmtDate(s)} → ${fmtDate(e)}`);
-          ctx.set_details(`${p.done_count}/${p.ticket_count} ticket fatti${p.start_date ? '' : '<br><small>Date ricavate dai ticket</small>'}`);
-          ctx.add_action(open.has(p.id) ? 'Nascondi ticket' : 'Mostra ticket', () => toggle(p.id));
-          ctx.add_action('Apri progetto', () => { location.hash = `#/projects/${p.id}`; });
-          ctx.add_action('Modifica', () => editProject(p, reload));
+          ctx.set_details(`${p.ticket_count} ticket, ${p.activity_count} attività<br><small>La durata viene dalle attività</small>`);
+          ctx.add_action(open.has(p.id) ? 'Nascondi attività' : 'Mostra attività', () => toggle(p.id));
+          ctx.add_action('Gantt del progetto', () => { location.hash = `#/gantt?project=${p.id}`; });
+        } else if (r._activity) {
+          const a = r._activity;
+          ctx.set_title(esc(a.title));
+          ctx.set_subtitle(`${fmtDate(s)} → ${fmtDate(e)} · attività`);
+          const who = a.assignee_ids.map(id => userById(id)?.name).filter(Boolean);
+          ctx.set_details(`${esc(who.join(', '))}<br>Avanzamento ${a.progress}%${a.file_count ? ` · 📎 ${a.file_count}` : ''}`);
+          ctx.add_action('Apri attività', () => openActivity(a.id, { onSaved: refresh }));
         } else {
           const t = r._ticket;
           ctx.set_title(esc(t.title));
-          ctx.set_subtitle(`${fmtDate(s)} → ${fmtDate(e)} · ${STATUS[t.status]}`);
+          ctx.set_subtitle(`${fmtDate(s)} → ${fmtDate(e)} · ticket ${STATUS[t.status].toLowerCase()}`);
           const who = t.assignee_ids.map(id => userById(id)?.name).filter(Boolean);
           ctx.set_details(`${esc(who.join(', ') || 'Nessun assegnatario')}<br>Avanzamento ${t.progress}%`);
-          ctx.add_action('Apri ticket', () => openTicket(t.id, { onSaved: reload }));
+          ctx.add_action('Apri ticket', () => openTicket(t.id, { onSaved: refresh }));
         }
       },
       on_date_change: async (task, start, end) => {
@@ -179,14 +216,19 @@ export async function ganttView(container, params, { embedded = false } = {}) {
         const s = toISODate(start), e = toISODate(end);
         try {
           if (r._project) {
-            await patch(`/api/projects/${r._project.id}`, { start_date: s, end_date: e }, { quiet: true });
-            Object.assign(r._project, { start_date: s, end_date: e });
-          } else {
-            const t = r._ticket;
-            await patch(`/api/tickets/${t.id}`, { start_date: s, due_date: e }, { quiet: true });
-            Object.assign(t, { start_date: s, due_date: e });
-            await loadProjects();
+            toast('La durata del progetto viene dalle sue attività: sposta quelle');
+            draw();
+            return;
           }
+          if (r._activity) {
+            await patch(`/api/activities/${r._activity.id}`, { start_date: s, end_date: e }, { quiet: true });
+            Object.assign(r._activity, { start_date: s, end_date: e });
+          } else {
+            await patch(`/api/tickets/${r._ticket.id}`, { start_date: s, due_date: e }, { quiet: true });
+            Object.assign(r._ticket, { start_date: s, due_date: e });
+          }
+          await loadProjects();
+          onChange?.();
         } catch (err) {
           toast(err.message, 'err');
           reload();
@@ -197,14 +239,21 @@ export async function ganttView(container, params, { embedded = false } = {}) {
         if (r._project) { toast('L\'avanzamento del progetto si calcola dai ticket fatti'); draw(); return; }
         const value = Math.max(0, Math.min(100, Math.round(progress / 5) * 5));
         try {
-          await patch(`/api/tickets/${r._ticket.id}`, { progress: value }, { quiet: true });
-          r._ticket.progress = value;
+          if (r._activity) {
+            await patch(`/api/activities/${r._activity.id}`, { progress: value }, { quiet: true });
+            r._activity.progress = value;
+          } else {
+            await patch(`/api/tickets/${r._ticket.id}`, { progress: value }, { quiet: true });
+            r._ticket.progress = value;
+          }
+          onChange?.();
         } catch (err) { toast(err.message, 'err'); reload(); }
       },
       on_double_click: task => {
         const r = byId.get(task.id);
         if (r._project) toggle(r._project.id);
-        else openTicket(r._ticket.id, { onSaved: reload });
+        else if (r._activity) openActivity(r._activity.id, { onSaved: refresh });
+        else openTicket(r._ticket.id, { onSaved: refresh });
       },
     });
     // altezza «auto» di Frappe non conta la barra di scorrimento orizzontale: senza questo compare anche quella verticale
@@ -216,23 +265,33 @@ export async function ganttView(container, params, { embedded = false } = {}) {
 
   function toggle(id) {
     if (open.has(id)) open.delete(id); else open.add(id);
-    if (!onlyProject) writeStore(OPEN_KEY, [...open]); // la vista di un progetto non cambia quella generale
+    writeStore(OPEN_KEY, [...open]);
     gantt?.popup?.hide?.();
     draw();
   }
 
   function drawUndated() {
     clear(undatedBox);
-    const ids = new Set(visibleProjects().filter(p => open.has(p.id)).map(p => p.id));
+    const ids = new Set(visibleProjects().filter(p => onlyProject || open.has(p.id)).map(p => p.id));
     const list = tickets.filter(t => ids.has(t.project_id) && !t.start_date && !t.due_date && t.status !== 'done');
     if (!list.length) return;
     undatedBox.append(h('div.small.muted', { style: { marginBottom: '6px' } }, `${list.length} ticket senza date (non compaiono nel Gantt):`),
-      h('div.row', list.map(t => h('button.btn.btn-sm', { type: 'button', on: { click: () => openTicket(t.id, { onSaved: reload }) } }, t.title))));
+      h('div.row', list.map(t => h('button.btn.btn-sm', { type: 'button', on: { click: () => openTicket(t.id, { onSaved: refresh }) } }, t.title))));
   }
 
   async function reload() {
     await loadProjects();
-    tickets = await loadTickets();
+    [tickets, activities] = await Promise.all([
+      get(`/api/tickets${onlyProject ? `?project=${onlyProject}` : ''}`),
+      get(onlyProject ? `/api/projects/${onlyProject}/activities` : '/api/activities'),
+    ]);
     draw();
   }
+
+  async function refresh() {
+    await reload();
+    onChange?.();
+  }
+
+  return { reload };
 }

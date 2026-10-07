@@ -7,6 +7,7 @@ import { projectsView, projectDetail } from './projects.js';
 import { ganttView } from './gantt.js';
 import { calendarView } from './calendar.js';
 import { driveView } from './drive.js';
+import { myActivities } from './activities.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -23,9 +24,13 @@ async function route() {
   clear(view).append(loading());
 
   switch (section) {
-    case 'mine':
-      ticketsView(view, { title: 'I miei ticket', subtitle: 'Quello che è assegnato a te.', fixed: { assignee: 'me' } });
+    case 'mine': {
+      const ticketsBox = h('div'), activitiesBox = h('div');
+      clear(view).append(ticketsBox, activitiesBox);
+      ticketsView(ticketsBox, { title: 'I miei ticket', subtitle: 'Ticket assegnati a te e attività di progetto di cui sei responsabile.', fixed: { assignee: 'me' } });
+      myActivities(activitiesBox);
       break;
+    }
     case 'tickets':
       ticketsView(view, { title: 'Tutti i ticket', subtitle: 'Filtra per progetto, persona o stato.' });
       if (parts[1]) openTicket(Number(parts[1]), {});

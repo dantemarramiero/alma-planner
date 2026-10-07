@@ -1,14 +1,16 @@
-// Progetti: griglia, scheda del progetto (ticket, cartella OneDrive), creazione e modifica.
+// Progetti: griglia, scheda del progetto (Gantt, ticket, documenti, cartella OneDrive), creazione e modifica.
+// Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
 import { h, clear, modal, confirmDialog, toast, fmtDate, avatar, loading, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
 import { post, patch, del } from './api.js';
 import { store, loadProjects, projectById, userById } from './store.js';
 import { ticketsView } from './tickets.js';
 import { driveBrowser, pickDriveItem } from './drive.js';
 import { ganttView } from './gantt.js';
+import { projectDocuments } from './activities.js';
 
 const dates = p => {
-  const s = p.start_date || p.tickets_start, e = p.end_date || p.tickets_end;
-  if (!s && !e) return 'Senza date';
+  const s = p.span_start, e = p.span_end;
+  if (!s && !e) return 'Nessuna attività';
   return `${fmtDate(s) || '…'} → ${fmtDate(e) || '…'}`;
 };
 const pct = p => (p.ticket_count ? Math.round((p.done_count / p.ticket_count) * 100) : 0);
@@ -21,7 +23,7 @@ export async function projectsView(container) {
   const grid = h('div.proj-grid');
   const archivedToggle = h('label.check', h('input', { type: 'checkbox', on: { change: e => { showArchived = e.target.checked; draw(); } } }), 'Mostra archiviati');
   clear(container).append(
-    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'Ogni progetto raccoglie i suoi ticket, la cartella OneDrive e le date per il Gantt.')),
+    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'Ogni progetto raccoglie il suo Gantt, i ticket e i documenti.')),
       h('div.row', archivedToggle, h('button.btn.btn-primary', { type: 'button', on: { click: () => editProject(null, async p => { location.hash = `#/projects/${p.id}`; }) } }, '+ Nuovo progetto'))),
     grid);
 
@@ -51,6 +53,7 @@ export async function projectDetail(container, id) {
 
   const ticketsBox = h('div');
   const ganttBox = h('div');
+  const docsBox = h('div');
   const driveBox = h('div');
 
   clear(container).append(
@@ -64,17 +67,25 @@ export async function projectDetail(container, id) {
     h('div.card', { style: { padding: '12px 14px', maxWidth: '520px', '--c': p.color } },
       h('div.spread.small.muted', { style: { marginBottom: '6px' } }, h('span', `${p.done_count} di ${p.ticket_count} ticket fatti`), h('span', `${pct(p)}%`)),
       h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
+    h('div.section', h('div.spread', h('h2', 'Gantt')), ganttBox),
     h('div.section', h('div.spread', h('h2', 'Ticket')), ticketsBox),
-    h('div.section', h('div.spread', h('h2', 'Gantt del progetto')), ganttBox),
+    h('div.section', h('div.spread', h('h2', 'Documenti')), docsBox),
     h('div.section', h('div.spread', h('h2', 'Cartella OneDrive'),
       store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null),
     driveBox));
 
-  // il Gantt si ridisegna quando cambiano i ticket (nuovi, spostati, chiusi)
-  const drawGantt = () => ganttView(ganttBox, new URLSearchParams({ project: String(p.id) }), { embedded: true });
+  // Gantt, bacheca e documenti si tengono allineati: un cambio in uno ricarica gli altri.
+  let board = null;
+  const docs = projectDocuments(docsBox, p.id);
+  const gantt = ganttView(ganttBox, new URLSearchParams({ project: String(p.id) }), {
+    embedded: true,
+    onChange: () => { board?.reload(); docs.then(d => d.reload()); },
+  });
   let firstLoad = true;
-  ticketsView(ticketsBox, { fixed: { project: String(p.id) }, view: 'board', onLoaded: () => { if (!firstLoad) drawGantt(); firstLoad = false; } });
-  drawGantt();
+  board = ticketsView(ticketsBox, { fixed: { project: String(p.id) }, view: 'board', onLoaded: () => {
+    if (!firstLoad) gantt.then(g => g.reload());
+    firstLoad = false;
+  } });
 
   if (!store.me.microsoft) driveBox.append(h('div.card.empty', 'OneDrive non è ancora collegato.'));
   else if (!p.onedrive_item_id) driveBox.append(h('div.card.empty', 'Nessuna cartella collegata. Collegane una per avere qui i documenti del progetto.'));
@@ -96,14 +107,12 @@ export async function projectDetail(container, id) {
 
 export function editProject(p, onSaved) {
   const isNew = !p;
-  p = p || { name: '', description: '', color: PROJECT_COLORS[store.projects.length % PROJECT_COLORS.length], status: 'active', start_date: null, end_date: null, owner_id: store.me.id };
+  p = p || { name: '', description: '', color: PROJECT_COLORS[store.projects.length % PROJECT_COLORS.length], status: 'active', owner_id: store.me.id };
   let color = p.color;
   const name = h('input.input', { value: p.name, autofocus: true, placeholder: 'Es. Sito nuovo Almacis' });
   const desc = h('textarea.input', { rows: 3 }, p.description);
   const status = h('select.select', Object.entries(PROJECT_STATUS).map(([k, l]) => h('option', { value: k, selected: k === p.status }, l)));
   const owner = h('select.select', h('option', { value: '' }, '—'), store.users.map(u => h('option', { value: String(u.id), selected: u.id === p.owner_id }, u.name)));
-  const start = h('input.input', { type: 'date', value: p.start_date || '' });
-  const end = h('input.input', { type: 'date', value: p.end_date || '' });
   const swatches = h('div.swatches', PROJECT_COLORS.map(c => h('button.swatch', { type: 'button', title: c, class: c === color ? 'on' : '', style: { background: c }, on: { click: e => {
     color = c; swatches.querySelectorAll('.swatch').forEach(s => s.classList.remove('on')); e.currentTarget.classList.add('on');
   } } })));
@@ -123,12 +132,10 @@ export function editProject(p, onSaved) {
       h('label.field', h('span', 'Nome'), name),
       h('label.field', h('span', 'Descrizione'), desc),
       h('div.grid-2',
-        h('label.field', h('span', 'Inizio'), start),
-        h('label.field', h('span', 'Fine'), end),
         h('label.field', h('span', 'Stato'), status),
         h('label.field', h('span', 'Responsabile'), owner)),
       h('div.field', h('span', 'Colore'), swatches),
-      h('div.muted.small', 'Senza date, il Gantt usa quelle dei ticket del progetto.'),
+      h('div.muted.small', 'La durata del progetto la danno le sue attività nel Gantt.'),
     ],
     left,
     actions: [
@@ -142,7 +149,6 @@ export function editProject(p, onSaved) {
     const payload = {
       name: name.value, description: desc.value, color, status: status.value,
       owner_id: owner.value ? Number(owner.value) : null,
-      start_date: start.value || null, end_date: end.value || null,
     };
     const r = isNew ? await post('/api/projects', payload) : await patch(`/api/projects/${p.id}`, payload);
     m.close();

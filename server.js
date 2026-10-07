@@ -9,6 +9,7 @@ const { registerProjects } = require('./routes/projects');
 const { registerTickets } = require('./routes/tickets');
 const { registerCalendar } = require('./routes/calendar');
 const { registerDrive } = require('./routes/drive');
+const { registerActivities } = require('./routes/activities');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -91,6 +92,7 @@ async function createApp(config, { db } = {}) {
   registerTickets(app, deps);
   registerCalendar(app, deps);
   registerDrive(app, deps);
+  registerActivities(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
 

@@ -79,7 +79,7 @@ test('progetto, ticket con più assegnatari, dipendenze e filtri', async () => {
   const proj = (await api('GET', `/api/projects/${p.id}`)).body;
   assert.equal(proj.ticket_count, 2);
   assert.equal(proj.done_count, 1);
-  assert.equal(proj.tickets_start, '2026-10-05');
+  assert.equal(proj.span_start, '2026-10-05');
 
   await api('POST', `/api/tickets/${t2.id}/comments`, { body: 'Prima bozza pronta' });
   await api('POST', `/api/tickets/${t2.id}/files`, { drive_id: 'd1', item_id: 'i1', name: 'logo.pdf' });
@@ -91,6 +91,49 @@ test('progetto, ticket con più assegnatari, dipendenze e filtri', async () => {
   await api('DELETE', `/api/projects/${p.id}`);
   const orphan = (await api('GET', `/api/tickets/${t2.id}`)).body;
   assert.equal(orphan.project_id, null);
+});
+
+test('attività manuali: date obbligatorie, responsabili, arco del progetto, «le mie attività»', async () => {
+  const me = (await api('GET', '/api/me')).body;
+  const p = (await api('POST', '/api/projects', { name: 'Impianto Teramo' })).body;
+  const empty = (await api('GET', `/api/projects/${p.id}`)).body;
+  assert.equal(empty.span_start, null);
+
+  const noDates = await api('POST', `/api/projects/${p.id}/activities`, { title: 'Collaudo' });
+  assert.equal(noDates.status, 400);
+  const backwards = await api('POST', `/api/projects/${p.id}/activities`, { title: 'Collaudo', start_date: '2026-11-10', end_date: '2026-11-01' });
+  assert.equal(backwards.status, 400);
+
+  const a = await api('POST', `/api/projects/${p.id}/activities`, { title: 'Collaudo', start_date: '2026-11-02', end_date: '2026-11-06', assignee_ids: [me.id] });
+  assert.equal(a.status, 201);
+  assert.deepEqual(a.body.assignee_ids, [me.id]);
+  await api('POST', '/api/tickets', { title: 'Ordine materiali', project_id: p.id, start_date: '2026-10-20', due_date: '2026-10-25' });
+
+  const proj = (await api('GET', `/api/projects/${p.id}`)).body;
+  assert.equal(proj.span_start, '2026-10-20');
+  assert.equal(proj.span_end, '2026-11-06');
+  assert.equal(proj.activity_count, 1);
+
+  const moved = await api('PATCH', `/api/activities/${a.body.id}`, { start_date: '2026-11-09', end_date: '2026-11-13' });
+  assert.equal(moved.body.end_date, '2026-11-13');
+  assert.equal((await api('PATCH', `/api/activities/${a.body.id}`, { end_date: null })).status, 400);
+
+  const mine = (await api('GET', '/api/activities?assignee=me')).body;
+  assert.ok(mine.some(x => x.id === a.body.id));
+
+  // file collegati: all'attività e al progetto, elencati insieme
+  await api('POST', `/api/projects/${p.id}/files`, { drive_id: 'd', item_id: 'x1', name: 'verbale.pdf', activity_id: a.body.id });
+  await api('POST', `/api/projects/${p.id}/files`, { drive_id: 'd', item_id: 'x2', name: 'contratto.pdf' });
+  const files = (await api('GET', `/api/projects/${p.id}/files`)).body.files;
+  assert.deepEqual(files.map(f => [f.name, f.activity_title]).sort(), [['contratto.pdf', null], ['verbale.pdf', 'Collaudo']]);
+  assert.equal((await api('GET', `/api/activities/${a.body.id}`)).body.files.length, 1);
+
+  // caricare senza cartella collegata: errore chiaro
+  const up = await api('POST', `/api/projects/${p.id}/files/upload?name=a.txt`, undefined);
+  assert.equal(up.status, 400);
+
+  await api('DELETE', `/api/activities/${a.body.id}`);
+  assert.equal((await api('GET', `/api/projects/${p.id}/files`)).body.files.length, 1);
 });
 
 test('senza Microsoft configurato OneDrive risponde 503 e il calendario mostra solo i ticket', async () => {

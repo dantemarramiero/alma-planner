@@ -170,7 +170,7 @@ table.list tbody tr:hover { background: #fcfaf8; }
 .modal { background: var(--card); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.2); width: 100%; max-width: 560px; display: flex; flex-direction: column; max-height: 88vh; }
 .modal.wide { max-width: 760px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--rule); }
-.modal-body { padding: 18px; overflow-y: auto; display: grid; gap: 14px; }
+.modal-body { padding: 18px; overflow-y: auto; display: grid; gap: 14px; align-content: start; }
 .modal-foot { padding: 12px 18px; border-top: 1px solid var(--rule); display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .modal-foot .left { margin-right: auto; display: flex; gap: 8px; }
 .drawer-backdrop { justify-content: flex-end; padding: 0; align-items: stretch; }

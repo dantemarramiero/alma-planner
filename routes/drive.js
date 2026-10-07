@@ -2,10 +2,9 @@
 const express = require('express');
 const { HttpError, v } = require('../lib/http');
 const { graph, graphAll, odataString } = require('../lib/graph');
+const { uploadFile } = require('../lib/onedrive');
 
 const SELECT = 'id,name,size,folder,file,lastModifiedDateTime,lastModifiedBy,webUrl,parentReference,remoteItem';
-const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024;
-const CHUNK = 320 * 1024 * 12; // i blocchi delle sessioni di caricamento devono essere multipli di 320 KiB
 
 function mapItem(it) {
   const r = it.remoteItem; // elementi condivisi: i dati veri stanno in remoteItem
@@ -92,33 +91,10 @@ function registerDrive(app, { auth }) {
   app.post('/api/drive/upload', express.raw({ type: () => true, limit: '250mb' }), async (req, res) => {
     const name = v.text(req.query.name, 'nome', { max: 250, required: true });
     if (/[\\/:*?"<>|]/.test(name)) throw new HttpError(400, 'Il nome del file contiene caratteri non ammessi');
-    const data = req.body;
-    if (!Buffer.isBuffer(data)) throw new HttpError(400, 'File mancante');
     const token = await auth.graphToken(req.user.id);
-    const parent = itemPath(req.query.drive, req.query.item);
-    const target = `${parent}:/${encodeURIComponent(name)}:`;
-    let item;
-    if (data.length <= SIMPLE_UPLOAD_MAX) {
-      item = await graph(token, 'PUT', `${target}/content?@microsoft.graph.conflictBehavior=rename`, {
-        body: data, raw: true, headers: { 'Content-Type': 'application/octet-stream' },
-      });
-    } else {
-      const session = await graph(token, 'POST', `${target}/createUploadSession`, {
-        body: { item: { '@microsoft.graph.conflictBehavior': 'rename' } },
-      });
-      for (let off = 0; off < data.length; off += CHUNK) {
-        const chunk = data.subarray(off, Math.min(off + CHUNK, data.length));
-        const r = await fetch(session.uploadUrl, { // URL pre-autorizzato: niente header Authorization
-          method: 'PUT',
-          headers: { 'Content-Length': String(chunk.length), 'Content-Range': `bytes ${off}-${off + chunk.length - 1}/${data.length}` },
-          body: chunk,
-        });
-        if (!r.ok) throw new HttpError(502, `Caricamento interrotto (${r.status})`);
-        if (r.status === 200 || r.status === 201) item = await r.json();
-      }
-    }
+    const item = await uploadFile(token, itemPath(req.query.drive, req.query.item), { name, data: req.body });
     res.status(201).json(mapItem(item));
   });
 }
 
-module.exports = { registerDrive };
+module.exports = { registerDrive, mapItem, itemPath };

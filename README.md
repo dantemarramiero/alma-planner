@@ -7,8 +7,10 @@ Gestione del team interno Almacis: **progetti**, **ticket** assegnati a una o pi
 | Area | Cosa fa |
 |---|---|
 | Ticket | Lista e bacheca (trascina tra Da fare / In corso / In revisione / Fatto), più assegnatari, priorità, inizio e scadenza, avanzamento, dipendenze, commenti, file OneDrive collegati |
-| Progetti | Colore, stato, date, responsabile, avanzamento (ticket fatti / totali), cartella OneDrive del progetto |
-| Gantt | Una barra per progetto; aprendo il progetto i suoi ticket diventano attività con frecce di dipendenza. Trascinare/allungare una barra cambia le date, la maniglia cambia l'avanzamento |
+| Progetti | Colore, stato, responsabile, avanzamento (ticket fatti / totali), cartella OneDrive, documenti. La durata è l'arco delle sue attività |
+| Gantt di progetto | Il progetto è il titolo; le righe sono le attività: i ticket del progetto con date e le attività create a mano (inizio, fine, uno o più responsabili, avanzamento, file). Trascinare/allungare una barra cambia le date, la maniglia l'avanzamento |
+| Gantt generale | Una barra per progetto lunga quanto le sue attività; aprendola compaiono le attività |
+| Documenti | File caricati nella cartella OneDrive del progetto (sottocartella per attività) o collegati da OneDrive; la pagina del progetto mostra quelli del progetto, delle attività e dei ticket |
 | Calendario | Eventi Outlook + ticket nello stesso calendario; crea, sposta e cancella eventi Outlook (anche riunioni Teams); un ticket si può mettere in calendario e l'evento segue le sue date |
 | OneDrive | Il proprio OneDrive, i file condivisi, i recenti, ricerca, caricamento (anche trascinando), nuove cartelle, scaricamento |
 
@@ -18,7 +20,8 @@ Gestione del team interno Almacis: **progetti**, **ticket** assegnati a una o pi
 - `lib/auth.js` — accesso con Microsoft (MSAL, codice + PKCE), sessioni su DB, cache dei token cifrata per utente
 - `lib/db.js` — Postgres (`DATABASE_URL`) oppure PGlite in locale; migrazioni in `migrations/`
 - `lib/graph.js` — chiamate a Microsoft Graph
-- `routes/` — `projects`, `tickets`, `users`, `calendar`, `drive`
+- `routes/` — `projects`, `tickets`, `activities` (attività del Gantt e file di progetto), `users`, `calendar`, `drive`
+- `lib/onedrive.js` — caricamento file su OneDrive (anche grandi, con sottocartelle)
 - `public/` — interfaccia (HTML + moduli JS, niente build); Gantt con [Frappe Gantt](https://github.com/frappe/gantt), calendario con [FullCalendar](https://fullcalendar.io)
 
 ## In locale

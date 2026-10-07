@@ -3,13 +3,14 @@ const { HttpError, v } = require('../lib/http');
 
 const STATUSES = ['active', 'paused', 'done', 'archived'];
 
-// Date «effettive» per il Gantt: quelle del progetto, altrimenti l'arco dei suoi ticket.
+// La durata del progetto è l'arco delle sue attività: ticket con date + attività create a mano.
 const SELECT = `
   SELECT p.*, o.name AS owner_name,
          COUNT(t.id)::int AS ticket_count,
          COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS done_count,
-         MIN(COALESCE(t.start_date, t.due_date)) AS tickets_start,
-         MAX(COALESCE(t.due_date, t.start_date)) AS tickets_end
+         (SELECT COUNT(*)::int FROM activities a WHERE a.project_id = p.id) AS activity_count,
+         LEAST(MIN(COALESCE(t.start_date, t.due_date)), (SELECT MIN(a.start_date) FROM activities a WHERE a.project_id = p.id)) AS span_start,
+         GREATEST(MAX(COALESCE(t.due_date, t.start_date)), (SELECT MAX(a.end_date) FROM activities a WHERE a.project_id = p.id)) AS span_end
     FROM projects p
     LEFT JOIN users o ON o.id = p.owner_id
     LEFT JOIN tickets t ON t.project_id = p.id`;
