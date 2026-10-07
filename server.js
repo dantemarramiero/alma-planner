@@ -11,6 +11,7 @@ const { registerCalendar } = require('./routes/calendar');
 const { registerDrive } = require('./routes/drive');
 const { registerOrg } = require('./routes/org');
 const { registerProjectFiles } = require('./routes/project-files');
+const { registerDirect } = require('./routes/direct');
 const { registerMedia } = require('./routes/media');
 const { registerFeed } = require('./routes/feed');
 const { registerStories } = require('./routes/stories');
@@ -38,6 +39,8 @@ function readConfig(env = process.env) {
     devLogin: !production && env.DEV_LOGIN === '1',
     // Amministratori dell'intranet (post in evidenza, moderazione): email separate da virgole.
     adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
+    // Chat interna dell'intranet: nascosta (i messaggi passano da Teams), si riaccende con INTERNAL_CHAT=1.
+    internalChat: env.INTERNAL_CHAT === '1',
   };
 }
 
@@ -105,7 +108,7 @@ async function createApp(config, { db } = {}) {
 
   const live = createLive();
   const isAdmin = req => config.adminEmails.includes(req.user.email);
-  const deps = { db, auth, baseUrl: config.baseUrl, live, isAdmin, notifier: createNotifier({ db, live }) };
+  const deps = { db, auth, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
   live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);
@@ -118,6 +121,7 @@ async function createApp(config, { db } = {}) {
   registerFeed(app, deps);
   registerStories(app, deps);
   registerNotifications(app, deps);
+  if (config.internalChat) registerDirect(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
 

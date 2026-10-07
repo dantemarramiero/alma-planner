@@ -1,4 +1,4 @@
-// Test dell'intranet: post, commenti, mi piace, menzioni, storie, profili e tempo reale, con tre colleghi.
+// Test dell'intranet: post, commenti, mi piace, menzioni, storie, profili, tempo reale e chat interna (accesa qui), con tre colleghi.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp, readConfig } = require('../server');
@@ -30,7 +30,7 @@ const upload = who => api(who, 'POST', '/api/media?w=1&h=1', JPEG, { raw: true, 
 
 before(async () => {
   db = await createDb({});
-  const config = readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: 'anna.rossi@almacis.it' });
+  const config = readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: 'anna.rossi@almacis.it', INTERNAL_CHAT: '1' });
   const { app } = await createApp(config, { db });
   server = app.listen(0);
   await new Promise(r => server.once('listening', r));
@@ -177,12 +177,18 @@ test('storie: le proprie per prime, viste, scadute nascoste', async () => {
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM media WHERE id = $1', [m.id])).rows[0].n, 0);
 });
 
-test('migrazione 006: la chat interna non c\'è più', async () => {
-  for (const table of ['conversations', 'conversation_members', 'messages']) {
-    assert.equal((await db.query(`SELECT to_regclass('${table}') AS t`)).rows[0].t, null);
-  }
-  assert.equal((await api('anna', 'GET', '/api/conversations')).status, 404);
-  assert.deepEqual(Object.keys((await api('anna', 'GET', '/api/badges')).body), ['notifications']);
+test('chat interna spenta (INTERNAL_CHAT assente): niente API e niente voce nel menu', async () => {
+  const { app } = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0' }), { db });
+  const srv = app.listen(0);
+  await new Promise(r => srv.once('listening', r));
+  const get = path => fetch(`http://127.0.0.1:${srv.address().port}${path}`, { headers: { cookie: users.anna.cookie } });
+  assert.equal((await (await get('/api/me')).json()).internal_chat, false);
+  assert.equal((await get('/api/conversations')).status, 404);
+  assert.deepEqual(Object.keys(await (await get('/api/badges')).json()), ['notifications']);
+  // accesa (configurazione dei test): c'è
+  assert.equal((await api('anna', 'GET', '/api/me')).body.internal_chat, true);
+  assert.deepEqual(Object.keys((await api('anna', 'GET', '/api/badges')).body), ['notifications', 'internal']);
+  srv.close();
 });
 
 test('tempo reale: un nuovo post arriva agli altri collegati', async () => {
@@ -203,5 +209,70 @@ test('tempo reale: un nuovo post arriva agli altri collegati', async () => {
   const p = (await api('anna', 'POST', '/api/posts', { body: 'Ciao a tutti' })).body;
   assert.ok(await waitFor('event: post'));
   assert.ok(received.includes(`"id":${p.id}`));
+  ctrl.abort();
+});
+
+test('chat: a due riusata, gruppo, foto riservata ai membri, non letti e tempo reale', async () => {
+  // canale in tempo reale di Luca
+  const ctrl = new AbortController();
+  const stream = await fetch(`${base}/api/stream`, { headers: { cookie: users.luca.cookie }, signal: ctrl.signal });
+  assert.match(stream.headers.get('content-type'), /^text\/event-stream/);
+  const reader = stream.body.getReader();
+  let received = '';
+  const waitFor = async text => {
+    const until = Date.now() + 3000;
+    while (!received.includes(text) && Date.now() < until) {
+      const { value } = await Promise.race([reader.read(), new Promise(r => setTimeout(() => r({}), 200))]);
+      if (value) received += Buffer.from(value).toString();
+    }
+    return received.includes(text);
+  };
+  await waitFor('retry');
+
+  const c = (await api('anna', 'POST', '/api/conversations', { user_ids: [users.luca.id] })).body;
+  const again = (await api('anna', 'POST', '/api/conversations', { user_ids: [users.luca.id] })).body;
+  assert.equal(again.id, c.id);
+  assert.equal(c.is_group, false);
+  assert.equal(c.members.find(m => m.user_id === users.luca.id).online, true);
+
+  const photo = (await upload('anna')).body;
+  const msg = await api('anna', 'POST', `/api/conversations/${c.id}/messages`, { body: 'Ciao Luca', media_id: photo.id });
+  assert.equal(msg.status, 201);
+  assert.ok(await waitFor('event: message'));
+  assert.ok(received.includes('Ciao Luca'));
+
+  // la foto della chat non la vede chi non è nel gruppo
+  assert.equal((await api('luca', 'GET', `/api/media/${photo.id}`)).status, 200);
+  assert.equal((await api('sara', 'GET', `/api/media/${photo.id}`)).status, 404);
+  // e non si può riusare in un post
+  assert.equal((await api('anna', 'POST', '/api/posts', { media_ids: [photo.id] })).status, 400);
+  // chi non è membro non legge né scrive
+  assert.equal((await api('sara', 'GET', `/api/conversations/${c.id}/messages`)).status, 404);
+  assert.equal((await api('sara', 'POST', `/api/conversations/${c.id}/messages`, { body: 'x' })).status, 404);
+
+  assert.equal((await api('luca', 'GET', '/api/badges')).body.internal, 1);
+  const list = (await api('luca', 'GET', '/api/conversations')).body;
+  assert.equal(list[0].unread, 1);
+  assert.equal(list[0].last_message.body, 'Ciao Luca');
+  await api('luca', 'POST', `/api/conversations/${c.id}/read`);
+  assert.equal((await api('luca', 'GET', '/api/badges')).body.internal, 0);
+  const read = (await api('anna', 'GET', `/api/conversations/${c.id}`)).body;
+  assert.equal(read.members.find(m => m.user_id === users.luca.id).last_read_id, msg.body.id);
+
+  // post condiviso in chat
+  const p = (await api('sara', 'POST', '/api/posts', { body: 'Da condividere' })).body;
+  const shared = (await api('luca', 'POST', `/api/conversations/${c.id}/messages`, { post_id: p.id })).body;
+  assert.equal(shared.post.body, 'Da condividere');
+
+  // gruppo: chi entra dopo non ha non letti vecchi; si può uscire
+  const g = (await api('anna', 'POST', '/api/conversations', { user_ids: [users.luca.id], title: 'Team Alfa' })).body;
+  assert.equal(g.is_group, true);
+  await api('anna', 'POST', `/api/conversations/${g.id}/messages`, { body: 'Benvenuti' });
+  await api('anna', 'POST', `/api/conversations/${g.id}/members`, { user_ids: [users.sara.id] });
+  const saraList = (await api('sara', 'GET', '/api/conversations')).body;
+  assert.equal(saraList.find(x => x.id === g.id).unread, 0);
+  await api('sara', 'DELETE', `/api/conversations/${g.id}/members/me`);
+  assert.equal((await api('sara', 'GET', `/api/conversations/${g.id}`)).status, 404);
+
   ctrl.abort();
 });

@@ -1,5 +1,6 @@
-// Notifiche dell'intranet e contatore per il menu (le chat sono su Teams: il loro contatore è /api/teams/unread).
-function registerNotifications(app, { db, live }) {
+// Notifiche dell'intranet e contatori per il menu. Le chat di Teams hanno il loro (/api/teams/unread);
+// «internal» = chat interna con messaggi non letti, solo se è accesa (INTERNAL_CHAT=1).
+function registerNotifications(app, { db, live, internalChat }) {
   app.get('/api/notifications', async (req, res) => {
     const { rows } = await db.query(
       `SELECT n.id, n.actor_id, n.kind, n.post_id, n.comment_id, n.read_at, n.created_at,
@@ -21,7 +22,11 @@ function registerNotifications(app, { db, live }) {
 
   app.get('/api/badges', async (req, res) => {
     const { rows } = await db.query(
-      'SELECT COUNT(*)::int AS notifications FROM notifications WHERE user_id = $1 AND read_at IS NULL', [req.user.id]);
+      `SELECT (SELECT COUNT(*)::int FROM notifications WHERE user_id = $1 AND read_at IS NULL) AS notifications
+              ${internalChat ? `, (SELECT COUNT(*)::int FROM conversation_members cm
+                WHERE cm.user_id = $1 AND EXISTS (
+                  SELECT 1 FROM messages m WHERE m.conversation_id = cm.conversation_id
+                     AND m.id > cm.last_read_id AND m.user_id IS DISTINCT FROM $1)) AS internal` : ''}`, [req.user.id]);
     res.json(rows[0]);
   });
 }

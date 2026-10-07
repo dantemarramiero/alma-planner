@@ -8,6 +8,7 @@ import { ganttView } from './gantt.js';
 import { calendarView } from './calendar.js';
 import { driveView } from './drive.js';
 import { orgView } from './org.js';
+import { directView } from './direct.js';
 import { homeView, openPost, openComposer } from './feed.js';
 import { profileView } from './profile.js';
 import { notificationsView } from './notifications.js';
@@ -31,6 +32,7 @@ async function route() {
   closeOverlays();
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home' : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
+  document.body.classList.toggle('on-chat', section === 'chat');
   cleanup?.();
   cleanup = null;
   clear(view).append(loading());
@@ -57,6 +59,10 @@ async function route() {
       }
       break;
     }
+    case 'chat':
+      if (!store.me.internal_chat) { clear(view).append(h('div.card.empty', 'Pagina non trovata.')); break; }
+      cleanup = directView(view, parts[1] ? Number(parts[1]) : null);
+      break;
     case 'notifications':
       cleanup = notificationsView(view);
       break;
@@ -131,7 +137,8 @@ async function start() {
   }));
 
   startLive();
-  for (const ev of ['notification', 'badges']) onLive(ev, refreshBadges);
+  for (const ev of ['notification', 'badges', 'message', 'read']) onLive(ev, refreshBadges);
+  document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   refreshBadges();
 
   window.addEventListener('hashchange', route);
