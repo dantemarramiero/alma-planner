@@ -9,6 +9,7 @@ const { registerProjects } = require('./routes/projects');
 const { registerTickets } = require('./routes/tickets');
 const { registerCalendar } = require('./routes/calendar');
 const { registerDrive } = require('./routes/drive');
+const { registerOrg } = require('./routes/org');
 const { registerProjectFiles } = require('./routes/project-files');
 
 function readConfig(env = process.env) {
@@ -94,6 +95,7 @@ async function createApp(config, { db } = {}) {
   registerTickets(app, deps);
   registerCalendar(app, deps);
   registerDrive(app, deps);
+  registerOrg(app, deps);
   registerProjectFiles(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));

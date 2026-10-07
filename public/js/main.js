@@ -7,6 +7,7 @@ import { projectsView, projectDetail } from './projects.js';
 import { ganttView } from './gantt.js';
 import { calendarView } from './calendar.js';
 import { driveView } from './drive.js';
+import { orgView } from './org.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -44,6 +45,9 @@ async function route() {
     }
     case 'drive':
       driveView(view);
+      break;
+    case 'org':
+      await orgView(view, params);
       break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
