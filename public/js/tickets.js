@@ -4,6 +4,7 @@ import { get, post, patch, del, qs } from './api.js';
 import { store, userById, activeProjects, projectById, loadProjects } from './store.js';
 import { peoplePicker, avatarsFor } from './people.js';
 import { pickDriveItem } from './drive.js';
+import { uploadButton, fileRow } from './activities.js';
 
 const VIEW_KEY = 'alma.ticketView';
 const savedView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
@@ -154,14 +155,15 @@ function board(tickets, { onChange, hideProject }) {
 }
 
 // ── scheda del ticket ──────────────────────────────────────────────────────
-export async function openTicket(id, { defaults = {}, onSaved } = {}) {
+// requireSchedule: il ticket è un'attività del Gantt, quindi servono inizio, scadenza e almeno un responsabile.
+export async function openTicket(id, { defaults = {}, onSaved, requireSchedule = false } = {}) {
   const isNew = !id;
   let t = isNew
     ? { title: '', description: '', status: 'todo', priority: 'normal', project_id: null, start_date: null, due_date: null, progress: 0, assignee_ids: [], depends_on: [], files: [], comments: [], ...defaults }
     : await get(`/api/tickets/${id}`);
   let changed = false;
 
-  const title = h('input.title-input', { value: t.title, placeholder: 'Titolo del ticket', autofocus: isNew });
+  const title = h('input.title-input', { value: t.title, placeholder: requireSchedule ? 'Nome dell\'attività' : 'Titolo del ticket', autofocus: isNew });
   const desc = h('textarea.input', { placeholder: 'Descrizione, note, link…', rows: 5 }, t.description);
   const project = h('select.select', h('option', { value: '' }, 'Nessun progetto'),
     store.projects.filter(p => p.status !== 'archived' || p.id === t.project_id)
@@ -172,7 +174,7 @@ export async function openTicket(id, { defaults = {}, onSaved } = {}) {
   const due = h('input.input', { type: 'date', value: t.due_date || '' });
   const progressVal = h('span.muted', `${t.progress}%`);
   const progress = h('input.range', { type: 'range', min: '0', max: '100', step: '5', value: String(t.progress), on: { input: e => { progressVal.textContent = `${e.target.value}%`; } } });
-  const people = peoplePicker({ selected: t.assignee_ids, label: '+ Assegna' });
+  const people = peoplePicker({ selected: t.assignee_ids, label: requireSchedule ? '+ Responsabile' : '+ Assegna' });
   status.addEventListener('change', () => { if (status.value === 'done') { progress.value = '100'; progressVal.textContent = '100%'; } });
 
   // dipendenze: altri ticket dello stesso progetto (o tutti se senza progetto)
@@ -207,7 +209,7 @@ export async function openTicket(id, { defaults = {}, onSaved } = {}) {
       h('label.field', h('span', 'Scadenza'), due),
       h('label.field', h('span', 'Priorità'), priority),
       h('label.field', h('span', h('span', 'Avanzamento '), progressVal), progress)),
-    h('div.field', h('span', 'Assegnato a'), people.el),
+    h('div.field', h('span', requireSchedule ? 'Responsabili' : 'Assegnato a'), people.el),
     h('label.field', h('span', 'Descrizione'), desc),
     h('div.field', h('span', 'Dipende da (per il Gantt)'), depsBox),
   ];
@@ -229,6 +231,8 @@ export async function openTicket(id, { defaults = {}, onSaved } = {}) {
       depends_on: deps,
     };
     if (!payload.title.trim()) { toast('Scrivi un titolo', 'err'); title.focus(); return null; }
+    if (requireSchedule && (!payload.start_date || !payload.due_date)) { toast('Un\'attività ha sempre inizio e fine', 'err'); return null; }
+    if (requireSchedule && !payload.assignee_ids.length) { toast('Indica almeno un responsabile', 'err'); return null; }
     const saved = isNew ? await post('/api/tickets', payload) : await patch(`/api/tickets/${t.id}`, payload);
     changed = true;
     if (close) { m.close(); toast(isNew ? 'Ticket creato' : 'Ticket salvato'); }
@@ -248,12 +252,12 @@ export async function openTicket(id, { defaults = {}, onSaved } = {}) {
 
   const m = modal({
     drawer: true,
-    title: h('span.muted', isNew ? 'Nuovo ticket' : `Ticket #${t.id}`),
+    title: h('span.muted', isNew ? (requireSchedule ? `Nuova attività · ${projectById(t.project_id)?.name || ''}` : 'Nuovo ticket') : `Ticket #${t.id}`),
     body,
     left,
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'),
-      h('button.btn.btn-primary', { type: 'button', on: { click: () => save() } }, isNew ? 'Crea ticket' : 'Salva'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: () => save() } }, isNew ? (requireSchedule ? 'Crea attività' : 'Crea ticket') : 'Salva'),
     ],
     onClose: () => {
       if (!isNew && location.hash.startsWith(`#/tickets/${t.id}`)) history.replaceState(null, '', '#/tickets');
@@ -300,9 +304,11 @@ export async function openTicket(id, { defaults = {}, onSaved } = {}) {
       outlook.append(h('div.muted.small', 'Outlook non è ancora collegato.'));
     }
 
-    // File
-    const files = h('div.section', h('div.spread', h('h3', `File OneDrive${t.files.length ? ` (${t.files.length})` : ''}`),
-      store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
+    // File: caricati nella cartella OneDrive del progetto (sottocartella del ticket) o collegati da OneDrive
+    const fileActions = h('div.row');
+    if (store.me.microsoft) {
+      if (t.project_id) fileActions.append(uploadButton(`/api/tickets/${t.id}/files/upload`, t.project_id, { onDone: () => { changed = true; refresh(); } }));
+      fileActions.append(h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
         const project = projectById(t.project_id);
         const start = project?.onedrive_item_id ? { driveId: project.onedrive_drive_id, id: project.onedrive_item_id, name: project.onedrive_name } : null;
         const item = await pickDriveItem({ title: 'Collega un file al ticket', start });
@@ -310,13 +316,12 @@ export async function openTicket(id, { defaults = {}, onSaved } = {}) {
         await post(`/api/tickets/${t.id}/files`, { drive_id: item.driveId, item_id: item.id, name: item.name, web_url: item.webUrl });
         changed = true;
         refresh();
-      } } }, '+ Collega file') : null));
-    if (!t.files.length) files.append(h('div.muted.small', 'Nessun file collegato.'));
+      } } }, '🔗 Collega da OneDrive'));
+    }
+    const files = h('div.section', h('div.spread', h('h3', `File${t.files.length ? ` (${t.files.length})` : ''}`), fileActions));
+    if (!t.files.length) files.append(h('div.muted.small', t.project_id ? 'Nessun file. Quelli caricati vanno nella cartella OneDrive del progetto.' : 'Nessun file collegato.'));
     for (const f of t.files) {
-      files.append(h('div.file-row', h('span', f.name.match(/\.(xlsx?|csv)$/i) ? '📊' : f.name.match(/\.(docx?|pdf)$/i) ? '📄' : '📎'),
-        h('a', { href: f.web_url || '#', target: '_blank', rel: 'noopener' }, f.name),
-        h('span.muted.small', f.added_by_name || ''),
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Scollega', on: { click: async () => { await del(`/api/tickets/${t.id}/files/${f.id}`); changed = true; refresh(); } } }, '×')));
+      files.append(fileRow(f, { onRemove: async () => { await del(`/api/tickets/${t.id}/files/${f.id}`); changed = true; refresh(); } }));
     }
 
     // Commenti

@@ -93,47 +93,58 @@ test('progetto, ticket con più assegnatari, dipendenze e filtri', async () => {
   assert.equal(orphan.project_id, null);
 });
 
-test('attività manuali: date obbligatorie, responsabili, arco del progetto, «le mie attività»', async () => {
+test('attività del Gantt = ticket del progetto: durata, «Fatto» = completata, documenti', async () => {
   const me = (await api('GET', '/api/me')).body;
   const p = (await api('POST', '/api/projects', { name: 'Impianto Teramo' })).body;
-  const empty = (await api('GET', `/api/projects/${p.id}`)).body;
-  assert.equal(empty.span_start, null);
+  assert.equal((await api('GET', `/api/projects/${p.id}`)).body.span_start, null);
 
-  const noDates = await api('POST', `/api/projects/${p.id}/activities`, { title: 'Collaudo' });
-  assert.equal(noDates.status, 400);
-  const backwards = await api('POST', `/api/projects/${p.id}/activities`, { title: 'Collaudo', start_date: '2026-11-10', end_date: '2026-11-01' });
-  assert.equal(backwards.status, 400);
-
-  const a = await api('POST', `/api/projects/${p.id}/activities`, { title: 'Collaudo', start_date: '2026-11-02', end_date: '2026-11-06', assignee_ids: [me.id] });
-  assert.equal(a.status, 201);
-  assert.deepEqual(a.body.assignee_ids, [me.id]);
+  const a = (await api('POST', '/api/tickets', { title: 'Collaudo', project_id: p.id, start_date: '2026-11-02', due_date: '2026-11-06', assignee_ids: [me.id] })).body;
   await api('POST', '/api/tickets', { title: 'Ordine materiali', project_id: p.id, start_date: '2026-10-20', due_date: '2026-10-25' });
+  await api('POST', '/api/tickets', { title: 'Senza date', project_id: p.id });
 
   const proj = (await api('GET', `/api/projects/${p.id}`)).body;
   assert.equal(proj.span_start, '2026-10-20');
   assert.equal(proj.span_end, '2026-11-06');
-  assert.equal(proj.activity_count, 1);
+  assert.equal(proj.activity_count, 2);
 
-  const moved = await api('PATCH', `/api/activities/${a.body.id}`, { start_date: '2026-11-09', end_date: '2026-11-13' });
-  assert.equal(moved.body.end_date, '2026-11-13');
-  assert.equal((await api('PATCH', `/api/activities/${a.body.id}`, { end_date: null })).status, 400);
+  const done = (await api('PATCH', `/api/tickets/${a.id}`, { status: 'done' })).body;
+  assert.equal(done.progress, 100);
 
-  const mine = (await api('GET', '/api/activities?assignee=me')).body;
-  assert.ok(mine.some(x => x.id === a.body.id));
-
-  // file collegati: all'attività e al progetto, elencati insieme
-  await api('POST', `/api/projects/${p.id}/files`, { drive_id: 'd', item_id: 'x1', name: 'verbale.pdf', activity_id: a.body.id });
+  await api('POST', `/api/tickets/${a.id}/files`, { drive_id: 'd', item_id: 'x1', name: 'verbale.pdf' });
   await api('POST', `/api/projects/${p.id}/files`, { drive_id: 'd', item_id: 'x2', name: 'contratto.pdf' });
-  const files = (await api('GET', `/api/projects/${p.id}/files`)).body.files;
-  assert.deepEqual(files.map(f => [f.name, f.activity_title]).sort(), [['contratto.pdf', null], ['verbale.pdf', 'Collaudo']]);
-  assert.equal((await api('GET', `/api/activities/${a.body.id}`)).body.files.length, 1);
+  const docs = (await api('GET', `/api/projects/${p.id}/files`)).body;
+  assert.deepEqual(docs.files.map(f => f.name), ['contratto.pdf']);
+  assert.deepEqual(docs.ticketFiles.map(f => [f.name, f.ticket_title]), [['verbale.pdf', 'Collaudo']]);
 
   // caricare senza cartella collegata: errore chiaro
-  const up = await api('POST', `/api/projects/${p.id}/files/upload?name=a.txt`, undefined);
-  assert.equal(up.status, 400);
+  assert.equal((await api('POST', `/api/projects/${p.id}/files/upload?name=a.txt`)).status, 400);
+  assert.equal((await api('POST', `/api/tickets/${a.id}/files/upload?name=a.txt`)).status, 400);
+});
 
-  await api('DELETE', `/api/activities/${a.body.id}`);
-  assert.equal((await api('GET', `/api/projects/${p.id}/files`)).body.files.length, 1);
+test('migrazione 003: le attività create con la 002 diventano ticket con responsabili e file', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const { migrate } = require('../lib/db');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alma-mig-'));
+  for (const f of ['001_init.sql', '002_activities.sql']) fs.copyFileSync(path.join(__dirname, '..', 'migrations', f), path.join(dir, f));
+  const old = await createDb({});
+  await migrate(old, dir);
+  await old.exec(`
+    INSERT INTO users (email, name) VALUES ('a@almacis.it', 'A');
+    INSERT INTO projects (name) VALUES ('P');
+    INSERT INTO tickets (project_id, title, position) VALUES (1, 'Ticket esistente', 5);
+    INSERT INTO activities (project_id, title, start_date, end_date, progress) VALUES (1, 'Sopralluogo', '2026-10-01', '2026-10-03', 100);
+    INSERT INTO activity_assignees VALUES (1, 1);
+    INSERT INTO project_files (project_id, activity_id, drive_id, item_id, name) VALUES (1, 1, 'd', 'i', 'foto.jpg');
+    INSERT INTO project_files (project_id, drive_id, item_id, name) VALUES (1, 'd', 'j', 'contratto.pdf');`);
+  await migrate(old);
+  const { rows } = await old.query(`SELECT t.title, t.status, t.start_date, t.due_date,
+      (SELECT json_agg(user_id) FROM ticket_assignees WHERE ticket_id = t.id) AS who,
+      (SELECT json_agg(name) FROM ticket_files WHERE ticket_id = t.id) AS files
+    FROM tickets t WHERE t.title = 'Sopralluogo'`);
+  assert.deepEqual(rows[0], { title: 'Sopralluogo', status: 'done', start_date: '2026-10-01', due_date: '2026-10-03', who: [1], files: ['foto.jpg'] });
+  assert.deepEqual((await old.query('SELECT name FROM project_files')).rows, [{ name: 'contratto.pdf' }]);
+  assert.equal((await old.query("SELECT to_regclass('activities') AS t")).rows[0].t, null);
+  await old.close();
 });
 
 test('senza Microsoft configurato OneDrive risponde 503 e il calendario mostra solo i ticket', async () => {
