@@ -129,13 +129,27 @@ export async function projectDetail(container, id) {
     else if (k === 'membri') members(box);
   }
 
-  // ── Panoramica: descrizione, prossime scadenze, persone ──────────────────────
+  // ── Panoramica: tutto il progetto in una pagina (riepilogo, Gantt, ticket, documenti, cartella);
+  // i tab a sinistra sono scorciatoie alle viste dedicate ──────────────────────────────────────────
   async function overview(box) {
     const desc = h('section.card.pj-card', h('h3', 'Descrizione'),
       p.description ? h('p.pj-desc', p.description) : h('p.muted', canManage(p) ? 'Nessuna descrizione. Aggiungila con «Modifica».' : 'Nessuna descrizione.'));
     const due = h('section.card.pj-card', h('div.spread', h('h3', 'Prossime scadenze'), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show('ticket') } }, 'Tutti i ticket →')), loading());
     const ppl = h('section.card.pj-card', h('div.spread', h('h3', 'Persone'), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show('membri') } }, canManage(p) ? 'Gestisci →' : 'Vedi →')), loading());
     box.append(h('div.pj-grid', desc, ppl), due);
+
+    // le sezioni di sempre, una sotto l'altra, ognuna con il collegamento al suo tab
+    const section = (k, title, fill) => {
+      const body = h('div');
+      box.append(h('section.pj-section', { id: `pj-${k}` },
+        h('div.spread', h('h2', title), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show(k) } }, 'Apri →')),
+        body));
+      fill(body);
+    };
+    section('gantt', isMobile() ? 'Attività' : 'Gantt', b => (isMobile() ? timeline(b, p, () => {}) : ganttView(b, new URLSearchParams({ project: String(p.id) }), { embedded: true })));
+    section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
+    section('documenti', 'Documenti', b => projectDocuments(b, p.id));
+    section('cartella', 'Cartella OneDrive', b => folder(b, { titled: false }));
 
     const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);
     const late = t => t.due_date && t.due_date < today();
@@ -149,10 +163,9 @@ export async function projectDetail(container, id) {
   }
 
   // ── Cartella OneDrive del progetto ───────────────────────────────────────────
-  function folder(box) {
-    const head = h('div.spread', h('h3', 'Cartella OneDrive'),
-      store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null);
-    box.append(head);
+  function folder(box, { titled = true } = {}) {
+    const action = store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null;
+    box.append(titled ? h('div.spread', h('h3', 'Cartella OneDrive'), action) : h('div.row', action));
     if (!store.me.microsoft) return box.append(h('div.card.empty', 'OneDrive non è ancora collegato.'));
     if (!p.onedrive_item_id) return box.append(h('div.card.empty', 'Nessuna cartella collegata. Collegane una (meglio se condivisa con il team) per avere qui i documenti del progetto.'));
     box.append(h('div.small.muted', { style: { margin: '6px 0 10px' } }, h('a', { href: p.onedrive_url, target: '_blank', rel: 'noopener' }, `Apri «${p.onedrive_name}» in OneDrive ↗`)));

@@ -24,6 +24,27 @@ function closeOverlays() {
   for (let i = root.childElementCount; i > 0; i--) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 }
 
+// ── freccia «Indietro» ──────────────────────────────────────────────────────
+// Ricorda le pagine dell'app visitate in questa scheda: la freccia torna alla precedente, e se si è appena
+// entrati porta alla Home (non al login di Microsoft o al sito da cui si è arrivati). In Home non compare.
+const BACK_KEY = 'alma.backStack';
+const readStack = () => { try { return JSON.parse(sessionStorage.getItem(BACK_KEY)) || []; } catch { return []; } };
+const saveStack = s => { try { sessionStorage.setItem(BACK_KEY, JSON.stringify(s.slice(-50))); } catch { /* niente */ } };
+function trackBack(section) {
+  // i tab del progetto cambiano l'indirizzo senza nuova pagina: contano come la stessa pagina
+  const here = (location.hash || '#/').replace(/^(#\/projects\/\d+)\/.*$/, '$1');
+  const stack = readStack();
+  if (stack[stack.length - 2] === here) stack.pop(); // si è tornati indietro
+  else if (stack[stack.length - 1] !== here) stack.push(here);
+  saveStack(stack);
+  document.getElementById('backbar').hidden = section === 'home';
+}
+function goBack() {
+  const stack = readStack();
+  if (stack.length > 1) history.back();
+  else location.hash = '#/';
+}
+
 async function route() {
   const [path, query = ''] = location.hash.replace(/^#/, '').split('?');
   const params = new URLSearchParams(query);
@@ -36,6 +57,7 @@ async function route() {
   document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
   document.title = section === 'direct' ? 'Chat · Alma Planner' : 'Alma Planner';
+  trackBack(section);
   cleanup?.();
   cleanup = null;
   clear(view).append(loading());
@@ -145,6 +167,7 @@ async function start() {
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   refreshBadges();
 
+  document.getElementById('back').addEventListener('click', goBack);
   window.addEventListener('hashchange', route);
   route();
 }

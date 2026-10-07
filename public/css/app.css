@@ -252,3 +252,10 @@ table.list tbody tr:hover { background: #fcfaf8; }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--rule); border-top-color: var(--orange); border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; }
 .loading { padding: 40px; text-align: center; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Freccia «Indietro» sopra ogni pagina (tranne la Home) */
+#view { outline: none; min-width: 0; }
+.backbar { margin: -8px 0 10px; }
+.back-btn { border: 0; background: transparent; padding: 4px 8px 4px 2px; border-radius: 8px; color: var(--mid); font-weight: 500; cursor: pointer; font-size: 13.5px; }
+.back-btn:hover { color: var(--ink); background: rgba(224, 221, 217, .55); }
+@media (max-width: 760px) { .backbar { margin: 0 0 6px; } }

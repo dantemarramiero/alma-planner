@@ -3,7 +3,7 @@
 // - Gantt generale: una barra per progetto lunga quanto le sue attività (non si sposta a mano);
 //   aprendo un progetto compaiono le sue attività sotto.
 // Trascinare/allungare una barra cambia le date del ticket; la maniglia cambia l'avanzamento.
-import { h, clear, toast, loading, fmtDate, addDays, toISODate, STATUS } from './ui.js';
+import { h, clear, toast, loading, fmtDate, addDays, toISODate, today, STATUS } from './ui.js';
 import { get, patch } from './api.js';
 import { store, loadProjects, userById, projectById } from './store.js';
 import { openTicket } from './tickets.js';
@@ -11,6 +11,7 @@ import { newActivity } from './activities.js';
 
 const OPEN_KEY = 'alma.ganttOpen';
 const MODE_KEY = 'alma.ganttMode';
+const MIN_ROWS = 5; // righe minime del Gantt, anche se le attività sono meno
 const MODES = [['Day', 'Giorni'], ['Week', 'Settimane'], ['Month', 'Mesi']];
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -132,24 +133,28 @@ export async function ganttView(container, params, { embedded = false, onChange 
     for (const r of rows) {
       if (r._ticket) r.dependencies = r._ticket.depends_on.map(d => `t-${d}`).filter(id => shown.has(id)).join(',');
     }
-    css.push('.gantt [class$="-done"] .bar{opacity:.55}');
+    css.push('.gantt [class$="-done"] .bar{opacity:.55}', '.gantt .bar-wrapper.gantt-filler{display:none}');
     styleEl.textContent = css.join('\n');
     return rows;
   }
 
   function draw() {
     const rows = build();
+    const empty = !rows.length;
+    // Il Gantt ha sempre almeno MIN_ROWS righe: quelle mancanti sono righe vuote (barre nascoste, non cliccabili).
+    const anchor = empty ? today() : rows[0].start;
+    for (let i = rows.length; i < MIN_ROWS; i++) {
+      rows.push({ id: `fill-${i}`, name: '', start: anchor, end: anchor, progress: 0, dependencies: '', custom_class: 'gantt-filler', _filler: true });
+    }
     clear(chartBox);
     drawUndated();
-    if (!rows.length) {
-      chartBox.append(h('div.empty', onlyProject
-        ? ['Nessuna attività. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newActivityBtn.click(); } } }, 'Crea la prima'), ' oppure dai le date ai ticket del progetto.']
-        : ['Nessun progetto con attività. ', h('a', { href: '#/projects' }, 'Vai ai progetti')]));
-      gantt = null;
-      return;
-    }
     const el = h('div');
     chartBox.append(el);
+    if (empty) {
+      chartBox.append(h('div.empty.gantt-empty', onlyProject
+        ? ['Nessuna attività. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newActivityBtn.click(); } } }, 'Crea la prima'), ' oppure dai le date ai ticket del progetto.']
+        : ['Nessun progetto con attività. ', h('a', { href: '#/projects' }, 'Vai ai progetti')]));
+    }
     const byId = new Map(rows.map(r => [r.id, r]));
     // eslint-disable-next-line no-undef
     gantt = new Gantt(el, rows, {
@@ -166,6 +171,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
       holidays: mode === 'Day' ? { 'var(--g-weekend-highlight-color)': 'weekend' } : {},
       popup: ctx => {
         const r = byId.get(ctx.task.id);
+        if (r._filler) return false;
         const s = toISODate(ctx.task._start), e = toISODate(new Date(ctx.task._end.getTime() - 1000));
         if (r._project) {
           // clic su un progetto nel Gantt generale: si apre il suo Gantt di dettaglio
@@ -183,6 +189,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
       },
       on_date_change: async (task, start, end) => {
         const r = byId.get(task.id);
+        if (r._filler) return;
         if (r._project) {
           toast('La durata del progetto viene dalle sue attività: sposta quelle');
           draw();
@@ -201,6 +208,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
       },
       on_progress_change: async (task, progress) => {
         const r = byId.get(task.id);
+        if (r._filler) return;
         if (r._project) { toast('L\'avanzamento del progetto si calcola dalle attività completate'); draw(); return; }
         const value = Math.max(0, Math.min(100, Math.round(progress / 5) * 5));
         try {
@@ -211,7 +219,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
       },
       on_double_click: task => {
         const r = byId.get(task.id);
-        if (!r._project) openTicket(r._ticket.id, { onSaved: refresh });
+        if (!r._project && !r._filler) openTicket(r._ticket.id, { onSaved: refresh });
       },
     });
     // altezza «auto» di Frappe non conta la barra di scorrimento orizzontale: senza questo compare anche quella verticale

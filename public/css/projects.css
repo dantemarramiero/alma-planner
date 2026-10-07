@@ -30,7 +30,7 @@
 .pj-tab.on { background: var(--card); color: var(--orange-dark); font-weight: 600; box-shadow: inset 0 0 0 1px var(--rule); }
 .pj-count { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--muted); }
 .pj-content { min-width: 0; }
-.pj-pane { display: grid; gap: 16px; animation: pj-in .16s ease-out; }
+.pj-pane { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; animation: pj-in .16s ease-out; }
 @keyframes pj-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 .pj-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
@@ -62,3 +62,8 @@
   .pj-tab { flex: none; white-space: nowrap; }
   .pj-actions { width: 100%; }
 }
+
+/* Panoramica: le sezioni del progetto una sotto l'altra */
+.pj-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 10px; min-width: 0; }
+.pj-section > .spread h2 { margin: 0; }
+.gantt-empty { padding: 12px 16px 16px; }
