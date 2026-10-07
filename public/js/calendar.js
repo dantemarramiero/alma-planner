@@ -6,9 +6,17 @@ import { store } from './store.js';
 import { openTicket } from './tickets.js';
 
 const SCOPE_KEY = 'alma.calScope';
+const GANTT_KEY = 'alma.calGantt';
 
 export function calendarView(container) {
   let scope = (() => { try { return localStorage.getItem(SCOPE_KEY) || 'mine'; } catch { return 'mine'; } })();
+  // attività dei Gantt = ticket che stanno in un progetto; si possono nascondere per vedere solo Outlook e i ticket sciolti
+  let showGantt = (() => { try { return localStorage.getItem(GANTT_KEY) !== '0'; } catch { return true; } })();
+  const ganttToggle = h('label.check', h('input', { type: 'checkbox', checked: showGantt, on: { change: e => {
+    showGantt = e.target.checked;
+    try { localStorage.setItem(GANTT_KEY, showGantt ? '1' : '0'); } catch { /* niente */ }
+    cal.refetchEvents();
+  } } }), 'Attività dei Gantt');
   const banner = h('div.banner', { hidden: true });
   const calEl = h('div');
 
@@ -23,7 +31,7 @@ export function calendarView(container) {
   clear(container).append(
     h('div.page-head',
       h('div', h('h1', 'Calendario'), h('div.sub', 'Il tuo calendario Outlook insieme ai ticket. Seleziona uno spazio vuoto per creare un evento.')),
-      h('div.row', scopeSeg, h('button.btn.btn-primary', { type: 'button', on: { click: () => newEvent() } }, '+ Evento'))),
+      h('div.row', ganttToggle, scopeSeg, h('button.btn.btn-primary', { type: 'button', on: { click: () => newEvent() } }, '+ Evento'))),
     banner,
     h('div.card.cal-card', calEl));
 
@@ -56,7 +64,7 @@ export function calendarView(container) {
             editable: e.isOrganizer, classNames: e.showAs === 'free' ? ['ev-free'] : [],
             extendedProps: { kind: 'outlook', ev: e },
           })),
-          ...data.tickets.map(t => ({
+          ...data.tickets.filter(t => showGantt || !t.project_name).map(t => ({
             id: `t-${t.id}`, title: t.title, allDay: true,
             start: t.start_date || t.due_date, end: addDays(t.due_date || t.start_date, 1),
             backgroundColor: t.status === 'done' ? '#E3F1E8' : '#FDEEE5',
