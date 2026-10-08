@@ -211,6 +211,7 @@ export async function projectDetail(container, id) {
             p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  ')))),
       h('div.pj-actions',
         areaPicker(p, () => projectDetail(container, id)),
+        p.claude_url ? h('a.btn.btn-claude', { href: p.claude_url, target: '_blank', rel: 'noopener', title: 'Apre il progetto su claude.ai in una nuova scheda' }, h('span.claude-mark', '✳'), 'Apri in Claude ↗') : null,
         h('button.btn', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, '＋ Ticket'),
         canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica') : null)),
     h('div.pj-facts',
@@ -401,6 +402,7 @@ export function editProject(p, onSaved, defaults = {}) {
   let color = p.color;
   const name = h('input.input', { value: p.name, autofocus: true, placeholder: 'Es. Sito nuovo Almacis' });
   const desc = h('textarea.input', { rows: 3 }, p.description);
+  const claude = h('input.input', { type: 'url', value: p.claude_url || '', placeholder: 'https://claude.ai/project/…' });
   const status = h('select.select', Object.entries(PROJECT_STATUS).map(([k, l]) => h('option', { value: k, selected: k === p.status }, l)));
   const owner = h('select.select', h('option', { value: '' }, '—'), store.users.map(u => h('option', { value: String(u.id), selected: u.id === p.owner_id }, u.name)));
   const area = h('select.select');
@@ -438,6 +440,7 @@ export function editProject(p, onSaved, defaults = {}) {
         h('label.field', h('span', 'Responsabile'), owner)),
       h('div.field', h('span', 'La tua macro area'), h('div.row.area-pick', area, newArea), h('small.muted', 'Solo per te: gli altri raggruppano i progetti nelle loro.')),
       h('div.field', h('span', 'Colore'), swatches),
+      h('label.field', h('span', 'Progetto Claude'), claude, h('small.muted', 'Incolla l\'indirizzo del progetto su claude.ai: nella scheda comparirà «Apri in Claude».')),
       invite ? h('div.field', h('span', 'Membri'), invite.el, h('small.muted', 'Solo il responsabile, i membri e gli amministratori vedono il progetto e i suoi ticket.')) : null,
       h('div.muted.small', 'La durata del progetto la danno le sue attività nel Gantt.'),
     ],
@@ -450,8 +453,9 @@ export function editProject(p, onSaved, defaults = {}) {
 
   async function save() {
     if (!name.value.trim()) { toast('Scrivi un nome', 'err'); return; }
+    if (claude.value.trim() && !/^https:\/\/claude\.ai\//.test(claude.value.trim())) { toast('Il progetto Claude deve essere un indirizzo https://claude.ai/…', 'err'); return; }
     const payload = {
-      name: name.value, description: desc.value, color, status: status.value,
+      name: name.value, description: desc.value, color, status: status.value, claude_url: claude.value.trim() || null,
       owner_id: owner.value ? Number(owner.value) : null,
     };
     const r = isNew ? await post('/api/projects', payload) : await patch(`/api/projects/${p.id}`, payload);

@@ -36,8 +36,12 @@ function readBody(body, { partial }) {
     onedrive_item_id: v.text(body.onedrive_item_id, 'cartella OneDrive', { max: 300 }),
     onedrive_name: v.text(body.onedrive_name, 'cartella OneDrive', { max: 500 }),
     onedrive_url: v.text(body.onedrive_url, 'cartella OneDrive', { max: 2000 }),
+    claude_url: v.text(body.claude_url, 'progetto Claude', { max: 500 }),
   };
   if (partial && out.name === '') throw new HttpError(400, 'Il campo «nome» è obbligatorio');
+  if (out.claude_url === '') out.claude_url = null;
+  // solo indirizzi di claude.ai: il pulsante «Apri in Claude» non deve portare altrove
+  if (out.claude_url && !/^https:\/\/claude\.ai\//.test(out.claude_url)) throw new HttpError(400, 'Il progetto Claude deve essere un indirizzo https://claude.ai/…');
   if (out.start_date && out.end_date && out.start_date > out.end_date) throw new HttpError(400, 'La fine del progetto è prima dell\'inizio');
   return Object.fromEntries(Object.entries(out).filter(([, val]) => val !== undefined));
 }

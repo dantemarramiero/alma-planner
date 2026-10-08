@@ -91,3 +91,7 @@
   .area-row { flex-wrap: wrap; }
   .area-row .row-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* «Apri in Claude»: progetto collegato su claude.ai */
+.btn-claude { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.claude-mark { color: #D97757; font-size: 14px; line-height: 1; }

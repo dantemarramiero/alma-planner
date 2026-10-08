@@ -72,3 +72,12 @@ test('macro aree: personali, progetto in macro aree diverse per persone diverse,
   assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).status, 200);
   assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.area_id, null);
 });
+
+test('progetto Claude: solo indirizzi di claude.ai, e si può togliere', async () => {
+  const p = (await api(ANNA, 'POST', '/api/projects', { name: 'Con Claude', claude_url: 'https://claude.ai/project/abc' })).body;
+  assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.claude_url, 'https://claude.ai/project/abc');
+  assert.equal((await api(ANNA, 'PATCH', `/api/projects/${p.id}`, { claude_url: 'https://altro.it/x' })).status, 400);
+  assert.equal((await api(ANNA, 'PATCH', `/api/projects/${p.id}`, { claude_url: 'javascript:alert(1)' })).status, 400);
+  assert.equal((await api(ANNA, 'PATCH', `/api/projects/${p.id}`, { claude_url: null })).status, 200);
+  assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.claude_url, null);
+});

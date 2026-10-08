@@ -20,3 +20,6 @@ CREATE TABLE project_areas (
   PRIMARY KEY (user_id, project_id)
 );
 CREATE INDEX project_areas_area_idx ON project_areas(area_id);
+
+-- Progetto collegato su claude.ai (solo l'indirizzo: nella scheda c'è «Apri in Claude»).
+ALTER TABLE projects ADD COLUMN claude_url TEXT;
