@@ -42,3 +42,8 @@
   .pe-filter { width: 100%; }
   .pe-head .row { width: 100%; }
 }
+
+/* tab «Email» della scheda: l'intestazione sta in cima; nella Panoramica il titolo è quello della sezione */
+.pj-pane > .pe-head:first-child { margin-top: 0; }
+.pj-section .pe-head { margin-top: 0; }
+.pj-section .pe-head h3 { display: none; }
