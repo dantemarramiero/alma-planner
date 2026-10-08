@@ -84,14 +84,14 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       subject: `[Alma] ${t.title}`,
       body: {
         contentType: 'text',
-        content: `${t.project_name ? `Progetto: ${t.project_name}\n` : ''}Stato: ${STATUS_LABEL[t.status]}\n\n${t.description || ''}\n\nApri in Alma Planner: ${baseUrl}/app#/tickets/${t.id}`,
+        content: `${t.project_name ? `Progetto: ${t.project_name}\n` : ''}Stato: ${STATUS_LABEL[t.status]}\n\n${t.description || ''}\n\nApri in Alma Planet: ${baseUrl}/app#/tickets/${t.id}`,
       },
       isAllDay: true,
       showAs: 'free',
       isReminderOn: false,
       start: { dateTime: `${start}T00:00:00`, timeZone: TIMEZONE },
       end: { dateTime: `${nextDay(end)}T00:00:00`, timeZone: TIMEZONE },
-      categories: ['Alma Planner'],
+      categories: ['Alma Planet'],
     };
   }
 

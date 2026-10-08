@@ -59,7 +59,7 @@ test('creando un ticket: email a ogni assegnatario tranne chi lo crea, dalla sua
   const m = sent[0];
   assert.equal(m.from, String(users.anna.id));     // parte dalla casella di chi assegna
   assert.equal(m.saveToSentItems, false);
-  assert.match(m.message.subject, /^\[Alma Planner\] Anna Rossi ti ha assegnato: Verifica <capitolato>/);
+  assert.match(m.message.subject, /^\[Alma Planet\] Anna Rossi ti ha assegnato: Verifica <capitolato>/);
   const html = m.message.body.content;
   assert.match(html, /Verifica &lt;capitolato&gt;/);  // il titolo non diventa HTML
   assert.match(html, /Ospedale Teramo/);

@@ -1,4 +1,4 @@
-// Alma Planner — gestione del team interno Almacis.
+// Alma Planet — gestione del team interno Almacis.
 const path = require('path');
 const express = require('express');
 const { createDb, migrate } = require('./lib/db');
@@ -108,7 +108,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   auth.register(app);
 
   // Pagine
-  const pub = path.join(__dirname, 'public');
+  const pub = path.join(__dirname, 'orbita'); // tutta l'interfaccia di Alma Planet (HTML, CSS, JS, brand)
   app.get('/', (req, res) => (req.user ? res.redirect('/app') : res.sendFile(path.join(pub, 'index.html'))));
   // Ogni deploy serve JS e CSS da /b/<deploy>/…: un browser con file vecchi in cache non può riusarli
   // (mescolare moduli vecchi e nuovi rompeva Gantt, chat e organigramma). I percorsi relativi degli
@@ -186,7 +186,7 @@ if (require.main === module) {
     setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
     app.listen(config.port, () => {
-      console.log(`Alma Planner su ${config.baseUrl} (porta ${config.port})`);
+      console.log(`Alma Planet su ${config.baseUrl} (porta ${config.port})`);
       if (!auth.msConfigured) {
         const missing = [['MS_TENANT_ID', config.tenantId], ['MS_CLIENT_ID', config.clientId], ['MS_CLIENT_SECRET', config.clientSecret]].filter(([, val]) => !val).map(([k]) => k);
         console.warn(`[auth] Microsoft non configurato: manca ${missing.join(', ')}`);

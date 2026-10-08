@@ -2,7 +2,7 @@
   "name": "alma-planner",
   "version": "0.1.0",
   "private": true,
-  "description": "Alma Planner — gestione del team interno Almacis: progetti, ticket, Gantt, calendario Outlook e OneDrive",
+  "description": "Alma Planet — gestione del team interno Almacis: progetti, ticket, Gantt, calendario Outlook e OneDrive",
   "main": "server.js",
   "engines": {
     "node": ">=22.5.0"

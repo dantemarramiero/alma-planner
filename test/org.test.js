@@ -39,7 +39,7 @@ test('solo persone vere: niente ospiti, account disattivati o senza posta', () =
   assert.equal(isPerson({ accountEnabled: true, userType: 'Member', mail: null }), false);
 });
 
-test('organigramma: persone con responsabile e ticket aperti di chi usa Alma Planner', async () => {
+test('organigramma: persone con responsabile e ticket aperti di chi usa Alma Planet', async () => {
   const empty = (await api('GET', '/api/org')).body;
   assert.deepEqual(empty, { people: [], sync: null });
 
@@ -56,7 +56,7 @@ test('organigramma: persone con responsabile e ticket aperti di chi usa Alma Pla
   const { people } = (await api('GET', '/api/org')).body;
   assert.deepEqual(people.map(p => [p.name, p.manager_oid]), [['Anna Capo', null], ['Dante', 'ceo'], ['Marco Tecnico', 'd1']]);
   const dante = people.find(p => p.oid === 'd1');
-  assert.equal(dante.user_id, me.id); // collegato all'account di Alma Planner per email
+  assert.equal(dante.user_id, me.id); // collegato all'account di Alma Planet per email
   assert.equal(dante.open_tickets, 1);
   assert.equal(people.find(p => p.oid === 'm1').user_id, null);
 });

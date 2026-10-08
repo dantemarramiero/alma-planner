@@ -48,7 +48,7 @@ function registerCalendar(app, { db, auth, access }) {
           '&$select=id,subject,start,end,isAllDay,location,organizer,webLink,showAs,isOrganizer,onlineMeeting,categories&$top=200&$orderby=start/dateTime',
           { max: 1000, headers: { Prefer: `outlook.timezone="${TIMEZONE}"` } });
         // Gli eventi creati da Alma per i ticket li mostriamo già come ticket.
-        events = list.filter(e => !(e.categories || []).includes('Alma Planner')).map(mapEvent);
+        events = list.filter(e => !(e.categories || []).some(c => c === 'Alma Planet' || c === 'Alma Planner') /* 'Alma Planner': eventi creati prima del cambio di nome */).map(mapEvent);
       } catch (err) {
         if (err.code === 'reauth') throw err;
         outlookError = err.message;
