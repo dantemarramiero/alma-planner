@@ -137,3 +137,11 @@
   .tm { height: calc(100dvh - 52px - 80px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
 }
 .proj-tile > span { display: block; }
+
+/* foglio dal basso: riceve il fuoco all'apertura (per Esc e lettori di schermo) senza bordo; scheda del progetto:
+   sul telefono basta la barra «← Indietro», il percorso «← Progetti › nome» si nasconde */
+.sheet:focus { outline: none; }
+@media (max-width: 760px) {
+  .pj-top { display: none; }
+  .pj-row { margin-top: 0; }
+}

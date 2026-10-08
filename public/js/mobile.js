@@ -32,7 +32,9 @@ function sheet(title, content) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   document.addEventListener('keydown', onKey);
   root.append(backdrop);
-  setTimeout(() => box.querySelector('button, a')?.focus(), 0);
+  // il fuoco va sul foglio, non sulla prima voce: sul telefono il bordo arancione di focus su «Progetti» non serve
+  box.tabIndex = -1;
+  setTimeout(() => box.focus({ preventScroll: true }), 0);
   return close;
 }
 
