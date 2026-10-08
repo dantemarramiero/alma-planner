@@ -1,6 +1,8 @@
 // Note con data su progetti e ticket. Le vede e le scrive chi vede il progetto o il ticket;
 // le modifica, le fissa e le elimina chi le ha scritte o un amministratore. Eliminare si può annullare.
 // Nel progetto compaiono anche le note dei suoi ticket (quelle dei ticket che chi guarda vede).
+// @nome.cognome nel testo o nel titolo = menzione: chi viene taggato riceve una notifica nell'app, ma solo se vede
+// il progetto o il ticket della nota (gli altri tornano in «cannot_see», e l'app avvisa chi scrive).
 const { HttpError, v } = require('../lib/http');
 
 const KINDS = ['nota', 'telefonata', 'riunione', 'decisione'];
@@ -24,7 +26,33 @@ function readNote(body, { partial }) {
   return Object.fromEntries(Object.entries(out).filter(([, val]) => val !== undefined));
 }
 
-function registerNotes(app, { db, access }) {
+function registerNotes(app, { db, access, notifier }) {
+  // Chi è menzionato nel testo: [vede la nota, non la vede]. Si controlla con le stesse regole di accesso
+  // (lib/access.js) facendo finta di essere quella persona.
+  async function mentioned(n, text, except = []) {
+    const ids = (await notifier.mentionedIds(text)).filter(id => !except.includes(id));
+    if (!ids.length) return [[], []];
+    const { rows } = await db.query('SELECT id, email FROM users WHERE id = ANY($1::int[])', [ids]);
+    const yes = [], no = [];
+    for (const u of rows) {
+      const as = { user: { id: u.id, email: u.email } };
+      try {
+        if (n.project_id) await access.assertProject(as, n.project_id); else await access.assertTicket(as, n.ticket_id);
+        yes.push(u.id);
+      } catch { no.push(u.id); }
+    }
+    return [yes, no];
+  }
+  const noteText = n => `${n.title || ''}\n${n.body || ''}`;
+
+  // Notifica le persone menzionate (escluse quelle già menzionate prima, per le modifiche) e dice a chi scrive come è andata.
+  async function tellMentioned(req, n, before = null) {
+    const already = before ? await notifier.mentionedIds(noteText(before)) : [];
+    const [yes, no] = await mentioned(n, noteText(n), [...already, req.user.id]);
+    if (yes.length) await notifier.notify({ userIds: yes, actorId: req.user.id, kind: 'note_mention', noteId: n.id });
+    return { notified: yes, cannot_see: no };
+  }
+
   async function getNote(req, id, { withDeleted = false } = {}) {
     const { rows } = await db.query(`SELECT * FROM notes WHERE id = $1 ${withDeleted ? '' : 'AND deleted_at IS NULL'}`, [id]);
     const n = rows[0];
@@ -43,7 +71,8 @@ function registerNotes(app, { db, access }) {
       `INSERT INTO notes (project_id, ticket_id, kind, title, body, note_date, pinned, author_id)
        VALUES ($1, $2, $3, $4, $5, COALESCE($6::date, CURRENT_DATE), $7, $8) RETURNING id`,
       [target.project_id || null, target.ticket_id || null, f.kind || 'nota', f.title || '', f.body, f.note_date || null, Boolean(f.pinned), req.user.id]);
-    res.status(201).json(await one(req, rows[0].id));
+    const note = await one(req, rows[0].id);
+    res.status(201).json({ ...note, mentions: await tellMentioned(req, note) });
   }
 
   // ── progetto: le sue note + quelle dei suoi ticket visibili ────────────────
@@ -93,7 +122,9 @@ function registerNotes(app, { db, access }) {
       await db.query(`UPDATE notes SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}${edited ? ', updated_at = now()' : ''} WHERE id = $1`,
         [id, ...Object.values(f)]);
     }
-    res.json(await one(req, id));
+    const note = await one(req, id);
+    // nelle modifiche si avvisano solo le persone menzionate adesso per la prima volta
+    res.json(f.body !== undefined || f.title !== undefined ? { ...note, mentions: await tellMentioned(req, note, n) } : note);
   });
 
   app.delete('/api/notes/:id', async (req, res) => {

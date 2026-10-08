@@ -1,9 +1,11 @@
 // Note con data su progetti e ticket (come le note del CRM di MyWinery): tipo, data, titolo facoltativo,
 // «fissa in alto», autore e «modificata il». Le modifica chi le ha scritte (o un amministratore);
 // dopo l'eliminazione c'è «Annulla» per qualche secondo. Nel progetto compaiono anche le note dei suoi ticket.
+// Scrivendo @ compare l'elenco dei colleghi: chi viene menzionato riceve una notifica (se vede il progetto o il ticket).
 import { h, clear, fill, avatar, toast, fmtDate, fmtDateTime, today, loading } from './ui.js';
 import { get, post, patch, del } from './api.js';
-import { store, userById } from './store.js';
+import { store, userById, userByHandle } from './store.js';
+import { withMentions } from './social.js';
 
 export const NOTE_KINDS = [['nota', 'Nota'], ['telefonata', 'Telefonata'], ['riunione', 'Riunione'], ['decisione', 'Decisione']];
 const KIND_LABEL = Object.fromEntries(NOTE_KINDS);
@@ -12,8 +14,13 @@ const canEdit = n => n.author_id === store.me.id || Boolean(store.me.is_admin);
 function linkify(text) {
   const out = [];
   let last = 0;
-  for (const m of String(text || '').matchAll(/https?:\/\/[^\s<>"]+[^\s<>".,;:!?)]/g)) {
-    out.push(text.slice(last, m.index), h('a.link', { href: m[0], target: '_blank', rel: 'noopener noreferrer' }, m[0]));
+  for (const m of String(text || '').matchAll(/(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)])|(?<![\w.@])@([a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)/gi)) {
+    out.push(text.slice(last, m.index));
+    if (m[1]) out.push(h('a.link', { href: m[1], target: '_blank', rel: 'noopener noreferrer' }, m[1]));
+    else {
+      const u = userByHandle(m[2]);
+      out.push(u ? h('a.mention', { href: `#/u/${u.id}`, title: u.name }, `@${m[2]}`) : m[0]);
+    }
     last = m.index + m[0].length;
   }
   out.push(String(text || '').slice(last));
@@ -99,7 +106,7 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
     const kind = h('select.select', NOTE_KINDS.map(([k, label]) => h('option', { value: k, selected: (n?.kind || 'nota') === k }, label)));
     const date = h('input.input', { type: 'date', value: n?.note_date || today(), required: true });
     const titleIn = h('input.input', { placeholder: 'Titolo (facoltativo)', maxLength: 200, value: n?.title || '' });
-    const body = h('textarea.input', { rows: 4, placeholder: 'Scrivi la nota…', maxLength: 20000, autofocus: true });
+    const body = h('textarea.input', { rows: 4, placeholder: 'Scrivi la nota… usa @ per menzionare un collega', maxLength: 20000, autofocus: true });
     body.value = n?.body || '';
     const pin = h('input', { type: 'checkbox', checked: Boolean(n?.pinned) });
     const saveBtn = h('button.btn.btn-primary.btn-sm', { type: 'button', disabled: !body.value.trim() }, n ? 'Salva' : 'Salva nota');
@@ -112,10 +119,10 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
       const ok = n ? await save(n, data) : await create(data);
       if (!ok) saveBtn.disabled = false;
     });
-    body.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveBtn.click(); if (e.key === 'Escape') { e.stopPropagation(); cancel(); } });
+    body.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveBtn.click(); if (e.key === 'Escape' && !body.closest('.mention-wrap')?.querySelector('.mention-menu')) { e.stopPropagation(); cancel(); } }); // Esc con l'elenco delle @ aperto chiude solo l'elenco
     const el = h('article.nt-card.nt-editing',
       h('div.nt-edit-row', kind, date, titleIn),
-      body,
+      withMentions(body),
       h('div.nt-edit-foot',
         h('label.check', pin, 'Fissa in alto'),
         h('span.grow'),
@@ -128,6 +135,7 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
   async function create(data) {
     try {
       const n = await post(url, data);
+      tellMentions(n.mentions);
       notes.unshift(n);
       sortNotes();
       adding = false;
@@ -140,6 +148,7 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
   async function save(n, data) {
     try {
       const updated = await patch(`/api/notes/${n.id}`, data);
+      tellMentions(updated.mentions);
       notes = notes.map(x => (x.id === n.id ? updated : x));
       sortNotes();
       editing = null;
@@ -166,4 +175,14 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
 
   load();
   return { reload: load };
+}
+
+// Dopo il salvataggio: chi ha ricevuto la notifica, e chi no perché non vede il progetto o il ticket.
+function tellMentions(m) {
+  if (!m) return;
+  const names = ids => ids.map(id => userById(id)?.name || 'un collega').join(', ');
+  if (m.notified?.length) toast(`Notifica inviata a ${names(m.notified)}`);
+  if (m.cannot_see?.length) {
+    toast(`${names(m.cannot_see)} non ${m.cannot_see.length === 1 ? 'vede' : 'vedono'} questo progetto o ticket: niente notifica. Aggiungili tra i membri per avvisarli.`, 'err');
+  }
 }
