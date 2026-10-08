@@ -1,4 +1,5 @@
 // Progetti: elenco con avanzamento, creazione, modifica, cartella OneDrive collegata, membri.
+// La macro area (area_id) è quella di chi guarda: ognuno ha le sue (routes/areas.js).
 // Ognuno vede solo i progetti di cui è responsabile o membro (gli amministratori li vedono tutti): lib/access.js.
 const { HttpError, v } = require('../lib/http');
 
@@ -14,6 +15,7 @@ const SELECT = `
          MIN(COALESCE(t.start_date, t.due_date)) AS span_start,
          MAX(COALESCE(t.due_date, t.start_date)) AS span_end,
          (SELECT COUNT(*)::int FROM project_members m WHERE m.project_id = p.id AND m.user_id <> p.owner_id) AS member_count,
+         (SELECT pa.area_id FROM project_areas pa WHERE pa.project_id = p.id AND pa.user_id = $1) AS area_id, -- la mia macro area
          CASE WHEN p.owner_id = $1 THEN 'owner'
               WHEN EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = $1) THEN 'member'
               ELSE 'admin' END AS my_role
@@ -34,8 +36,12 @@ function readBody(body, { partial }) {
     onedrive_item_id: v.text(body.onedrive_item_id, 'cartella OneDrive', { max: 300 }),
     onedrive_name: v.text(body.onedrive_name, 'cartella OneDrive', { max: 500 }),
     onedrive_url: v.text(body.onedrive_url, 'cartella OneDrive', { max: 2000 }),
+    claude_url: v.text(body.claude_url, 'progetto Claude', { max: 500 }),
   };
   if (partial && out.name === '') throw new HttpError(400, 'Il campo «nome» è obbligatorio');
+  if (out.claude_url === '') out.claude_url = null;
+  // solo indirizzi di claude.ai: il pulsante «Apri in Claude» non deve portare altrove
+  if (out.claude_url && !/^https:\/\/claude\.ai\//.test(out.claude_url)) throw new HttpError(400, 'Il progetto Claude deve essere un indirizzo https://claude.ai/…');
   if (out.start_date && out.end_date && out.start_date > out.end_date) throw new HttpError(400, 'La fine del progetto è prima dell\'inizio');
   return Object.fromEntries(Object.entries(out).filter(([, val]) => val !== undefined));
 }
