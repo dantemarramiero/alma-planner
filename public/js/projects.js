@@ -10,6 +10,7 @@ import { openChatWithEmails } from './teams.js';
 import { driveBrowser, pickDriveItem } from './drive.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
+import { projectEmails } from './project-emails.js';
 
 const dates = p => {
   const s = p.span_start, e = p.span_end;
@@ -124,9 +125,18 @@ export async function projectDetail(container, id) {
       if (isMobile()) timeline(box, p, () => {});
       else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
-    else if (k === 'documenti') projectDocuments(box, p.id);
+    else if (k === 'documenti') documents(box);
     else if (k === 'cartella') folder(box);
     else if (k === 'membri') members(box);
+  }
+
+  // Documenti: i file del progetto e, sotto, le email di Outlook assegnate al progetto
+  function documents(box) {
+    const files = h('div');
+    const mails = h('div');
+    box.append(files, mails);
+    projectDocuments(files, p.id);
+    projectEmails(mails, p);
   }
 
   // ── Panoramica: tutto il progetto in una pagina (riepilogo, Gantt, ticket, documenti, cartella);
@@ -148,7 +158,7 @@ export async function projectDetail(container, id) {
     };
     section('gantt', isMobile() ? 'Attività' : 'Gantt', b => (isMobile() ? timeline(b, p, () => {}) : ganttView(b, new URLSearchParams({ project: String(p.id) }), { embedded: true })));
     section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
-    section('documenti', 'Documenti', b => projectDocuments(b, p.id));
+    section('documenti', 'Documenti', documents);
     section('cartella', 'Cartella OneDrive', b => folder(b, { titled: false }));
 
     const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);

@@ -1,0 +1,44 @@
+/* Email del progetto (sotto Documenti) e finestra «Assegna email» */
+.pe-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 10px; }
+.pe-head h3 { display: flex; align-items: center; gap: 8px; }
+.pe-count:not(:empty) { background: var(--bg); color: var(--mid); border-radius: 999px; font-size: 12px; padding: 1px 8px; font-weight: 600; }
+.pe-filter { width: 260px; max-width: 100%; }
+.pe-list { display: grid; gap: 6px; }
+.pe-empty { display: grid; gap: 4px; padding: 18px; border: 1px dashed var(--rule); border-radius: var(--radius); text-align: center; }
+
+.pe-row { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 10px 12px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer; }
+.pe-row:hover { border-color: #cfcac4; box-shadow: var(--shadow); }
+.pe-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.pe-line { display: flex; justify-content: space-between; gap: 10px; }
+.pe-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pe-subject { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-preview { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-clip { margin-left: 8px; font-size: 12px; color: var(--mid); font-weight: 400; }
+.pe-by { flex: none; align-self: center; }
+
+/* lettura */
+.pe-meta { display: grid; gap: 3px; font-size: 13px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); word-break: break-word; }
+.pe-files { display: flex; gap: 6px; flex-wrap: wrap; }
+.pe-file { display: inline-flex; align-items: center; gap: 2px; padding: 5px 10px; border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; font-size: 13px; background: var(--card); }
+.pe-file:hover { border-color: var(--orange); }
+.pe-body { white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.55; max-height: 55vh; overflow-y: auto; }
+
+/* scelta dalla casella */
+.modal.pe-pick-modal { max-width: 820px; }
+.pe-pick-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.pe-pick-bar .input { flex: 1; min-width: 200px; }
+.pe-pick-list { display: grid; gap: 4px; max-height: 58vh; overflow-y: auto; align-content: start; padding: 2px; }
+.pe-pick { display: flex; gap: 12px; align-items: flex-start; padding: 9px 10px; border: 1px solid var(--rule); border-radius: 8px; cursor: pointer; background: var(--card); }
+.pe-pick:hover { border-color: #cfcac4; }
+.pe-pick.on { border-color: var(--orange); background: var(--orange-soft); }
+.pe-pick.done { opacity: .6; cursor: default; }
+.pe-pick input { margin-top: 3px; accent-color: var(--orange); width: 16px; height: 16px; flex: none; }
+.pe-already { margin-left: 8px; font-size: 11px; }
+.pe-more { justify-self: center; margin: 8px 0; }
+.pe-none { padding: 20px; text-align: center; }
+
+@media (max-width: 760px) {
+  .pe-filter { width: 100%; }
+  .pe-head .row { width: 100%; }
+}
