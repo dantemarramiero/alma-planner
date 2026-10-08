@@ -35,6 +35,7 @@ function registerCalendar(app, { db, auth, access }) {
       `SELECT t.id, t.title, t.status, t.start_date, t.due_date, p.name AS project_name, p.color AS project_color
          FROM tickets t LEFT JOIN projects p ON p.id = t.project_id
         WHERE COALESCE(t.due_date, t.start_date) >= $1::date AND COALESCE(t.start_date, t.due_date) <= $2::date
+          AND (t.rda_state IS NULL OR t.rda_state = 'accepted')
           AND ${scope === 'mine' ? 'EXISTS (SELECT 1 FROM ticket_assignees a WHERE a.ticket_id = t.id AND a.user_id = $3)' : access.ticketFilter(req, 't', '$3')}`,
       // il filtro di un amministratore è TRUE e non usa $3: in quel caso il parametro non si passa
       scope === 'all' && access.isAdmin(req) ? [start.slice(0, 10), end.slice(0, 10)] : [start.slice(0, 10), end.slice(0, 10), req.user.id]);

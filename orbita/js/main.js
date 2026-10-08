@@ -15,6 +15,7 @@ import { notificationsView } from './notifications.js';
 import { startLive, onLive } from './live.js';
 import { setupMobile } from './mobile.js';
 import { fillIcons } from './icons.js';
+import { rdaView } from './rda.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -88,6 +89,9 @@ async function route() {
     case 'chat':
       if (!store.me.internal_chat) { clear(view).append(h('div.card.empty', 'Pagina non trovata.')); break; }
       cleanup = directView(view, parts[1] ? Number(parts[1]) : null);
+      break;
+    case 'rda':
+      rdaView(view);
       break;
     case 'notifications':
       cleanup = notificationsView(view);
@@ -165,7 +169,7 @@ async function start() {
   }));
 
   startLive();
-  for (const ev of ['notification', 'badges', 'message', 'read']) onLive(ev, refreshBadges);
+  for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   refreshBadges();
 

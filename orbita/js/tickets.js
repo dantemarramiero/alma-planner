@@ -8,6 +8,7 @@ import { pickDriveItem } from './drive.js';
 import { uploadButton, fileRow } from './activities.js';
 import { openChatWithEmails, openMailComposer } from './teams.js';
 import { notesPanel } from './notes.js';
+import { rdaTicketBox, rdaChip } from './rda.js';
 
 const VIEW_KEY = 'alma.ticketView';
 const savedView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
@@ -92,7 +93,7 @@ export function ticketsView(container, opts = {}) {
     body.append(h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-trash-col', { 'aria-label': 'Cancella' }))),
       h('tbody', sorted.map(t => h('tr', { on: { click: () => openTicket(t.id, { onSaved: load }) } },
-        h('td', h('div.t-title', t.title), h('div.t-meta', `#${t.id}`, t.comment_count ? [' · ', icon('message', { size: 13, title: 'Commenti' }), ` ${t.comment_count}`] : '', t.file_count ? [' · ', icon('paperclip', { size: 13, title: 'File' }), ` ${t.file_count}`] : '')),
+        h('td', h('div.t-title', t.title, rdaChip(t)), h('div.t-meta', `#${t.id}`, t.comment_count ? [' · ', icon('message', { size: 13, title: 'Commenti' }), ` ${t.comment_count}`] : '', t.file_count ? [' · ', icon('paperclip', { size: 13, title: 'File' }), ` ${t.file_count}`] : '')),
         fixed.project === undefined ? h('td', projChip(t.project_name, t.project_color)) : null,
         h('td', avatarsFor(t.assignee_ids)),
         h('td', statusPill(t.status)),
@@ -161,6 +162,7 @@ export function ticketCard(t, { onChange, hideProject = false, trash = true } = 
     h('div.grow',
       h('div.m-ticket-title', t.title),
       h('div.m-ticket-meta',
+        rdaChip(t),
         !hideProject && t.project_name ? projChip(t.project_name, t.project_color) : null,
         t.status === 'doing' || t.status === 'review' ? statusPill(t.status) : null,
         t.due_date && t.status !== 'done' ? h('span.m-due', { class: isLate(t) ? 'late' : '' }, t.due_date === today() ? 'Oggi' : fmtDate(t.due_date)) : null)),
@@ -253,6 +255,7 @@ function board(tickets, { onChange, hideProject }) {
     } },
     h('div.tcard-top', h('div.t-title', t.title), trashButton(t, onChange)),
     t.project_name && !hideProject ? projChip(t.project_name, t.project_color) : null,
+    rdaChip(t),
     h('div.tcard-foot', avatarsFor(t.assignee_ids, 3),
       h('span', { class: isLate(t) ? 'due-late' : `pr-${t.priority}` },
         t.priority === 'urgent' || t.priority === 'high' ? `${PRIORITY[t.priority]} · ` : '',
@@ -290,7 +293,15 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
   const progressVal = h('span.muted', `${t.progress}%`);
   const progress = h('input.range', { type: 'range', min: '0', max: '100', step: '5', value: String(t.progress), on: { input: e => { progressVal.textContent = `${e.target.value}%`; } } });
   const people = peoplePicker({ selected: t.assignee_ids, label: requireSchedule ? '+ Responsabile' : '+ Assegna' });
-  status.addEventListener('change', () => { if (status.value === 'done') { progress.value = '100'; progressVal.textContent = '100%'; } });
+  // RDA interna: riquadro con funzione, stato e ore; finché non è accettata niente stato, avanzamento o assegnatari
+  const rda = isNew ? null : rdaTicketBox(t);
+  const rdaOpen = Boolean(rda && !rda.accepted);
+  status.addEventListener('change', () => {
+    if (status.value === 'done') { progress.value = '100'; progressVal.textContent = '100%'; }
+    // a ticket fatto le ore effettive partono da quelle confermate
+    if (status.value === 'done' && rda?.actualInput && !rda.actualInput.value && t.hours_approved) rda.actualInput.value = String(Number(t.hours_approved));
+  });
+  if (rdaOpen) { status.disabled = true; progress.disabled = true; }
 
   // dipendenze: altri ticket dello stesso progetto (o tutti se senza progetto)
   const depsBox = h('div.people');
@@ -317,6 +328,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
 
   const form = [
     title,
+    rda ? rda.el : '',
     h('div.grid-2',
       h('label.field', h('span', 'Progetto'), project),
       h('label.field', h('span', 'Stato'), status),
@@ -324,7 +336,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       h('label.field', h('span', 'Scadenza'), due),
       h('label.field', h('span', 'Priorità'), priority),
       h('label.field', h('span', h('span', 'Avanzamento '), progressVal), progress)),
-    h('div.field', h('span', requireSchedule ? 'Responsabili' : 'Assegnato a'), people.el),
+    rdaOpen ? '' : h('div.field', h('span', requireSchedule ? 'Responsabili' : 'Assegnato a'), people.el),
     h('label.field', h('span', 'Descrizione'), desc),
     h('div.field', h('span', 'Dipende da (per il Gantt)'), depsBox),
   ];
@@ -344,7 +356,9 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       progress: Number(progress.value),
       assignee_ids: people.value,
       depends_on: deps,
+      ...(rda ? rda.values() : {}),
     };
+    if (rdaOpen) { delete payload.status; delete payload.progress; delete payload.assignee_ids; }
     if (!payload.title.trim()) { toast('Scrivi un titolo', 'err'); title.focus(); return null; }
     if (requireSchedule && (!payload.start_date || !payload.due_date)) { toast('Un\'attività ha sempre inizio e fine', 'err'); return null; }
     if (requireSchedule && !payload.assignee_ids.length) { toast('Indica almeno un responsabile', 'err'); return null; }

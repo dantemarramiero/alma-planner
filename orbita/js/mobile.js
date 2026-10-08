@@ -6,6 +6,7 @@ import { store } from './store.js';
 import { openTicket } from './tickets.js';
 import { openComposer } from './feed.js';
 import { addStory } from './stories.js';
+import { openRdaForm } from './rda.js';
 
 const MQ = mobileQuery;
 
@@ -44,6 +45,7 @@ const SVG = {
   post: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
   story: '<circle cx="12" cy="12" r="9" stroke-dasharray="4 3"/><path d="M12 8v8M8 12h8"/>',
   event: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  rda: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
 };
 function svg(name) {
   const tpl = document.createElement('template');
@@ -62,7 +64,8 @@ function openCreate() {
     })),
     opt('post', 'var(--blue)', 'Post', 'Foto e testo per tutti', () => openComposer({ onCreated: () => go('#/') })),
     opt('story', 'var(--violet)', 'Storia', 'Sparisce dopo 24 ore', () => addStory(() => go('#/'))),
-    opt('event', 'var(--green)', 'Evento', 'Nel calendario Outlook', () => go('#/calendar?new=1'))));
+    opt('event', 'var(--green)', 'Evento', 'Nel calendario Outlook', () => go('#/calendar?new=1')),
+    opt('rda', 'var(--ink)', 'RDA interna', 'Chiedi lavoro a un\'altra funzione, con le ore', () => openRdaForm({ onDone: () => go('#/rda') }))));
 }
 
 function openMenu() {
@@ -70,6 +73,7 @@ function openMenu() {
   const close = sheet('Menu', h('nav.menu-list',
     link('#/projects', 'folder', 'Progetti'),
     link('#/tickets', 'list', 'Tutti i ticket'),
+    link('#/rda', 'arrows', 'RDA interne'),
     link('#/gantt', 'gantt', 'Gantt'),
     link('#/drive', 'cloud', 'OneDrive'),
     link('#/org', 'network', 'Organigramma'),

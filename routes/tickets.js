@@ -3,6 +3,7 @@
 const { HttpError, v } = require('../lib/http');
 const { graph, TIMEZONE } = require('../lib/graph');
 const { createTicketMail } = require('../lib/ticket-mail');
+const { findFunction, orgOidOf, headUserSql } = require('../lib/functions');
 
 const STATUSES = ['todo', 'doing', 'review', 'done'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -13,7 +14,8 @@ const SELECT = `
          COALESCE((SELECT json_agg(a.user_id ORDER BY a.user_id) FROM ticket_assignees a WHERE a.ticket_id = t.id), '[]') AS assignee_ids,
          COALESCE((SELECT json_agg(d.depends_on_id ORDER BY d.depends_on_id) FROM ticket_deps d WHERE d.ticket_id = t.id), '[]') AS depends_on,
          (SELECT COUNT(*)::int FROM ticket_comments c WHERE c.ticket_id = t.id) AS comment_count,
-         (SELECT COUNT(*)::int FROM ticket_files f WHERE f.ticket_id = t.id) AS file_count
+         (SELECT COUNT(*)::int FROM ticket_files f WHERE f.ticket_id = t.id) AS file_count,
+         ${headUserSql('t.rda_head_oid')} AS rda_head_id
     FROM tickets t
     LEFT JOIN projects p ON p.id = t.project_id`;
 
@@ -39,7 +41,50 @@ function readBody(body, { partial }) {
     fields,
     assigneeIds: v.ids(body.assignee_ids, 'assegnatari'),
     dependsOn: v.ids(body.depends_on, 'dipendenze'),
+    // ore delle RDA interne: chi può cambiarle lo decide la PATCH
+    hours: Object.fromEntries(Object.entries({
+      hours_estimated: v.hours(body.hours_estimated, 'ore stimate'),
+      hours_approved: v.hours(body.hours_approved, 'ore confermate'),
+      hours_actual: v.hours(body.hours_actual, 'ore effettive', { nullable: true }),
+    }).filter(([, val]) => val !== undefined)),
   };
+}
+
+// Le RDA da accettare o rifiutate non sono ancora lavoro: fuori da elenchi, bacheca, Gantt e calendario.
+const LIVE_SQL = "(t.rda_state IS NULL OR t.rda_state = 'accepted')";
+
+// Regole delle ore e dello stato di una RDA in una modifica del ticket. Restituisce le colonne in più da scrivere.
+async function rdaRules(db, req, before, { fields, assigneeIds, hours }) {
+  const extra = {};
+  if (!before.rda_function) {
+    if (Object.keys(hours).length) throw new HttpError(400, 'Le ore si indicano solo nelle RDA interne');
+    return extra;
+  }
+  if (before.rda_state !== 'accepted') {
+    if (['status', 'progress', 'position'].some(k => k in fields) || assigneeIds || 'hours_approved' in hours || 'hours_actual' in hours) {
+      throw new HttpError(400, before.rda_state === 'pending'
+        ? 'La richiesta va prima accettata dal responsabile della funzione'
+        : 'La richiesta è stata rifiutata');
+    }
+    if ('hours_estimated' in hours) {
+      if (before.rda_state !== 'pending' || before.created_by !== req.user.id) throw new HttpError(403, 'Le ore stimate le cambia solo chi ha fatto la richiesta, finché non è accettata');
+      extra.hours_estimated = hours.hours_estimated;
+    }
+    return extra;
+  }
+  if ('hours_estimated' in hours) throw new HttpError(400, 'La richiesta è già accettata: le ore ora sono quelle confermate');
+  if ('hours_approved' in hours) {
+    const fn = await findFunction(db, before.rda_function);
+    const myOid = await orgOidOf(db, req.user.id);
+    if (!myOid || (myOid !== before.rda_head_oid && myOid !== fn?.head?.oid)) throw new HttpError(403, 'Le ore confermate le cambia solo il responsabile della funzione');
+    extra.hours_approved = hours.hours_approved;
+  }
+  if ('hours_actual' in hours) extra.hours_actual = hours.hours_actual;
+  // ticket fatto: le ore effettive, se nessuno le ha scritte, sono quelle confermate
+  if (fields.status === 'done' && before.status !== 'done' && !('hours_actual' in hours) && before.hours_actual === null) {
+    extra.hours_actual = extra.hours_approved ?? before.hours_approved;
+  }
+  return extra;
 }
 
 function registerTickets(app, { db, auth, baseUrl, access }) {
@@ -134,6 +179,7 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
     if (from) add('COALESCE(t.due_date, t.start_date) >= ?', v.date(from, 'da'));
     if (to) add('COALESCE(t.start_date, t.due_date) <= ?', v.date(to, 'a'));
     // solo i ticket dei progetti che si vedono (lib/access.js); per un amministratore il filtro è TRUE e non ha parametri
+    where.push(LIVE_SQL);
     const visible = access.ticketFilter(req, 't', `$${params.length + 1}`);
     if (visible !== 'TRUE') { params.push(req.user.id); where.push(visible); }
     const { rows } = await db.query(
@@ -182,12 +228,14 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
   app.patch('/api/tickets/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     await access.assertTicket(req, id);
-    const { fields, assigneeIds, dependsOn } = readBody(req.body || {}, { partial: true });
+    const body = readBody(req.body || {}, { partial: true });
+    const { fields, assigneeIds, dependsOn } = body;
     if (fields.project_id) await access.assertProject(req, fields.project_id); // spostarlo in un progetto che si vede
     let previous = [];
     await db.tx(async q => {
       const before = await getTicket(id, q);
       previous = before.assignee_ids;
+      Object.assign(fields, await rdaRules(q, req, before, body));
       const start = fields.start_date !== undefined ? fields.start_date : before.start_date;
       const due = fields.due_date !== undefined ? fields.due_date : before.due_date;
       if (start && due && start > due) throw new HttpError(400, 'La scadenza è prima dell\'inizio');
