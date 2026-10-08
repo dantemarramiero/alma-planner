@@ -1,4 +1,4 @@
-// Macro aree: raggruppano i progetti; il conteggio segue la visibilità dei progetti, le cambia chi le ha create o un amministratore.
+// Macro aree personali: ognuno ha le sue e ci mette i progetti che vede; nessun altro le vede o le cambia.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp, readConfig } = require('../server');
@@ -38,37 +38,37 @@ after(async () => {
   await db?.close();
 });
 
-test('macro aree: creazione, progetti dentro, conteggi per chi vede, permessi, cancellazione', async () => {
-  const area = (await api(ANNA, 'POST', '/api/areas', { name: 'Marketing', color: '#0057B8' })).body;
-  assert.ok(area.id);
-  assert.equal((await api(BRUNO, 'POST', '/api/areas', { name: 'marketing' })).status, 400); // nome già usato
+test('macro aree: personali, progetto in macro aree diverse per persone diverse, cancellazione', async () => {
+  const mine = (await api(ANNA, 'POST', '/api/areas', { name: 'Clienti', color: '#0057B8' })).body;
+  assert.equal((await api(ANNA, 'POST', '/api/areas', { name: 'clienti' })).status, 400); // nome già usato da Anna
+  const his = (await api(BRUNO, 'POST', '/api/areas', { name: 'Clienti' })).body; // Bruno può avere lo stesso nome
+  assert.ok(mine.id && his.id && mine.id !== his.id);
 
-  const p = (await api(ANNA, 'POST', '/api/projects', { name: 'Campagna', area_id: area.id })).body;
-  assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.area_id, area.id);
-  assert.equal((await api(ANNA, 'POST', '/api/projects', { name: 'X', area_id: 99999 })).status, 400);
+  // ognuno vede solo le sue
+  assert.deepEqual((await api(ANNA, 'GET', '/api/areas')).body.map(a => a.id), [mine.id]);
+  assert.deepEqual((await api(BRUNO, 'GET', '/api/areas')).body.map(a => a.id), [his.id]);
+  assert.equal((await api(BRUNO, 'PATCH', `/api/areas/${mine.id}`, { name: 'Mio' })).status, 404);
+  assert.equal((await api(CAPO, 'DELETE', `/api/areas/${mine.id}`)).status, 404); // nemmeno l'amministratore
 
-  // tutti vedono la macro area, ma contano solo i progetti che vedono
-  const of = async who => (await api(who, 'GET', '/api/areas')).body.find(a => a.id === area.id);
-  assert.equal((await of(ANNA)).project_count, 1);
-  assert.equal((await of(BRUNO)).project_count, 0);
-  assert.equal((await of(CAPO)).project_count, 1);
-  assert.equal((await of(ANNA)).can_edit, true);
-  assert.equal((await of(BRUNO)).can_edit, false);
-  assert.equal((await of(CAPO)).can_edit, true);
+  const p = (await api(ANNA, 'POST', '/api/projects', { name: 'Campagna' })).body;
+  // il progetto va solo in una macro area mia, e solo se vedo il progetto
+  assert.equal((await api(ANNA, 'PUT', `/api/projects/${p.id}/area`, { area_id: his.id })).status, 404);
+  assert.equal((await api(BRUNO, 'PUT', `/api/projects/${p.id}/area`, { area_id: his.id })).status, 404);
+  assert.equal((await api(ANNA, 'PUT', `/api/projects/${p.id}/area`, { area_id: mine.id })).status, 200);
+  assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.area_id, mine.id);
+  assert.equal((await api(ANNA, 'GET', '/api/areas')).body[0].project_count, 1);
 
-  // solo chi l'ha creata (o un amministratore) la cambia
-  assert.equal((await api(BRUNO, 'PATCH', `/api/areas/${area.id}`, { name: 'Mio' })).status, 403);
-  assert.equal((await api(CAPO, 'PATCH', `/api/areas/${area.id}`, { name: 'Comunicazione' })).status, 200);
-  assert.equal((await of(ANNA)).name, 'Comunicazione');
-
-  // un membro non sposta il progetto in un'altra macro area: lo fa il responsabile
+  // Bruno, membro, lo mette nella sua: per Anna non cambia niente
   await api(ANNA, 'POST', `/api/projects/${p.id}/members`, { user_ids: [await idOf(BRUNO)] });
-  assert.equal((await api(BRUNO, 'PATCH', `/api/projects/${p.id}`, { area_id: null })).status, 403);
-  assert.equal((await of(BRUNO)).project_count, 1);
+  assert.equal((await api(BRUNO, 'GET', `/api/projects/${p.id}`)).body.area_id, null);
+  assert.equal((await api(BRUNO, 'PUT', `/api/projects/${p.id}/area`, { area_id: his.id })).status, 200);
+  assert.equal((await api(BRUNO, 'GET', `/api/projects/${p.id}`)).body.area_id, his.id);
+  assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.area_id, mine.id);
 
-  // cancellando la macro area il progetto resta, senza macro area
-  assert.equal((await api(BRUNO, 'DELETE', `/api/areas/${area.id}`)).status, 403);
-  assert.equal((await api(ANNA, 'DELETE', `/api/areas/${area.id}`)).status, 200);
+  // toglierlo dalla macro area, e cancellando la macro area il progetto resta senza
+  assert.equal((await api(BRUNO, 'PUT', `/api/projects/${p.id}/area`, { area_id: null })).status, 200);
+  assert.equal((await api(BRUNO, 'GET', `/api/projects/${p.id}`)).body.area_id, null);
+  assert.equal((await api(ANNA, 'DELETE', `/api/areas/${mine.id}`)).status, 200);
+  assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).status, 200);
   assert.equal((await api(ANNA, 'GET', `/api/projects/${p.id}`)).body.area_id, null);
-  assert.equal(await of(ANNA), undefined);
 });

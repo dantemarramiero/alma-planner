@@ -1,8 +1,8 @@
-// Progetti: griglia raggruppata per macro area, scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Cartella OneDrive, Membri), creazione e modifica.
+// Progetti: griglia raggruppata nelle macro aree personali (ognuno ha le sue), scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Cartella OneDrive, Membri), creazione e modifica.
 // Ognuno vede solo i progetti di cui è responsabile o membro (lib/access.js lato server).
 // Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
 import { h, clear, fill, modal, confirmDialog, promptDialog, toast, fmtDate, avatar, loading, today, isMobile, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
-import { get, post, patch, del } from './api.js';
+import { get, post, put, patch, del } from './api.js';
 import { store, loadProjects, loadAreas, projectById, userById, areaById } from './store.js';
 import { ticketsView, openTicket } from './tickets.js';
 import { peoplePicker, avatarsFor } from './people.js';
@@ -35,7 +35,7 @@ export async function projectsView(container) {
   const areaSelect = h('select.select', { 'aria-label': 'Macro area', on: { change: e => { areaFilter = e.target.value; writeLocal(AREA_KEY, areaFilter); draw(); } } });
   const newProject = defaults => editProject(null, async p => { location.hash = `#/projects/${p.id}`; }, defaults);
   clear(container).append(
-    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'I progetti di cui sei responsabile o membro, raggruppati per macro area: ognuno raccoglie Gantt, ticket, documenti e persone.')),
+    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'I progetti di cui sei responsabile o membro, raggruppati nelle tue macro aree: ognuno raccoglie Gantt, ticket, documenti e persone.')),
       h('div.row', areaSelect, archivedToggle,
         h('button.btn', { type: 'button', on: { click: () => manageAreas(draw) } }, 'Macro aree'),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => newProject(areaFilter && areaFilter !== 'none' ? { area_id: Number(areaFilter) } : {}) } }, '+ Nuovo progetto'))),
@@ -88,7 +88,7 @@ export async function projectsView(container) {
       // senza macro aree: la griglia di sempre, con l'invito a crearle
       if (!list.length) return body.append(h('div.card.empty', 'Ancora nessun progetto.'));
       return body.append(
-        h('div.area-hint.small.muted', 'Puoi raggruppare i progetti in macro aree (es. Clienti, Marketing, Interni): ',
+        h('div.area-hint.small.muted', 'Puoi raggruppare i progetti nelle tue macro aree (es. Clienti, Marketing, Interni); sono solo tue, gli altri non le vedono: ',
           h('button.btn-link', { type: 'button', on: { click: () => manageAreas(draw) } }, 'crea la prima macro area'), '.'),
         h('div.proj-grid', list.map(card)));
     }
@@ -105,7 +105,7 @@ export function manageAreas(onChange) {
   const list = h('div.area-list');
   const m = modal({
     title: 'Macro aree',
-    body: [h('p.muted.small', { style: { margin: 0 } }, 'Le macro aree raggruppano i progetti nella pagina Progetti e nel Gantt. Le vedono tutti; ognuno ci trova solo i progetti a cui partecipa. Le cambia chi le ha create (e gli amministratori).'), list],
+    body: [h('p.muted.small', { style: { margin: 0 } }, 'Le macro aree raggruppano i progetti nella pagina Progetti e nel Gantt. Sono solo tue: ognuno si fa le sue, e mettere un progetto in una macro area non cambia niente per gli altri.'), list],
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'),
       h('button.btn.btn-primary', { type: 'button', on: { click: add } }, '＋ Nuova macro area'),
@@ -120,15 +120,13 @@ export function manageAreas(onChange) {
     if (!store.areas.length) return fill(list, h('div.empty', 'Ancora nessuna macro area.'));
     const n = store.areas.length;
     fill(list, store.areas.map((a, i) => h('div.area-row', { style: { '--ac': a.color } },
-      a.can_edit
-        ? h('button.area-dot.area-dot-btn', { type: 'button', title: 'Cambia colore', on: { click: () => recolor(a) } })
-        : h('span.area-dot'),
+      h('button.area-dot.area-dot-btn', { type: 'button', title: 'Cambia colore', on: { click: () => recolor(a) } }),
       h('span.grow', h('strong', a.name), h('span.muted.small', `  ·  ${a.project_count} ${a.project_count === 1 ? 'progetto' : 'progetti'}`)),
-      a.can_edit ? h('div.row-actions',
+      h('div.row-actions',
         h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Sposta su', disabled: i === 0, on: { click: () => move(i, -1) } }, '↑'),
         h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Sposta giù', disabled: i === n - 1, on: { click: () => move(i, 1) } }, '↓'),
         h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => rename(a) } }, 'Rinomina'),
-        h('button.btn.btn-ghost.btn-sm.btn-danger', { type: 'button', on: { click: () => remove(a) } }, 'Cancella')) : null)));
+        h('button.btn.btn-ghost.btn-sm.btn-danger', { type: 'button', on: { click: () => remove(a) } }, 'Cancella')))));
   }
 
   async function add() {
@@ -149,7 +147,7 @@ export function manageAreas(onChange) {
   async function move(i, dir) {
     const order = store.areas.slice();
     [order[i], order[i + dir]] = [order[i + dir], order[i]];
-    await Promise.all(order.map((a, pos) => (a.can_edit && a.position !== pos ? patch(`/api/areas/${a.id}`, { position: pos }) : null)));
+    await Promise.all(order.map((a, pos) => (a.position !== pos ? patch(`/api/areas/${a.id}`, { position: pos }) : null)));
     await reload();
   }
   async function remove(a) {
@@ -212,6 +210,7 @@ export async function projectDetail(container, id) {
           h('span', [owner ? `Responsabile ${owner.name}` : 'Senza responsabile', `${p.member_count + 1} ${p.member_count ? 'persone' : 'persona'}`,
             p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  ')))),
       h('div.pj-actions',
+        areaPicker(p, () => projectDetail(container, id)),
         h('button.btn', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, '＋ Ticket'),
         canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica') : null)),
     h('div.pj-facts',
@@ -437,7 +436,7 @@ export function editProject(p, onSaved, defaults = {}) {
       h('div.grid-2',
         h('label.field', h('span', 'Stato'), status),
         h('label.field', h('span', 'Responsabile'), owner)),
-      h('div.field', h('span', 'Macro area'), h('div.row.area-pick', area, newArea)),
+      h('div.field', h('span', 'La tua macro area'), h('div.row.area-pick', area, newArea), h('small.muted', 'Solo per te: gli altri raggruppano i progetti nelle loro.')),
       h('div.field', h('span', 'Colore'), swatches),
       invite ? h('div.field', h('span', 'Membri'), invite.el, h('small.muted', 'Solo il responsabile, i membri e gli amministratori vedono il progetto e i suoi ticket.')) : null,
       h('div.muted.small', 'La durata del progetto la danno le sue attività nel Gantt.'),
@@ -454,13 +453,30 @@ export function editProject(p, onSaved, defaults = {}) {
     const payload = {
       name: name.value, description: desc.value, color, status: status.value,
       owner_id: owner.value ? Number(owner.value) : null,
-      area_id: area.value ? Number(area.value) : null,
     };
     const r = isNew ? await post('/api/projects', payload) : await patch(`/api/projects/${p.id}`, payload);
+    const areaId = area.value ? Number(area.value) : null;
+    if (areaId !== (p.area_id ?? null)) await put(`/api/projects/${isNew ? r.id : p.id}/area`, { area_id: areaId });
     if (isNew && invite.value.length) await post(`/api/projects/${r.id}/members`, { user_ids: invite.value });
     m.close();
     await loadProjects();
     toast(isNew ? 'Progetto creato' : 'Progetto salvato');
     onSaved?.({ id: isNew ? r.id : p.id });
   }
+}
+
+// Menu «macro area» nella scheda del progetto: sposta il progetto in una delle mie macro aree (solo per me).
+function areaPicker(p, onChange) {
+  const NEW = '__new';
+  const sel = h('select.select.pj-area-select', { 'aria-label': 'La tua macro area', title: 'La tua macro area (solo per te)', on: { change: async () => {
+    let areaId = sel.value === NEW ? (await createArea())?.id : sel.value ? Number(sel.value) : null;
+    if (areaId === undefined) { sel.value = p.area_id ? String(p.area_id) : ''; return; } // nuova annullata
+    await put(`/api/projects/${p.id}/area`, { area_id: areaId });
+    toast(areaId ? `Spostato in «${areaById(areaId)?.name}»` : 'Tolto dalla macro area');
+    onChange();
+  } } },
+  h('option', { value: '' }, 'Nessuna macro area'),
+  store.areas.map(a => h('option', { value: String(a.id), selected: a.id === p.area_id }, a.name)),
+  h('option', { value: NEW }, '＋ Nuova macro area…'));
+  return sel;
 }

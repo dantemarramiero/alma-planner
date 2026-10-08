@@ -1,4 +1,5 @@
-// Progetti: elenco con avanzamento, creazione, modifica, macro area, cartella OneDrive collegata, membri.
+// Progetti: elenco con avanzamento, creazione, modifica, cartella OneDrive collegata, membri.
+// La macro area (area_id) è quella di chi guarda: ognuno ha le sue (routes/areas.js).
 // Ognuno vede solo i progetti di cui è responsabile o membro (gli amministratori li vedono tutti): lib/access.js.
 const { HttpError, v } = require('../lib/http');
 
@@ -14,6 +15,7 @@ const SELECT = `
          MIN(COALESCE(t.start_date, t.due_date)) AS span_start,
          MAX(COALESCE(t.due_date, t.start_date)) AS span_end,
          (SELECT COUNT(*)::int FROM project_members m WHERE m.project_id = p.id AND m.user_id <> p.owner_id) AS member_count,
+         (SELECT pa.area_id FROM project_areas pa WHERE pa.project_id = p.id AND pa.user_id = $1) AS area_id, -- la mia macro area
          CASE WHEN p.owner_id = $1 THEN 'owner'
               WHEN EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = $1) THEN 'member'
               ELSE 'admin' END AS my_role
@@ -30,7 +32,6 @@ function readBody(body, { partial }) {
     start_date: v.date(body.start_date, 'inizio'),
     end_date: v.date(body.end_date, 'fine'),
     owner_id: v.int(body.owner_id, 'responsabile', { min: 1, nullable: true }),
-    area_id: v.int(body.area_id, 'macro area', { min: 1, nullable: true }),
     onedrive_drive_id: v.text(body.onedrive_drive_id, 'cartella OneDrive', { max: 300 }),
     onedrive_item_id: v.text(body.onedrive_item_id, 'cartella OneDrive', { max: 300 }),
     onedrive_name: v.text(body.onedrive_name, 'cartella OneDrive', { max: 500 }),
@@ -42,12 +43,6 @@ function readBody(body, { partial }) {
 }
 
 function registerProjects(app, { db, access }) {
-  async function assertArea(areaId) {
-    if (!areaId) return;
-    const { rows } = await db.query('SELECT 1 FROM areas WHERE id = $1', [areaId]);
-    if (!rows[0]) throw new HttpError(400, 'La macro area non esiste più: ricarica la pagina');
-  }
-
   app.get('/api/projects', async (req, res) => {
     const all = req.query.all === '1';
     const { rows } = await db.query(
@@ -66,7 +61,6 @@ function registerProjects(app, { db, access }) {
   app.post('/api/projects', async (req, res) => {
     const data = readBody(req.body || {}, { partial: false });
     if (data.owner_id === undefined || data.owner_id === null) data.owner_id = req.user.id;
-    await assertArea(data.area_id);
     const id = await db.tx(async q => {
       const cols = Object.keys(data);
       const { rows } = await q.query(
@@ -85,7 +79,6 @@ function registerProjects(app, { db, access }) {
     const onlyFolder = Object.keys(data).every(k => k.startsWith('onedrive_'));
     // la cartella OneDrive la può collegare ogni membro; il resto solo responsabile e amministratori
     if (onlyFolder) await access.assertProject(req, id); else await access.assertManage(req, id);
-    await assertArea(data.area_id);
     const cols = Object.keys(data);
     if (!cols.length) return res.json({ ok: true });
     await db.tx(async q => {
