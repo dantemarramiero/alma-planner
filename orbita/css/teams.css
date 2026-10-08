@@ -33,7 +33,7 @@
 .tm-msg.mine .tm-msg-body { justify-items: end; }
 .tm-sender { font-size: var(--ap-fs-xs); color: var(--muted); margin: 0 12px 2px; }
 .tm .bubble { background: var(--ap-grey-100); padding: 8px 13px; border-radius: var(--radius-lg); white-space: pre-wrap; word-break: break-word; max-width: 100%; text-decoration: none; }
-.tm-msg.mine .bubble { background: var(--orange); color: var(--ap-white); }
+.tm-msg.mine .bubble { background: var(--orange-fill); color: var(--ap-white); }
 .tm-compose { display: flex; align-items: flex-end; gap: 8px; margin: 10px 14px 14px; border: 1px solid var(--rule); border-radius: var(--radius-lg); padding: 4px 6px 4px 14px; }
 .tm-input { border: 0; resize: none; min-height: 0; padding: 8px 0; max-height: 140px; flex: 1; background: transparent; }
 textarea.input.tm-input { min-height: 0; }

@@ -28,6 +28,9 @@
   --radius-card: 10px;
   --radius-lg: 14px;
   --radius-pill: 999px;
+  /* arancione delle superfici con testo bianco (pulsanti principali, fumetti): un po' più scuro dell'accento, su richiesta di Dante */
+  --orange-fill: var(--ap-accent-hover);
+  --orange-fill-hover: color-mix(in srgb, var(--ap-accent-hover) 85%, var(--ap-graphite));
   --shadow: var(--ap-shadow);
   --font: var(--ap-font);
   --sidebar-w: 240px;
@@ -103,8 +106,8 @@ h3 { font-size: var(--ap-fs-sm); font-weight: var(--ap-fw-medium); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--ap-space-2); min-height: 36px; border: 1px solid var(--ap-border-strong); background: transparent; padding: 0 var(--ap-space-4); border-radius: var(--radius); cursor: pointer; font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); text-decoration: none; white-space: nowrap; line-height: 1.2; transition: background var(--ap-dur) var(--ap-ease), border-color var(--ap-dur) var(--ap-ease), color var(--ap-dur) var(--ap-ease); }
 .btn:hover { border-color: var(--ap-grey-500); background: var(--ap-bg); }
 .btn:focus-visible, .input:focus-visible, .select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--ap-accent); box-shadow: var(--ap-focus); }
-.btn-primary { background: var(--ap-accent); border-color: var(--ap-accent); color: var(--ap-white); }
-.btn-primary:hover { background: var(--ap-accent-hover); border-color: var(--ap-accent-hover); }
+.btn-primary { background: var(--orange-fill); border-color: var(--orange-fill); color: var(--ap-white); }
+.btn-primary:hover { background: var(--orange-fill-hover); border-color: var(--orange-fill-hover); }
 .btn-danger { color: var(--red); }
 .btn-danger:hover { background: var(--red-soft); border-color: var(--red); }
 .btn-ghost { border-color: transparent; background: transparent; }

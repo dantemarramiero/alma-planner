@@ -87,7 +87,7 @@
   .m-tab .ico-on { display: none; }
   .m-tab.active .ico-on { display: block; }
   .m-tab.active .ico-off { display: none; }
-  .m-plus span { width: 46px; height: 34px; border-radius: var(--radius); background: var(--orange); color: var(--ap-white); display: grid; place-items: center; }
+  .m-plus span { width: 46px; height: 34px; border-radius: var(--radius); background: var(--orange-fill); color: var(--ap-white); display: grid; place-items: center; }
   .m-me .avatar { width: 28px; height: 28px; font-size: var(--ap-fs-xs); border: 0; }
   .m-me.active .avatar { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
 
