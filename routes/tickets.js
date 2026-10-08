@@ -2,6 +2,7 @@
 // e un evento «giornata intera» sul calendario Outlook che segue le date del ticket.
 const { HttpError, v } = require('../lib/http');
 const { graph, TIMEZONE } = require('../lib/graph');
+const { createTicketMail } = require('../lib/ticket-mail');
 
 const STATUSES = ['todo', 'doing', 'review', 'done'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -42,6 +43,7 @@ function readBody(body, { partial }) {
 }
 
 function registerTickets(app, { db, auth, baseUrl, access }) {
+  const ticketMail = createTicketMail({ db, auth, baseUrl }); // email a chi riceve un ticket
   async function getTicket(id, q = db) {
     const { rows } = await q.query(`${SELECT} WHERE t.id = $1`, [id]);
     if (!rows[0]) throw new HttpError(404, 'Ticket non trovato');
@@ -172,7 +174,9 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       await setDeps(q, newId, dependsOn || []);
       return newId;
     });
-    res.status(201).json(await getTicket(id));
+    const created = await getTicket(id);
+    res.status(201).json(created);
+    ticketMail.notifyAssigned(created, assigneeIds, req.user); // dopo la risposta: non fa aspettare
   });
 
   app.patch('/api/tickets/:id', async (req, res) => {
@@ -180,8 +184,10 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
     await access.assertTicket(req, id);
     const { fields, assigneeIds, dependsOn } = readBody(req.body || {}, { partial: true });
     if (fields.project_id) await access.assertProject(req, fields.project_id); // spostarlo in un progetto che si vede
+    let previous = [];
     await db.tx(async q => {
       const before = await getTicket(id, q);
+      previous = before.assignee_ids;
       const start = fields.start_date !== undefined ? fields.start_date : before.start_date;
       const due = fields.due_date !== undefined ? fields.due_date : before.due_date;
       if (start && due && start > due) throw new HttpError(400, 'La scadenza è prima dell\'inizio');
@@ -199,7 +205,10 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
     });
     const touchesEvent = ['title', 'description', 'start_date', 'due_date', 'status', 'project_id'].some(k => k in fields);
     if (touchesEvent) await syncOutlook(id);
-    res.json(await getTicket(id));
+    const updated = await getTicket(id);
+    res.json(updated);
+    // email solo a chi è stato aggiunto ora
+    if (assigneeIds) ticketMail.notifyAssigned(updated, assigneeIds.filter(uid => !previous.includes(uid)), req.user);
   });
 
   app.delete('/api/tickets/:id', async (req, res) => {
