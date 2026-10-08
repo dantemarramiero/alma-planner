@@ -6,6 +6,8 @@ import { store, userById, activeProjects } from './store.js';
 import { avatarsFor } from './people.js';
 import { openTicket } from './tickets.js';
 
+// «5 min fa», «3 h fa», ma «ora» e le date senza «fa»
+const ago = iso => { const s = timeAgo(iso); return /^d+ (min|h|g)$/.test(s) ? `${s} fa` : s; };
 const STATE = { pending: 'Da accettare', accepted: 'Accettata', rejected: 'Rifiutata' };
 export const fmtHours = n => (n === null || n === undefined ? '' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h`);
 
@@ -120,7 +122,7 @@ async function openAccept(t, onDone) {
   const m = modal({
     title: `Accetta: ${t.title}`,
     body: [
-      h('div.rda-from', avatar(userById(t.created_by), 32), h('div', h('strong', userById(t.created_by)?.name || 'Un collega'), h('div.small.muted', `chiede a ${t.rda_function} · ${timeAgo(t.created_at)} fa`))),
+      h('div.rda-from', avatar(userById(t.created_by), 32), h('div', h('strong', userById(t.created_by)?.name || 'Un collega'), h('div.small.muted', `chiede a ${t.rda_function} · ${ago(t.created_at)}`))),
       t.description ? h('p.rda-desc', t.description) : '',
       h('div.grid-2',
         h('label.field', h('span', 'Ore confermate'), hours, changed),
@@ -180,7 +182,7 @@ export function rdaView(view) {
           return h('div.card.rda-card',
             h('div.rda-card-head', avatar(u, 36), h('div.grow',
               h('div.rda-title', t.title),
-              h('div.small.muted', `${u?.name || 'Un collega'} · per ${t.rda_function} · ${timeAgo(t.created_at)} fa`))),
+              h('div.small.muted', `${u?.name || 'Un collega'} · per ${t.rda_function} · ${ago(t.created_at)}`))),
             t.description ? h('p.rda-desc', t.description) : '',
             h('div.rda-meta', h('span.rda-big', fmtHours(t.hours_estimated), h('small', ' stimate')),
               t.due_date ? h('span', `entro il ${fmtDate(t.due_date)}`) : null,

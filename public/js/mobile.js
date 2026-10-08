@@ -64,7 +64,7 @@ function openCreate() {
     opt('post', 'var(--blue)', 'Post', 'Foto e testo per tutti', () => openComposer({ onCreated: () => go('#/') })),
     opt('story', 'var(--violet)', 'Storia', 'Sparisce dopo 24 ore', () => addStory(() => go('#/'))),
     opt('event', 'var(--green)', 'Evento', 'Nel calendario Outlook', () => go('#/calendar?new=1')),
-    opt('rda', 'var(--ink)', 'RDA interna', 'Chiedi lavoro a un'altra funzione, con le ore', () => openRdaForm({ onDone: () => go('#/rda') }))));
+    opt('rda', 'var(--ink)', 'RDA interna', 'Chiedi lavoro a un\'altra funzione, con le ore', () => openRdaForm({ onDone: () => go('#/rda') }))));
 }
 
 function openMenu() {

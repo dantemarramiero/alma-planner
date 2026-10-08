@@ -150,6 +150,7 @@ function registerRda(app, { db, auth, baseUrl, access, isAdmin, notifier, live }
     res.json(updated);
 
     await notifier.notify({ userIds: [t.created_by], actorId: req.user.id, kind: 'rda_accepted', ticketId: id }).catch(() => {});
+    live.send([req.user.id], 'rda'); // il contatore «da accettare» del responsabile scende
     const { rows } = await db.query(`SELECT t.*, p.name AS project_name FROM tickets t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = $1`, [id]);
     mail.notifyAssigned(rows[0], assignees, req.user);
   });
@@ -165,6 +166,7 @@ function registerRda(app, { db, auth, baseUrl, access, isAdmin, notifier, live }
         WHERE id = $1`, [id, reason, req.user.id]);
     res.json(await getRda(id));
     await notifier.notify({ userIds: [t.created_by], actorId: req.user.id, kind: 'rda_rejected', ticketId: id }).catch(() => {});
+    live.send([req.user.id], 'rda');
   });
 }
 
