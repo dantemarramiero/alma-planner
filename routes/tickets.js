@@ -206,6 +206,10 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
     const id = v.int(req.params.id, 'id', { min: 1 });
     await access.assertTicket(req, id);
     const t = await getTicket(id);
+    // Lo cancella solo chi l'ha creato; un ticket rimasto senza autore (persona uscita) lo cancella un amministratore.
+    if (t.created_by !== req.user.id && !(t.created_by === null && access.isAdmin(req))) {
+      throw new HttpError(403, 'Può cancellare il ticket solo chi l\'ha creato');
+    }
     if (t.outlook_event_id && t.outlook_event_owner) {
       try {
         const token = await auth.graphToken(t.outlook_event_owner);

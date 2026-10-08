@@ -168,8 +168,13 @@ export function ticketCard(t, { onChange, hideProject = false } = {}) {
   return card;
 }
 
+// Il ticket lo cancella solo chi l'ha creato (senza autore: un amministratore), come controlla il server.
+export const canDeleteTicket = t => t.created_by === store.me.id || (t.created_by == null && Boolean(store.me.is_admin));
+
 // Cestino nell'elenco, nella bacheca e nelle schede del telefono: cancella il ticket senza aprirlo, dopo la conferma.
+// Per gli altri non compare.
 export function trashButton(t, onDone) {
+  if (!canDeleteTicket(t)) return null;
   const stop = e => e.stopPropagation(); // non apre il ticket e non avvia il trascinamento
   return h('button.t-trash', {
     type: 'button', title: 'Cancella il ticket', 'aria-label': `Cancella il ticket «${t.title}»`, draggable: false,
@@ -348,7 +353,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
   }
 
   const left = [];
-  if (!isNew) {
+  if (!isNew && canDeleteTicket(t)) {
     left.push(h('button.btn.btn-danger', { type: 'button', on: { click: async () => {
       if (!await confirmDialog(`Cancellare il ticket «${t.title}»?`, { ok: 'Cancella', danger: true })) return;
       await del(`/api/tickets/${t.id}`);
