@@ -6,6 +6,7 @@ import { peoplePicker, avatarsFor } from './people.js';
 import { pickDriveItem } from './drive.js';
 import { uploadButton, fileRow } from './activities.js';
 import { openChatWithEmails, openMailComposer } from './teams.js';
+import { notesPanel } from './notes.js';
 
 const VIEW_KEY = 'alma.ticketView';
 const savedView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
@@ -450,6 +451,10 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       files.append(fileRow(f, { onRemove: async () => { await del(`/api/tickets/${t.id}/files/${f.id}`); changed = true; refresh(); } }));
     }
 
+    // Note con data (come nel CRM)
+    const notesBox = h('div.section');
+    notesPanel(notesBox, { url: `/api/tickets/${t.id}/notes` });
+
     // Commenti
     const text = h('textarea.input', { rows: 2, placeholder: 'Scrivi un commento…', style: { minHeight: '60px' } });
     const comments = h('div.section', h('div.spread', h('h3', `Commenti${t.comments.length ? ` (${t.comments.length})` : ''}`)),
@@ -465,7 +470,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
           refresh();
         } } }, 'Commenta'))));
 
-    extra.append(outlook, files, comments,
+    extra.append(outlook, files, notesBox, comments,
       h('div.muted.small.section', `Creato il ${fmtDateTime(t.created_at)} · aggiornato il ${fmtDateTime(t.updated_at)}`));
   }
 }

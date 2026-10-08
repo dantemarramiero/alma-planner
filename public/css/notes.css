@@ -1,0 +1,44 @@
+/* Note con data su progetti e ticket */
+.nt-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.nt-head h3 { display: flex; align-items: center; gap: 8px; }
+.nt-count:not(:empty) { background: var(--bg); color: var(--mid); border-radius: 999px; font-size: 12px; padding: 1px 8px; font-weight: 600; }
+.nt-tools { display: flex; gap: 8px; align-items: center; }
+.nt-search { width: 220px; max-width: 100%; }
+.nt-kinds { margin-bottom: 10px; flex-wrap: wrap; }
+.nt-kinds button { font-size: 13px; padding: 4px 10px; }
+.nt-list { display: grid; gap: 8px; }
+.nt-empty { display: grid; gap: 4px; padding: 16px; border: 1px dashed var(--rule); border-radius: var(--radius); text-align: center; }
+.nt-none { padding: 8px 2px; }
+
+.nt-card { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 6px; }
+.nt-card.pinned { border-color: #F3C7A8; background: #FFFAF6; }
+.nt-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.nt-kind { font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg); color: var(--mid); }
+.nt-kind.k-telefonata { background: var(--blue-soft); color: var(--blue); }
+.nt-kind.k-riunione { background: #EDE8F6; color: var(--violet); }
+.nt-kind.k-decisione { background: var(--green-soft); color: var(--green); }
+.nt-date { font-weight: 600; color: var(--ink); }
+.nt-ticket { border: 0; background: none; padding: 0; color: var(--blue); cursor: pointer; font-size: 12px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-ticket:hover { text-decoration: underline; }
+.nt-actions { margin-left: auto; display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.nt-actions .nt-del { color: var(--red); }
+.nt-title { font-weight: 600; }
+.nt-body { white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.nt-foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mid); }
+.nt-foot .avatar { border: 0; }
+
+.nt-editing { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.nt-edit-row { display: grid; grid-template-columns: 150px 160px 1fr; gap: 8px; }
+.nt-editing textarea.input { min-height: 90px; }
+.nt-edit-foot { display: flex; align-items: center; gap: 8px; }
+.nt-edit-foot .grow { flex: 1; }
+
+.toast.nt-undo { display: flex; align-items: center; gap: 14px; }
+.toast.nt-undo button { border: 0; background: none; color: var(--orange-light); font-weight: 700; cursor: pointer; padding: 0; }
+
+@media (max-width: 760px) {
+  .nt-edit-row { grid-template-columns: 1fr 1fr; }
+  .nt-edit-row .input:last-child { grid-column: 1 / -1; }
+  .nt-tools, .nt-search { width: 100%; }
+  .nt-search { flex: 1; }
+}

@@ -11,6 +11,7 @@ import { driveBrowser, pickDriveItem } from './drive.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
 import { projectEmails } from './project-emails.js';
+import { notesPanel } from './notes.js';
 
 const dates = p => {
   const s = p.span_start, e = p.span_end;
@@ -180,6 +181,7 @@ const TABS = [
   ['ticket', 'Ticket'],
   ['documenti', 'Documenti'],
   ['email', 'Email'],
+  ['note', 'Note'],
   ['cartella', 'Cartella OneDrive'],
   ['membri', 'Membri'],
 ];
@@ -235,6 +237,13 @@ export async function projectDetail(container, id) {
   get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
     if (list?.length) nav.querySelector('[data-k="email"]')?.append(h('span.pj-count', String(list.length)));
   }).catch(() => {});
+  // lo stesso per le note (del progetto e dei suoi ticket); si aggiorna quando se ne aggiungono o tolgono
+  function setNotesCount(n) {
+    const tabBtn = nav.querySelector('[data-k="note"]');
+    tabBtn?.querySelector('.pj-count')?.remove();
+    if (n) tabBtn?.append(h('span.pj-count', String(n)));
+  }
+  get(`/api/projects/${p.id}/notes`, { quiet: true }).then(list => setNotesCount(list?.length || 0)).catch(() => {});
 
   function counter(k) {
     const n = k === 'ticket' ? open : k === 'membri' ? p.member_count + 1 : null;
@@ -260,6 +269,7 @@ export async function projectDetail(container, id) {
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
     else if (k === 'documenti') projectDocuments(box, p.id);
     else if (k === 'email') projectEmails(box, p);
+    else if (k === 'note') notesPanel(box, { url: `/api/projects/${p.id}/notes`, showTicket: true, onCount: setNotesCount });
     else if (k === 'cartella') folder(box);
     else if (k === 'membri') members(box);
   }
@@ -285,6 +295,7 @@ export async function projectDetail(container, id) {
     section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
     section('documenti', 'Documenti', b => projectDocuments(b, p.id));
     section('email', 'Email', b => projectEmails(b, p));
+    section('note', 'Note', b => notesPanel(b, { url: `/api/projects/${p.id}/notes`, showTicket: true, title: 'Note del progetto e dei ticket', onCount: setNotesCount }));
     section('cartella', 'Cartella OneDrive', b => folder(b, { titled: false }));
 
     const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);

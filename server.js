@@ -14,6 +14,7 @@ const { registerOrg } = require('./routes/org');
 const { registerTeams } = require('./routes/teams');
 const { registerProjectFiles } = require('./routes/project-files');
 const { registerProjectEmails } = require('./routes/project-emails');
+const { registerNotes } = require('./routes/notes');
 const { registerDirect } = require('./routes/direct');
 const { registerMedia } = require('./routes/media');
 const { registerFeed } = require('./routes/feed');
@@ -156,6 +157,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   registerTeams(app, { ...deps, tenantId: config.tenantId });
   registerProjectFiles(app, deps);
   registerProjectEmails(app, deps);
+  registerNotes(app, deps);
   registerMedia(app, deps);
   registerFeed(app, deps);
   registerStories(app, deps);
