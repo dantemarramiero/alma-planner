@@ -6,6 +6,7 @@ const { createAuth } = require('./lib/auth');
 const { HttpError } = require('./lib/http');
 const { registerUsers } = require('./routes/users');
 const { registerProjects } = require('./routes/projects');
+const { registerAreas } = require('./routes/areas');
 const { registerTickets } = require('./routes/tickets');
 const { registerCalendar } = require('./routes/calendar');
 const { registerDrive } = require('./routes/drive');
@@ -146,6 +147,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);
+  registerAreas(app, deps);
   registerTickets(app, deps);
   registerCalendar(app, deps);
   registerDrive(app, deps);

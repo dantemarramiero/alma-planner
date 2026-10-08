@@ -67,3 +67,27 @@
 .pj-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 10px; min-width: 0; }
 .pj-section > .spread h2 { margin: 0; }
 .gantt-empty { padding: 12px 16px 16px; }
+
+/* Macro aree: gruppi di progetti nella pagina Progetti */
+.areas { display: grid; gap: 22px; }
+.area-group { display: grid; gap: 10px; }
+.area-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--rule); padding-bottom: 6px; }
+.area-title { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 2px 0; cursor: pointer; color: var(--ink); min-width: 0; }
+.area-title h2 { margin: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-caret { width: 12px; color: var(--muted); font-size: 12px; }
+.area-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--ac, var(--muted)); flex: none; display: inline-block; }
+.area-count { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--muted); background: var(--card); border: 1px solid var(--rule); border-radius: 999px; padding: 0 7px; }
+.area-empty { padding: 4px 2px 0 20px; }
+.area-hint { margin-bottom: 12px; }
+.btn-link { border: 0; background: none; padding: 0; color: var(--orange-dark); font: inherit; cursor: pointer; text-decoration: underline; }
+.area-list { display: grid; margin-top: 8px; }
+.area-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid #efece8; }
+.area-row:last-child { border-bottom: 0; }
+.area-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-dot-btn { width: 16px; height: 16px; border-radius: 5px; border: 0; cursor: pointer; padding: 0; }
+.area-pick .select { flex: 1; min-width: 0; }
+.pj-area { display: inline-flex; align-items: center; gap: 5px; color: var(--mid); }
+@media (max-width: 760px) {
+  .area-row { flex-wrap: wrap; }
+  .area-row .row-actions { width: 100%; justify-content: flex-end; }
+}
