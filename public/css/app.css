@@ -44,6 +44,14 @@ h3 { font-size: 14px; font-weight: 600; }
 .brand-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--orange); color: #fff; display: grid; place-items: center; font-size: 17px; line-height: 1; }
 .brand-lg { font-size: 24px; }
 .brand-lg .brand-mark { width: 40px; height: 40px; font-size: 24px; border-radius: 10px; }
+/* logo Almacis (public/img: almacis-logo.png con la scritta scura, almacis-mark.png solo la S) */
+.brand-full { flex-direction: column; align-items: flex-start; gap: 4px; }
+.brand-full .brand-logo { width: 136px; height: auto; display: block; }
+.brand-app { font-size: 11px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--orange-dark); padding-left: 2px; }
+.brand-mark-img { width: 30px; height: 30px; object-fit: contain; display: block; }
+.brand-login { flex-direction: column; align-items: flex-start; gap: 10px; }
+.brand-login .brand-logo { width: 220px; height: auto; display: block; }
+.brand-login .brand-app { font-size: 13px; }
 
 /* ── Login ─────────────────────────────────────────────────────────────── */
 .login-page { display: grid; place-items: center; padding: 16px; }
