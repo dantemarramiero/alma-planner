@@ -88,7 +88,7 @@ export function ticketsView(container, opts = {}) {
     if (!tickets.length) return body.append(h('div.card.empty', 'Nessun ticket. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newBtn.click(); } } }, 'Creane uno')));
     const sorted = [...tickets].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
     body.append(h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'))),
+      h('thead', h('tr', h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-trash-col', { 'aria-label': 'Cancella' }))),
       h('tbody', sorted.map(t => h('tr', { on: { click: () => openTicket(t.id, { onSaved: load }) } },
         h('td', h('div.t-title', t.title), h('div.t-meta', `#${t.id}`, t.comment_count ? ` · 💬 ${t.comment_count}` : '', t.file_count ? ` · 📎 ${t.file_count}` : '')),
         fixed.project === undefined ? h('td', projChip(t.project_name, t.project_color)) : null,
@@ -96,6 +96,7 @@ export function ticketsView(container, opts = {}) {
         h('td', statusPill(t.status)),
         h('td', h('span', { class: `pr-${t.priority}` }, PRIORITY[t.priority])),
         h('td', { class: isLate(t) ? 'due-late' : '' }, t.due_date ? fmtDate(t.due_date) : h('span.muted', '—')),
+        h('td.t-trash-col', trashButton(t, load)),
       ))))));
   }
 
@@ -161,9 +162,37 @@ export function ticketCard(t, { onChange, hideProject = false } = {}) {
         !hideProject && t.project_name ? projChip(t.project_name, t.project_color) : null,
         t.status === 'doing' || t.status === 'review' ? statusPill(t.status) : null,
         t.due_date && t.status !== 'done' ? h('span.m-due', { class: isLate(t) ? 'late' : '' }, t.due_date === today() ? 'Oggi' : fmtDate(t.due_date)) : null)),
-    avatarsFor(t.assignee_ids, 3));
+    avatarsFor(t.assignee_ids, 3),
+    trashButton(t, onChange));
   paint();
   return card;
+}
+
+// Cestino nell'elenco, nella bacheca e nelle schede del telefono: cancella il ticket senza aprirlo, dopo la conferma.
+export function trashButton(t, onDone) {
+  const stop = e => e.stopPropagation(); // non apre il ticket e non avvia il trascinamento
+  return h('button.t-trash', {
+    type: 'button', title: 'Cancella il ticket', 'aria-label': `Cancella il ticket «${t.title}»`, draggable: false,
+    on: {
+      mousedown: stop, pointerdown: stop, dragstart: e => { e.preventDefault(); stop(e); },
+      click: async e => {
+        stop(e);
+        const extra = t.outlook_event_id ? ' Sparisce anche dal calendario Outlook.' : '';
+        if (!await confirmDialog(`Cancellare il ticket «${t.title}»?${extra}`, { ok: 'Cancella', danger: true })) return;
+        try {
+          await del(`/api/tickets/${t.id}`);
+          toast('Ticket cancellato');
+          onDone?.();
+        } catch { /* l'errore lo mostra già api() */ }
+      },
+    },
+  }, trashIcon());
+}
+
+function trashIcon() {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+  return tpl.content.firstChild;
 }
 
 function checkIcon() {
@@ -215,7 +244,7 @@ function board(tickets, { onChange, hideProject }) {
       dragstart: e => { dragged = t; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(t.id)); },
       dragend: () => { el.classList.remove('dragging'); },
     } },
-    h('div.t-title', t.title),
+    h('div.tcard-top', h('div.t-title', t.title), trashButton(t, onChange)),
     t.project_name && !hideProject ? projChip(t.project_name, t.project_color) : null,
     h('div.tcard-foot', avatarsFor(t.assignee_ids, 3),
       h('span', { class: isLate(t) ? 'due-late' : `pr-${t.priority}` },

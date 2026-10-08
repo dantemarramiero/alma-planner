@@ -259,3 +259,12 @@ table.list tbody tr:hover { background: #fcfaf8; }
 .back-btn { border: 0; background: transparent; padding: 4px 8px 4px 2px; border-radius: 8px; color: var(--mid); font-weight: 500; cursor: pointer; font-size: 13.5px; }
 .back-btn:hover { color: var(--ink); background: rgba(224, 221, 217, .55); }
 @media (max-width: 760px) { .backbar { margin: 0 0 6px; } }
+
+/* ── Cestino dei ticket (elenco, bacheca, telefono) ───────────────────────── */
+.t-trash { border: 0; background: none; color: var(--muted); padding: 5px; border-radius: 6px; cursor: pointer; display: inline-grid; place-items: center; flex: none; opacity: .45; transition: opacity .12s, color .12s, background .12s; }
+.t-trash:hover, .t-trash:focus-visible { opacity: 1; color: var(--red); background: var(--red-soft); }
+tr:hover .t-trash, .tcard:hover .t-trash { opacity: 1; }
+.t-trash-col { width: 40px; text-align: right; padding-left: 0 !important; }
+.tcard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.tcard-top .t-trash { margin: -4px -4px 0 0; }
+.m-ticket .t-trash { align-self: center; opacity: .6; padding: 10px; margin: -6px -6px -6px 0; } /* più facile da toccare col dito */
