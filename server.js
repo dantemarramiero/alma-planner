@@ -20,6 +20,7 @@ const { registerMedia } = require('./routes/media');
 const { registerFeed } = require('./routes/feed');
 const { registerStories } = require('./routes/stories');
 const { registerNotifications } = require('./routes/notifications');
+const { registerRda } = require('./routes/rda');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
 const { createAccess } = require('./lib/access');
@@ -162,6 +163,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   registerFeed(app, deps);
   registerStories(app, deps);
   registerNotifications(app, deps);
+  registerRda(app, deps);
   registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 

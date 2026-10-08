@@ -1,0 +1,53 @@
+/* RDA interne: richieste di lavoro tra funzioni, con le ore */
+.rda-chip { display: inline-flex; align-items: center; margin-left: 8px; padding: 1px 7px; border-radius: 6px; background: #ECEAF6; color: #3D3480; font-size: 11px; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
+.m-ticket-meta .rda-chip, .tcard .rda-chip { margin-left: 0; justify-self: start; }
+.rda-pending { background: var(--amber-soft); color: var(--amber); }
+.rda-rejected { background: var(--red-soft); color: var(--red); }
+.rda-hours strong { font-weight: 600; color: var(--ink); }
+
+.rda-inbox { margin-top: 0; }
+.rda-inbox .rda-card + .rda-card { margin-top: 10px; }
+.rda-card { padding: 14px 16px; display: grid; gap: 10px; border-left: 4px solid var(--orange); }
+.rda-card-head { display: flex; gap: 10px; align-items: center; }
+.rda-card-head .grow { min-width: 0; }
+.rda-title { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.rda-desc { margin: 0; color: var(--mid); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.rda-meta { display: flex; flex-wrap: wrap; gap: 14px; align-items: baseline; color: var(--mid); font-size: 13px; }
+.rda-big { font-size: 20px; font-weight: 700; color: var(--ink); }
+.rda-big small { font-size: 13px; font-weight: 500; color: var(--mid); }
+.rda-actions .btn { min-height: 38px; }
+
+.rda-list { overflow: hidden; }
+.rda-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid #EFECE8; background: none; text-align: left; cursor: pointer; }
+.rda-row:last-child { border-bottom: 0; }
+.rda-row:hover { background: #FCFAF8; }
+.rda-row .grow { min-width: 0; flex: 1; }
+.rda-row .small { margin-top: 2px; }
+
+.rda-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.rda-totals > div { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 14px; display: grid; }
+.rda-totals strong { font-size: 20px; }
+.rda-totals span { font-size: 12px; color: var(--mid); }
+.section > .seg { margin-bottom: 10px; max-width: 100%; overflow-x: auto; }
+
+/* finestra «Accetta» */
+.rda-from { display: flex; gap: 10px; align-items: center; }
+.rda-team { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
+.rda-person { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; min-height: 44px; }
+.rda-person:hover { background: var(--bg); }
+.rda-person input { width: 18px; height: 18px; accent-color: var(--orange); }
+.rda-person span { display: grid; }
+.rda-person small { color: var(--muted); }
+
+/* riquadro nella scheda del ticket */
+.rda-box { border: 1px solid #DCD8EE; background: #F7F6FC; border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 6px; }
+.rda-box-fields { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+
+/* telefono: la quinta voce del tasto + occupa tutta la riga */
+.create-grid .create-opt:last-child:nth-child(odd) { grid-column: 1 / -1; min-height: 0; flex-direction: row; align-items: center; }
+
+@media (max-width: 760px) {
+  .rda-totals strong { font-size: 17px; }
+  .rda-row { flex-wrap: wrap; }
+  .rda-chip { margin-left: 0; }
+}

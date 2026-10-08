@@ -184,10 +184,10 @@ test('chat interna spenta (INTERNAL_CHAT assente): niente API e niente voce nel 
   const get = path => fetch(`http://127.0.0.1:${srv.address().port}${path}`, { headers: { cookie: users.anna.cookie } });
   assert.equal((await (await get('/api/me')).json()).internal_chat, false);
   assert.equal((await get('/api/conversations')).status, 404);
-  assert.deepEqual(Object.keys(await (await get('/api/badges')).json()), ['notifications']);
+  assert.deepEqual(Object.keys(await (await get('/api/badges')).json()), ['notifications', 'rda']); // rda = RDA interne da accettare, per chi guida una funzione
   // accesa (configurazione dei test): c'è
   assert.equal((await api('anna', 'GET', '/api/me')).body.internal_chat, true);
-  assert.deepEqual(Object.keys((await api('anna', 'GET', '/api/badges')).body), ['notifications', 'internal']);
+  assert.deepEqual(Object.keys((await api('anna', 'GET', '/api/badges')).body), ['notifications', 'internal', 'rda']);
   srv.close();
 });
 

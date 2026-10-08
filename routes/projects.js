@@ -21,7 +21,7 @@ const SELECT = `
               ELSE 'admin' END AS my_role
     FROM projects p
     LEFT JOIN users o ON o.id = p.owner_id
-    LEFT JOIN tickets t ON t.project_id = p.id`;
+    LEFT JOIN tickets t ON t.project_id = p.id AND (t.rda_state IS NULL OR t.rda_state = 'accepted')`; // RDA da accettare o rifiutate: non ancora lavoro
 
 function readBody(body, { partial }) {
   const out = {

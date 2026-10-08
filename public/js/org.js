@@ -1,6 +1,6 @@
 // Organigramma da Microsoft 365: albero per responsabile, vista per reparto, ricerca, scheda della persona.
 import { h, clear, modal, toast, avatar, loading, fmtDateTime, debounce } from './ui.js';
-import { get, post } from './api.js';
+import { get, post, api } from './api.js';
 import { store } from './store.js';
 import { openChatWith, openMailComposer } from './teams.js';
 
@@ -9,6 +9,7 @@ const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'tree'; 
 
 export async function orgView(container) {
   let data = { people: [], sync: null };
+  let functions = []; // responsabili delle funzioni per le RDA interne
   let view = readView();
   let q = '';
   let dept = '';
@@ -38,7 +39,7 @@ export async function orgView(container) {
 
   async function load() {
     body.replaceChildren(loading());
-    data = await get('/api/org');
+    [data, functions] = await Promise.all([get('/api/org'), get('/api/rda/functions', { quiet: true }).catch(() => [])]);
     const depts = [...new Set(data.people.map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
     clear(deptSelect).append(h('option', { value: '' }, 'Tutti i reparti'), depts.map(d => h('option', { value: d, selected: d === dept }, d)));
     const s = data.sync;
@@ -125,6 +126,22 @@ export async function orgView(container) {
     }
   }
 
+  // Chi accetta le RDA interne della funzione; un amministratore lo può scegliere (o tornare a quello automatico).
+  function headLine(name, people) {
+    const f = functions.find(x => x.name === name);
+    if (!f) return null;
+    if (!store.me.is_admin) return h('span.small.muted', f.head ? `RDA: le accetta ${f.head.name}` : 'RDA: nessun responsabile');
+    const sel = h('select.select', { 'aria-label': `Responsabile RDA di ${name}`, on: { change: async e => {
+      await api('PUT', `/api/rda/functions/${encodeURIComponent(name)}/head`, { head_oid: e.target.value || null });
+      toast('Responsabile delle RDA aggiornato');
+      load();
+    } } },
+      h('option', { value: '', selected: f.head_source !== 'manual' }, `Automatico${f.head && f.head_source === 'auto' ? ` (${f.head.name})` : ''}`),
+      [...new Map([...people, ...data.people.filter(p => p.oid === f.head?.oid)].map(p => [p.oid, p])).values()]
+        .map(p => h('option', { value: p.oid, selected: f.head_source === 'manual' && f.head?.oid === p.oid }, p.name)));
+    return h('label.row.small.muted', 'RDA accettate da', sel);
+  }
+
   function drawDepartments() {
     const groups = new Map();
     for (const p of data.people.filter(inDept)) {
@@ -134,7 +151,7 @@ export async function orgView(container) {
     }
     const names = [...groups.keys()].sort((a, b) => (a === 'Senza reparto') - (b === 'Senza reparto') || a.localeCompare(b, 'it'));
     for (const n of names) {
-      body.append(h('div.section', h('div.spread', h('h2', `${n} (${groups.get(n).length})`)), h('div.org-grid', groups.get(n).map(card))));
+      body.append(h('div.section', h('div.spread', h('h2', `${n} (${groups.get(n).length})`), headLine(n, groups.get(n))), h('div.org-grid', groups.get(n).map(card))));
     }
   }
 

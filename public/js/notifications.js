@@ -6,6 +6,7 @@ import { mediaUrl } from './media.js';
 import { openPost } from './feed.js';
 import { onLive } from './live.js';
 
+const hours = n => `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h`;
 const quote = s => (s ? ` «${s.length > 80 ? `${s.slice(0, 80)}…` : s}»` : '');
 
 function sentence(n) {
@@ -17,6 +18,11 @@ function sentence(n) {
     case 'comment_like': return `ha messo mi piace al tuo commento:${quote(n.comment_body)}`;
     case 'pin': return 'ha messo in evidenza il tuo post.';
     case 'note_mention': return `ti ha menzionato in una nota:${quote(n.note_body)}`;
+    case 'rda_new': return `ti chiede${quote(n.ticket_title)} per ${n.rda_function} (${hours(n.hours_estimated)} stimate).`;
+    case 'rda_accepted': return Number(n.hours_approved) === Number(n.hours_estimated)
+      ? `ha accettato la tua richiesta${quote(n.ticket_title)} (${hours(n.hours_approved)}).`
+      : `ha accettato la tua richiesta${quote(n.ticket_title)} con ${hours(n.hours_approved)} invece delle ${hours(n.hours_estimated)} stimate.`;
+    case 'rda_rejected': return `ha rifiutato la tua richiesta${quote(n.ticket_title)}:${quote(n.rda_reject_reason)}`;
     default: return '';
   }
 }
@@ -24,6 +30,8 @@ function sentence(n) {
 // Dove porta il clic: il post, oppure la nota (tab Note del progetto, o la scheda del ticket).
 async function open(n) {
   if (n.post_id) return openPost(n.post_id, { focus: !!n.comment_id });
+  if (n.kind === 'rda_new' || n.kind === 'rda_rejected') { location.hash = '#/rda'; return; }
+  if (n.ticket_id) return (await import('./tickets.js')).openTicket(n.ticket_id, {});
   if (n.note_project_id) location.hash = `#/projects/${n.note_project_id}/note`;
   else if (n.note_ticket_id) (await import('./tickets.js')).openTicket(n.note_ticket_id, {});
 }
@@ -35,7 +43,7 @@ export function notificationsView(view) {
   async function load() {
     const items = await get('/api/notifications');
     clear(list);
-    if (!items.length) return list.append(h('div.empty', 'Qui trovi mi piace, commenti e menzioni nei post e nelle note.'));
+    if (!items.length) return list.append(h('div.empty', 'Qui trovi mi piace, commenti e menzioni nei post e nelle note, e le RDA interne.'));
     const fresh = items.filter(n => !n.read_at), old = items.filter(n => n.read_at);
     const section = (title, rows) => rows.length ? [h('div.notif-section', title), ...rows.map(row)] : [];
     list.append(...section('Nuove', fresh), ...section('Precedenti', old));
