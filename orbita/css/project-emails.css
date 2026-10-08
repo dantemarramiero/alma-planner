@@ -1,7 +1,7 @@
 /* Email del progetto (sotto Documenti) e finestra «Assegna email» */
 .pe-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 10px; }
 .pe-head h3 { display: flex; align-items: center; gap: 8px; }
-.pe-count:not(:empty) { background: var(--bg); color: var(--mid); border-radius: var(--radius-lg); font-size: var(--ap-fs-xs); padding: 1px 8px; font-weight: var(--ap-fw-medium); }
+.pe-count:not(:empty) { background: var(--bg); color: var(--mid); border-radius: var(--radius-pill); font-size: var(--ap-fs-xs); padding: 1px 8px; font-weight: var(--ap-fw-medium); }
 .pe-filter { width: 260px; max-width: 100%; }
 .pe-list { display: grid; gap: 6px; }
 .pe-empty { display: grid; gap: 4px; padding: 18px; border: 1px dashed var(--rule); border-radius: var(--radius); text-align: center; }

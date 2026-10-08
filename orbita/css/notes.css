@@ -1,7 +1,7 @@
 /* Note con data su progetti e ticket */
 .nt-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .nt-head h3 { display: flex; align-items: center; gap: 8px; }
-.nt-count:not(:empty) { background: var(--bg); color: var(--mid); border-radius: var(--radius-lg); font-size: var(--ap-fs-xs); padding: 1px 8px; font-weight: var(--ap-fw-medium); }
+.nt-count:not(:empty) { background: var(--bg); color: var(--mid); border-radius: var(--radius-pill); font-size: var(--ap-fs-xs); padding: 1px 8px; font-weight: var(--ap-fw-medium); }
 .nt-tools { display: flex; gap: 8px; align-items: center; }
 .nt-search { width: 220px; max-width: 100%; }
 .nt-kinds { margin-bottom: 10px; flex-wrap: wrap; }
@@ -13,7 +13,7 @@
 .nt-card { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 6px; }
 .nt-card.pinned { border-color: var(--ap-accent); background: var(--ap-orange-tint); }
 .nt-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--ap-fs-xs); }
-.nt-kind { font-weight: var(--ap-fw-medium); padding: 2px 8px; border-radius: var(--radius); background: var(--bg); color: var(--mid); }
+.nt-kind { font-weight: var(--ap-fw-medium); padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg); color: var(--mid); }
 .nt-kind.k-telefonata { background: var(--blue-soft); color: var(--blue); }
 .nt-kind.k-riunione { background: var(--ap-grey-100); color: var(--violet); }
 .nt-kind.k-decisione { background: var(--green-soft); color: var(--green); }

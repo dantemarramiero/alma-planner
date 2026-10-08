@@ -38,7 +38,7 @@
 .tm-input { border: 0; resize: none; min-height: 0; padding: 8px 0; max-height: 140px; flex: 1; background: transparent; }
 textarea.input.tm-input { min-height: 0; }
 .tm-input:focus-visible { outline: none; }
-.tm-compose .btn { border-radius: var(--radius); margin-bottom: 2px; }
+.tm-compose .btn { border-radius: var(--radius-pill); margin-bottom: 2px; }
 .tm-placeholder { margin: auto; display: grid; justify-items: center; gap: 8px; text-align: center; padding: 24px; }
 .tm-big { width: 88px; height: 88px; border: 2px solid var(--ink); border-radius: 50%; display: grid; place-items: center; font-size: var(--ap-fs-2xl); }
 @media (max-width: 860px) {
