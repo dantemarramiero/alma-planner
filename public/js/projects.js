@@ -1,4 +1,4 @@
-// Progetti: griglia raggruppata nelle macro aree personali (ognuno ha le sue), scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Cartella OneDrive, Membri), creazione e modifica.
+// Progetti: griglia raggruppata nelle macro aree personali (ognuno ha le sue), scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Email, Cartella OneDrive, Membri), creazione e modifica.
 // Ognuno vede solo i progetti di cui è responsabile o membro (lib/access.js lato server).
 // Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
 import { h, clear, fill, modal, confirmDialog, promptDialog, toast, fmtDate, avatar, loading, today, isMobile, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
@@ -179,6 +179,7 @@ const TABS = [
   ['gantt', 'Gantt'],
   ['ticket', 'Ticket'],
   ['documenti', 'Documenti'],
+  ['email', 'Email'],
   ['cartella', 'Cartella OneDrive'],
   ['membri', 'Membri'],
 ];
@@ -230,6 +231,10 @@ export async function projectDetail(container, id) {
   const content = h('div.pj-content');
   clear(container).append(h('div.pj', head, h('div.pj-body', nav, content)));
   show(tab);
+  // il numero di email accanto al tab si legge a parte (non è nei dati del progetto)
+  get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
+    if (list?.length) nav.querySelector('[data-k="email"]')?.append(h('span.pj-count', String(list.length)));
+  }).catch(() => {});
 
   function counter(k) {
     const n = k === 'ticket' ? open : k === 'membri' ? p.member_count + 1 : null;
@@ -253,18 +258,10 @@ export async function projectDetail(container, id) {
       if (isMobile()) timeline(box, p, () => {});
       else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
-    else if (k === 'documenti') documents(box);
+    else if (k === 'documenti') projectDocuments(box, p.id);
+    else if (k === 'email') projectEmails(box, p);
     else if (k === 'cartella') folder(box);
     else if (k === 'membri') members(box);
-  }
-
-  // Documenti: i file del progetto e, sotto, le email di Outlook assegnate al progetto
-  function documents(box) {
-    const files = h('div');
-    const mails = h('div');
-    box.append(files, mails);
-    projectDocuments(files, p.id);
-    projectEmails(mails, p);
   }
 
   // ── Panoramica: tutto il progetto in una pagina (riepilogo, Gantt, ticket, documenti, cartella);
@@ -286,7 +283,8 @@ export async function projectDetail(container, id) {
     };
     section('gantt', isMobile() ? 'Attività' : 'Gantt', b => (isMobile() ? timeline(b, p, () => {}) : ganttView(b, new URLSearchParams({ project: String(p.id) }), { embedded: true })));
     section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
-    section('documenti', 'Documenti', documents);
+    section('documenti', 'Documenti', b => projectDocuments(b, p.id));
+    section('email', 'Email', b => projectEmails(b, p));
     section('cartella', 'Cartella OneDrive', b => folder(b, { titled: false }));
 
     const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);
