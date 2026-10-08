@@ -37,6 +37,15 @@
 .toast.nt-undo button { border: 0; background: none; color: var(--orange-light); font-weight: 700; cursor: pointer; padding: 0; }
 
 @media (max-width: 760px) {
+  /* filtro dei tipi su una riga che scorre, invece di andare a capo */
+  .nt-kinds { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .nt-kinds::-webkit-scrollbar { display: none; }
+  .nt-kinds button { flex: none; padding: 7px 12px; }
+  /* pulsanti e casella dell'editor a misura di dito */
+  .nt-edit-foot .btn, .nt-head .btn { min-height: 38px; padding: 7px 14px; }
+  .nt-edit-foot input[type=checkbox] { width: 20px; height: 20px; }
+  .nt-edit-foot { flex-wrap: wrap; }
+  .nt-actions { gap: 16px; font-size: 13px; }
   .nt-edit-row { grid-template-columns: 1fr 1fr; }
   .nt-edit-row .input:last-child { grid-column: 1 / -1; }
   .nt-tools, .nt-search { width: 100%; }

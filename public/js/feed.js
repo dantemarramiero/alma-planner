@@ -432,7 +432,7 @@ function todayCard() {
     if (!list) return card.remove();
     list.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
     fill(box, list.length
-      ? list.slice(0, 3).map(t => ticketCard(t, { onChange: draw }))
+      ? list.slice(0, 3).map(t => ticketCard(t, { onChange: draw, trash: false })) // riepilogo: niente cestino
       : h('p.muted', { style: { margin: '0 4px 10px' } }, 'Niente in sospeso. Bel lavoro.'));
   };
   draw();

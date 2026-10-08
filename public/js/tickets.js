@@ -133,7 +133,7 @@ function mobileList(tickets, { onChange, hideProject, done }) {
 }
 
 // Scheda di un ticket per il telefono: il cerchio lo segna come fatto (o lo riapre), il resto apre il dettaglio.
-export function ticketCard(t, { onChange, hideProject = false } = {}) {
+export function ticketCard(t, { onChange, hideProject = false, trash = true } = {}) {
   let isDone = t.status === 'done';
   const mark = h('span.m-check');
   const paint = () => {
@@ -164,7 +164,7 @@ export function ticketCard(t, { onChange, hideProject = false } = {}) {
         t.status === 'doing' || t.status === 'review' ? statusPill(t.status) : null,
         t.due_date && t.status !== 'done' ? h('span.m-due', { class: isLate(t) ? 'late' : '' }, t.due_date === today() ? 'Oggi' : fmtDate(t.due_date)) : null)),
     avatarsFor(t.assignee_ids, 3),
-    trashButton(t, onChange));
+    trash ? trashButton(t, onChange) : null);
   paint();
   return card;
 }
