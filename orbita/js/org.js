@@ -36,8 +36,6 @@ export async function orgView(container) {
     h('div.toolbar', search, deptSelect, h('span.grow'), viewSeg),
     body);
 
-  await load();
-
   async function load() {
     body.replaceChildren(loading());
     [data, functions] = await Promise.all([get('/api/org'), get('/api/rda/functions', { quiet: true }).catch(() => [])]);
@@ -193,5 +191,13 @@ export async function orgView(container) {
       ],
       actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => md.close() } }, 'Chiudi')],
     });
+  }
+
+  // Il primo caricamento va in fondo, dopo tutte le dichiarazioni: draw() usa matches, inDept, byOid…
+  // (const) e, se le chiamasse prima che esistano, la ricerca andrebbe in errore.
+  try {
+    await load();
+  } catch (err) {
+    body.replaceChildren(h('div.card.empty', err.message || 'Organigramma non disponibile, riprova tra poco.'));
   }
 }
