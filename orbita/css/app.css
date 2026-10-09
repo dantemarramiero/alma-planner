@@ -240,20 +240,6 @@ table.list tbody tr:hover { background: var(--ap-surface); }
 .row-actions { display: flex; gap: var(--ap-space-1); justify-content: flex-end; }
 
 /* ── Gantt ─────────────────────────────────────────────────────────────── */
-.gantt-card { padding: 0; overflow: hidden; }
-.gantt-card .gantt-container { border-radius: var(--radius); }
-.gantt-container {
-  --g-bar-color: var(--ap-grey-200);
-  --g-progress-color: color-mix(in srgb, var(--ap-graphite) 18%, transparent);
-  --g-arrow-color: var(--ap-grey-500);
-  --g-today-highlight: var(--ap-accent);
-  --g-weekend-highlight-color: var(--ap-surface);
-  --g-header-background: var(--ap-bg);
-  --g-row-color: var(--ap-bg);
-  --g-border-color: var(--ap-grey-100);
-  font-family: var(--font);
-}
-.gantt-legend { display: flex; gap: var(--ap-space-4); flex-wrap: wrap; font-size: var(--ap-fs-xs); color: var(--muted); margin-top: var(--ap-space-3); }
 .undated { margin-top: var(--ap-space-5); }
 .undated .row { gap: var(--ap-space-2); }
 

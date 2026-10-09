@@ -1,96 +1,115 @@
-// Gantt. Le righe sono le attività, cioè i ticket del progetto con date: «Fatto» sul ticket = attività completata.
-// - Gantt di un progetto (?project=id): il progetto è solo il titolo, le barre sono le sue attività.
-// - Gantt generale: una barra per progetto lunga quanto le sue attività (non si sposta a mano);
-//   aprendo un progetto compaiono le sue attività sotto. I progetti seguono l'ordine delle macro aree, e si può vederne una sola.
-// Trascinare/allungare una barra cambia le date del ticket; la maniglia cambia l'avanzamento.
-import { h, clear, toast, loading, fmtDate, addDays, toISODate, today, STATUS } from './ui.js';
+// Gantt (layout del design «Alma Planet – Gantt»): tabella a sinistra (attività, responsabile, fine, %) e linea del tempo
+// a destra, nella stessa griglia scorrevole. Le righe sono le attività, cioè i ticket con date: «Fatto» = completata.
+// - Gantt di un progetto (?project=id): le righe sono le sue attività.
+// - Gantt generale: una riga per progetto (barra = arco delle sue attività, arancione = avanzamento) con sotto,
+//   aprendola, le sue attività. I progetti seguono l'ordine delle macro aree; si può vederne una sola.
+// Trascinare una barra sposta le date del ticket, trascinarne un bordo le allunga; un clic apre il ticket.
+// Un ticket con la sola scadenza è una milestone (rombo).
+import { h, clear, toast, loading, fmtDate, today, STATUS, initials } from './ui.js';
 import { get, patch } from './api.js';
 import { store, loadProjects, loadAreas, userById, projectById, areaById } from './store.js';
 import { openTicket } from './tickets.js';
 import { newActivity } from './activities.js';
+import { icon } from './icons.js';
 
 const OPEN_KEY = 'alma.ganttOpen';
-const MODE_KEY = 'alma.ganttMode';
+const MODE_KEY = 'alma.ganttZoom';
 const AREA_KEY = 'alma.ganttArea';
-const MIN_ROWS = 5; // righe minime del Gantt, anche se le attività sono meno
-const MODES = [['Day', 'Giorni'], ['Week', 'Settimane'], ['Month', 'Mesi']];
+const MIN_ROWS = 5;            // righe minime, anche se le attività sono meno
+const RH = 40;                 // altezza di una riga
+const PPD = { g: 38, w: 18, m: 5 }; // pixel per giorno: Giorni, Settimane, Mesi
+const ZOOMS = [['g', 'Giorni'], ['w', 'Settimane'], ['m', 'Mesi']];
+const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+const DAY = 86400000;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const readStore = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const writeStore = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* niente */ } };
-const firstNames = ids => ids.map(id => userById(id)?.name.split(' ')[0]).filter(Boolean).join(', ');
+// date ISO (AAAA-MM-GG) ↔ giorni dal 1970, in UTC per non avere sorprese con l'ora legale
+const dn = iso => Math.round(Date.parse(`${iso}T00:00:00Z`) / DAY);
+const iso = n => new Date(n * DAY).toISOString().slice(0, 10);
+const dow = n => (new Date(n * DAY).getUTCDay() + 6) % 7; // 0 = lunedì
+const short = n => { const d = new Date(n * DAY); return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()].slice(0, 3)}`; };
 
-// opts.embedded: Gantt di un progetto dentro la sua pagina (senza intestazione);
-// opts.onChange: chiamata quando le attività vengono cambiate dal Gantt (non quando lo ricarica qualcun altro).
 export async function ganttView(container, params, { embedded = false, onChange } = {}) {
   const onlyProject = params.get('project') ? Number(params.get('project')) : null;
   let open = new Set(readStore(OPEN_KEY, []));
-  let mode = readStore(MODE_KEY, 'Week');
+  let zoom = readStore(MODE_KEY, 'w');
+  if (!PPD[zoom]) zoom = 'w';
   let areaFilter = readStore(AREA_KEY, ''); // '' = tutte, 'none' = senza macro area, altrimenti l'id
   if (!onlyProject) await loadAreas().catch(() => {});
   if (areaFilter && areaFilter !== 'none' && !areaById(Number(areaFilter))) areaFilter = '';
-  let hideDone = false; // le completate restano visibili (sbiadite, con ✓) se non si sceglie di nasconderle
+  let hideDone = false;
   let showLoose = false;
   let tickets = [];
-  let gantt = null;
+  let scrolledOnce = false;
+  const project = onlyProject ? projectById(onlyProject) : null;
+  const TODAY = dn(today());
 
-  const chartBox = h('div.card.gantt-card');
-  const undatedBox = h('div.undated');
-  const styleEl = h('style');
-
-  const modeSeg = h('div.seg', MODES.map(([k, l]) => h('button', { type: 'button', 'data-k': k, class: k === mode ? 'on' : '', on: { click: () => {
-    mode = k; writeStore(MODE_KEY, k);
-    modeSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  // ── barra degli strumenti ─────────────────────────────────────────────────
+  const zoomSeg = h('div.seg', ZOOMS.map(([k, l]) => h('button', { type: 'button', 'data-k': k, class: k === zoom ? 'on' : '', on: { click: () => {
+    zoom = k; writeStore(MODE_KEY, k);
+    zoomSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+    scrolledOnce = false;
     draw();
   } } }, l)));
-
-  const expandAll = h('button.btn', { type: 'button', on: { click: () => {
-    const ids = visibleProjects().map(p => p.id);
+  const todayBtn = h('button.btn.btn-primary', { type: 'button', on: { click: () => scrollToDay(TODAY, true) } }, icon('crosshair', { size: 16 }), 'Oggi');
+  const expandBtn = onlyProject ? null : h('button.btn.btn-ghost', { type: 'button', on: { click: () => {
+    const ids = groups().map(g => g.key);
     open = ids.every(id => open.has(id)) ? new Set() : new Set(ids);
     writeStore(OPEN_KEY, [...open]);
     draw();
-  } } }, 'Apri/chiudi tutte le attività');
-
-  const projectSelect = h('select.select', { 'aria-label': 'Progetto', on: { change: e => {
+  } } });
+  const projectSelect = embedded ? null : h('select.select', { 'aria-label': 'Progetto', on: { change: e => {
     location.hash = e.target.value ? `#/gantt?project=${e.target.value}` : '#/gantt';
   } } },
   h('option', { value: '' }, 'Tutti i progetti'),
-  store.projects.filter(p => p.status !== 'archived' || p.id === onlyProject)
-    .map(p => h('option', { value: String(p.id), selected: p.id === onlyProject }, p.name)));
-
+  store.projects.filter(p => p.status !== 'archived' || p.id === onlyProject).map(p => h('option', { value: String(p.id), selected: p.id === onlyProject }, p.name)));
   const areaSelect = onlyProject || !store.areas.length ? null : h('select.select', { 'aria-label': 'Macro area', on: { change: e => {
     areaFilter = e.target.value; writeStore(AREA_KEY, areaFilter); draw();
   } } },
   h('option', { value: '' }, 'Tutte le macro aree'),
   store.areas.map(a => h('option', { value: String(a.id), selected: String(a.id) === areaFilter }, a.name)),
   h('option', { value: 'none', selected: areaFilter === 'none' }, 'Senza macro area'));
+  const chip = (label, get, set) => {
+    const el = h('button.gx-chip', { type: 'button', 'aria-pressed': 'false', on: { click: () => {
+      set(!get()); el.classList.toggle('on', get()); el.setAttribute('aria-pressed', String(get())); draw();
+    } } }, h('i'), label);
+    return el;
+  };
+  const newActivityBtn = onlyProject ? h('button.btn.btn-primary', { type: 'button', on: { click: () => newActivity(onlyProject, { onSaved: refresh }) } }, icon('plus', { size: 16 }), 'Attività') : null;
+  if (newActivityBtn) todayBtn.className = 'btn';
 
-  const newActivityBtn = onlyProject
-    ? h('button.btn.btn-primary', { type: 'button', on: { click: () => newActivity(onlyProject, { onSaved: refresh }) } }, '+ Attività')
-    : null;
-  const project = onlyProject ? projectById(onlyProject) : null;
+  const summary = h('div.gx-sum');
+  const scroller = h('div.gx-sc');
+  const tip = h('div.gx-tip', { hidden: true });
+  const undatedBox = h('div.undated');
 
   clear(container).append(...[
     embedded ? null : h('div.page-head',
       h('div', h('h1', project ? project.name : 'Gantt'), h('div.sub', onlyProject
-        ? 'Ogni attività è un ticket del progetto: quando lo metti in «Fatto» l\'attività è completata. Trascina le barre per spostare le date.'
-        : 'Ogni barra è un progetto, lunga quanto le sue attività. Clicca un progetto per aprire il suo Gantt.')),
+        ? 'Ogni attività è un ticket del progetto: quando lo metti in «Fatto» è completata. Trascina una barra per spostarla, un bordo per allungarla.'
+        : 'Ogni barra è un progetto, lunga quanto le sue attività. Apri un progetto per vederne le attività, o clicca il nome per il suo Gantt.')),
       projectSelect),
-    h('div.toolbar', modeSeg, areaSelect, onlyProject ? null : expandAll,
-      h('label.check', h('input', { type: 'checkbox', on: { change: e => { hideDone = e.target.checked; draw(); } } }), 'Nascondi completate'),
-      onlyProject ? null : h('label.check', h('input', { type: 'checkbox', on: { change: e => { showLoose = e.target.checked; draw(); } } }), 'Ticket senza progetto'),
-      h('span.grow'),
-      embedded ? h('a.btn.btn-sm', { href: `#/gantt?project=${onlyProject}` }, 'Apri a tutta pagina') : null,
-      newActivityBtn),
-    styleEl, chartBox, undatedBox,
-    h('div.gantt-legend',
-      onlyProject ? null : h('span', '▬ barra piena: progetto'),
-      h('span', '▭ attività (ticket)'), h('span', '░ sbiadita: completata'), h('span', '→ dipendenze')),
+    h('div.gx-tools',
+      h('div.gx-bar', zoomSeg, todayBtn, h('span.grow'),
+        embedded ? h('a.btn.btn-ghost', { href: `#/gantt?project=${onlyProject}` }, icon('external', { size: 16 }), 'Apri a tutta pagina') : null,
+        expandBtn, newActivityBtn),
+      h('div.gx-bar.gx-filters',
+        h('span.gx-lbl', icon('sliders', { size: 16 }), 'Filtri'), areaSelect,
+        chip('Nascondi completate', () => hideDone, v => { hideDone = v; }),
+        onlyProject ? null : chip('Ticket senza progetto', () => showLoose, v => { showLoose = v; })),
+      summary),
+    h('div.card.gx-card', scroller),
+    undatedBox,
+    h('div.gx-legend',
+      onlyProject ? null : h('div', h('span.gx-lg-p'), 'Progetto (arancione = avanzamento)'),
+      h('div', h('span.gx-lg-t'), 'Attività'), h('div', h('span.gx-lg-done'), 'Completata'), h('div', h('span.gx-lg-late'), 'In ritardo'),
+      h('div', h('span.gx-lg-ms'), 'Milestone (solo scadenza)'), h('div', icon('arrows', { size: 16 }), 'Dipendenze')),
+    tip,
   ].filter(Boolean));
 
-  chartBox.append(loading());
-  await reload();
-
+  // ── dati ──────────────────────────────────────────────────────────────────
   function visibleProjects() {
     if (onlyProject) return store.projects.filter(p => p.id === onlyProject);
     const areaOf = p => (areaById(p.area_id) ? p.area_id : null);
@@ -98,160 +117,286 @@ export async function ganttView(container, params, { embedded = false, onChange 
     return store.projects
       .filter(p => p.status === 'active' || p.status === 'paused')
       .filter(p => !areaFilter || (areaFilter === 'none' ? !areaOf(p) : String(areaOf(p)) === areaFilter))
-      .sort((a, b) => rank(a) - rank(b)); // l'ordine dentro la stessa macro area resta quello dell'elenco
+      .sort((a, b) => rank(a) - rank(b));
   }
 
-  function ticketRow(t, group) {
-    return {
-      id: `t-${t.id}`,
-      name: esc(`${t.status === 'done' ? '✓ ' : ''}${t.title}${t.assignee_ids.length ? ` · ${firstNames(t.assignee_ids)}` : ''}`),
-      start: t.start_date || t.due_date, end: t.due_date || t.start_date,
-      progress: t.progress, dependencies: '',
-      custom_class: `gt-${group}${t.status === 'done' ? '-done' : ''}`, // un solo nome di classe: Frappe non ne accetta di più
-      _ticket: t,
-    };
-  }
+  const isMilestone = t => !t.start_date && Boolean(t.due_date);
+  const startOf = t => dn(t.start_date || t.due_date);
+  const endOf = t => dn(t.due_date || t.start_date);
+  const isDone = t => t.status === 'done';
+  const isLate = t => !isDone(t) && t.due_date && dn(t.due_date) < TODAY;
+  const dated = list => list.filter(t => (t.start_date || t.due_date) && (!hideDone || !isDone(t)))
+    .sort((a, b) => startOf(a) - startOf(b) || endOf(a) - endOf(b));
 
-  // attività di un progetto (i suoi ticket con date), in ordine di inizio
-  function projectItems(pid) {
-    return tickets.filter(t => t.project_id === pid && (t.start_date || t.due_date) && (!hideDone || t.status !== 'done'))
-      .map(t => ticketRow(t, pid))
-      .sort((x, y) => x.start.localeCompare(y.start) || x.end.localeCompare(y.end));
-  }
-
-  function build() {
-    const rows = [];
-    const css = [];
-    for (const p of visibleProjects()) {
-      css.push(`.gantt :is(.gt-${p.id},.gt-${p.id}-done) .bar{fill:${p.color}2e;stroke:${p.color}88;stroke-width:1}`,
-        `.gantt :is(.gt-${p.id},.gt-${p.id}-done) .bar-progress{fill:${p.color}99}`);
-      const items = projectItems(p.id);
-      if (onlyProject) { rows.push(...items); continue; }
-      // vista generale: barra del progetto = arco delle sue attività
-      if (!p.span_start) continue;
-      const isOpen = open.has(p.id);
-      const pct = p.activity_count ? Math.round((p.done_count / p.ticket_count) * 100) : 0;
-      rows.push({
-        id: `p-${p.id}`, name: esc(`${isOpen ? '▾' : '▸'} ${p.name}`), start: p.span_start, end: p.span_end, progress: pct,
-        dependencies: '', custom_class: `gp-${p.id}`, _project: p,
-      });
-      css.push(`.gantt .gp-${p.id} .bar{fill:${p.color}}`,
-        `.gantt .gp-${p.id} .bar-progress{fill:rgba(0,0,0,.22)}`,
-        `.gantt .gp-${p.id} .bar-label:not(.big){fill:#fff;font-weight:700}`);
-      if (isOpen) rows.push(...items);
-    }
+  // gruppi: un progetto (o «Ticket senza progetto») con le sue attività
+  function groups() {
+    const out = visibleProjects().map(p => ({ key: p.id, project: p, tasks: dated(tickets.filter(t => t.project_id === p.id)) }))
+      .filter(g => onlyProject || g.tasks.length);
     if (showLoose && !onlyProject) {
-      tickets.filter(t => !t.project_id && (t.start_date || t.due_date) && (!hideDone || t.status !== 'done'))
-        .forEach(t => rows.push(ticketRow(t, 'none')));
-      css.push('.gantt :is(.gt-none,.gt-none-done) .bar{fill:var(--ap-grey-200);stroke:var(--ap-border-strong)}', '.gantt :is(.gt-none,.gt-none-done) .bar-progress{fill:var(--ap-grey-300)}');
+      const loose = dated(tickets.filter(t => !t.project_id));
+      if (loose.length) out.push({ key: 'loose', project: null, tasks: loose });
     }
-    // dipendenze solo tra righe visibili
-    const shown = new Set(rows.map(r => r.id));
-    for (const r of rows) {
-      if (r._ticket) r.dependencies = r._ticket.depends_on.map(d => `t-${d}`).filter(id => shown.has(id)).join(',');
+    return out;
+  }
+
+  function rowsOf(gs) {
+    const rows = [];
+    for (const g of gs) {
+      if (onlyProject) { g.tasks.forEach(t => rows.push({ kind: 't', t, g })); continue; }
+      rows.push({ kind: 'p', g });
+      if (open.has(g.key)) g.tasks.forEach(t => rows.push({ kind: 't', t, g }));
     }
-    css.push('.gantt [class$="-done"] .bar{opacity:.55}', '.gantt .bar-wrapper.gantt-filler{display:none}');
-    styleEl.textContent = css.join('\n');
     return rows;
   }
 
+  const span = g => {
+    const s = Math.min(...g.tasks.map(startOf)), e = Math.max(...g.tasks.map(endOf));
+    // avanzamento: media dell'avanzamento delle attività pesata sulla durata (completate = 100%, milestone escluse)
+    const work = g.tasks.filter(t => !isMilestone(t));
+    const days = work.reduce((n, t) => n + endOf(t) - startOf(t) + 1, 0);
+    const pct = days ? Math.round(work.reduce((n, t) => n + (endOf(t) - startOf(t) + 1) * (isDone(t) ? 100 : t.progress || 0), 0) / days) : 0;
+    return { s, e, pct };
+  };
+
+  // ── disegno ───────────────────────────────────────────────────────────────
   function draw() {
-    const rows = build();
-    const empty = !rows.length;
-    // Il Gantt ha sempre almeno MIN_ROWS righe: quelle mancanti sono righe vuote (barre nascoste, non cliccabili).
-    const anchor = empty ? today() : rows[0].start;
-    for (let i = rows.length; i < MIN_ROWS; i++) {
-      rows.push({ id: `fill-${i}`, name: '', start: anchor, end: anchor, progress: 0, dependencies: '', custom_class: 'gantt-filler', _filler: true });
+    tip.hidden = true;
+    const gs = groups();
+    const rows = rowsOf(gs);
+    if (expandBtn) expandBtn.replaceChildren(icon(gs.length && gs.every(g => open.has(g.key)) ? 'collapse' : 'expand', { size: 16 }),
+      gs.length && gs.every(g => open.has(g.key)) ? 'Comprimi tutto' : 'Espandi tutto');
+
+    const all = gs.flatMap(g => g.tasks);
+    const late = all.filter(isLate).length;
+    summary.replaceChildren(...[
+      onlyProject ? null : h('span', h('b', String(gs.filter(g => g.project).length)), ' progetti'),
+      h('span', h('b', String(all.length)), ' attività'),
+      h('span', h('b', String(all.filter(isDone).length)), ' completate'),
+      late ? h('span.late', h('b', String(late)), ' in ritardo') : null,
+      h('span', `Oggi: ${fmtDate(today(), { year: true })}`),
+    ].filter(Boolean));
+    drawUndated(gs);
+
+    // intervallo: dal lunedì prima della prima attività (o di 2 settimane fa) a qualche settimana dopo l'ultima
+    const starts = all.map(startOf), ends = all.map(endOf);
+    let d0 = Math.min(TODAY - 14, ...(starts.length ? starts : [TODAY])) - 7;
+    d0 -= dow(d0);
+    const d1 = Math.max(TODAY + 60, ...(ends.length ? ends : [TODAY])) + 28;
+    const N = d1 - d0;
+    const ppd = PPD[zoom], W = N * ppd, unit = zoom === 'g' ? ppd : ppd * 7;
+    const x = n => (n - d0) * ppd;
+
+    const total = Math.max(rows.length, MIN_ROWS);
+    const H = total * RH;
+
+    // intestazione: mesi sopra, giorni o settimane sotto
+    let months = '';
+    for (let i = 0; i < N;) {
+      const m = new Date((d0 + i) * DAY).getUTCMonth();
+      let j = i;
+      while (j < N && new Date((d0 + j) * DAY).getUTCMonth() === m) j++;
+      const w = (j - i) * ppd, d = new Date((d0 + i) * DAY);
+      const name = zoom === 'm' ? MONTHS[m].slice(0, 3) : MONTHS[m][0].toUpperCase() + MONTHS[m].slice(1);
+      months += `<div class="gx-mo" style="left:${i * ppd}px;width:${w}px">${w < 60 ? '' : `${name} ${d.getUTCFullYear()}`}</div>`;
+      i = j;
     }
-    clear(chartBox);
-    drawUndated();
-    const el = h('div');
-    chartBox.append(el);
-    if (empty) {
-      chartBox.append(h('div.empty.gantt-empty', onlyProject
-        ? ['Nessuna attività. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newActivityBtn.click(); } } }, 'Crea la prima'), ' oppure dai le date ai ticket del progetto.']
-        : ['Nessun progetto con attività. ', h('a', { href: '#/projects' }, 'Vai ai progetti')]));
+    let units = '';
+    if (zoom === 'g') {
+      for (let i = 0; i < N; i++) {
+        const n = d0 + i;
+        units += `<div class="gx-un${dow(n) > 4 ? ' we' : ''}${n === TODAY ? ' now' : ''}" style="left:${i * ppd}px;width:${ppd}px"><span>${new Date(n * DAY).getUTCDate()}</span></div>`;
+      }
+    } else {
+      for (let i = 0; i < N; i += 7) {
+        const a = d0 + i, b = a + 6, now = TODAY >= a && TODAY <= b;
+        const da = new Date(a * DAY), db = new Date(b * DAY);
+        const label = zoom === 'm' ? String(da.getUTCDate())
+          : da.getUTCMonth() === db.getUTCMonth() ? `${da.getUTCDate()}–${db.getUTCDate()} ${MONTHS[db.getUTCMonth()].slice(0, 3)}` : `${short(a)} – ${short(b)}`;
+        units += `<div class="gx-un${now ? ' now' : ''}" style="left:${i * ppd}px;width:${7 * ppd}px"><span>${label}</span></div>`;
+      }
     }
-    const byId = new Map(rows.map(r => [r.id, r]));
-    // eslint-disable-next-line no-undef
-    gantt = new Gantt(el, rows, {
-      view_mode: mode,
-      language: 'it',
-      bar_height: 26,
-      padding: 16,
-      container_height: 'auto',
-      today_button: true,
-      scroll_to: onlyProject ? addDays(rows[0].start, -3) : 'today', // un progetto: si parte dalla prima attività
-      move_dependencies: false,
-      auto_move_label: true,
-      popup_on: 'click',
-      holidays: mode === 'Day' ? { 'var(--g-weekend-highlight-color)': 'weekend' } : {},
-      popup: ctx => {
-        const r = byId.get(ctx.task.id);
-        if (r._filler) return false;
-        const s = toISODate(ctx.task._start), e = toISODate(new Date(ctx.task._end.getTime() - 1000));
-        if (r._project) {
-          // clic su un progetto nel Gantt generale: si apre il suo Gantt di dettaglio
-          location.hash = `#/gantt?project=${r._project.id}`;
-          return false;
-        }
-        {
-          const t = r._ticket;
-          ctx.set_title(esc(t.title));
-          ctx.set_subtitle(`${fmtDate(s)} → ${fmtDate(e)} · ${t.status === 'done' ? 'completata' : STATUS[t.status].toLowerCase()}`);
-          const who = t.assignee_ids.map(id => userById(id)?.name).filter(Boolean);
-          ctx.set_details(`${esc(who.join(', ') || 'Nessun responsabile')}<br>Avanzamento ${t.progress}%${t.file_count ? ` · ${t.file_count} file` : ''}`);
-          ctx.add_action('Apri', () => openTicket(t.id, { onSaved: refresh }));
-        }
-      },
-      on_date_change: async (task, start, end) => {
-        const r = byId.get(task.id);
-        if (r._filler) return;
-        if (r._project) {
-          toast('La durata del progetto viene dalle sue attività: sposta quelle');
-          draw();
-          return;
-        }
-        const s = toISODate(start), e = toISODate(end);
-        try {
-          await patch(`/api/tickets/${r._ticket.id}`, { start_date: s, due_date: e }, { quiet: true });
-          Object.assign(r._ticket, { start_date: s, due_date: e });
-          await loadProjects();
-          onChange?.();
-        } catch (err) {
-          toast(err.message, 'err');
-          reload();
-        }
-      },
-      on_progress_change: async (task, progress) => {
-        const r = byId.get(task.id);
-        if (r._filler) return;
-        if (r._project) { toast('L\'avanzamento del progetto si calcola dalle attività completate'); draw(); return; }
-        const value = Math.max(0, Math.min(100, Math.round(progress / 5) * 5));
-        try {
-          await patch(`/api/tickets/${r._ticket.id}`, { progress: value }, { quiet: true });
-          r._ticket.progress = value;
-          onChange?.();
-        } catch (err) { toast(err.message, 'err'); reload(); }
-      },
-      on_double_click: task => {
-        const r = byId.get(task.id);
-        if (!r._project && !r._filler) openTicket(r._ticket.id, { onSaved: refresh });
-      },
+
+    // sfondo: weekend (Giorni) o settimana corrente, linea di oggi
+    let bg = '';
+    if (zoom === 'g') { for (let i = 0; i < N; i++) if (dow(d0 + i) > 4) bg += `<div class="gx-bg we" style="left:${i * ppd}px;width:${ppd}px"></div>`; }
+    else { const ws = TODAY - dow(TODAY); bg += `<div class="gx-bg wk" style="left:${x(ws)}px;width:${7 * ppd}px"></div>`; }
+    bg += `<div class="gx-now" style="left:${x(TODAY) + ppd / 2 - 1}px"></div>`;
+
+    // righe: cella a sinistra + barra a destra
+    const pos = new Map(); // ticket id → { x1, x2, y }
+    let left = '', bars = '';
+    rows.forEach((r, i) => {
+      const y = i * RH;
+      if (r.kind === 'p') {
+        const g = r.g, sp = span(g), p = g.project;
+        const owner = p ? userById(p.owner_id) : null;
+        const area = p ? areaById(p.area_id) : null;
+        const isOpen = open.has(g.key);
+        bg += `<div class="gx-bg pr" style="left:0;right:0;top:${y}px;height:${RH}px"></div>`;
+        left += `<div class="gx-lc p" data-r="${i}" style="grid-row:${i + 2}">
+          <div class="gx-nm"><button type="button" class="gx-chev${isOpen ? '' : ' cl'}" data-toggle="${g.key}" aria-label="${isOpen ? 'Chiudi' : 'Apri'} ${esc(p ? p.name : 'Ticket senza progetto')}" aria-expanded="${isOpen}">${chev}</button>
+          ${p ? `<a href="#/gantt?project=${p.id}" title="Apri il Gantt di ${esc(p.name)}">${esc(p.name)}</a>` : '<span>Ticket senza progetto</span>'}
+          ${area ? `<em class="gx-tag">${esc(area.name)}</em>` : ''}</div>
+          ${av(owner)}<span class="gx-d">${short(sp.e)}</span><span class="gx-pc">${sp.pct}%</span></div>`;
+        bars += `<div class="gx-b pj" data-toggle="${g.key}" data-tip="${esc(p ? p.name : 'Ticket senza progetto')}|${short(sp.s)} – ${short(sp.e)}|Avanzamento ${sp.pct}%" style="left:${x(sp.s)}px;width:${(sp.e - sp.s + 1) * ppd}px;top:${y + 15}px"><i style="width:${sp.pct}%"></i></div>`;
+        return;
+      }
+      const t = r.t, s = startOf(t), e = endOf(t), L = isLate(t), done = isDone(t);
+      const who = t.assignee_ids.map(userById).filter(Boolean);
+      left += `<div class="gx-lc t${L ? ' late' : ''}" data-r="${i}" data-open="${t.id}" style="grid-row:${i + 2}">
+        <div class="gx-nm"><span class="gx-st ${isMilestone(t) ? 'ms' : done ? 'done' : L ? 'late' : t.status === 'todo' && !t.progress ? 'todo' : ''}"></span><span title="${esc(t.title)}">${esc(t.title)}</span></div>
+        ${av(who[0], who.length > 1 ? `${who.map(u => u.name).join(', ')}` : null, who.length > 1 ? `+${who.length - 1}` : '')}<span class="gx-d">${short(e)}</span><span class="gx-pc">${done ? 100 : t.progress}%</span></div>`;
+      const tipText = `${esc(t.title)}|${isMilestone(t) ? `Scadenza ${short(e)}` : `${short(s)} – ${short(e)}`}|${done ? 'Completata' : L ? `In ritardo · ${t.progress}%` : `${STATUS[t.status]} · ${t.progress}%`}${who.length ? ` · ${esc(who.map(u => u.name.split(' ')[0]).join(', '))}` : ''}`;
+      if (isMilestone(t)) {
+        const cx = x(s) + ppd / 2;
+        pos.set(t.id, { x1: cx - 8, x2: cx + 8, y: y + RH / 2 });
+        bars += `<div class="gx-ms${done ? ' done' : ''}${L ? ' late' : ''}" data-open="${t.id}" data-tip="${tipText}" style="left:${cx - 7}px;top:${y + 13}px"></div>
+          <div class="gx-bl${L ? ' late' : ''}" style="left:${cx + 14}px;top:${y + 12}px">${short(s)}</div>`;
+      } else {
+        const bx = x(s), bw = (e - s + 1) * ppd;
+        pos.set(t.id, { x1: bx, x2: bx + bw, y: y + RH / 2 });
+        bars += `<div class="gx-b tk${done ? ' done' : ''}${L ? ' late' : ''}" data-id="${t.id}" data-tip="${tipText}" style="left:${bx}px;width:${bw}px;top:${y + 9}px">
+          ${done ? '' : `<i style="width:${t.progress}%"></i>`}<span class="gx-h l"></span><span class="gx-h r"></span></div>`;
+      }
     });
-    // altezza «auto» di Frappe non conta la barra di scorrimento orizzontale: senza questo compare anche quella verticale
-    const box = el.querySelector('.gantt-container');
-    if (box) box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
-    const todayBtn = el.querySelector('.today-button');
-    if (todayBtn) todayBtn.textContent = 'Oggi';
+    for (let i = rows.length; i < total; i++) left += `<div class="gx-lc f" style="grid-row:${i + 2}"></div>`;
+
+    // dipendenze: da fine a inizio, solo tra righe visibili
+    let deps = '';
+    for (const r of rows) {
+      if (r.kind !== 't') continue;
+      for (const id of r.t.depends_on || []) {
+        const A = pos.get(id), B = pos.get(r.t.id);
+        if (!A || !B) continue;
+        const x0 = A.x2, x1 = B.x1 - 2;
+        deps += x1 > x0 + 14
+          ? `<path d="M${x0} ${A.y}H${x0 + 8}V${B.y}H${x1}"/>`
+          : `<path d="M${x0} ${A.y}H${x0 + 8}V${B.y - 14}H${x1 - 10}V${B.y}H${x1}"/>`;
+      }
+    }
+
+    const keep = scrolledOnce ? { top: scroller.scrollTop, left: scroller.scrollLeft } : null;
+    scroller.innerHTML = `<div class="gx-g" style="grid-template-columns:var(--gx-lw) ${W}px;grid-template-rows:64px repeat(${total},${RH}px)">
+      <div class="gx-corner"><span>${onlyProject ? 'Attività' : 'Progetto / attività'}</span><span>Resp.</span><span>Fine</span><span>%</span></div>
+      <div class="gx-th" style="width:${W}px">${months}${units}</div>
+      ${left}
+      <div class="gx-tb" style="grid-column:2;grid-row:2/span ${total};height:${H}px;--unit:${unit}px">
+        ${bg}<div class="gx-hl"></div>
+        <svg class="gx-dep" width="${W}" height="${H}" aria-hidden="true"><defs><marker id="gx-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z"/></marker></defs>${deps}</svg>
+        ${bars}
+      </div></div>
+      ${rows.length ? '' : `<div class="gx-empty">${onlyProject ? 'Nessuna attività con date. Crea la prima con «Attività», oppure dai inizio e scadenza ai ticket del progetto.' : 'Nessun progetto con attività per questi filtri.'}</div>`}`;
+    if (keep) { scroller.scrollTop = keep.top; scroller.scrollLeft = keep.left; }
+    else {
+      scrolledOnce = true;
+      // un progetto: si parte dalla prima attività; il Gantt generale da oggi
+      scrollToDay(onlyProject && starts.length ? Math.min(...starts) : TODAY, false, d0);
+    }
+    scroller.dataset.d0 = String(d0);
+    wire(rows);
   }
 
-  function drawUndated() {
+  const chev = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+  function av(u, title, extra = '') {
+    if (!u) return '<span class="gx-av empty"></span>';
+    return `<span class="gx-av" title="${esc(title || u.name)}">${esc(initials(u.name))}${extra ? `<small>${extra}</small>` : ''}</span>`;
+  }
+
+  function scrollToDay(n, smooth, d0 = Number(scroller.dataset.d0)) {
+    const left = Math.max(0, (n - d0 + 0.5) * PPD[zoom] - 180);
+    scroller.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
+  }
+
+  // ── interazione: righe evidenziate, suggerimenti, apertura, trascinamento ──
+  function wire(rows) {
+    const tb = scroller.querySelector('.gx-tb');
+    const hl = scroller.querySelector('.gx-hl');
+    if (!tb) return;
+    const hover = r => {
+      scroller.querySelectorAll('.gx-lc.hv').forEach(e => e.classList.remove('hv'));
+      if (r == null || r >= rows.length) { hl.style.display = 'none'; return; }
+      hl.style.display = 'block';
+      hl.style.top = `${r * RH}px`;
+      scroller.querySelector(`.gx-lc[data-r="${r}"]`)?.classList.add('hv');
+    };
+    tb.onmousemove = e => hover(Math.floor((e.clientY - tb.getBoundingClientRect().top) / RH));
+    tb.onmouseleave = () => hover(null);
+    scroller.querySelectorAll('.gx-lc[data-r]').forEach(c => { c.onmouseenter = () => hover(Number(c.dataset.r)); c.onmouseleave = () => hover(null); });
+
+    scroller.onclick = e => {
+      const tg = e.target.closest('[data-toggle]');
+      if (tg) {
+        const k = tg.dataset.toggle === 'loose' ? 'loose' : Number(tg.dataset.toggle);
+        if (open.has(k)) open.delete(k); else open.add(k);
+        writeStore(OPEN_KEY, [...open]);
+        draw();
+        return;
+      }
+      const o = e.target.closest('[data-open]');
+      if (o) openTicket(Number(o.dataset.open), { onSaved: refresh });
+    };
+    scroller.onmouseover = e => {
+      const b = e.target.closest('[data-tip]');
+      if (!b || dragging) { tip.hidden = true; return; }
+      const [a, c, d] = b.dataset.tip.split('|');
+      tip.innerHTML = `<b>${a}</b>${c}${d ? `<br><span>${d}</span>` : ''}`;
+      tip.hidden = false;
+    };
+    scroller.onmousemove = e => {
+      if (tip.hidden) return;
+      tip.style.left = `${Math.min(e.clientX + 14, innerWidth - 290)}px`;
+      tip.style.top = `${e.clientY + 16}px`;
+    };
+    scroller.onmouseleave = () => { tip.hidden = true; };
+    scroller.querySelectorAll('.gx-b.tk').forEach(el => { el.onpointerdown = e => startDrag(e, el); });
+  }
+
+  // Trascinamento: il corpo sposta inizio e fine, i bordi ne cambiano uno; scatta di un giorno alla volta.
+  // Senza spostamento è un clic e apre il ticket.
+  let dragging = null;
+  function startDrag(e, el) {
+    if (e.button !== 0) return;
+    const t = tickets.find(x => x.id === Number(el.dataset.id));
+    if (!t) return;
+    e.preventDefault();
+    const mode = e.target.classList.contains('l') ? 'start' : e.target.classList.contains('r') ? 'end' : 'move';
+    const ppd = PPD[zoom], x0 = e.clientX, left0 = el.offsetLeft, width0 = el.offsetWidth;
+    const s0 = startOf(t), e0 = endOf(t);
+    let dd = 0;
+    dragging = { el };
+    tip.hidden = true;
+    try { el.setPointerCapture(e.pointerId); } catch { /* alcuni dispositivi non la concedono: il trascinamento funziona lo stesso */ }
+    el.classList.add('drag');
+    el.onpointermove = ev => {
+      dd = Math.round((ev.clientX - x0) / ppd);
+      if (mode === 'move') el.style.left = `${left0 + dd * ppd}px`;
+      else if (mode === 'start') { dd = Math.min(dd, e0 - s0); el.style.left = `${left0 + dd * ppd}px`; el.style.width = `${width0 - dd * ppd}px`; }
+      else { dd = Math.max(dd, s0 - e0); el.style.width = `${width0 + dd * ppd}px`; }
+    };
+    el.onpointerup = async () => {
+      el.onpointermove = el.onpointerup = null;
+      el.classList.remove('drag');
+      dragging = null;
+      if (!dd) { openTicket(t.id, { onSaved: refresh }); return; }
+      const ns = mode === 'end' ? s0 : s0 + dd, ne = mode === 'start' ? e0 : e0 + dd;
+      const body = { start_date: iso(ns), due_date: iso(ne) };
+      try {
+        await patch(`/api/tickets/${t.id}`, body, { quiet: true });
+        Object.assign(t, body);
+        toast(`${t.title}: ${short(ns)} – ${short(ne)}`);
+        await loadProjects();
+        draw();
+        onChange?.();
+      } catch (err) { toast(err.message, 'err'); reload(); }
+    };
+  }
+
+  function drawUndated(gs) {
     clear(undatedBox);
-    const ids = new Set(visibleProjects().filter(p => onlyProject || open.has(p.id)).map(p => p.id));
+    const ids = new Set(gs.filter(g => g.project && (onlyProject || open.has(g.key))).map(g => g.key));
     const list = tickets.filter(t => ids.has(t.project_id) && !t.start_date && !t.due_date && t.status !== 'done');
     if (!list.length) return;
-    undatedBox.append(h('div.small.muted', { style: { marginBottom: '6px' } }, `${list.length} ticket del progetto senza date (non compaiono nel Gantt):`),
+    undatedBox.append(h('div.small.muted', { style: { marginBottom: '6px' } }, `${list.length} ticket senza date (non compaiono nel Gantt):`),
       h('div.row', list.map(t => h('button.btn.btn-sm', { type: 'button', on: { click: () => openTicket(t.id, { onSaved: refresh }) } }, t.title))));
   }
 
@@ -266,5 +411,8 @@ export async function ganttView(container, params, { embedded = false, onChange 
     onChange?.();
   }
 
+  // il primo caricamento va in fondo: prima devono esistere tutte le costanti usate da draw() (const = zona morta fino alla dichiarazione)
+  scroller.append(loading());
+  await reload();
   return { reload };
 }
