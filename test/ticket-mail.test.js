@@ -31,6 +31,7 @@ before(async () => {
     return realFetch(url, opts);
   };
   server = app.listen(0);
+  server.keepAliveTimeout = 60000; // più lungo di quello di fetch (undici, ~4 s): sotto carico il server chiudeva una connessione mentre veniva riusata (ECONNRESET)
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
   for (const [k, e] of [['anna', 'anna.rossi@almacis.it'], ['luca', 'luca.bianchi@almacis.it'], ['sara', 'sara.verdi@almacis.it']]) {

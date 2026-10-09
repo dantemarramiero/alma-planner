@@ -55,6 +55,7 @@ before(async () => {
   const created = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', MS_TENANT_ID: '' }), { db });
   auth = created.auth;
   server = created.app.listen(0);
+  server.keepAliveTimeout = 60000; // vedi gli altri test: evita ECONNRESET sotto carico
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
   const res = await realFetch(`${base}/auth/dev-login?email=dante@almacis.it`, { redirect: 'manual' });

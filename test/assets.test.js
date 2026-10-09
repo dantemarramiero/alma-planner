@@ -11,6 +11,7 @@ before(async () => {
   db = await createDb({});
   const { app } = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0' }), { db });
   server = app.listen(0);
+  server.keepAliveTimeout = 60000; // più lungo di quello di fetch (undici, ~4 s): sotto carico il server chiudeva una connessione mentre veniva riusata (ECONNRESET)
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
   const res = await fetch(`${base}/auth/dev-login`, { redirect: 'manual' });
