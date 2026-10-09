@@ -278,3 +278,24 @@ tr:hover .t-trash, .tcard:hover .t-trash { opacity: 1; }
 .tcard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ap-space-2); }
 .tcard-top .t-trash { margin: -4px -4px 0 0; }
 .m-ticket .t-trash { align-self: center; opacity: .6; padding: 10px; margin: -6px -6px -6px 0; } /* più facile da toccare col dito */
+
+/* ── Documenti del progetto: zona di trascinamento e caricamenti in corso ───────── */
+.drop-docs { display: flex; align-items: center; gap: var(--ap-space-4); flex-wrap: wrap; padding: var(--ap-space-4) var(--ap-space-5); background: var(--card); border: 1.5px dashed var(--ap-border-strong); border-radius: var(--radius-card); transition: border-color var(--ap-dur) var(--ap-ease), background var(--ap-dur) var(--ap-ease); }
+.drop-docs.drag { border-color: var(--ap-accent); background: var(--ap-orange-tint); }
+.drop-ico { width: 44px; height: 44px; border-radius: 50%; background: var(--ap-orange-tint); color: var(--ap-accent-hover); display: grid; place-items: center; flex: none; }
+.drop-txt { flex: 1 1 260px; display: grid; gap: 2px; min-width: 0; }
+.drop-txt strong { color: var(--ap-text-strong); font-weight: var(--ap-fw-medium); }
+.up-queue { display: grid; gap: var(--ap-space-1); }
+.up-queue:empty { display: none; }
+.up-wrap { display: inline-grid; gap: var(--ap-space-1); }
+.up-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(80px, 160px) auto; gap: var(--ap-space-3); align-items: center; padding: var(--ap-space-2) var(--ap-space-3); background: var(--card); border-radius: var(--radius); font-size: var(--ap-fs-sm); }
+.up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-bar { height: 6px; background: var(--ap-grey-200); border-radius: var(--radius-pill); overflow: hidden; }
+.up-bar i { display: block; height: 100%; width: 0; background: var(--ap-accent); border-radius: var(--radius-pill); transition: width var(--ap-dur) linear; }
+.up-st { font-size: var(--ap-fs-xs); color: var(--muted); white-space: nowrap; }
+.up-row.ok .up-bar i { background: var(--ap-success); }
+.up-row.ok .up-st { color: var(--ap-success); }
+.up-row.err { grid-template-columns: 22px minmax(0, 1fr); }
+.up-row.err .up-bar { display: none; }
+.up-row.err .up-st { grid-column: 2; white-space: normal; color: var(--red); }
+.docs-list { display: grid; gap: var(--ap-space-1); margin-top: var(--ap-space-3); background: var(--card); border-radius: var(--radius-card); padding: var(--ap-space-2) var(--ap-space-4); }

@@ -118,7 +118,7 @@ test('attività del Gantt = ticket del progetto: durata, «Fatto» = completata,
   assert.deepEqual(docs.ticketFiles.map(f => [f.name, f.ticket_title]), [['verbale.pdf', 'Collaudo']]);
 
   // caricare senza cartella collegata: errore chiaro
-  assert.equal((await api('POST', `/api/projects/${p.id}/files/upload?name=a.txt`)).status, 400);
+  assert.equal((await api('POST', `/api/projects/${p.id}/files/upload?name=a.txt`)).status, 400); // file vuoto
   assert.equal((await api('POST', `/api/tickets/${a.id}/files/upload?name=a.txt`)).status, 400);
 });
 

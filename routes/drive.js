@@ -90,7 +90,7 @@ function registerDrive(app, { auth }) {
   // Caricamento: corpo binario, ?drive=&item= (cartella di destinazione) &name=.
   app.post('/api/drive/upload', express.raw({ type: () => true, limit: '250mb' }), async (req, res) => {
     const name = v.text(req.query.name, 'nome', { max: 250, required: true });
-    if (/[\\/:*?"<>|]/.test(name)) throw new HttpError(400, 'Il nome del file contiene caratteri non ammessi');
+    // i caratteri che OneDrive non accetta li sostituisce uploadFile
     const token = await auth.graphToken(req.user.id);
     const item = await uploadFile(token, itemPath(req.query.drive, req.query.item), { name, data: req.body });
     res.status(201).json(mapItem(item));

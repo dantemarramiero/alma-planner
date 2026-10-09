@@ -2,6 +2,7 @@
 // La macro area (area_id) è quella di chi guarda: ognuno ha le sue (routes/areas.js).
 // Ognuno vede solo i progetti di cui è responsabile o membro (gli amministratori li vedono tutti): lib/access.js.
 const { HttpError, v } = require('../lib/http');
+const { shareFolder } = require('../lib/onedrive');
 
 const STATUSES = ['active', 'paused', 'done', 'archived'];
 
@@ -46,7 +47,7 @@ function readBody(body, { partial }) {
   return Object.fromEntries(Object.entries(out).filter(([, val]) => val !== undefined));
 }
 
-function registerProjects(app, { db, access }) {
+function registerProjects(app, { db, access, auth }) {
   app.get('/api/projects', async (req, res) => {
     const all = req.query.all === '1';
     const { rows } = await db.query(
@@ -130,7 +131,14 @@ function registerProjects(app, { db, access }) {
     const { rows } = await db.query('SELECT COUNT(*)::int AS n FROM users WHERE id = ANY($1::int[])', [ids]);
     if (rows[0].n !== ids.length) throw new HttpError(400, 'Una delle persone non esiste');
     await db.tx(q => access.addMembers(q, id, ids, req.user.id));
-    res.status(201).json({ ok: true });
+    // la cartella OneDrive del progetto si condivide anche con i nuovi membri (se chi aggiunge può farlo; non blocca mai)
+    const pr = (await db.query('SELECT onedrive_drive_id, onedrive_item_id FROM projects WHERE id = $1', [id])).rows[0];
+    let shared = 0;
+    if (pr?.onedrive_item_id && auth?.msConfigured) {
+      const emails = (await db.query('SELECT email FROM users WHERE id = ANY($1::int[])', [ids])).rows.map(r => r.email);
+      shared = await auth.graphToken(req.user.id).then(t => shareFolder(t, pr.onedrive_drive_id, pr.onedrive_item_id, emails)).catch(() => 0);
+    }
+    res.status(201).json({ ok: true, folderSharedWith: shared });
   });
 
   // Togliere un membro (responsabile o amministratore), oppure uscire da soli. Il responsabile non si toglie:
