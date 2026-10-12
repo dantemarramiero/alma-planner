@@ -17,6 +17,7 @@ import { setupMobile } from './mobile.js';
 import { fillIcons } from './icons.js';
 import { rdaView } from './rda.js';
 import { searchView, setupSearch } from './search.js';
+import { softwareView } from './software.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -125,6 +126,9 @@ async function route() {
     case 'org':
       await orgView(view, params);
       break;
+    case 'software':
+      await softwareView(view, parts);
+      break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
@@ -176,6 +180,8 @@ async function start() {
   startLive();
   for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
+  // censimento software: solo amministratori (il server lo rifiuta comunque agli altri)
+  for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.is_admin;
   refreshBadges();
 
   document.getElementById('back').addEventListener('click', goBack);

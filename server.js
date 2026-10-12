@@ -24,6 +24,7 @@ const { registerNotifications } = require('./routes/notifications');
 const { registerRda } = require('./routes/rda');
 const { registerDigest } = require('./routes/digest');
 const { registerSearch } = require('./routes/search');
+const { registerSoftware } = require('./routes/software');
 const { createDigest } = require('./lib/digest');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
@@ -172,6 +173,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   registerRda(app, deps);
   registerDigest(app, deps);
   registerSearch(app, deps);
+  registerSoftware(app, deps);
   registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 
