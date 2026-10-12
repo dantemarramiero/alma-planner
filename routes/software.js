@@ -96,12 +96,22 @@ function registerSoftware(app, { db, auth, isAdmin }) {
     const count = new Map();
     for (const r of ppl) count.set(r.software_id, (count.get(r.software_id) || 0) + 1);
     for (const s of software) { delete s.people; s.people_count = count.get(s.id) || 0; }
+    // persone per fornitore, senza doppioni (chi ha Zoho CRM e Zoho Sign conta una volta)
+    const vendorOf = new Map(software.filter(s => s.status !== 'archiviato').map(s => [s.id, (s.vendor || '').trim() || s.name]));
+    const vendorPeople = new Map();
+    for (const r of ppl) {
+      const v = vendorOf.get(r.software_id);
+      if (!v) continue;
+      if (!vendorPeople.has(v)) vendorPeople.set(v, new Set());
+      vendorPeople.get(v).add(r.person_oid);
+    }
 
     const active = software.filter(s => s.status !== 'archiviato');
     const freeCost = round(plans.filter(p => bySw.get(p.software_id)?.status !== 'archiviato')
       .reduce((a, p) => a + (p.free && p.monthly_unit ? p.free * p.monthly_unit : 0), 0));
     res.json({
       software,
+      vendor_people: Object.fromEntries([...vendorPeople].map(([v, set]) => [v, set.size])),
       sync: Object.fromEntries(syncs.map(s => [s.source, s])),
       sources: Object.entries(SOURCES).map(([key, s]) => ({ key, label: s.label })),
       departed,

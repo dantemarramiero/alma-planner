@@ -6,7 +6,7 @@ import { get, post, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 
-const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Software'], ['persone', 'Persone'], ['pacchetti', 'Pacchetti per ruolo']];
+const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['pacchetti', 'Pacchetti per ruolo']];
 const STATUS = { attivo: 'In uso', da_verificare: 'Da verificare', archiviato: 'Archiviato' };
 const BILLING = { mese: 'al mese', anno: 'all\'anno', una_tantum: 'una tantum' };
 const SOURCE = { manuale: 'A mano', microsoft: 'Microsoft 365', entra: 'Entra', pacchetto: 'Pacchetto' };
@@ -25,6 +25,7 @@ async function orgPeople() {
 export async function softwareView(container, parts = []) {
   if (!store.me.is_admin) return fill(container, h('div.card.empty', 'Il censimento dei software è riservato agli amministratori.'));
   if (parts[1] && /^\d+$/.test(parts[1])) return softwareDetail(container, Number(parts[1]));
+  if (parts[1] === 'fornitore' && parts[2]) return vendorView(container, decodeURIComponent(parts[2]));
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'cruscotto';
   const body = h('div.sw-body', loading());
   clear(container).append(
@@ -46,7 +47,15 @@ function dashboard(box, data) {
     h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
   const soon = data.software.filter(s => s.status !== 'archiviato' && s.renewal_date)
     .map(s => ({ s, date: s.renewal_date })).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
-  const top = data.software.filter(s => s.status !== 'archiviato' && s.monthly_cost).sort((a, b) => b.monthly_cost - a.monthly_cost).slice(0, 8);
+  const spend = new Map();
+  for (const s of data.software.filter(x => x.status !== 'archiviato' && x.monthly_cost)) {
+    const k = vendorKey(s);
+    const cur = spend.get(k) || { v: k, monthly_cost: 0, estimated: false };
+    cur.monthly_cost += s.monthly_cost;
+    cur.estimated ||= s.estimated;
+    spend.set(k, cur);
+  }
+  const top = [...spend.values()].sort((a, b) => b.monthly_cost - a.monthly_cost).slice(0, 8);
   const max = top[0]?.monthly_cost || 1;
 
   fill(box,
@@ -58,9 +67,9 @@ function dashboard(box, data) {
       kpi('Prezzi da completare', num(t.missing_cost + t.estimated), t.estimated ? `${num(t.estimated)} software con prezzo di listino stimato` : 'tutti inseriti', t.missing_cost + t.estimated > 0)),
     h('div.sw-grid',
       sourcesCard(data),
-      h('section.card.sw-card', h('h3', 'Dove va la spesa'),
-        top.length ? h('div.sw-bars', top.map(s => h('a.sw-bar', { href: `#/software/${s.id}` },
-          h('span.sw-bar-name', s.name), h('span.sw-bar-track', h('i', { style: { width: `${Math.max(2, (s.monthly_cost / max) * 100)}%` } })),
+      h('section.card.sw-card', h('h3', 'Dove va la spesa, per fornitore'),
+        top.length ? h('div.sw-bars', top.map(s => h('a.sw-bar', { href: vendorHref(s.v) },
+          h('span.sw-bar-name', s.v), h('span.sw-bar-track', h('i', { style: { width: `${Math.max(2, (s.monthly_cost / max) * 100)}%` } })),
           h('span.sw-bar-val', eur(s.monthly_cost), s.estimated ? h('small', ' stimato') : null))))
           : h('p.muted', 'Nessun costo ancora: aggiorna Microsoft 365 o inserisci i prezzi dei software.')),
       h('section.card.sw-card', h('h3', 'Prossimi rinnovi'),
@@ -97,14 +106,48 @@ function sourcesCard(data) {
     data.sources.map(row));
 }
 
-// ── catalogo ──────────────────────────────────────────────────────────────
+// ── fornitori ─────────────────────────────────────────────────────────────
+// Prima i fornitori (Microsoft, Autodesk, Zoho…) con licenze e costo per Almacis; dentro, i loro software e licenze.
+const vendorKey = s => (s.vendor || '').trim() || s.name;
+const vendorHref = v => `#/software/fornitore/${encodeURIComponent(v)}`;
+const STATUS_ORDER = { attivo: 0, da_verificare: 1, archiviato: 2 };
+
+// Totali di un gruppo di software: licenze acquistate (con un numero), assegnate, libere, persone collegate
+// (software scoperti in Entra, che non hanno licenze vere), costo al mese e primo rinnovo.
+function totalsOf(list) {
+  const plans = list.flatMap(s => s.plans);
+  // licenze vere: con un numero e non gratuite; le prove e le gratuite a parte
+  const counted = plans.filter(p => p.seats !== null && p.unit_cost !== 0);
+  const linked = plans.filter(p => p.external_id === 'collegati');
+  const other = plans.filter(p => !counted.includes(p) && p.external_id !== 'collegati');
+  const costs = list.map(s => s.monthly_cost).filter(c => c !== null);
+  return {
+    seats: counted.reduce((n, p) => n + p.seats, 0),
+    assigned: counted.reduce((n, p) => n + p.assigned, 0),
+    unlimited: other.reduce((n, p) => n + p.assigned, 0),
+    free: counted.reduce((n, p) => n + (p.free || 0), 0),
+    linked: linked.reduce((n, p) => n + p.assigned, 0),
+    monthly: costs.length ? costs.reduce((x, y) => x + y, 0) : null,
+    estimated: list.some(s => s.estimated),
+    missing: list.reduce((n, s) => n + (s.missing_cost || 0), 0),
+    renewal: list.map(s => s.renewal_date).filter(Boolean).sort()[0] || null,
+  };
+}
+const licLine = t => [
+  t.seats ? `${num(t.assigned)} assegnate di ${num(t.seats)}` : null,
+  t.unlimited ? `${num(t.unlimited)} gratuite o senza limite` : null,
+  t.linked && !t.seats && !t.unlimited ? 'accesso con l\'account Microsoft' : null,
+].filter(Boolean).join(' · ') || '—';
+const costCell = t => (t.monthly === null ? h('span.muted', t.missing ? 'prezzo mancante' : '—') : [eur(t.monthly), t.estimated ? h('small.muted', ' stimato') : null]);
+
 function catalog(box, data) {
-  let filter = data.totals.to_check ? 'da_verificare' : 'attivo';
+  let filter = data.totals.to_check && !data.software.some(s => s.status === 'attivo') ? 'da_verificare' : 'attivo';
   let q = '';
   const table = h('div.card.table-wrap');
+  const groups = st => [...new Set(data.software.filter(s => s.status === st).map(vendorKey))];
   const seg = h('div.seg', Object.entries(STATUS).map(([k, label]) => h('button', { type: 'button', 'data-k': k, class: k === filter ? 'on' : '', on: { click: () => { filter = k; draw(); } } },
-    label, ` ${num(data.software.filter(s => s.status === k).length)}`)));
-  const search = h('input.input', { type: 'search', placeholder: 'Cerca un software o un tipo', 'aria-label': 'Cerca', on: { input: debounce(e => { q = lc(e.target.value.trim()); draw(); }, 150) } });
+    label, ` ${num(groups(k).length)}`)));
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca un fornitore, un software o una licenza', 'aria-label': 'Cerca', on: { input: debounce(e => { q = lc(e.target.value.trim()); draw(); }, 150) } });
   fill(box,
     h('div.sw-tools', seg, search, h('button.btn.btn-primary', { type: 'button', on: { click: () => editSoftware(null) } }, icon('plus', { size: 16 }), 'Aggiungi software')),
     table);
@@ -112,22 +155,70 @@ function catalog(box, data) {
 
   function draw() {
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === filter));
-    const rows = data.software.filter(s => s.status === filter && (!q || lc(`${s.name} ${s.category} ${s.vendor}`).includes(q)));
+    const by = new Map();
+    for (const s of data.software.filter(x => x.status === filter)) {
+      const k = vendorKey(s);
+      if (!by.has(k)) by.set(k, []);
+      by.get(k).push(s);
+    }
+    const rows = [...by.entries()]
+      .filter(([v, list]) => !q || lc(`${v} ${list.map(s => `${s.name} ${s.category} ${s.plans.map(p => p.name).join(' ')}`).join(' ')}`).includes(q))
+      .map(([v, list]) => ({ v, list, t: totalsOf(list) }))
+      .sort((x, y) => ((y.t.monthly || 0) - (x.t.monthly || 0)) || x.v.localeCompare(y.v, 'it'));
     fill(table, rows.length ? h('table.list',
-      h('thead', h('tr', ['Software', 'Tipo', 'Da dove', 'Persone', 'Licenze', 'Al mese', 'Rinnovo'].map(t => h('th', t)))),
-      h('tbody', rows.map(s => h('tr', { on: { click: () => { location.hash = `#/software/${s.id}`; } } },
-        h('td', h('strong', s.name), s.vendor ? h('div.small.muted', s.vendor) : null),
-        h('td', s.category || h('span.muted', '—')),
-        h('td', SOURCE[s.source] || s.source),
-        h('td.num', num(s.people_count)),
-        h('td.num', s.seats === null ? num(s.assigned) : `${num(s.assigned)} di ${num(s.seats)}`),
-        h('td.num', s.monthly_cost === null ? h('span.muted', s.missing_cost ? 'prezzo mancante' : '—') : [eur(s.monthly_cost), s.estimated ? h('small.muted', ' stimato') : null]),
-        h('td', s.renewal_date ? fmtDate(s.renewal_date, { year: true }) : h('span.muted', '—'))))))
-      : h('div.empty', filter === 'da_verificare' ? 'Nessun software da verificare.' : 'Nessun software qui.'));
+      h('thead', h('tr', ['Fornitore', 'Licenze', 'Persone', 'Al mese', 'All\'anno', 'Rinnovo'].map(t => h('th', t)))),
+      h('tbody', rows.map(({ v, list, t }) => h('tr', { on: { click: () => { location.hash = vendorHref(v); } } },
+        h('td', h('strong', v), h('div.small.muted', list.length === 1 && list[0].name === v
+          ? [list[0].category, `${list[0].plans.length} ${list[0].plans.length === 1 ? 'tipo di licenza' : 'tipi di licenza'}`].filter(Boolean).join(' · ')
+          : list.map(s => s.name).join(', '))),
+        h('td', licLine(t)),
+        h('td.num', num(data.vendor_people?.[v] ?? list.reduce((n, s) => n + s.people_count, 0))),
+        h('td.num', costCell(t)),
+        h('td.num', t.monthly === null ? h('span.muted', '—') : eur(t.monthly * 12)),
+        h('td', t.renewal ? fmtDate(t.renewal, { year: true }) : h('span.muted', '—'))))))
+      : h('div.empty', filter === 'da_verificare' ? 'Nessun software da verificare.' : 'Nessun fornitore qui.'));
     if (filter === 'da_verificare' && rows.length) {
       table.prepend(h('p.small.muted.sw-pad', 'Scoperti da Microsoft: software in cui qualcuno entra con l\'account aziendale. Aprili per confermarli (con prezzi e licenze) o archiviarli.'));
     }
   }
+}
+
+// Pagina del fornitore: totali per Almacis e, software per software, tutte le sue licenze.
+async function vendorView(container, vendor) {
+  clear(container).append(loading());
+  const data = await get('/api/software');
+  const list = data.software.filter(s => vendorKey(s) === vendor)
+    .sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || a.name.localeCompare(b.name, 'it'));
+  if (!list.length) return fill(container, h('div.card.empty', 'Fornitore non trovato. ', h('a', { href: '#/software/catalogo' }, 'Torna ai fornitori')));
+  const t = totalsOf(list.filter(s => s.status !== 'archiviato'));
+  const kpi = (label, value, sub) => h('div.sw-kpi', h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
+  fill(container,
+    h('div.page-head',
+      h('div', h('a.pj-crumb', { href: '#/software/catalogo' }, '← Fornitori'), h('h1', vendor),
+        h('div.sub', `${num(list.length)} software`, t.renewal ? ` · primo rinnovo ${fmtDate(t.renewal, { year: true })}` : '')),
+      h('button.btn.btn-primary', { type: 'button', on: { click: () => editSoftware(null, null, { vendor }) } }, icon('plus', { size: 16 }), `Software di ${vendor}`)),
+    h('div.sw-kpis',
+      kpi('Costo al mese', costCell(t), t.monthly === null ? null : `circa ${eur(t.monthly * 12)} all'anno`),
+      t.seats ? kpi('Licenze acquistate', num(t.seats), `${num(t.assigned)} assegnate`) : null,
+      t.seats ? kpi('Licenze libere', num(t.free), t.free ? 'pagate e non assegnate' : 'tutte assegnate') : null,
+      t.unlimited ? kpi('Gratuite o senza limite', num(t.unlimited), 'assegnate') : null,
+      t.linked ? kpi('Persone collegate', num(data.vendor_people?.[vendor] ?? t.linked),'entrano con l\'account Microsoft') : null),
+    list.map(s => h('section.card.sw-vendor-sw',
+      h('div.sw-plan-head',
+        h('div.grow', h('h3', h('a', { href: `#/software/${s.id}` }, s.name), ' ', s.status !== 'attivo' ? statusPill(s.status) : null),
+          h('div.small.muted', [s.category, SOURCE[s.source] && s.source !== 'manuale' ? `da ${SOURCE[s.source]}` : null, s.monthly_cost !== null ? `${eur(s.monthly_cost)} al mese` : null].filter(Boolean).join(' · '))),
+        h('a.btn.btn-sm', { href: `#/software/${s.id}` }, 'Apri: persone e prezzi')),
+      s.plans.length ? h('div.table-wrap', h('table.list.sw-plan-table',
+        h('thead', h('tr', ['Licenza', 'Acquistate', 'Assegnate', 'Libere', 'Prezzo', 'Al mese', 'Rinnovo'].map(x => h('th', x)))),
+        h('tbody', [...s.plans].sort((x, y) => ((y.monthly_cost || 0) - (x.monthly_cost || 0)) || x.name.localeCompare(y.name, 'it')).map(p => h('tr', { on: { click: () => { location.hash = `#/software/${s.id}`; } } },
+          h('td', h('strong', p.name)),
+          h('td.num', p.seats === null ? h('span.muted', p.external_id === 'collegati' ? '—' : 'senza limite') : num(p.seats)),
+          h('td.num', num(p.assigned)),
+          h('td.num', p.free ? num(p.free) : h('span.muted', '—')),
+          h('td.num', p.unit_cost === null ? h('span.muted', '—') : [eur(p.unit_cost), h('small.muted', p.billing === 'anno' ? ' /anno' : p.billing === 'una_tantum' ? ' una tantum' : ' /mese'), p.cost_estimated ? h('small.muted', ' stimato') : null]),
+          h('td.num', p.monthly_cost === null ? h('span.muted', '—') : eur(p.monthly_cost)),
+          h('td', p.renewal_date ? fmtDate(p.renewal_date, { year: true }) : h('span.muted', '—')))))))
+        : h('p.small.muted', 'Nessuna licenza inserita.'))));
 }
 
 // ── scheda software ───────────────────────────────────────────────────────
@@ -143,7 +234,7 @@ async function softwareDetail(container, id) {
   const plans = h('div.sw-plans');
   fill(container,
     h('div.page-head',
-      h('div', h('a.pj-crumb', { href: '#/software/catalogo' }, '← Software'),
+      h('div', h('a.pj-crumb', { href: vendorHref(vendorKey(s)) }, `← ${vendorKey(s)}`),
         h('h1', s.name, ' ', statusPill(s.status)),
         h('div.sub', [s.vendor, s.category, s.source === 'manuale' ? 'inserito a mano' : SOURCE[s.source] ? `da ${SOURCE[s.source]}` : null, s.owner_name ? `referente ${s.owner_name}` : null].filter(Boolean).join(' · ')),
         s.website ? h('a.small', { href: s.website, target: '_blank', rel: 'noopener' }, s.website.replace(/^https?:\/\//, ''), ' ', icon('external', { size: 13 })) : null),
@@ -203,10 +294,11 @@ function field(label, input, hint) {
   return h('label.field', h('span', label), input, hint ? h('small.muted', hint) : null);
 }
 
-async function editSoftware(s, onSaved) {
-  const people = await orgPeople();
+async function editSoftware(s, onSaved, defaults = {}) {
+  const [people, all] = await Promise.all([orgPeople(), get('/api/software')]);
   const name = h('input.input', { value: s?.name || '', maxlength: 120, required: true });
-  const vendor = h('input.input', { value: s?.vendor || '', maxlength: 120 });
+  const vendor = h('input.input', { value: s?.vendor ?? defaults.vendor ?? '', maxlength: 120, list: 'sw-vendors', placeholder: 'es. Microsoft, Autodesk, Zoho' });
+  const vendors = h('datalist#sw-vendors', [...new Set(all.software.map(x => x.vendor).filter(Boolean))].sort().map(v => h('option', { value: v })));
   const category = h('input.input', { value: s?.category || '', maxlength: 80, list: 'sw-categories', placeholder: 'es. CRM e vendite' });
   const website = h('input.input', { value: s?.website || '', type: 'url', placeholder: 'https://' });
   const owner = h('select.select', h('option', { value: '' }, 'Nessuno'),
@@ -215,7 +307,7 @@ async function editSoftware(s, onSaved) {
   const cats = h('datalist#sw-categories', ['CRM e vendite', 'Intelligenza artificiale', 'Progetti e collaborazione', 'Produttività e posta', 'Progettazione e disegno', 'Contabilità e paghe', 'Assistenza e sicurezza IT', 'Documenti e firma', 'Agenda e appuntamenti', 'Viaggi e spese'].map(c => h('option', { value: c })));
   const m = modal({
     title: s ? `Modifica «${s.name}»` : 'Nuovo software',
-    body: h('div.sw-form', field('Nome', name), h('div.grid-2', field('Produttore', vendor), field('Tipo', category)), cats,
+    body: h('div.sw-form', field('Nome', name, 'Il prodotto, es. AutoCAD o Zoho CRM. Le versioni (Standard, Pro…) si aggiungono dopo come tipi di licenza.'), h('div.grid-2', field('Fornitore', vendor), field('Tipo', category)), cats, vendors,
       h('div.grid-2', field('Sito', website), field('Referente interno', owner)), field('Note', notes, 'Contratto, chi lo amministra, come si accede…')),
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),

@@ -180,3 +180,19 @@ test('pacchetti per ruolo: proposti per ruolo o reparto, assegnati in un colpo; 
   const after = (await A('GET', '/api/software/people/o-anna')).body;
   assert.ok(after.items.some(i => i.plan_name === 'Standard' && i.source === 'pacchetto' && i.package_name === 'Commerciale'));
 });
+
+test('fornitori: il nome dell\'app dice il fornitore; le persone si contano una volta per fornitore', async () => {
+  const { vendorOf } = require('../lib/software-sources');
+  assert.deepEqual(['Zoho Sign', 'Zoho Projects for Teams', 'Trello', 'M365 MCP Client for Claude', 'AutoCAD', 'Fathom'].map(vendorOf),
+    ['Zoho', 'Zoho', 'Atlassian', 'Anthropic', 'Autodesk', 'Fathom']);
+  const anna = { oid: 'o-anna', name: 'Anna Commerciale', email: 'anna@almacis.it' };
+  const linked = people => [{ external_id: 'collegati', name: 'Utenti collegati', seats: null, assigned: people.length, renewal_date: null, people }];
+  await applySource(db, 'entra', [
+    { external_id: 'app-sign', name: 'Zoho Sign', vendor: vendorOf('Zoho Sign'), category: '', status: 'da_verificare', plans: linked([anna]) },
+    { external_id: 'app-zoho', name: 'Zoho CRM', vendor: vendorOf('Zoho CRM'), category: '', status: 'da_verificare', plans: linked([anna]) },
+  ], null);
+  const all = (await A('GET', '/api/software')).body;
+  assert.equal(all.software.find(s => s.name === 'Zoho Sign').vendor, 'Zoho');
+  assert.equal(all.software.find(s => s.name === 'Zoho CRM').vendor, 'Zoho'); // messo a mano con «Zoho»: resta
+  assert.equal(all.vendor_people.Zoho, 2); // Anna e Dante (Enterprise): Anna una volta sola
+});
