@@ -1,6 +1,6 @@
 /* Censimento software (orbita/js/software.js): cruscotto, catalogo, schede, persone, pacchetti. Solo token del brand. */
 .sw-tabs { margin-bottom: var(--ap-space-4); flex-wrap: wrap; }
-.sw-body { display: grid; gap: var(--ap-space-4); }
+.sw-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ap-space-4); }
 .sw-form { display: grid; gap: var(--ap-space-3); }
 .sw-pad { padding: var(--ap-space-3) var(--ap-space-4) 0; margin: 0; }
 
@@ -66,3 +66,31 @@ table.list td.sw-wrap { max-width: 28rem; }
 .sw-checks.plans { max-height: 20rem; gap: var(--ap-space-2); }
 .sw-checks.plans > div { display: grid; gap: 2px; }
 .sw-checks label { display: flex; gap: var(--ap-space-1); align-items: baseline; }
+
+/* Fornitori a riquadri (alternativa all'elenco, scelta ricordata nel browser) */
+.sw-view button { display: inline-flex; align-items: center; gap: var(--ap-space-1); }
+.sw-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: var(--ap-space-3); }
+.sw-tile { display: grid; gap: var(--ap-space-2); align-content: start; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-4); color: inherit; text-decoration: none; transition: border-color var(--ap-dur) var(--ap-ease), box-shadow var(--ap-dur) var(--ap-ease); min-width: 0; }
+.sw-tile:hover, .sw-tile:focus-visible { border-color: var(--orange); box-shadow: 0 6px 18px color-mix(in srgb, var(--ap-graphite) 8%, transparent); }
+.sw-tile-head { display: flex; align-items: center; gap: var(--ap-space-3); min-width: 0; }
+.sw-tile-head .grow { min-width: 0; }
+.sw-mono { flex: none; width: 40px; height: 40px; border-radius: var(--radius); display: grid; place-items: center; font-weight: var(--ap-fw-bold); font-size: var(--ap-fs-sm); color: var(--c); background: color-mix(in srgb, var(--c) 13%, var(--ap-white)); }
+.sw-tile-name { display: block; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-tile-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sw-tile-cost strong { font-size: 1.5rem; color: var(--ap-text-strong); font-variant-numeric: tabular-nums; }
+.sw-tile-use { height: 6px; background: var(--ap-grey-100); border-radius: var(--radius-pill); overflow: hidden; }
+.sw-tile-use i { display: block; height: 100%; background: var(--orange); border-radius: var(--radius-pill); }
+.sw-tile-facts { display: grid; gap: 2px; margin: 0; font-size: var(--ap-fs-sm); }
+.sw-tile-facts > div { display: flex; justify-content: space-between; gap: var(--ap-space-2); }
+.sw-tile-facts dt { color: var(--muted); }
+.sw-tile-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Pagina del fornitore: un riquadro per software con la tabella delle sue licenze */
+.sw-vendor-sw { padding: var(--ap-space-4); display: grid; gap: var(--ap-space-3); min-width: 0; margin-top: var(--ap-space-3); }
+.sw-vendor-sw h3 { margin: 0; }
+.sw-vendor-sw .table-wrap { margin: 0 calc(-1 * var(--ap-space-4)) calc(-1 * var(--ap-space-4)); }
+.sw-plan-table td:first-child { min-width: 12rem; }
+
+/* sul telefono i selettori vanno a capo invece di allargare la pagina */
+.sw-tools .seg { flex-wrap: wrap; max-width: 100%; }
+.sw-tile-facts > div { display: grid; grid-template-columns: auto minmax(0, 1fr); }

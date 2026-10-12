@@ -138,23 +138,38 @@ const licLine = t => [
   t.unlimited ? `${num(t.unlimited)} gratuite o senza limite` : null,
   t.linked && !t.seats && !t.unlimited ? 'accesso con l\'account Microsoft' : null,
 ].filter(Boolean).join(' · ') || '—';
+// Sigla colorata del fornitore nei riquadri: due lettere, colore fisso per nome.
+const MONO_COLORS = ['#FF8A26', '#0057B8', '#1B7A45', '#8A1538', '#4A3082', '#009260', '#B84207', '#5B6770', '#C2185B', '#00838F'];
+const monogram = v => { const w = v.match(/[A-Za-z0-9]+/g) || ['?']; return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
+const monoColor = v => MONO_COLORS[[...v].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7) % MONO_COLORS.length];
 const costCell = t => (t.monthly === null ? h('span.muted', t.missing ? 'prezzo mancante' : '—') : [eur(t.monthly), t.estimated ? h('small.muted', ' stimato') : null]);
 
 function catalog(box, data) {
   let filter = data.totals.to_check && !data.software.some(s => s.status === 'attivo') ? 'da_verificare' : 'attivo';
   let q = '';
-  const table = h('div.card.table-wrap');
+  // riquadri o elenco: la scelta resta per la prossima volta
+  const VIEW_KEY = 'alma.swVendorView';
+  let view = 'riquadri';
+  try { view = localStorage.getItem(VIEW_KEY) === 'elenco' ? 'elenco' : 'riquadri'; } catch { /* niente */ }
+  const table = h('div');
+  const viewSeg = h('div.seg.sw-view', { role: 'group', 'aria-label': 'Vista' }, [['riquadri', 'Riquadri'], ['elenco', 'Elenco']].map(([k, label]) =>
+    h('button', { type: 'button', 'data-v': k, 'aria-pressed': String(k === view), on: { click: () => {
+      view = k;
+      try { localStorage.setItem(VIEW_KEY, k); } catch { /* niente */ }
+      draw();
+    } } }, icon(k === 'riquadri' ? 'grid' : 'list', { size: 15 }), label)));
   const groups = st => [...new Set(data.software.filter(s => s.status === st).map(vendorKey))];
   const seg = h('div.seg', Object.entries(STATUS).map(([k, label]) => h('button', { type: 'button', 'data-k': k, class: k === filter ? 'on' : '', on: { click: () => { filter = k; draw(); } } },
     label, ` ${num(groups(k).length)}`)));
   const search = h('input.input', { type: 'search', placeholder: 'Cerca un fornitore, un software o una licenza', 'aria-label': 'Cerca', on: { input: debounce(e => { q = lc(e.target.value.trim()); draw(); }, 150) } });
   fill(box,
-    h('div.sw-tools', seg, search, h('button.btn.btn-primary', { type: 'button', on: { click: () => editSoftware(null) } }, icon('plus', { size: 16 }), 'Aggiungi software')),
+    h('div.sw-tools', seg, search, viewSeg, h('button.btn.btn-primary', { type: 'button', on: { click: () => editSoftware(null) } }, icon('plus', { size: 16 }), 'Aggiungi software')),
     table);
   draw();
 
   function draw() {
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === filter));
+    viewSeg.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.setAttribute('aria-pressed', String(b.dataset.v === view)); });
     const by = new Map();
     for (const s of data.software.filter(x => x.status === filter)) {
       const k = vendorKey(s);
@@ -165,18 +180,32 @@ function catalog(box, data) {
       .filter(([v, list]) => !q || lc(`${v} ${list.map(s => `${s.name} ${s.category} ${s.plans.map(p => p.name).join(' ')}`).join(' ')}`).includes(q))
       .map(([v, list]) => ({ v, list, t: totalsOf(list) }))
       .sort((x, y) => ((y.t.monthly || 0) - (x.t.monthly || 0)) || x.v.localeCompare(y.v, 'it'));
-    fill(table, rows.length ? h('table.list',
+    const people = (v, list) => data.vendor_people?.[v] ?? list.reduce((n, s) => n + s.people_count, 0);
+    const products = (v, list) => (list.length === 1 && list[0].name === v
+      ? [list[0].category, `${list[0].plans.length} ${list[0].plans.length === 1 ? 'tipo di licenza' : 'tipi di licenza'}`].filter(Boolean).join(' · ')
+      : list.map(s => s.name).join(', '));
+    const empty = h('div.card.empty', filter === 'da_verificare' ? 'Nessun software da verificare.' : 'Nessun fornitore qui.');
+    if (view === 'riquadri') {
+      fill(table, rows.length ? h('div.sw-tiles', rows.map(({ v, list, t }) => h('a.sw-tile', { href: vendorHref(v) },
+        h('div.sw-tile-head', h('span.sw-mono', { style: { '--c': monoColor(v) }, 'aria-hidden': 'true' }, monogram(v)),
+          h('div.grow', h('strong.sw-tile-name', v), h('div.small.muted.sw-tile-sub', products(v, list)))),
+        h('div.sw-tile-cost', t.monthly === null ? h('span.muted', t.missing ? 'prezzo mancante' : 'nessun costo') : [h('strong', eur(t.monthly)), h('span.muted', ' al mese'), t.estimated ? h('small.muted', ' stimato') : null]),
+        t.seats ? h('div.sw-tile-use', { title: `${num(t.assigned)} assegnate di ${num(t.seats)}` }, h('i', { style: { width: `${Math.min(100, (t.assigned / t.seats) * 100)}%` } })) : null,
+        h('dl.sw-tile-facts',
+          h('div', h('dt', 'Licenze'), h('dd', licLine(t))),
+          h('div', h('dt', 'Persone'), h('dd', num(people(v, list)))),
+          h('div', h('dt', 'Rinnovo'), h('dd', t.renewal ? fmtDate(t.renewal, { year: true }) : '—'))))))
+        : empty);
+    } else fill(table, rows.length ? h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', ['Fornitore', 'Licenze', 'Persone', 'Al mese', 'All\'anno', 'Rinnovo'].map(t => h('th', t)))),
       h('tbody', rows.map(({ v, list, t }) => h('tr', { on: { click: () => { location.hash = vendorHref(v); } } },
-        h('td', h('strong', v), h('div.small.muted', list.length === 1 && list[0].name === v
-          ? [list[0].category, `${list[0].plans.length} ${list[0].plans.length === 1 ? 'tipo di licenza' : 'tipi di licenza'}`].filter(Boolean).join(' · ')
-          : list.map(s => s.name).join(', '))),
+        h('td', h('strong', v), h('div.small.muted', products(v, list))),
         h('td', licLine(t)),
-        h('td.num', num(data.vendor_people?.[v] ?? list.reduce((n, s) => n + s.people_count, 0))),
+        h('td.num', num(people(v, list))),
         h('td.num', costCell(t)),
         h('td.num', t.monthly === null ? h('span.muted', '—') : eur(t.monthly * 12)),
-        h('td', t.renewal ? fmtDate(t.renewal, { year: true }) : h('span.muted', '—'))))))
-      : h('div.empty', filter === 'da_verificare' ? 'Nessun software da verificare.' : 'Nessun fornitore qui.'));
+        h('td', t.renewal ? fmtDate(t.renewal, { year: true }) : h('span.muted', '—')))))))
+      : empty);
     if (filter === 'da_verificare' && rows.length) {
       table.prepend(h('p.small.muted.sw-pad', 'Scoperti da Microsoft: software in cui qualcuno entra con l\'account aziendale. Aprili per confermarli (con prezzi e licenze) o archiviarli.'));
     }
