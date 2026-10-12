@@ -10,12 +10,14 @@ function registerNotifications(app, { db, live, internalChat }) {
               nt.project_id AS note_project_id, nt.ticket_id AS note_ticket_id, left(nt.body, 120) AS note_body,
               left(c.body, 120) AS comment_body,
               (SELECT pm.media_id FROM post_media pm WHERE pm.post_id = n.post_id ORDER BY pm.position LIMIT 1) AS post_media_id,
-              left(p.body, 80) AS post_body
+              left(p.body, 80) AS post_body,
+              sp.person_name AS proposal_person, sp.job_title AS proposal_role, sp.package_name AS proposal_package
          FROM notifications n
          LEFT JOIN post_comments c ON c.id = n.comment_id
          LEFT JOIN posts p ON p.id = n.post_id
          LEFT JOIN notes nt ON nt.id = n.note_id
          LEFT JOIN tickets tk ON tk.id = n.ticket_id
+         LEFT JOIN software_proposals sp ON sp.id = n.software_proposal_id
         WHERE n.user_id = $1 AND (n.note_id IS NULL OR nt.deleted_at IS NULL) -- una nota eliminata non si notifica più
         ORDER BY n.id DESC LIMIT 100`, [req.user.id]);
     res.json(rows);

@@ -3,6 +3,7 @@
 // in org_people, così la pagina si apre subito e funziona anche se Graph è lento.
 const { HttpError } = require('../lib/http');
 const { graphAll } = require('../lib/graph');
+const { proposeFor } = require('../lib/software-proposals');
 
 const SELECT = 'id,displayName,mail,userPrincipalName,jobTitle,department,officeLocation,accountEnabled,userType';
 
@@ -11,7 +12,7 @@ function isPerson(u) {
   return u.accountEnabled !== false && u.userType !== 'Guest' && Boolean(u.mail);
 }
 
-function registerOrg(app, { db, auth }) {
+function registerOrg(app, { db, auth, notifier }) {
   app.get('/api/org', async (_req, res) => {
     const [people, sync] = await Promise.all([
       db.query(
@@ -43,6 +44,10 @@ function registerOrg(app, { db, auth }) {
     }
     const people = list.filter(isPerson);
     const ids = new Set(people.map(u => u.id));
+    // persone nuove: a chi ha un pacchetto per il suo ruolo nasce una proposta di software per il team IT
+    // (al primo aggiornamento, con l'organigramma vuoto, nessuno è «nuovo»)
+    const before = new Set((await db.query('SELECT oid FROM org_people')).rows.map(r => r.oid));
+    const fresh = before.size ? [...ids].filter(id => !before.has(id)) : [];
     await db.tx(async q => {
       for (const u of people) {
         const manager = u.manager?.id && ids.has(u.manager.id) ? u.manager.id : null;
@@ -61,7 +66,8 @@ function registerOrg(app, { db, auth }) {
          ON CONFLICT (id) DO UPDATE SET synced_at = now(), synced_by = $1, people = $2, with_manager = $3`,
         [req.user.id, people.length, withManager]);
     });
-    res.json({ people: people.length, with_manager: people.filter(u => u.manager?.id && ids.has(u.manager.id)).length });
+    const proposals = await proposeFor(db, notifier, fresh, { actorId: req.user.id });
+    res.json({ people: people.length, with_manager: people.filter(u => u.manager?.id && ids.has(u.manager.id)).length, new_people: fresh.length, proposals });
   });
 }
 

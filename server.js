@@ -25,6 +25,7 @@ const { registerRda } = require('./routes/rda');
 const { registerDigest } = require('./routes/digest');
 const { registerSearch } = require('./routes/search');
 const { registerSoftware } = require('./routes/software');
+const { createSoftwareAccess } = require('./lib/software-proposals');
 const { createDigest } = require('./lib/digest');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
@@ -153,6 +154,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   const isAdmin = req => config.adminEmails.includes(req.user.email);
   const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
+  deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
   live.register(app);
   registerUsers(app, deps);

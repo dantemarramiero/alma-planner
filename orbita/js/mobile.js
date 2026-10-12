@@ -78,7 +78,7 @@ function openMenu() {
     link('#/drive', 'cloud', 'OneDrive'),
     link('#/org', 'network', 'Organigramma'),
     store.me.internal_chat ? link('#/chat', 'message', 'Chat interna') : null,
-    store.me.is_admin ? link('#/software', 'package', 'Software e licenze') : null,
+    store.me.software ? link('#/software', 'package', 'Software e licenze') : null,
     h('button.danger', { type: 'button', on: { click: async () => { await post('/auth/logout'); location.href = '/'; } } }, h('span.nav-ico', icon('log-out')), 'Esci')));
 }
 

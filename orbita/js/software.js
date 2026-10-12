@@ -6,7 +6,7 @@ import { get, post, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 
-const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['pacchetti', 'Pacchetti per ruolo']];
+const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['pacchetti', 'Pacchetti per ruolo'], ['proposte', 'Proposte']];
 const STATUS = { attivo: 'In uso', da_verificare: 'Da verificare', archiviato: 'Archiviato' };
 const BILLING = { mese: 'al mese', anno: 'all\'anno', una_tantum: 'una tantum' };
 const SOURCE = { manuale: 'A mano', microsoft: 'Microsoft 365', entra: 'Entra', pacchetto: 'Pacchetto' };
@@ -23,24 +23,28 @@ async function orgPeople() {
 }
 
 export async function softwareView(container, parts = []) {
-  if (!store.me.is_admin) return fill(container, h('div.card.empty', 'Il censimento dei software è riservato agli amministratori.'));
+  if (!store.me.software) return fill(container, h('div.card.empty', 'Il censimento dei software è riservato agli amministratori e al team IT.'));
   if (parts[1] && /^\d+$/.test(parts[1])) return softwareDetail(container, Number(parts[1]));
   if (parts[1] === 'fornitore' && parts[2]) return vendorView(container, decodeURIComponent(parts[2]));
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'cruscotto';
   const body = h('div.sw-body', loading());
+  const tabs = h('div.seg.sw-tabs', TABS.map(([k, label]) => h('button', { type: 'button', 'data-k': k, class: k === tab ? 'on' : '', on: { click: () => { location.hash = `#/software/${k}`; } } }, label)));
   clear(container).append(
     h('div.page-head', h('div', h('h1', 'Software e licenze'),
       h('div.sub', 'Quali software usa Almacis, quante licenze ci sono, a chi sono assegnate e quanto costano.'))),
-    h('div.seg.sw-tabs', TABS.map(([k, label]) => h('button', { type: 'button', class: k === tab ? 'on' : '', on: { click: () => { location.hash = `#/software/${k}`; } } }, label))),
+    tabs,
     body);
   const data = await get('/api/software');
+  // quante proposte aspettano il team IT, accanto al tab
+  if (data.totals.proposals) tabs.querySelector('[data-k="proposte"]').append(h('span.sw-count-badge', num(data.totals.proposals)));
   if (tab === 'cruscotto') {
     dashboard(body, data);
     if (location.hash.includes('?libere')) document.getElementById('sw-libere')?.scrollIntoView({ block: 'start' });
   }
   else if (tab === 'catalogo') catalog(body, data);
   else if (tab === 'persone') await peopleTab(body);
-  else await packagesTab(body);
+  else if (tab === 'pacchetti') await packagesTab(body);
+  else await proposalsTab(body);
 }
 
 // ── cruscotto ─────────────────────────────────────────────────────────────
@@ -485,16 +489,91 @@ async function personDrawer(oid) {
 async function applyPackage(k, oids, onDone) {
   const r = await post(`/api/software/packages/${k.id}/apply`, { oids });
   toast(`Pacchetto «${k.name}»: ${num(r.added)} licenze assegnate`);
-  if (r.todo.length) {
-    const names = new Map((await orgPeople()).map(p => [p.oid, p.name]));
-    modal({
-      title: 'Da assegnare a mano',
-      body: h('div', h('p', 'Queste licenze si assegnano nel sistema di origine; al prossimo aggiornamento compaiono anche qui:'),
-        h('ul', r.todo.map(t => h('li', h('strong', names.get(t.oid) || t.oid), ` · ${t.software} — ${t.plan} (in ${t.where})`))),
-        h('a.btn', { href: 'https://admin.microsoft.com/#/users', target: '_blank', rel: 'noopener' }, 'Apri l\'interfaccia di amministrazione di Microsoft 365 ', icon('external', { size: 14 }))),
+  if (r.todo.length) showTodo(r.todo, new Map((await orgPeople()).map(p => [p.oid, p.name])));
+  onDone?.();
+}
+
+// ── proposte per ruolo ────────────────────────────────────────────────────
+// Persona nuova in Microsoft con un ruolo che ha un pacchetto → proposta. Il team IT sceglie quali licenze
+// dare (di base tutte) e accetta, oppure rifiuta con un motivo.
+async function proposalsTab(box) {
+  let status = 'da_accettare';
+  const list = h('div.sw-props');
+  const seg = h('div.seg', [['da_accettare', 'Da accettare'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate']].map(([k, label]) =>
+    h('button', { type: 'button', 'data-k': k, on: { click: () => { status = k; draw(); } } }, label)));
+  const note = h('p.muted.grow');
+  fill(box, h('div.sw-tools', seg, note), list);
+  await draw();
+
+  async function draw() {
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === status));
+    fill(list, loading());
+    const d = await get(`/api/software/proposals?status=${status}`);
+    note.textContent = `Nascono quando in Microsoft arriva una persona nuova con un ruolo o reparto che ha un pacchetto. Le accetta il team IT (${d.it_department || 'reparto IT'}) o un amministratore.`;
+    if (!d.proposals.length) {
+      return fill(list, h('div.card.empty', status === 'da_accettare' ? 'Nessuna proposta da accettare.' : 'Nessuna proposta qui.'));
+    }
+    fill(list, d.proposals.map(p => card(p)));
+  }
+
+  function card(p) {
+    const open = p.status === 'da_accettare';
+    const chosen = new Set(p.items.filter(i => !i.has_it).map(i => i.plan_id));
+    const total = h('strong');
+    const sum = () => { total.textContent = eur(p.items.filter(i => chosen.has(i.plan_id)).reduce((a, i) => a + (i.monthly_unit || 0), 0)); };
+    const rows = p.items.map(i => h('label.sw-prop-item', { class: open ? '' : (i.accepted ? 'yes' : 'no') },
+      open ? h('input', { type: 'checkbox', checked: chosen.has(i.plan_id), disabled: i.has_it, on: { change: e => { if (e.target.checked) chosen.add(i.plan_id); else chosen.delete(i.plan_id); sum(); } } })
+        : h('span.sw-prop-mark', i.accepted ? icon('check', { size: 15 }) : '×'),
+      h('span.grow', h('strong', i.plan_name), h('span.small.muted', ` ${i.vendor || i.software_name}${i.software_name !== (i.vendor || i.software_name) ? ` · ${i.software_name}` : ''}`),
+        i.managed_by ? h('span.small.muted', ` · si assegna in ${i.managed_by}`) : null,
+        i.has_it ? h('span.small.muted', ' · ce l\'ha già') : null),
+      h('span.small.num', i.monthly_unit === null ? 'prezzo da inserire' : `${eur(i.monthly_unit)}/mese`)));
+    sum();
+    return h('section.card.sw-card.sw-prop',
+      h('div.spread', h('div', h('h3', p.person_name), h('div.small.muted', [p.job_title, p.department, p.person_email].filter(Boolean).join(' · '))),
+        h('span.pill', `Pacchetto ${p.package_name}`)),
+      h('div.small.muted', open ? `Proposta del ${fmtDateTime(p.created_at)}`
+        : `${p.status === 'accettata' ? 'Accettata' : 'Rifiutata'} da ${p.decided_by_name || '—'} il ${fmtDateTime(p.decided_at)}${p.note ? ` · ${p.note}` : ''}`),
+      h('div.sw-prop-items', rows),
+      open ? h('div.spread', h('span.small', 'Al mese: ', total),
+        h('div.row',
+          h('button.btn.btn-ghost', { type: 'button', on: { click: () => reject(p) } }, 'Rifiuta'),
+          h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+            if (!chosen.size) return toast('Scegli almeno una licenza, oppure rifiuta la proposta', 'err');
+            const r = await post(`/api/software/proposals/${p.id}/accept`, { plan_ids: [...chosen] });
+            toast(['Proposta accettata', r.added ? `${num(r.added)} ${r.added === 1 ? 'licenza assegnata' : 'licenze assegnate'}` : null,
+              r.todo.length ? `${num(r.todo.length)} da assegnare in Microsoft 365` : null].filter(Boolean).join(': ').replace(/: (.*): /, ': $1, '));
+            if (r.todo.length) showTodo(r.todo, new Map([[p.person_oid, p.person_name]]));
+            draw();
+          } } }, icon('check', { size: 16 }), 'Accetta'))) : null);
+  }
+
+  function reject(p) {
+    const reason = h('textarea.input', { rows: 2, maxlength: 500, placeholder: 'es. lavora in cantiere, non le serve' });
+    const m = modal({
+      title: `Rifiutare la proposta per ${p.person_name}?`,
+      body: h('div.sw-form', field('Motivo (facoltativo)', reason)),
+      actions: [
+        h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+        h('button.btn.btn-danger', { type: 'button', on: { click: async () => {
+          await post(`/api/software/proposals/${p.id}/reject`, { note: reason.value });
+          m.close();
+          toast('Proposta rifiutata');
+          draw();
+        } } }, 'Rifiuta'),
+      ],
     });
   }
-  onDone?.();
+}
+
+// Licenze da assegnare nel sistema di origine (Microsoft 365): dopo un pacchetto o una proposta accettata.
+function showTodo(todo, names) {
+  modal({
+    title: 'Da assegnare in Microsoft 365',
+    body: h('div.sw-todo', h('p', 'Queste licenze si assegnano nel sistema di origine; al prossimo aggiornamento compaiono anche qui:'),
+      h('ul', todo.map(t => h('li', h('strong', names.get(t.oid) || t.oid), ` · ${t.software} — ${t.plan} (in ${t.where})`))),
+      h('a.btn', { href: 'https://admin.microsoft.com/#/users', target: '_blank', rel: 'noopener' }, 'Apri l\'interfaccia di amministrazione di Microsoft 365 ', icon('external', { size: 14 }))),
+  });
 }
 
 // ── pacchetti per ruolo ───────────────────────────────────────────────────

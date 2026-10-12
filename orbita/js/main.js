@@ -180,8 +180,8 @@ async function start() {
   startLive();
   for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
-  // censimento software: solo amministratori (il server lo rifiuta comunque agli altri)
-  for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.is_admin;
+  // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
+  for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.software;
   refreshBadges();
 
   document.getElementById('back').addEventListener('click', goBack);

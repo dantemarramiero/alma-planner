@@ -3,6 +3,7 @@
 // Tutto riservato agli amministratori: costi e licenze di ognuno non li vedono gli altri.
 const { HttpError, v } = require('../lib/http');
 const { SOURCES, applySource } = require('../lib/software-sources');
+const { proposeFor, itDepartment } = require('../lib/software-proposals');
 
 const STATUS = ['attivo', 'da_verificare', 'archiviato'];
 const BILLING = ['mese', 'anno', 'una_tantum'];
@@ -37,10 +38,9 @@ const round = n => Math.round(n * 100) / 100;
 // (Gli account senza casella, es. «edile@…onmicrosoft.com», non sono nell'organigramma ma esistono: non contano.)
 const DEPARTED = `(a.account_disabled OR (a.source IN ('manuale', 'pacchetto') AND NOT EXISTS (SELECT 1 FROM org_people o WHERE o.oid = a.person_oid)))`;
 
-function registerSoftware(app, { db, auth, isAdmin }) {
+function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
   app.use('/api/software', (req, _res, next) => {
-    if (!isAdmin(req)) return next(new HttpError(403, 'Il censimento dei software è riservato agli amministratori'));
-    next();
+    softwareAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Il censimento dei software è riservato agli amministratori e al team IT')), next);
   });
 
   // Piani con quante assegnazioni hanno e il loro costo al mese.
@@ -63,7 +63,7 @@ function registerSoftware(app, { db, auth, isAdmin }) {
 
   // ── cruscotto: tutti i software con piani, totali e cose da sistemare ─────────────────────────────
   app.get('/api/software', async (_req, res) => {
-    const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }] = await Promise.all([
+    const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }, { rows: [pending] }] = await Promise.all([
       db.query(`SELECT s.*, o.name AS owner_name FROM software s LEFT JOIN org_people o ON o.oid = s.owner_oid ORDER BY lower(s.name)`),
       plansFor(),
       db.query('SELECT s.source, s.synced_at, s.result, u.name AS synced_by_name FROM software_sync s LEFT JOIN users u ON u.id = s.synced_by'),
@@ -73,6 +73,7 @@ function registerSoftware(app, { db, auth, isAdmin }) {
           WHERE ${DEPARTED} AND s.status <> 'archiviato'
           ORDER BY a.person_name, s.name`),
       db.query('SELECT COUNT(*)::int AS n FROM org_people'),
+      db.query("SELECT COUNT(*)::int AS n FROM software_proposals WHERE status = 'da_accettare'"),
     ]);
     const bySw = new Map(list.map(s => [s.id, { ...s, plans: [] }]));
     for (const p of plans) bySw.get(p.software_id)?.plans.push(p);
@@ -125,6 +126,7 @@ function registerSoftware(app, { db, auth, isAdmin }) {
         estimated: active.filter(s => s.estimated).length,
         departed: departed.length,
         people: people[0].n,
+        proposals: pending.n,
       },
     });
   });
@@ -450,7 +452,91 @@ function registerSoftware(app, { db, auth, isAdmin }) {
     res.json({ added: result, todo });
   });
 
-  // scheda di un software (dopo /people e /packages, che altrimenti finirebbero qui)
+  // ── proposte per ruolo: il team IT le accetta (tutte o in parte) o le rifiuta ─────────────────────
+  app.get('/api/software/proposals', async (req, res) => {
+    const status = v.oneOf(req.query.status || 'da_accettare', 'stato', ['da_accettare', 'accettata', 'rifiutata']);
+    const [{ rows: props }, { rows: items }] = await Promise.all([
+      db.query(
+        `SELECT sp.*, u.name AS decided_by_name FROM software_proposals sp LEFT JOIN users u ON u.id = sp.decided_by
+          WHERE sp.status = $1 ORDER BY sp.created_at DESC LIMIT 200`, [status]),
+      db.query(
+        `SELECT i.proposal_id, i.plan_id, i.accepted, p.name AS plan_name, p.unit_cost, p.billing, p.external_id,
+                s.id AS software_id, s.name AS software_name, s.vendor, s.source,
+                EXISTS (SELECT 1 FROM software_assignments a JOIN software_proposals x ON x.id = i.proposal_id
+                         WHERE a.plan_id = i.plan_id AND a.person_oid = x.person_oid) AS has_it
+           FROM software_proposal_items i JOIN software_plans p ON p.id = i.plan_id JOIN software s ON s.id = p.software_id
+          ORDER BY lower(s.name), lower(p.name)`),
+    ]);
+    res.json({
+      it_department: await itDepartment(db),
+      proposals: props.map(sp => ({
+        ...sp,
+        items: items.filter(i => i.proposal_id === sp.id).map(i => ({
+          ...i, unit_cost: i.unit_cost === null ? null : Number(i.unit_cost),
+          monthly_unit: monthly(i) === null ? null : round(monthly(i)),
+          managed_by: i.external_id ? (SOURCES[i.source]?.label || i.source) : null,
+        })),
+      })),
+    });
+  });
+
+  async function getProposal(id) {
+    const { rows: [sp] } = await db.query('SELECT * FROM software_proposals WHERE id = $1', [id]);
+    if (!sp) throw new HttpError(404, 'Proposta non trovata');
+    if (sp.status !== 'da_accettare') throw new HttpError(400, `Questa proposta è già stata ${sp.status === 'accettata' ? 'accettata' : 'rifiutata'}`);
+    return sp;
+  }
+
+  // Accetta le licenze scelte (plan_ids; assente = tutte). Quelle gestite qui si assegnano subito; quelle che
+  // arrivano da un collegamento (Microsoft 365) si restituiscono «da fare» nel sistema di origine.
+  app.post('/api/software/proposals/:id/accept', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const sp = await getProposal(id);
+    const { rows: items } = await db.query(
+      `SELECT i.plan_id, p.name, p.external_id, s.name AS software_name, s.source
+         FROM software_proposal_items i JOIN software_plans p ON p.id = i.plan_id JOIN software s ON s.id = p.software_id
+        WHERE i.proposal_id = $1`, [id]);
+    const chosen = req.body?.plan_ids === undefined ? items.map(i => i.plan_id) : v.ids(req.body.plan_ids, 'licenze');
+    if (chosen.some(pid => !items.some(i => i.plan_id === pid))) throw new HttpError(400, 'Una delle licenze non fa parte della proposta');
+    const { rows: [inOrg] } = await db.query('SELECT 1 FROM org_people WHERE oid = $1', [sp.person_oid]);
+    if (chosen.length && !inOrg) throw new HttpError(400, `${sp.person_name} non è più nell'organigramma di Microsoft: rifiuta la proposta`);
+    const added = await db.tx(async q => {
+      let n = 0;
+      for (const it of items) {
+        const ok = chosen.includes(it.plan_id);
+        await q.query('UPDATE software_proposal_items SET accepted = $3 WHERE proposal_id = $1 AND plan_id = $2', [id, it.plan_id, ok]);
+        if (ok && !it.external_id) n += await assign(q, it.plan_id, [sp.person_oid], { source: 'pacchetto', packageId: sp.package_id, userId: req.user.id });
+      }
+      await q.query(
+        `UPDATE software_proposals SET status = $2, decided_by = $3, decided_at = now(), note = COALESCE($4, note) WHERE id = $1`,
+        [id, chosen.length ? 'accettata' : 'rifiutata', req.user.id, v.text(req.body?.note, 'nota', { max: 500 }) ?? null]);
+      return n;
+    });
+    const todo = items.filter(i => i.external_id && chosen.includes(i.plan_id))
+      .map(i => ({ oid: sp.person_oid, software: i.software_name, plan: i.name, where: SOURCES[i.source]?.label || i.source }));
+    res.json({ added, todo });
+  });
+
+  app.post('/api/software/proposals/:id/reject', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await getProposal(id);
+    await db.tx(async q => {
+      await q.query('UPDATE software_proposal_items SET accepted = false WHERE proposal_id = $1', [id]);
+      await q.query(`UPDATE software_proposals SET status = 'rifiutata', decided_by = $2, decided_at = now(), note = $3 WHERE id = $1`,
+        [id, req.user.id, v.text(req.body?.note, 'motivo', { max: 500 }) || '']);
+    });
+    res.json({ ok: true });
+  });
+
+  // Proposta a mano per una persona già presente (es. cambio di ruolo): stessa regola di quella automatica.
+  app.post('/api/software/proposals', async (req, res) => {
+    const oid = v.text(req.body?.oid, 'persona', { max: 64, required: true });
+    const { rows: [p] } = await db.query('SELECT oid FROM org_people WHERE oid = $1', [oid]);
+    if (!p) throw new HttpError(400, 'La persona non è nell\'organigramma di Microsoft');
+    res.status(201).json({ created: await proposeFor(db, notifier, [oid], { actorId: req.user.id }) });
+  });
+
+  // scheda di un software (dopo /people, /packages e /proposals, che altrimenti finirebbero qui)
   app.get('/api/software/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const s = await getSoftware(id);

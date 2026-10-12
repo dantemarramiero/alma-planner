@@ -26,6 +26,7 @@ function sentence(n) {
       ? `ha accettato la tua richiesta${quote(n.ticket_title)} (${hours(n.hours_approved)}).`
       : `ha accettato la tua richiesta${quote(n.ticket_title)} con ${hours(n.hours_approved)} invece delle ${hours(n.hours_estimated)} stimate.`;
     case 'rda_rejected': return `ha rifiutato la tua richiesta${quote(n.ticket_title)}:${quote(n.rda_reject_reason)}`;
+    case 'software_proposal': return `Persona nuova in Microsoft: ${n.proposal_person || 'qualcuno'}${n.proposal_role ? ` (${n.proposal_role})` : ''}. Proposta di software «${n.proposal_package || 'pacchetto'}» da accettare.`;
     default: return '';
   }
 }
@@ -34,6 +35,7 @@ function sentence(n) {
 async function open(n) {
   if (n.post_id) return openPost(n.post_id, { focus: !!n.comment_id });
   if (n.kind === 'rda_new' || n.kind === 'rda_rejected') { location.hash = '#/rda'; return; }
+  if (n.kind === 'software_proposal') { location.hash = '#/software/proposte'; return; }
   if (n.ticket_id) return (await import('./tickets.js')).openTicket(n.ticket_id, {});
   if (n.note_project_id) location.hash = `#/projects/${n.note_project_id}/note`;
   else if (n.note_ticket_id) (await import('./tickets.js')).openTicket(n.note_ticket_id, {});
@@ -55,9 +57,9 @@ export function notificationsView(view) {
 
   function row(n) {
     const u = userById(n.actor_id);
-    const system = n.kind === 'due_tomorrow' || n.kind === 'overdue_project'; // solleciti: li manda Alma Planet, non una persona
+    const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind); // li manda Alma Planet, non una persona
     return h('button.notif', { type: 'button', class: n.read_at ? '' : 'new', on: { click: () => open(n) } },
-      system ? h('span.notif-sys', icon('alarm-clock', { size: 22 })) : avatar(u, 44),
+      system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
       h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], sentence(n), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
       n.post_media_id ? h('img.notif-thumb', { src: mediaUrl(n.post_media_id), alt: '' }) : n.post_body ? h('span.notif-thumb.text', n.post_body) : null);
   }

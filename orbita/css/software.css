@@ -99,3 +99,20 @@ table.list td.sw-wrap { max-width: 28rem; }
   .sw-line { flex-wrap: wrap; }
   .sw-line .grow { flex: 1 1 100%; }
 }
+
+/* Proposte per ruolo (team IT) */
+.sw-count-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: var(--radius-pill); background: var(--orange-fill, var(--orange)); color: var(--ap-white); font-size: 11px; font-weight: var(--ap-fw-bold); }
+.sw-props { display: grid; gap: var(--ap-space-3); }
+.sw-prop h3 { margin: 0; }
+.sw-prop-items { display: grid; border-top: 1px solid var(--rule); }
+.sw-prop-item { display: flex; align-items: center; gap: var(--ap-space-2); padding: var(--ap-space-2) 0; border-bottom: 1px solid var(--rule); cursor: pointer; flex-wrap: wrap; }
+.sw-prop-item.no { color: var(--muted); }
+.sw-prop-item.no strong { text-decoration: line-through; }
+.sw-prop-mark { width: 18px; display: inline-grid; place-items: center; color: var(--green, var(--ap-text)); }
+.sw-prop-item.no .sw-prop-mark { color: var(--muted); }
+.sw-prop .spread { flex-wrap: wrap; align-items: flex-start; }
+.sw-prop .spread > div { min-width: 0; }
+.sw-prop .pill { white-space: normal; }
+.sw-todo { min-width: 0; overflow-wrap: anywhere; }
+.sw-todo ul { padding-left: var(--ap-space-4); }
+.sw-todo .btn { white-space: normal; height: auto; text-align: left; }

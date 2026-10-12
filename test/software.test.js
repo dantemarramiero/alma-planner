@@ -196,3 +196,52 @@ test('fornitori: il nome dell\'app dice il fornitore; le persone si contano una 
   assert.equal(all.software.find(s => s.name === 'Zoho CRM').vendor, 'Zoho'); // messo a mano con «Zoho»: resta
   assert.equal(all.vendor_people.Zoho, 2); // Anna e Dante (Enterprise): Anna una volta sola
 });
+
+test('proposte per ruolo: il team IT vede il censimento, riceve la notifica e accetta in parte; il rifiuto chiude', async () => {
+  const { proposeFor } = require('../lib/software-proposals');
+  const { createNotifier } = require('../lib/notifier');
+  // Marco è del team IT (reparto Microsoft «IT - Sistemi Informativi»): vede il censimento anche senza essere amministratore
+  await db.exec(`INSERT INTO org_people (oid, name, email, job_title, department) VALUES
+    ('o-marco', 'Marco IT', 'marco@almacis.it', 'ICT Coordinator', 'IT - Sistemi Informativi'),
+    ('o-nuova', 'Nuova Commerciale', 'nuova@almacis.it', 'Commerciale', 'Vendite'),
+    ('o-tec', 'Tecnico Nuovo', 'tec@almacis.it', 'Tecnico', 'Cantieri')`);
+  assert.equal((await B('GET', '/api/software')).status, 200);
+  assert.equal((await B('GET', '/api/me')).body.software, true);
+  const estraneo = as(await login('altro@almacis.it'));
+  assert.equal((await estraneo('GET', '/api/software')).status, 403);
+  assert.equal((await estraneo('GET', '/api/me')).body.software, false);
+
+  // persona nuova con ruolo «Commerciale»: nasce la proposta del pacchetto Commerciale (Zoho Standard + Business Standard)
+  const live = { send() {} };
+  const n = await proposeFor(db, createNotifier({ db, live }), ['o-nuova', 'o-tec'], {});
+  assert.equal(n, 1); // il tecnico non ha pacchetti per il suo ruolo
+  assert.equal(await proposeFor(db, createNotifier({ db, live }), ['o-nuova'], {}), 0); // non si ripropone
+  const notif = (await B('GET', '/api/notifications')).body;
+  assert.ok(notif.some(x => x.kind === 'software_proposal' && x.proposal_person === 'Nuova Commerciale' && x.proposal_package === 'Commerciale'));
+
+  const list = (await B('GET', '/api/software/proposals')).body;
+  assert.equal(list.it_department, 'IT - Sistemi Informativi');
+  const prop = list.proposals.find(p => p.person_oid === 'o-nuova');
+  assert.deepEqual(prop.items.map(i => [i.plan_name, i.managed_by]).sort(), [['Microsoft 365 Business Standard', 'Microsoft 365'], ['Standard', null]]);
+  assert.equal((await B('GET', '/api/software')).body.totals.proposals, 1);
+
+  // il team IT accetta solo Zoho Standard: assegnata subito; Business Standard non scelto
+  const zohoStd = prop.items.find(i => i.plan_name === 'Standard');
+  const r = (await B('POST', `/api/software/proposals/${prop.id}/accept`, { plan_ids: [zohoStd.plan_id] })).body;
+  assert.deepEqual([r.added, r.todo.length], [1, 0]);
+  assert.equal((await B('POST', `/api/software/proposals/${prop.id}/accept`, {})).status, 400); // già decisa
+  const person = (await A('GET', '/api/software/people/o-nuova')).body;
+  assert.deepEqual(person.items.map(i => [i.plan_name, i.source]), [['Standard', 'pacchetto']]);
+  const done = (await B('GET', '/api/software/proposals?status=accettata')).body.proposals.find(p => p.id === prop.id);
+  assert.deepEqual(done.items.map(i => i.accepted).sort(), [false, true]);
+  assert.equal(done.decided_by_name, 'Marco');
+
+  // proposta a mano dopo un cambio di ruolo, poi rifiutata con il motivo
+  await db.query("UPDATE org_people SET job_title = 'Commerciale' WHERE oid = 'o-tec'");
+  assert.equal((await B('POST', '/api/software/proposals', { oid: 'o-tec' })).body.created, 1);
+  const tec = (await B('GET', '/api/software/proposals')).body.proposals.find(p => p.person_oid === 'o-tec');
+  assert.equal((await B('POST', `/api/software/proposals/${tec.id}/reject`, { note: 'lavora in cantiere' })).status, 200);
+  const rej = (await B('GET', '/api/software/proposals?status=rifiutata')).body.proposals.find(p => p.id === tec.id);
+  assert.equal(rej.note, 'lavora in cantiere');
+  assert.equal((await A('GET', '/api/software/people/o-tec')).body.items.length, 0);
+});

@@ -54,7 +54,9 @@ export async function orgView(container) {
     syncBtn.textContent = 'Lettura da Microsoft…';
     try {
       const r = await post('/api/org/sync', {}, { quiet: true });
-      toast(`Organigramma aggiornato: ${r.people} persone, ${r.with_manager} con responsabile`);
+      toast(`Organigramma aggiornato: ${r.people} persone, ${r.with_manager} con responsabile`
+        + (r.new_people ? `; ${r.new_people} ${r.new_people === 1 ? 'nuova' : 'nuove'}` : '')
+        + (r.proposals ? `, ${r.proposals} ${r.proposals === 1 ? 'proposta' : 'proposte'} di software per il team IT` : ''));
       await load();
     } catch (err) {
       if (err.code === 'org_permission') {
