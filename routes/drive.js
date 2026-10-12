@@ -92,7 +92,9 @@ function registerDrive(app, { auth }) {
     const name = v.text(req.query.name, 'nome', { max: 250, required: true });
     // i caratteri che OneDrive non accetta li sostituisce uploadFile
     const token = await auth.graphToken(req.user.id);
-    const item = await uploadFile(token, itemPath(req.query.drive, req.query.item), { name, data: req.body });
+    // ?path=A/B: sottocartelle da creare (cartelle trascinate dal computer)
+    const subfolders = String(req.query.path || '').split('/').map(x => x.trim()).filter(x => x && x !== '.' && x !== '..').slice(0, 12);
+    const item = await uploadFile(token, itemPath(req.query.drive, req.query.item), { name, data: req.body, subfolders });
     res.status(201).json(mapItem(item));
   });
 }

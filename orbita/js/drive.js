@@ -3,6 +3,7 @@ import { h, clear, modal, toast, fmtSize, fmtDateTime, loading, promptDialog, de
 import { icon, fileIconName } from './icons.js';
 import { get, post, api, qs } from './api.js';
 import { store } from './store.js';
+import { uploadButtons, uploadFiles, droppedEntries } from './upload.js';
 
 export const fileIcon = it => icon(fileIconName(it.name, Boolean(it.folder)));
 
@@ -11,6 +12,8 @@ const notConnected = () => h('div.card.empty', 'OneDrive non è ancora collegato
 // Esploratore riusabile. opts: { root: {driveId,id,name}, mode: 'browse'|'pick', pickFolders, onPick, tabs }
 export function driveBrowser(container, opts = {}) {
   const mode = opts.mode || 'browse';
+  const many = mode === 'pickMany';
+  const chosen = new Map(); // id → elemento scelto (pickMany)
   const rootCrumb = opts.root ? { driveId: opts.root.driveId, id: opts.root.id, name: opts.root.name } : { name: 'Il mio OneDrive' };
   let source = 'mine'; // mine | shared | recent | search
   let stack = [rootCrumb];
@@ -19,7 +22,9 @@ export function driveBrowser(container, opts = {}) {
   const crumbs = h('div.crumbs');
   const body = h('div.drop-zone');
 
-  const upload = h('input', { type: 'file', multiple: true, hidden: true, on: { change: e => uploadFiles([...e.target.files]) } });
+  const queue = h('div.up-queue');
+  const target = () => { const c = top(); return `/api/drive/upload${qs({ drive: c.driveId || current?.driveId, item: c.id || current?.id })}`; };
+  const ups = mode === 'browse' ? uploadButtons(() => target(), { queue, small: false, primary: true, onDone: () => load() }) : null;
   const search = h('input.input', { type: 'search', placeholder: 'Cerca nel mio OneDrive…', on: { input: debounce(e => {
     const q = e.target.value.trim();
     if (q.length >= 2) { source = 'search'; load(q); } else if (!q && source === 'search') { source = 'mine'; load(); }
@@ -34,17 +39,17 @@ export function driveBrowser(container, opts = {}) {
 
   const actions = h('div.row',
     h('button.btn', { type: 'button', on: { click: newFolder } }, '+ Cartella'),
-    mode === 'browse' ? h('button.btn.btn-primary', { type: 'button', on: { click: () => upload.click() } }, '↑ Carica file') : null,
-    upload);
+    ups ? ups.el : null);
 
   head.append(h('div.toolbar', tabs, opts.root ? null : search, h('span.grow'), actions));
-  clear(container).append(head, crumbs, body);
+  const footer = many ? h('div.pick-foot') : null;
+  clear(container).append(head, crumbs, queue, body, footer);
 
   // trascina file dal computer per caricarli nella cartella aperta
   if (mode === 'browse') {
     body.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files') && canWrite()) { e.preventDefault(); body.classList.add('drag'); } });
     body.addEventListener('dragleave', () => body.classList.remove('drag'));
-    body.addEventListener('drop', e => { e.preventDefault(); body.classList.remove('drag'); if (canWrite()) uploadFiles([...e.dataTransfer.files]); });
+    body.addEventListener('drop', async e => { e.preventDefault(); body.classList.remove('drag'); if (!canWrite()) return; const entries = await droppedEntries(e.dataTransfer); if (entries.length && await uploadFiles(target(), entries, queue)) load(); });
   }
 
   const canWrite = () => source === 'mine' || (stack.length > 1);
@@ -98,16 +103,30 @@ export function driveBrowser(container, opts = {}) {
     if (!shown.length) return body.append(h('div.card.empty', mode === 'browse' && canWrite() ? 'Cartella vuota. Trascina qui i file per caricarli.' : 'Nessun elemento.'));
     body.append(h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', h('th', 'Nome'), h('th', 'Modificato'), h('th', 'Da'), h('th', 'Dimensione'), h('th', ''))),
-      h('tbody', shown.map(it => h('tr', { on: { click: () => open(it) } },
-        h('td', h('div.f-name', h('span.f-ico', fileIcon(it)), h('span', it.name))),
+      h('tbody', shown.map(it => h('tr', { class: chosen.has(it.id) ? 'picked' : '', on: { click: () => open(it) } },
+        h('td', h('div.f-name', many ? h('input.pick-box', { type: 'checkbox', checked: chosen.has(it.id), 'aria-label': `Scegli ${it.name}`, on: { click: e => { e.stopPropagation(); toggle(it, e.target.checked); e.target.closest('tr').classList.toggle('picked', e.target.checked); } } }) : null, h('span.f-ico', fileIcon(it)), h('span', it.name))),
         h('td.muted', fmtDateTime(it.modified)),
         h('td.muted', it.modifiedBy || ''),
         h('td.muted', it.folder ? (it.childCount !== null ? `${it.childCount} elementi` : '') : fmtSize(it.size)),
         h('td', h('div.row-actions', rowActions(it)))))))));
   }
 
+  function toggle(it, on) {
+    if (on) chosen.set(it.id, it); else chosen.delete(it.id);
+    drawFooter();
+  }
+  function drawFooter() {
+    if (!footer) return;
+    footer.replaceChildren(
+      h('span.muted', chosen.size ? `${chosen.size} ${chosen.size === 1 ? 'elemento scelto' : 'elementi scelti'}: ${[...chosen.values()].map(i => i.name).slice(0, 3).join(', ')}${chosen.size > 3 ? '…' : ''}` : 'Spunta file e cartelle, anche da cartelle diverse.'),
+      h('span.grow'),
+      h('button.btn.btn-primary', { type: 'button', disabled: !chosen.size, on: { click: () => opts.onPick([...chosen.values()]) } }, chosen.size ? `Collega ${chosen.size}` : 'Collega'));
+  }
+  drawFooter();
+
   function rowActions(it) {
     const stop = fn => e => { e.stopPropagation(); fn(); };
+    if (many) return null;
     if (mode === 'pick') {
       return opts.pickFolders
         ? null
@@ -131,21 +150,6 @@ export function driveBrowser(container, opts = {}) {
     load();
   }
 
-  async function uploadFiles(files) {
-    if (!files.length) return;
-    const c = top();
-    const target = { drive: c.driveId || current?.driveId, item: c.id || current?.id };
-    for (const f of files) {
-      if (f.size > 250 * 1024 * 1024) { toast(`${f.name}: oltre 250 MB, caricalo da OneDrive`, 'err'); continue; }
-      toast(`Caricamento di ${f.name}…`);
-      try {
-        await api('POST', `/api/drive/upload${qs({ ...target, name: f.name })}`, f, { raw: true, headers: { 'Content-Type': 'application/octet-stream' } });
-      } catch { continue; }
-    }
-    toast('Caricamento completato');
-    load();
-  }
-
   load();
   return { reload: () => load() };
 }
@@ -161,8 +165,19 @@ export function pickDriveItem({ title = 'Scegli da OneDrive', folders = false, s
   });
 }
 
+// Finestra per scegliere più file e cartelle (anche da cartelle diverse). Ritorna l'elenco (vuoto se si chiude).
+export function pickDriveItems({ title = 'Scegli da OneDrive', start = null } = {}) {
+  if (!store.me.microsoft) { toast('OneDrive non è ancora collegato', 'err'); return Promise.resolve([]); }
+  return new Promise(resolve => {
+    let picked = [];
+    const box = h('div');
+    const m = modal({ title, body: box, wide: true, onClose: () => resolve(picked) });
+    driveBrowser(box, { mode: 'pickMany', root: start, tabs: !start, onPick: list => { picked = list; m.close(); } });
+  });
+}
+
 export function driveView(container) {
-  clear(container).append(h('div.page-head', h('div', h('h1', 'OneDrive'), h('div.sub', 'I tuoi file e quelli condivisi con te. Trascina i file nella cartella aperta per caricarli.'))));
+  clear(container).append(h('div.page-head', h('div', h('h1', 'OneDrive'), h('div.sub', 'I tuoi file e quelli condivisi con te. Trascina file o intere cartelle nella cartella aperta per caricarli.'))));
   const box = h('div');
   container.append(box);
   if (!store.me.microsoft) return box.append(notConnected());

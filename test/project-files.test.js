@@ -165,3 +165,29 @@ test('file vuoto: errore chiaro, nessuna cartella creata', async () => {
   assert.equal(up.status, 400);
   assert.equal(items.size, before); // nessuna cartella creata per un file vuoto
 });
+
+test('collegare più elementi insieme (anche cartelle) e caricare una cartella dal computer con le sottocartelle', async () => {
+  const p = (await api(DANTE, 'POST', '/api/projects', { name: 'Collegamenti' })).body;
+  const r = await api(DANTE, 'POST', `/api/projects/${p.id}/files`, { items: [
+    { drive_id: 'drv', item_id: 'ext-1', name: 'Capitolato', web_url: 'https://onedrive/ext-1', folder: true },
+    { drive_id: 'drv', item_id: 'ext-2', name: 'Offerta.pdf', web_url: 'https://onedrive/ext-2', size: 1200 },
+    { drive_id: 'drv', item_id: 'ext-3', name: 'Disegni', folder: true },
+  ] });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.added, 3);
+  // di nuovo gli stessi: nessun doppione
+  assert.equal((await api(DANTE, 'POST', `/api/projects/${p.id}/files`, { items: [{ drive_id: 'drv', item_id: 'ext-2', name: 'Offerta.pdf' }] })).body.added, 0);
+  const docs = (await api(DANTE, 'GET', `/api/projects/${p.id}/files`)).body;
+  assert.deepEqual(docs.files.map(f => [f.name, f.is_folder]).sort(), [['Capitolato', true], ['Disegni', true], ['Offerta.pdf', false]]);
+
+  // cartella trascinata: «Rilievi/Piano 1/foto.jpg» finisce nelle sottocartelle giuste dentro la cartella del progetto
+  const up = await api(DANTE, 'POST', `/api/projects/${p.id}/files/upload?name=foto.jpg&path=${encodeURIComponent('Rilievi/Piano 1')}`, null, Buffer.from('jpg'));
+  assert.equal(up.status, 201);
+  const folder = childOf(childOf('root', 'Alma Planet').id, 'Collegamenti');
+  const piano = childOf(childOf(folder.id, 'Rilievi').id, 'Piano 1');
+  assert.ok(childOf(piano.id, 'foto.jpg'));
+  // un percorso con «..» non esce dalla cartella del progetto
+  await api(DANTE, 'POST', `/api/projects/${p.id}/files/upload?name=x.txt&path=${encodeURIComponent('../../fuori')}`, null, Buffer.from('x'));
+  assert.ok(childOf(folder.id, 'fuori'));
+  assert.equal(childOf('root', 'fuori'), undefined);
+});

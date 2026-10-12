@@ -47,6 +47,8 @@ function registerProjectFiles(app, { db, auth, access }) {
     if (!name) throw new HttpError(400, 'Manca il nome del file');
     return name; // i caratteri che OneDrive non accetta li sostituisce uploadFile
   };
+  // ?path=Cartella/Sottocartella: dove mettere il file dentro la cartella del progetto (cartelle caricate dal computer)
+  const subPath = req => String(req.query.path || '').split('/').map(x => x.trim()).filter(x => x && x !== '.' && x !== '..').slice(0, 12);
 
   // Documenti: cartella del progetto (dal vivo), file collegati da altre cartelle, file delle attività.
   app.get('/api/projects/:id/files', async (req, res) => {
@@ -80,22 +82,29 @@ function registerProjectFiles(app, { db, auth, access }) {
     });
   });
 
-  // Collega al progetto un file già presente su OneDrive.
+  // Collega al progetto file o cartelle già su OneDrive: uno ({ drive_id, item_id, … }) o più ({ items: [...] }).
   app.post('/api/projects/:id/files', async (req, res) => {
     const projectId = v.int(req.params.id, 'progetto', { min: 1 });
     await getProject(req, projectId);
-    const b = req.body || {};
-    await db.query(
-      `INSERT INTO project_files (project_id, drive_id, item_id, name, web_url, size, added_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
-      [projectId,
-        v.text(b.drive_id, 'drive', { max: 300, required: true }),
-        v.text(b.item_id, 'file', { max: 300, required: true }),
-        v.text(b.name, 'nome', { max: 500, required: true }),
-        v.text(b.web_url, 'link', { max: 2000 }) || null,
-        b.size === undefined || b.size === null ? null : v.int(b.size, 'dimensione', { min: 0 }),
-        req.user.id]);
-    res.status(201).json({ ok: true });
+    const list = Array.isArray(req.body?.items) ? req.body.items : [req.body || {}];
+    if (!list.length || list.length > 100) throw new HttpError(400, 'Scegli da 1 a 100 elementi');
+    let added = 0;
+    await db.tx(async q => {
+      for (const b of list) {
+        const r = await q.query(
+          `INSERT INTO project_files (project_id, drive_id, item_id, name, web_url, size, is_folder, added_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`,
+          [projectId,
+            v.text(b.drive_id, 'drive', { max: 300, required: true }),
+            v.text(b.item_id, 'file', { max: 300, required: true }),
+            v.text(b.name, 'nome', { max: 500, required: true }),
+            v.text(b.web_url, 'link', { max: 2000 }) || null,
+            b.size === undefined || b.size === null ? null : v.int(b.size, 'dimensione', { min: 0 }),
+            Boolean(b.folder), req.user.id]);
+        added += r.rowCount;
+      }
+    });
+    res.status(201).json({ ok: true, added });
   });
 
   // Carica un file dal computer nella cartella del progetto (creata al primo caricamento se manca).
@@ -104,7 +113,7 @@ function registerProjectFiles(app, { db, auth, access }) {
     const name = fileName(req);
     const token = await auth.graphToken(req.user.id);
     const { p, created, shared } = await folderFor(req, await getProject(req, projectId), token);
-    const item = await uploadFile(token, folderPath(p), { name, data: req.body });
+    const item = await uploadFile(token, folderPath(p), { name, data: req.body, subfolders: subPath(req) });
     res.status(201).json({ ok: true, name: item.name, webUrl: item.webUrl, folderCreated: created ? p.onedrive_name : null, sharedWith: shared || 0 });
   });
 

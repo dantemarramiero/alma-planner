@@ -299,3 +299,11 @@ tr:hover .t-trash, .tcard:hover .t-trash { opacity: 1; }
 .up-row.err .up-bar { display: none; }
 .up-row.err .up-st { grid-column: 2; white-space: normal; color: var(--red); }
 .docs-list { display: grid; gap: var(--ap-space-1); margin-top: var(--ap-space-3); background: var(--card); border-radius: var(--radius-card); padding: var(--ap-space-2) var(--ap-space-4); }
+/* scelta di più elementi da OneDrive e cartelle collegate nei documenti */
+.pick-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: var(--ap-space-3); flex-wrap: wrap; margin-top: var(--ap-space-3); padding: var(--ap-space-3) 0 0; background: var(--card); }
+.pick-foot .grow { flex: 1; }
+.pick-box { width: 16px; height: 16px; accent-color: var(--ap-accent); flex: none; cursor: pointer; }
+table.list tbody tr.picked { background: var(--ap-orange-tint); }
+.linked-folder .gx-chev { margin-right: -4px; }
+.linked-inner { padding-left: 34px; border-left: 2px solid var(--ap-grey-100); margin: 0 0 var(--ap-space-2) 10px; }
+.drive-queue { margin-bottom: var(--ap-space-3); }
