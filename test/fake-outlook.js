@@ -39,6 +39,7 @@ function buildMailbox(seed, count = 60) {
 
 function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {}) {
   const boxes = new Map();
+  const sentMail = []; // email mandate con /me/sendMail (riepilogo del mattino, email di assegnazione)
   const box = uid => { if (!boxes.has(uid)) boxes.set(uid, buildMailbox(uid, mailboxSize)); return boxes.get(uid); };
   auth.graphToken = async userId => `fake:${userId}`;
   const realFetch = global.fetch;
@@ -50,6 +51,7 @@ function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {
     const authz = opts.headers?.Authorization || '';
     const uid = Number(authz.replace('Bearer fake:', ''));
     if (denyMailRead) return json(403, { error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } });
+    if (u === `${GRAPH}/me/sendMail`) { sentMail.push({ from: uid, ...JSON.parse(opts.body) }); return new Response(null, { status: 202 }); }
     const parsed = new URL(u);
     const path = parsed.pathname.replace('/v1.0', '');
     const mails = box(uid);
@@ -80,7 +82,7 @@ function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {
     }
     return json(404, { error: { message: `Finto Graph: ${path} non previsto` } });
   };
-  return { mailbox: box, restore: () => { global.fetch = realFetch; } };
+  return { mailbox: box, sentMail, restore: () => { global.fetch = realFetch; } };
 }
 
 module.exports = { installFakeOutlook };

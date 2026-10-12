@@ -1,6 +1,7 @@
 // Profilo di una persona: foto, ruolo, presentazione, numeri e griglia dei post.
 import { h, clear, fill, avatar, modal, toast, loading } from './ui.js';
-import { get, patch } from './api.js';
+import { get, post, patch } from './api.js';
+import { icon as lucide } from './icons.js';
 import { store, loadUsers, activeProjects } from './store.js';
 import { mediaUrl, pickImages, uploadImage } from './media.js';
 import { icon, richText, ringAvatar } from './social.js';
@@ -64,6 +65,44 @@ export async function profileView(view, id) {
   fill(view, h('div.profile', head, tabs, body));
 }
 
+// Riepilogo del mattino: acceso/spento e ora (a quarti d'ora), più «Mandami una prova» e l'anteprima.
+let digestState = null, digestInitial = null;
+function digestBox() {
+  const enabled = h('input', { type: 'checkbox' });
+  const time = h('select.select', { 'aria-label': 'Ora del riepilogo' });
+  for (let m = 6 * 60; m <= 12 * 60; m += 15) time.append(h('option', { value: String(m) }, `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`));
+  const status = h('p.digest-note', 'Caricamento…');
+  const testBtn = h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
+    testBtn.disabled = true;
+    try {
+      const r = await post('/api/me/digest/test', {});
+      toast(r.items ? `Riepilogo di prova inviato: ${r.items} ${r.items === 1 ? 'voce' : 'voci'}` : "Riepilogo di prova inviato (oggi non c'è niente da segnalare)");
+    } catch { /* l'errore lo mostra api() */ } finally { testBtn.disabled = false; }
+  } } }, 'Mandami una prova');
+  const box = h('div.digest-box',
+    h('div.digest-head', lucide('sunrise', { size: 18 }), 'Riepilogo del mattino'),
+    h('label.digest-check', enabled, "Ricevi ogni giorno lavorativo un'email con scadenze, ritardi e RDA da approvare"),
+    h('div.digest-row', h('span.muted', 'Alle'), time, testBtn, h('a.btn.btn-sm.btn-ghost', { href: '/api/me/digest/preview', target: '_blank', rel: 'noopener' }, 'Vedi anteprima')),
+    status);
+  const sync = () => { time.disabled = !enabled.checked; digestState = { enabled: enabled.checked, minute: Number(time.value) }; };
+  enabled.addEventListener('change', sync);
+  time.addEventListener('change', sync);
+  get('/api/me/digest', { quiet: true }).then(d => {
+    enabled.checked = d.enabled;
+    time.value = String(d.minute);
+    sync();
+    digestInitial = { ...digestState };
+    const last = d.last?.find(x => x.status === 'sent');
+    status.textContent = `Oggi: ${d.preview.total ? `${d.preview.total} ${d.preview.total === 1 ? 'voce' : 'voci'}` : 'niente da segnalare'}${last ? ` · ultimo inviato il ${last.day.split('-').reverse().join('/')}` : ''}. Arriva dalla tua casella, solo nei giorni lavorativi e solo se c'è qualcosa.`;
+  }).catch(() => { status.textContent = 'Preferenze del riepilogo non disponibili.'; });
+  return box;
+}
+async function saveDigest() {
+  if (!digestState || !digestInitial) return;
+  if (digestState.enabled === digestInitial.enabled && digestState.minute === digestInitial.minute) return;
+  await patch('/api/me/digest', digestState);
+}
+
 function editProfile(onSaved) {
   let avatarId;
   const preview = h('span', avatar(store.me, 88));
@@ -86,9 +125,11 @@ function editProfile(onSaved) {
         } } }, 'Cambia foto'),
         store.me.avatar_id ? h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => { avatarId = null; fill(preview, avatar({ ...store.me, avatar_id: null }, 88)); } } }, 'Togli foto') : null))),
       h('label.field', h('span', 'Presentazione'), bio, count),
+      digestBox(),
     ],
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        await saveDigest(); // riepilogo del mattino: solo se cambiato
         const body = { bio: bio.value };
         if (avatarId !== undefined) body.avatar_id = avatarId;
         Object.assign(store.me, await patch('/api/me', body));

@@ -21,6 +21,9 @@ const { registerFeed } = require('./routes/feed');
 const { registerStories } = require('./routes/stories');
 const { registerNotifications } = require('./routes/notifications');
 const { registerRda } = require('./routes/rda');
+const { registerDigest } = require('./routes/digest');
+const { registerSearch } = require('./routes/search');
+const { createDigest } = require('./lib/digest');
 const { createLive } = require('./lib/live');
 const { createNotifier } = require('./lib/notifier');
 const { createAccess } = require('./lib/access');
@@ -147,6 +150,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   const isAdmin = req => config.adminEmails.includes(req.user.email);
   const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
+  deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
   live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);
@@ -164,6 +168,8 @@ async function createApp(config, { db, confirmAccount } = {}) {
   registerStories(app, deps);
   registerNotifications(app, deps);
   registerRda(app, deps);
+  registerDigest(app, deps);
+  registerSearch(app, deps);
   registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 
@@ -177,13 +183,14 @@ async function createApp(config, { db, confirmAccount } = {}) {
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit };
+  return { app, db, auth, live, audit, digest: deps.digest };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit } = await createApp(config);
+    const { app, db, auth, audit, digest } = await createApp(config);
+    digest.start(); // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
     setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();

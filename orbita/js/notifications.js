@@ -5,6 +5,7 @@ import { userById } from './store.js';
 import { mediaUrl } from './media.js';
 import { openPost } from './feed.js';
 import { onLive } from './live.js';
+import { icon } from './icons.js';
 
 const hours = n => `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h`;
 const quote = s => (s ? ` «${s.length > 80 ? `${s.slice(0, 80)}…` : s}»` : '');
@@ -17,6 +18,8 @@ function sentence(n) {
     case 'mention': return n.comment_id ? `ti ha menzionato in un commento:${quote(n.comment_body)}` : 'ti ha menzionato in un post.';
     case 'comment_like': return `ha messo mi piace al tuo commento:${quote(n.comment_body)}`;
     case 'pin': return 'ha messo in evidenza il tuo post.';
+    case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
+    case 'overdue_project': return `Ritardo nel tuo progetto:${quote(n.ticket_title)} è scaduto da almeno 2 giorni lavorativi.`;
     case 'note_mention': return `ti ha menzionato in una nota:${quote(n.note_body)}`;
     case 'rda_new': return `ti chiede${quote(n.ticket_title)} per ${n.rda_function} (${hours(n.hours_estimated)} stimate).`;
     case 'rda_accepted': return Number(n.hours_approved) === Number(n.hours_estimated)
@@ -52,9 +55,10 @@ export function notificationsView(view) {
 
   function row(n) {
     const u = userById(n.actor_id);
+    const system = n.kind === 'due_tomorrow' || n.kind === 'overdue_project'; // solleciti: li manda Alma Planet, non una persona
     return h('button.notif', { type: 'button', class: n.read_at ? '' : 'new', on: { click: () => open(n) } },
-      avatar(u, 44),
-      h('div.grow', h('strong', u?.name || 'Qualcuno'), ' ', sentence(n), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
+      system ? h('span.notif-sys', icon('alarm-clock', { size: 22 })) : avatar(u, 44),
+      h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], sentence(n), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
       n.post_media_id ? h('img.notif-thumb', { src: mediaUrl(n.post_media_id), alt: '' }) : n.post_body ? h('span.notif-thumb.text', n.post_body) : null);
   }
 

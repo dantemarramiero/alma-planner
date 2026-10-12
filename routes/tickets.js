@@ -100,8 +100,9 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       const { rows } = await q.query('SELECT COUNT(*)::int AS n FROM users WHERE id = ANY($1::int[])', [ids]);
       if (rows[0].n !== ids.length) throw new HttpError(400, 'Uno degli assegnatari non esiste');
     }
-    await q.query('DELETE FROM ticket_assignees WHERE ticket_id = $1', [ticketId]);
-    for (const uid of ids) await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2)', [ticketId, uid]);
+    // si tolgono solo quelli rimossi e si aggiungono solo i nuovi: chi resta conserva la data di assegnazione (assigned_at)
+    await q.query('DELETE FROM ticket_assignees WHERE ticket_id = $1 AND NOT (user_id = ANY($2::int[]))', [ticketId, ids]);
+    for (const uid of ids) await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ticketId, uid]);
   }
 
   async function setDeps(q, ticketId, ids) {

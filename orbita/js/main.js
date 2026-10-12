@@ -16,6 +16,7 @@ import { startLive, onLive } from './live.js';
 import { setupMobile } from './mobile.js';
 import { fillIcons } from './icons.js';
 import { rdaView } from './rda.js';
+import { searchView, setupSearch } from './search.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -118,6 +119,9 @@ async function route() {
     case 'drive':
       driveView(view);
       break;
+    case 'search':
+      searchView(view, params);
+      break;
     case 'org':
       await orgView(view, params);
       break;
@@ -159,6 +163,7 @@ async function start() {
   await Promise.all([loadUsers(), loadProjects()]);
   drawMe();
   setupMobile();
+  setupSearch(); // casella di ricerca nella barra laterale, lente sul telefono, «/» e Ctrl+K
   document.addEventListener('me-changed', drawMe);
   document.getElementById('logout').addEventListener('click', async () => {
     await post('/auth/logout');
