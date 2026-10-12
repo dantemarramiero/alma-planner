@@ -7,6 +7,7 @@ Segui sempre le regole in `orbita/brand/CLAUDE.md` (brand e UI di Alma Planet).
 - Icone: Lucide, da `orbita/js/icons.js` (`icon('nome')`). Niente emoji nell'interfaccia.
 - Si pubblica solo con la coda dei deploy (vedi il CLAUDE.md nella cartella home).
 
-## Scelte di Dante che prevalgono sul brand (08/10/2026)
-- **Angoli morbidi come prima**, non quasi vivi: pulsanti e campi 8px, card 10px, finestre 14px, badge e stati a pillola (`--radius`, `--radius-card`, `--radius-lg`, `--radius-pill` in `orbita/css/app.css`).
-- **Barra laterale chiara** (bianca, voce attiva in tinta arancione), non grafite; il logo è quello con la scritta grafite.
+## Scelte di Dante che prevalgono sul brand
+- **Refresh grafico (12/10/2026)**: `orbita/css/refresh.css`, ultimo foglio di stile in `app.html`; regole in `orbita/brand/CLAUDE.md` («Refresh grafico 2026»), riferimenti in `design/refresh/`. Angoli 12px (pulsanti e campi), 18px (card), 22px (finestre), pillole per selettori, filtri e stati; fondo caldo `#F7F6F3`; barra laterale bianca sospesa con voce attiva arancione piena; sul telefono barra in basso a pillola sospesa con effetto vetro. Sostituisce gli angoli 8/10/14 dell'08/10.
+- **Barra laterale chiara** (bianca), non grafite; il logo è quello con la scritta grafite.
+- **Gantt** (12/10/2026): attività completate a righe verde chiaro, almeno 7 righe visibili.

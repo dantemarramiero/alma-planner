@@ -2,6 +2,14 @@
 
 Alma Planet è l'intranet aziendale e lo strumento di project management di Almacis, usato solo dai collaboratori interni. Fa parte della famiglia visiva Almacis: arancione, grafite, Roboto e angoli quasi vivi. Queste regole valgono per **tutto** il software: ogni schermata, componente, email di sistema e documento esportato.
 
+## Refresh grafico 2026 (12/10/2026, prevale sulle regole più sotto)
+Il refresh fatto in Claude Design è `orbita/css/refresh.css`, caricato in `app.html` come **ultimo** foglio di stile. Il materiale di riferimento (anteprime, Gantt, README) è in `design/refresh/`. Dove le regole sotto dicono altro, valgono queste:
+- **Angoli**: pulsanti e campi 12px, card 18px, finestre 22px; pillole per selettori, filtri e stati.
+- **Fondo** caldo `#F7F6F3`, bordi leggeri `#ECEAE6`, ombre morbide calde (`--rf-shadow*`).
+- **Barra laterale** bianca "sospesa" (staccata dai bordi, angoli 22px, ombra); la voce attiva è arancione piena con testo bianco.
+- **Telefono**: barra in alto e barra in basso con effetto vetro; la barra in basso è una pillola sospesa.
+- Il codice nuovo usa le classi che esistono già: il refresh le ritocca senza cambiare il JavaScript. Le scelte successive di Dante restano: nel Gantt le attività completate sono a righe verde chiaro e si vedono almeno 7 righe.
+
 ## File in questa cartella
 - `tokens.css`: tutte le variabili. Importalo una volta all'entry point e usa **solo** queste variabili (niente colori hex sparsi nel codice).
 - `logo/alma-planet-logo.svg` (scritta grafite, su fondi chiari) e `logo/alma-planet-logo-white.svg` (scritta bianca, su fondi scuri).
