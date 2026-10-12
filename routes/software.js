@@ -357,13 +357,15 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     const [{ rows: packages }, { rows: items }] = await Promise.all([
       db.query('SELECT * FROM software_packages ORDER BY lower(name)'),
       db.query(
-        `SELECT pp.package_id, p.id AS plan_id, p.name AS plan_name, p.unit_cost, p.billing, p.external_id, s.id AS software_id, s.name AS software_name
+        `SELECT pp.package_id, pp.on_request, p.id AS plan_id, p.name AS plan_name, p.unit_cost, p.billing, p.external_id, s.id AS software_id, s.name AS software_name, s.vendor
            FROM software_package_plans pp JOIN software_plans p ON p.id = pp.plan_id JOIN software s ON s.id = p.software_id
           ORDER BY lower(s.name), lower(p.name)`),
     ]);
     res.json(packages.map(k => {
       const plans = items.filter(i => i.package_id === k.id).map(i => ({ ...i, unit_cost: i.unit_cost === null ? null : Number(i.unit_cost), monthly_unit: monthly(i) === null ? null : round(monthly(i)) }));
-      return { ...k, plans, monthly_cost: round(plans.reduce((a, p) => a + (p.monthly_unit || 0), 0)) };
+      // costo del pacchetto = solo le licenze di base; quelle su richiesta si sommano a parte
+      const base = plans.filter(p => !p.on_request), extra = plans.filter(p => p.on_request);
+      return { ...k, plans, monthly_cost: round(base.reduce((a, p) => a + (p.monthly_unit || 0), 0)), on_request_cost: round(extra.reduce((a, p) => a + (p.monthly_unit || 0), 0)) };
     }));
   });
 
@@ -375,26 +377,27 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
       departments: textList(body.departments, 'reparti'),
     });
     if (partial && out.name === '') throw new HttpError(400, 'Il campo «nome» è obbligatorio');
-    return { data: out, planIds: v.ids(body.plan_ids, 'licenze') };
+    return { data: out, planIds: v.ids(body.plan_ids, 'licenze'), requestIds: v.ids(body.request_ids, 'licenze su richiesta') || [] };
   }
-  async function setPlans(q, packageId, planIds) {
+  // planIds = tutte le licenze del pacchetto; requestIds = quelle tra loro che sono «su richiesta»
+  async function setPlans(q, packageId, planIds, requestIds = []) {
     if (planIds === undefined) return;
     if (planIds.length) {
       const { rows } = await q.query('SELECT id FROM software_plans WHERE id = ANY($1::int[])', [planIds]);
       if (rows.length !== planIds.length) throw new HttpError(400, 'Una delle licenze del pacchetto non esiste più');
     }
     await q.query('DELETE FROM software_package_plans WHERE package_id = $1', [packageId]);
-    for (const id of planIds) await q.query('INSERT INTO software_package_plans (package_id, plan_id) VALUES ($1, $2)', [packageId, id]);
+    for (const id of planIds) await q.query('INSERT INTO software_package_plans (package_id, plan_id, on_request) VALUES ($1, $2, $3)', [packageId, id, requestIds.includes(id)]);
   }
 
   app.post('/api/software/packages', async (req, res) => {
-    const { data: d, planIds } = readPackage(req.body || {}, { partial: false });
+    const { data: d, planIds, requestIds } = readPackage(req.body || {}, { partial: false });
     try {
       const id = await db.tx(async q => {
         const { rows: [k] } = await q.query(
           `INSERT INTO software_packages (name, description, job_titles, departments) VALUES ($1, COALESCE($2, ''), COALESCE($3::text[], '{}'), COALESCE($4::text[], '{}')) RETURNING id`,
           [d.name, d.description, d.job_titles, d.departments]);
-        await setPlans(q, k.id, planIds || []);
+        await setPlans(q, k.id, planIds || [], requestIds);
         return k.id;
       });
       res.status(201).json({ id });
@@ -408,12 +411,12 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const { rows: [k] } = await db.query('SELECT id FROM software_packages WHERE id = $1', [id]);
     if (!k) throw new HttpError(404, 'Pacchetto non trovato');
-    const { data: d, planIds } = readPackage(req.body || {}, { partial: true });
+    const { data: d, planIds, requestIds } = readPackage(req.body || {}, { partial: true });
     try {
       await db.tx(async q => {
         const cols = Object.keys(d);
         if (cols.length) await q.query(`UPDATE software_packages SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')} WHERE id = $1`, [id, ...Object.values(d)]);
-        await setPlans(q, id, planIds);
+        await setPlans(q, id, planIds, requestIds);
       });
     } catch (err) {
       if (duplicate(err)) throw new HttpError(400, `C'è già un pacchetto «${d.name}»`);
@@ -428,7 +431,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     res.json({ ok: true });
   });
 
-  // Assegna a una persona tutte le licenze del pacchetto che si gestiscono qui. Quelle che arrivano da un
+  // Assegna a una persona le licenze di base del pacchetto (non quelle su richiesta) che si gestiscono qui. Quelle che arrivano da un
   // collegamento (es. Microsoft 365) vanno assegnate là: si restituiscono come «da fare» con il link.
   app.post('/api/software/packages/:id/apply', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
@@ -436,8 +439,8 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     const { rows: plans } = await db.query(
       `SELECT p.id, p.name, p.external_id, s.name AS software_name, s.source
          FROM software_package_plans pp JOIN software_plans p ON p.id = pp.plan_id JOIN software s ON s.id = p.software_id
-        WHERE pp.package_id = $1`, [id]);
-    if (!plans.length) throw new HttpError(400, 'Il pacchetto non ha licenze');
+        WHERE pp.package_id = $1 AND NOT pp.on_request`, [id]);
+    if (!plans.length) throw new HttpError(400, 'Il pacchetto non ha licenze di base');
     const result = await db.tx(async q => {
       let added = 0;
       for (const p of plans.filter(x => !x.external_id)) added += await assign(q, p.id, oids, { source: 'pacchetto', packageId: id, userId: req.user.id });
@@ -460,12 +463,12 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
         `SELECT sp.*, u.name AS decided_by_name FROM software_proposals sp LEFT JOIN users u ON u.id = sp.decided_by
           WHERE sp.status = $1 ORDER BY sp.created_at DESC LIMIT 200`, [status]),
       db.query(
-        `SELECT i.proposal_id, i.plan_id, i.accepted, p.name AS plan_name, p.unit_cost, p.billing, p.external_id,
+        `SELECT i.proposal_id, i.plan_id, i.accepted, i.on_request, p.name AS plan_name, p.unit_cost, p.billing, p.external_id,
                 s.id AS software_id, s.name AS software_name, s.vendor, s.source,
                 EXISTS (SELECT 1 FROM software_assignments a JOIN software_proposals x ON x.id = i.proposal_id
                          WHERE a.plan_id = i.plan_id AND a.person_oid = x.person_oid) AS has_it
            FROM software_proposal_items i JOIN software_plans p ON p.id = i.plan_id JOIN software s ON s.id = p.software_id
-          ORDER BY lower(s.name), lower(p.name)`),
+          ORDER BY i.on_request, lower(s.name), lower(p.name)`),
     ]);
     res.json({
       it_department: await itDepartment(db),
@@ -487,16 +490,16 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     return sp;
   }
 
-  // Accetta le licenze scelte (plan_ids; assente = tutte). Quelle gestite qui si assegnano subito; quelle che
+  // Accetta le licenze scelte (plan_ids; assente = quelle di base, senza le «su richiesta»). Quelle gestite qui si assegnano subito; quelle che
   // arrivano da un collegamento (Microsoft 365) si restituiscono «da fare» nel sistema di origine.
   app.post('/api/software/proposals/:id/accept', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const sp = await getProposal(id);
     const { rows: items } = await db.query(
-      `SELECT i.plan_id, p.name, p.external_id, s.name AS software_name, s.source
+      `SELECT i.plan_id, i.on_request, p.name, p.external_id, s.name AS software_name, s.source
          FROM software_proposal_items i JOIN software_plans p ON p.id = i.plan_id JOIN software s ON s.id = p.software_id
         WHERE i.proposal_id = $1`, [id]);
-    const chosen = req.body?.plan_ids === undefined ? items.map(i => i.plan_id) : v.ids(req.body.plan_ids, 'licenze');
+    const chosen = req.body?.plan_ids === undefined ? items.filter(i => !i.on_request).map(i => i.plan_id) : v.ids(req.body.plan_ids, 'licenze');
     if (chosen.some(pid => !items.some(i => i.plan_id === pid))) throw new HttpError(400, 'Una delle licenze non fa parte della proposta');
     const { rows: [inOrg] } = await db.query('SELECT 1 FROM org_people WHERE oid = $1', [sp.person_oid]);
     if (chosen.length && !inOrg) throw new HttpError(400, `${sp.person_name} non è più nell'organigramma di Microsoft: rifiuta la proposta`);

@@ -116,3 +116,11 @@ table.list td.sw-wrap { max-width: 28rem; }
 .sw-todo { min-width: 0; overflow-wrap: anywhere; }
 .sw-todo ul { padding-left: var(--ap-space-4); }
 .sw-todo .btn { white-space: normal; height: auto; text-align: left; }
+
+/* Pacchetti: licenze di base e su richiesta */
+.pill.sw-req { background: var(--ap-grey-100); color: var(--muted); border: 1px dashed var(--ap-border-strong, var(--rule)); }
+.sw-pack-lab { color: var(--muted); font-weight: var(--ap-fw-medium); margin-top: var(--ap-space-1); }
+.sw-pack-cost { display: grid; justify-items: end; text-align: right; }
+.sw-pack-plan { display: flex; align-items: center; gap: var(--ap-space-2); padding: 2px 0; }
+.sw-pack-sel { min-height: 32px; width: auto; flex: none; }
+.sw-chips .pill { white-space: normal; }

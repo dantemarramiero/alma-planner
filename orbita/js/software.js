@@ -518,7 +518,7 @@ async function proposalsTab(box) {
 
   function card(p) {
     const open = p.status === 'da_accettare';
-    const chosen = new Set(p.items.filter(i => !i.has_it).map(i => i.plan_id));
+    const chosen = new Set(p.items.filter(i => !i.has_it && !i.on_request).map(i => i.plan_id));
     const total = h('strong');
     const sum = () => { total.textContent = eur(p.items.filter(i => chosen.has(i.plan_id)).reduce((a, i) => a + (i.monthly_unit || 0), 0)); };
     const rows = p.items.map(i => h('label.sw-prop-item', { class: open ? '' : (i.accepted ? 'yes' : 'no') },
@@ -526,7 +526,8 @@ async function proposalsTab(box) {
         : h('span.sw-prop-mark', i.accepted ? icon('check', { size: 15 }) : '×'),
       h('span.grow', h('strong', i.plan_name), h('span.small.muted', ` ${i.vendor || i.software_name}${i.software_name !== (i.vendor || i.software_name) ? ` · ${i.software_name}` : ''}`),
         i.managed_by ? h('span.small.muted', ` · si assegna in ${i.managed_by}`) : null,
-        i.has_it ? h('span.small.muted', ' · ce l\'ha già') : null),
+        i.has_it ? h('span.small.muted', ' · ce l\'ha già') : null,
+        i.on_request ? h('span.pill.sw-req', 'su richiesta') : null),
       h('span.small.num', i.monthly_unit === null ? 'prezzo da inserire' : `${eur(i.monthly_unit)}/mese`)));
     sum();
     return h('section.card.sw-card.sw-prop',
@@ -576,6 +577,9 @@ function showTodo(todo, names) {
   });
 }
 
+// Nome breve di una licenza nei pacchetti: il prodotto se la licenza è unica («Licenza»), altrimenti il suo nome.
+const planLabel = p => (p.plan_name === 'Licenza' ? p.software_name : p.plan_name);
+
 // ── pacchetti per ruolo ───────────────────────────────────────────────────
 async function packagesTab(box) {
   const packages = await get('/api/software/packages');
@@ -583,12 +587,15 @@ async function packagesTab(box) {
     h('div.sw-tools', h('p.muted.grow', 'Un pacchetto è l\'insieme di licenze che spetta a un ruolo. Si propone alle persone con quel ruolo o reparto e si assegna in un colpo.'),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => editPackage(null) } }, icon('plus', { size: 16 }), 'Nuovo pacchetto')),
     packages.length ? h('div.sw-packs', packages.map(k => h('section.card.sw-card',
-      h('div.spread', h('h3', k.name), h('strong', `${eur(k.monthly_cost)} al mese`)),
+      h('div.spread', h('h3', k.name), h('div.sw-pack-cost', h('strong', `${eur(k.monthly_cost)} al mese`), k.on_request_cost ? h('small.muted', `+ fino a ${eur(k.on_request_cost)} su richiesta`) : null)),
       k.description ? h('p.small', k.description) : null,
       h('div.small.muted', [k.job_titles.length ? `Ruoli: ${k.job_titles.join(', ')}` : null, k.departments.length ? `Reparti: ${k.departments.join(', ')}` : null].filter(Boolean).join(' · ') || 'Nessun ruolo o reparto: si applica a mano'),
-      h('div.sw-chips', k.plans.map(p => h('span.pill', `${p.software_name} · ${p.plan_name}`))),
+      h('div.small.sw-pack-lab', 'Di base'),
+      h('div.sw-chips', k.plans.filter(p => !p.on_request).map(p => h('span.pill', planLabel(p)))),
+      k.plans.some(p => p.on_request) ? [h('div.small.sw-pack-lab', 'Su richiesta'),
+        h('div.sw-chips', k.plans.filter(p => p.on_request).map(p => h('span.pill.sw-req', planLabel(p))))] : null,
       h('div.row',
-        h('button.btn.btn-sm', { type: 'button', on: { click: () => pickPeople({ title: `Applica «${k.name}»`, onPick: oids => applyPackage(k, oids) }) } }, 'Applica a persone'),
+        h('button.btn.btn-sm', { type: 'button', title: 'Assegna le licenze di base; quelle su richiesta si danno una per una', on: { click: () => pickPeople({ title: `Applica «${k.name}» (licenze di base)`, onPick: oids => applyPackage(k, oids) }) } }, 'Applica a persone'),
         h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => editPackage(k) } }, 'Modifica')))))
       : h('div.card.empty', 'Nessun pacchetto ancora. Creane uno per ruolo, per esempio «Commerciale» o «Tecnico di cantiere».'));
 }
@@ -599,21 +606,24 @@ async function editPackage(k) {
   const depts = [...new Set(people.map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
   const name = h('input.input', { value: k?.name || '', maxlength: 120, placeholder: 'es. Commerciale' });
   const desc = h('textarea.input', { rows: 2, maxlength: 1000 }, k?.description || '');
-  const chosen = new Set((k?.plans || []).map(p => p.plan_id));
+  // licenza → 'base' | 'richiesta' (assente = non nel pacchetto)
+  const kind = new Map((k?.plans || []).map(p => [p.plan_id, p.on_request ? 'richiesta' : 'base']));
   const checks = (values, selected) => h('div.sw-checks', values.map(v => h('label', h('input', { type: 'checkbox', value: v, checked: selected.includes(v) }), ` ${v}`)));
   const titleBox = checks(titles, k?.job_titles || []);
   const deptBox = checks(depts, k?.departments || []);
   const plans = h('div.sw-checks.plans', data.software.filter(s => s.status === 'attivo' && s.plans.length).map(s => h('div',
     h('strong.small', s.name),
-    s.plans.map(p => h('label', h('input', { type: 'checkbox', checked: chosen.has(p.id), on: { change: e => { if (e.target.checked) chosen.add(p.id); else chosen.delete(p.id); } } }),
-      ` ${p.name}${p.monthly_unit !== null ? ` · ${eur(p.monthly_unit)}/mese` : ''}`)))));
+    s.plans.map(p => h('div.sw-pack-plan',
+      h('span.grow', p.name === 'Licenza' ? s.name : p.name, p.monthly_unit !== null ? h('small.muted', ` · ${eur(p.monthly_unit)}/mese`) : null),
+      h('select.select.sw-pack-sel', { 'aria-label': `${s.name} ${p.name}`, on: { change: e => { if (e.target.value) kind.set(p.id, e.target.value); else kind.delete(p.id); } } },
+        [['', '—'], ['base', 'di base'], ['richiesta', 'su richiesta']].map(([v, l]) => h('option', { value: v, selected: (kind.get(p.id) || '') === v }, l))))))));
   const values = box => [...box.querySelectorAll('input:checked')].map(i => i.value);
   const m = modal({
     title: k ? `Pacchetto «${k.name}»` : 'Nuovo pacchetto',
     wide: true,
     body: h('div.sw-form', field('Nome', name), field('Descrizione', desc),
       h('div.grid-2', h('div.field', h('span', 'Si propone a questi ruoli'), titleBox), h('div.field', h('span', 'e a questi reparti'), deptBox)),
-      h('div.field', h('span', 'Licenze del pacchetto'), plans)),
+      h('div.field', h('span', 'Licenze del pacchetto: di base (spettano a tutti) o su richiesta'), plans)),
     left: k ? [h('button.btn.btn-danger', { type: 'button', on: { click: async () => {
       if (!await confirmDialog(`Cancellare il pacchetto «${k.name}»? Le licenze già assegnate restano.`, { ok: 'Cancella', danger: true })) return;
       await del(`/api/software/packages/${k.id}`);
@@ -623,7 +633,8 @@ async function editPackage(k) {
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-        const body = { name: name.value, description: desc.value, job_titles: values(titleBox), departments: values(deptBox), plan_ids: [...chosen] };
+        const body = { name: name.value, description: desc.value, job_titles: values(titleBox), departments: values(deptBox),
+          plan_ids: [...kind.keys()], request_ids: [...kind].filter(([, v]) => v === 'richiesta').map(([id]) => id) };
         if (k) await patch(`/api/software/packages/${k.id}`, body); else await post('/api/software/packages', body);
         m.close();
         toast('Pacchetto salvato');

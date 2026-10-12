@@ -245,3 +245,38 @@ test('proposte per ruolo: il team IT vede il censimento, riceve la notifica e ac
   assert.equal(rej.note, 'lavora in cantiere');
   assert.equal((await A('GET', '/api/software/people/o-tec')).body.items.length, 0);
 });
+
+test('prospetto per categoria: pacchetti con licenze di base e su richiesta; le proposte partono solo con quelle di base', async () => {
+  const { migrate } = require('../lib/db');
+  // il prospetto si carica solo dove c'è già l'organigramma: qui lo si rifà girare dopo averlo riempito
+  await db.query("DELETE FROM schema_migrations WHERE name = '020_prospetto_software.sql'");
+  await migrate(db);
+  const packs = (await A('GET', '/api/software/packages')).body;
+  const byName = Object.fromEntries(packs.map(k => [k.name, k]));
+  const lic = k => k.plans.map(p => `${p.plan_name === 'Licenza' ? p.software_name : p.plan_name}${p.on_request ? ' (su richiesta)' : ''}`).sort();
+  assert.deepEqual(lic(byName['Impiegati amministrativi']),
+    ['ABBYY FineReader (su richiesta)', 'Microsoft 365 Business Standard', 'Power BI Pro (su richiesta)']);
+  assert.deepEqual(lic(byName.Operai), ['Exchange Online (Plan 1)', 'progeCAD (su richiesta)']);
+  assert.deepEqual(byName.Operai.job_titles, ['Worker']);
+  assert.equal(byName.Progettisti.plans.filter(p => p.on_request).length, 6);
+  const sw = (await A('GET', '/api/software')).body.software;
+  const aec = sw.find(s => s.name === 'Architecture Engineering & Construction Collection');
+  assert.deepEqual([aec.vendor, aec.plans[0].seats], ['Autodesk', 3]);
+  assert.equal(sw.filter(s => s.name.toLowerCase() === 'microsoft 365').length, 1); // nessun doppione di quello già letto
+  // rifarlo non duplica niente
+  await db.query("DELETE FROM schema_migrations WHERE name = '020_prospetto_software.sql'");
+  await migrate(db);
+  assert.equal((await A('GET', '/api/software/packages')).body.length, packs.length);
+
+  // operaio nuovo: proposta con Exchange (di base) e progeCAD (su richiesta); accettando senza scegliere va solo la base
+  const { proposeFor } = require('../lib/software-proposals');
+  await db.exec("INSERT INTO org_people (oid, name, email, job_title, department) VALUES ('o-op', 'Operaio Nuovo', 'op@almacis.it', 'Worker', 'Cantieri')");
+  assert.equal(await proposeFor(db, null, ['o-op'], {}), 1);
+  const prop = (await B('GET', '/api/software/proposals')).body.proposals.find(p => p.person_oid === 'o-op');
+  assert.deepEqual(prop.items.map(i => [i.plan_name === 'Licenza' ? i.software_name : i.plan_name, i.on_request]), [['Exchange Online (Plan 1)', false], ['progeCAD', true]]);
+  const r = (await B('POST', `/api/software/proposals/${prop.id}/accept`, {})).body;
+  assert.deepEqual([r.added, r.todo.map(t => t.plan)], [0, ['Exchange Online (Plan 1)']]); // progeCAD non scelto
+  // applicare il pacchetto dà solo le licenze di base
+  const ap = (await A('POST', `/api/software/packages/${byName.Operai.id}/apply`, { oids: ['o-luca'] })).body;
+  assert.deepEqual([ap.added, ap.todo.map(t => t.plan)], [0, ['Exchange Online (Plan 1)']]);
+});
