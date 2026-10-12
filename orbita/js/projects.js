@@ -1,4 +1,4 @@
-// Progetti: griglia raggruppata nelle macro aree personali (ognuno ha le sue), scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Email, Cartella OneDrive, Membri), creazione e modifica.
+// Progetti: griglia raggruppata nelle macro aree personali (ognuno ha le sue), scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Email, Note, Membri), creazione e modifica.
 // Ognuno vede solo i progetti di cui è responsabile o membro (lib/access.js lato server).
 // Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
 import { h, clear, fill, modal, confirmDialog, promptDialog, toast, fmtDate, avatar, loading, today, isMobile, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
@@ -8,7 +8,6 @@ import { store, loadProjects, loadAreas, projectById, userById, areaById } from 
 import { ticketsView, openTicket } from './tickets.js';
 import { peoplePicker, avatarsFor } from './people.js';
 import { openChatWithEmails } from './teams.js';
-import { driveBrowser, pickDriveItem } from './drive.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
 import { projectEmails } from './project-emails.js';
@@ -183,7 +182,6 @@ const TABS = [
   ['documenti', 'Documenti'],
   ['email', 'Email'],
   ['note', 'Note'],
-  ['cartella', 'Cartella OneDrive'],
   ['membri', 'Membri'],
 ];
 const canManage = p => p.my_role === 'owner' || p.my_role === 'admin';
@@ -197,6 +195,7 @@ export async function projectDetail(container, id) {
   const owner = userById(p.owner_id);
   const tabFromHash = () => {
     const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2];
+    if (t === 'cartella') return 'documenti'; // vecchio tab, ora dentro Documenti
     return TABS.some(([k]) => k === t) ? t : 'panoramica';
   };
   let tab = tabFromHash();
@@ -268,14 +267,13 @@ export async function projectDetail(container, id) {
       if (isMobile()) timeline(box, p, () => {});
       else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
-    else if (k === 'documenti') projectDocuments(box, p.id);
+    else if (k === 'documenti') projectDocuments(box, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) });
     else if (k === 'email') projectEmails(box, p);
     else if (k === 'note') notesPanel(box, { url: `/api/projects/${p.id}/notes`, showTicket: true, onCount: setNotesCount });
-    else if (k === 'cartella') folder(box);
     else if (k === 'membri') members(box);
   }
 
-  // ── Panoramica: tutto il progetto in una pagina (riepilogo, Gantt, ticket, documenti, cartella);
+  // ── Panoramica: tutto il progetto in una pagina (riepilogo, Gantt, ticket, documenti, email, note);
   // i tab a sinistra sono scorciatoie alle viste dedicate ──────────────────────────────────────────
   async function overview(box) {
     const desc = h('section.card.pj-card', h('h3', 'Descrizione'),
@@ -294,10 +292,9 @@ export async function projectDetail(container, id) {
     };
     section('gantt', isMobile() ? 'Attività' : 'Gantt', b => (isMobile() ? timeline(b, p, () => {}) : ganttView(b, new URLSearchParams({ project: String(p.id) }), { embedded: true })));
     section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
-    section('documenti', 'Documenti', b => projectDocuments(b, p.id));
+    section('documenti', 'Documenti', b => projectDocuments(b, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) }));
     section('email', 'Email', b => projectEmails(b, p));
     section('note', 'Note', b => notesPanel(b, { url: `/api/projects/${p.id}/notes`, showTicket: true, title: 'Note del progetto e dei ticket', onCount: setNotesCount }));
-    section('cartella', 'Cartella OneDrive', b => folder(b, { titled: false }));
 
     const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);
     const late = t => t.due_date && t.due_date < today();
@@ -308,26 +305,6 @@ export async function projectDetail(container, id) {
       : h('p.muted', 'Nessun ticket aperto con scadenza.'));
     ppl.lastChild.replaceWith(h('div.pj-people', team.map(m => h('span.pj-person', { title: `${m.name}${m.owner ? ' · responsabile' : ''}` },
       avatar(m, 30), h('span', h('strong', m.name.split(' ')[0]), h('small', m.owner ? 'Responsabile' : `${m.open_tickets} aperti`))))));
-  }
-
-  // ── Cartella OneDrive del progetto ───────────────────────────────────────────
-  function folder(box, { titled = true } = {}) {
-    const action = store.me.microsoft ? h('button.btn.btn-sm', { type: 'button', on: { click: linkFolder } }, p.onedrive_item_id ? 'Cambia cartella' : 'Collega una cartella') : null;
-    box.append(titled ? h('div.spread', h('h3', 'Cartella OneDrive'), action) : h('div.row', action));
-    if (!store.me.microsoft) return box.append(h('div.card.empty', 'OneDrive non è ancora collegato.'));
-    if (!p.onedrive_item_id) return box.append(h('div.card.empty', 'Nessuna cartella collegata. Collegane una (meglio se condivisa con il team) per avere qui i documenti del progetto.'));
-    box.append(h('div.small.muted', { style: { margin: '6px 0 10px' } }, h('a', { href: p.onedrive_url, target: '_blank', rel: 'noopener' }, `Apri «${p.onedrive_name}» in OneDrive ↗`)));
-    const inner = h('div');
-    box.append(inner);
-    driveBrowser(inner, { root: { driveId: p.onedrive_drive_id, id: p.onedrive_item_id, name: p.onedrive_name }, tabs: false });
-  }
-
-  async function linkFolder() {
-    const f = await pickDriveItem({ title: 'Scegli la cartella del progetto', folders: true });
-    if (!f) return;
-    await patch(`/api/projects/${p.id}`, { onedrive_drive_id: f.driveId, onedrive_item_id: f.id, onedrive_name: f.name, onedrive_url: f.webUrl || null });
-    toast('Cartella collegata');
-    projectDetail(container, id);
   }
 
   // ── Membri: chi vede e lavora al progetto ────────────────────────────────────

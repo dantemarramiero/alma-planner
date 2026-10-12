@@ -1,9 +1,9 @@
 // Attività del Gantt (= ticket del progetto con date) e documenti del progetto.
 import { h, clear, fill, toast, fmtDateTime, fmtSize, today, addDays, loading } from './ui.js';
 import { icon, fileIconName } from './icons.js';
-import { get, post, del, api, qs } from './api.js';
+import { get, post, patch, del, api, qs } from './api.js';
 import { store, projectById, loadProjects } from './store.js';
-import { pickDriveItems } from './drive.js';
+import { pickDriveItem, pickDriveItems } from './drive.js';
 import { uploadButtons, uploadFiles, droppedEntries } from './upload.js';
 import { openTicket } from './tickets.js';
 
@@ -31,10 +31,11 @@ export function fileRow(f, { onRemove, note } = {}) {
     onRemove ? h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Scollega (il file resta su OneDrive)', on: { click: onRemove } }, '×') : null);
 }
 
-// Documenti del progetto: si trascinano o si scelgono file e cartelle, che vanno nella cartella OneDrive del progetto.
-// L'elenco è la cartella vera (quindi c'è anche ciò che viene messo da OneDrive o Teams), più file e cartelle collegati
-// da altre parti di OneDrive (si apre una cartella collegata per vederne il contenuto) e i file delle attività.
-export async function projectDocuments(container, projectId) {
+// Documenti del progetto (un solo posto, prima c'era anche il tab «Cartella OneDrive» che mostrava la stessa cartella):
+// si trascinano o si scelgono file e cartelle, che vanno nella cartella OneDrive del progetto. L'elenco è la cartella
+// vera (quindi c'è anche ciò che viene messo da OneDrive o Teams; le sottocartelle si aprono sul posto), più file e
+// cartelle collegati da altre parti di OneDrive e i file delle attività. Chi gestisce il progetto può cambiare cartella.
+export async function projectDocuments(container, projectId, { canManage = false, onFolderChanged } = {}) {
   const url = `/api/projects/${projectId}/files/upload`;
   const folderInfo = h('div.small.muted');
   const listBox = h('div.docs-list', loading());
@@ -48,10 +49,19 @@ export async function projectDocuments(container, projectId) {
     toast(r.added === picked.length ? `Collegat${picked.length === 1 ? 'o' : 'i'} ${picked.length} element${picked.length === 1 ? 'o' : 'i'}` : `Collegati ${r.added} elementi (gli altri c'erano già)`);
     load();
   } } }, icon('link', { size: 16 }), 'Collega da OneDrive');
+  const change = canManage && store.me.microsoft ? h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => {
+    const p = projectById(projectId);
+    const f = await pickDriveItem({ title: 'Scegli la cartella del progetto', folders: true });
+    if (!f) return;
+    await patch(`/api/projects/${projectId}`, { onedrive_drive_id: f.driveId, onedrive_item_id: f.id, onedrive_name: f.name, onedrive_url: f.webUrl || null });
+    toast(p?.onedrive_item_id ? 'Cartella del progetto cambiata' : 'Cartella del progetto collegata');
+    await loadProjects();
+    if (onFolderChanged) onFolderChanged(); else load();
+  } } }, icon('folder', { size: 16 }), 'Cambia cartella') : null;
   const drop = h('div.drop-docs',
     h('span.drop-ico', icon('upload', { size: 22 })),
     h('div.drop-txt', h('strong', 'Trascina qui file o cartelle del progetto'), folderInfo),
-    h('div.row', ups.el, link));
+    h('div.row', ups.el, link, change));
   clear(container).append(drop, ups.queue, listBox);
 
   // trascinare file o cartelle sulla sezione
@@ -70,13 +80,16 @@ export async function projectDocuments(container, projectId) {
     if (entries.length && await uploadFiles(url, entries, ups.queue)) { await loadProjects(); load(); }
   });
 
-  const itemRow = it => h('div.file-row',
-    h('span.f-ico', icon(it.folder ? 'folder' : fileIconName(it.name))),
-    h('a', { href: it.webUrl, target: '_blank', rel: 'noopener' }, it.name),
-    h('span.muted.small', [it.folder ? `${it.childCount ?? 0} elementi` : fmtSize(it.size), it.modifiedBy, it.modified ? fmtDateTime(it.modified) : null].filter(Boolean).join(' · ')));
+  const itemMeta = it => h('span.muted.small', [it.folder ? `${it.childCount ?? 0} elementi` : fmtSize(it.size), it.modifiedBy, it.modified ? fmtDateTime(it.modified) : null].filter(Boolean).join(' · '));
+  const itemRow = it => (it.folder
+    ? folderRow({ drive: it.driveId, item: it.id, name: it.name, webUrl: it.webUrl, meta: itemMeta(it) })
+    : h('div.file-row', h('span.f-ico', icon(fileIconName(it.name))), h('a', { href: it.webUrl, target: '_blank', rel: 'noopener' }, it.name), itemMeta(it)));
+  const linkedFolder = f => folderRow({ drive: f.drive_id, item: f.item_id, name: f.name, webUrl: f.web_url,
+    meta: h('span.muted.small', [f.added_by_name, f.created_at ? fmtDateTime(f.created_at) : null].filter(Boolean).join(' · ')),
+    remove: h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Scollega (la cartella resta su OneDrive)', on: { click: async () => { await del(`/api/projects/${projectId}/files/${f.id}`); load(); } } }, '×') });
 
-  // cartella collegata: si apre e mostra il contenuto letto da OneDrive (con l'accesso di chi guarda)
-  function linkedFolder(f) {
+  // cartella: si apre e mostra il contenuto letto da OneDrive (con l'accesso di chi guarda)
+  function folderRow({ drive, item, name, webUrl, meta, remove = null }) {
     const inner = h('div.linked-inner', { hidden: true });
     const toggle = h('button.gx-chev.cl', { type: 'button', 'aria-expanded': 'false', title: 'Mostra il contenuto', on: { click: async () => {
       const open = inner.hidden;
@@ -86,16 +99,14 @@ export async function projectDocuments(container, projectId) {
       if (!open || inner.dataset.loaded) return;
       inner.replaceChildren(loading());
       try {
-        const r = await get(`/api/drive/items${qs({ drive: f.drive_id, item: f.item_id })}`, { quiet: true });
+        const r = await get(`/api/drive/items${qs({ drive, item })}`, { quiet: true });
         inner.dataset.loaded = '1';
         inner.replaceChildren(...(r.items.length ? r.items.map(itemRow) : [h('div.muted.small', 'Cartella vuota.')]));
       } catch (err) { inner.replaceChildren(h('div.banner', err.message)); }
     } } }, icon('expand', { size: 14 }));
     return h('div.linked-folder',
       h('div.file-row', toggle, h('span.f-ico', icon('folder')),
-        h('a', { href: f.web_url || '#', target: '_blank', rel: 'noopener' }, f.name),
-        h('span.muted.small', [f.added_by_name, f.created_at ? fmtDateTime(f.created_at) : null].filter(Boolean).join(' · ')),
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Scollega (la cartella resta su OneDrive)', on: { click: async () => { await del(`/api/projects/${projectId}/files/${f.id}`); load(); } } }, '×')),
+        h('a', { href: webUrl || '#', target: '_blank', rel: 'noopener' }, name), meta, remove),
       inner);
   }
 
