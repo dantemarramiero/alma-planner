@@ -18,7 +18,7 @@ import { icon } from './icons.js';
 const OPEN_KEY = 'alma.ganttOpen';
 const MODE_KEY = 'alma.ganttZoom';
 const AREA_KEY = 'alma.ganttArea';
-const MIN_ROWS = 5;            // righe minime, anche se le attività sono meno
+const MIN_ROWS = 7;            // righe minime, anche se le attività sono meno (7: scelta di Dante, 12/10)
 const RH = 40;                 // altezza di una riga
 const PPD = { g: 38, w: 18, m: 5 }; // pixel per giorno: Giorni, Settimane, Mesi
 const ZOOMS = [['g', 'Giorni'], ['w', 'Settimane'], ['m', 'Mesi']];

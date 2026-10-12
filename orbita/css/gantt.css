@@ -19,7 +19,7 @@
 
 /* griglia: prima colonna fissa (tabella), poi la linea del tempo; intestazione fissa in alto */
 .gx-card { padding: 0; overflow: hidden; border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04); }
-.gx-sc { --gx-lw: 400px; overflow: auto; max-height: calc(100vh - 300px); min-height: 280px; position: relative; overscroll-behavior: contain; }
+.gx-sc { --gx-lw: 400px; overflow: auto; max-height: calc(100vh - 300px); min-height: 356px; /* almeno 7 righe visibili: intestazione 64 + 7 × 40 + barra di scorrimento */ position: relative; overscroll-behavior: contain; }
 .gx-g { display: grid; position: relative; }
 .gx-corner { position: sticky; top: 0; left: 0; z-index: 6; background: var(--ap-bg); border-right: 1px solid var(--ap-border); border-bottom: 1px solid var(--ap-border); display: grid; grid-template-columns: minmax(0, 1fr) 36px 56px 44px; gap: var(--ap-space-2); align-items: end; padding: 0 var(--ap-space-3) 10px var(--ap-space-4); font-size: 11px; font-weight: var(--ap-fw-bold); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .gx-corner span:nth-child(n+2) { text-align: right; }
@@ -54,9 +54,12 @@
 .gx-av.empty { background: none; }
 .gx-st { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ap-accent); }
 .gx-st.todo { background: var(--ap-bg); border: 1.5px solid var(--ap-grey-300); }
-.gx-st.done { background: repeating-linear-gradient(135deg, var(--ap-grey-300) 0 2px, var(--ap-grey-100) 2px 4px); }
+.gx-st.done { background: repeating-linear-gradient(135deg, var(--gx-done-a) 0 2px, var(--gx-done-b) 2px 4px); }
 .gx-st.late { background: var(--ap-danger); }
 .gx-st.ms { border-radius: 2px; transform: rotate(45deg) scale(.85); background: var(--ap-graphite); }
+
+/* completate: tratteggio verde chiaro (scelta di Dante, 12/10) */
+:root { --gx-done-a: color-mix(in srgb, var(--ap-success) 30%, #fff); --gx-done-b: color-mix(in srgb, var(--ap-success) 10%, #fff); }
 
 /* linea del tempo */
 .gx-tb { position: relative; background-image: repeating-linear-gradient(90deg, #EDEDEB 0 1px, transparent 1px var(--unit)), repeating-linear-gradient(180deg, transparent 0 39px, var(--ap-grey-100) 39px 40px); }
@@ -72,13 +75,13 @@
 .gx-b.tk { height: 22px; background: #FFE3CC; cursor: grab; touch-action: none; transition: filter var(--ap-dur) var(--ap-ease); }
 .gx-b.tk:hover { filter: brightness(.95); }
 .gx-b.tk.drag { cursor: grabbing; box-shadow: var(--ap-shadow); z-index: 4; transition: none; }
-.gx-b.done { background: repeating-linear-gradient(135deg, var(--ap-grey-200) 0 4px, var(--ap-grey-100) 4px 8px); }
+.gx-b.done { background: repeating-linear-gradient(135deg, var(--gx-done-a) 0 4px, var(--gx-done-b) 4px 8px); }
 .gx-b.late { box-shadow: inset 0 0 0 2px var(--ap-danger); }
 .gx-h { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1; }
 .gx-h.l { left: 0; }
 .gx-h.r { right: 0; }
 .gx-ms { position: absolute; z-index: 2; width: 14px; height: 14px; background: var(--ap-graphite); border-radius: 3px; transform: rotate(45deg); cursor: pointer; }
-.gx-ms.done { background: var(--ap-grey-300); }
+.gx-ms.done { background: var(--gx-done-a); }
 .gx-ms.late { background: var(--ap-danger); }
 .gx-bl { position: absolute; z-index: 2; font-size: var(--ap-fs-xs); color: var(--ap-text-strong); white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
 .gx-bl.late { color: var(--ap-danger); font-weight: var(--ap-fw-bold); }
@@ -96,7 +99,7 @@
 .gx-legend span { display: inline-block; flex: none; }
 .gx-lg-p { width: 28px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--ap-accent) 50%, var(--ap-grey-300) 50%); }
 .gx-lg-t { width: 28px; height: 14px; border-radius: 7px; background: linear-gradient(90deg, var(--ap-accent) 40%, #FFE3CC 40%); }
-.gx-lg-done { width: 28px; height: 14px; border-radius: 7px; background: repeating-linear-gradient(135deg, var(--ap-grey-200) 0 4px, var(--ap-grey-100) 4px 8px); }
+.gx-lg-done { width: 28px; height: 14px; border-radius: 7px; background: repeating-linear-gradient(135deg, var(--gx-done-a) 0 4px, var(--gx-done-b) 4px 8px); }
 .gx-lg-late { width: 28px; height: 14px; border-radius: 7px; background: #FFE3CC; box-shadow: inset 0 0 0 1.5px var(--ap-danger); }
 .gx-lg-ms { width: 11px; height: 11px; background: var(--ap-graphite); border-radius: 2px; transform: rotate(45deg); margin: 0 8px; }
 
