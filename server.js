@@ -2,6 +2,7 @@
 const path = require('path');
 const express = require('express');
 const { createDb, migrate } = require('./lib/db');
+const { backfillLags } = require('./lib/schedule');
 const { createAuth } = require('./lib/auth');
 const { HttpError } = require('./lib/http');
 const { registerUsers } = require('./routes/users');
@@ -60,6 +61,7 @@ function readConfig(env = process.env) {
 async function createApp(config, { db, confirmAccount } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
+  await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
 
   const app = express();
   app.set('trust proxy', 1);

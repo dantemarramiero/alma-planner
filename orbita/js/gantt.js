@@ -5,10 +5,13 @@
 //   aprendola, le sue attività. I progetti seguono l'ordine delle macro aree; si può vederne una sola.
 // Trascinare una barra sposta le date del ticket, trascinarne un bordo le allunga; un clic apre il ticket.
 // Un ticket con la sola scadenza è una milestone (rombo).
+// Collegamenti come in Microsoft Project (fine-inizio, inizio-inizio, fine-fine, inizio-fine, con scarto): si creano
+// trascinando il pallino alla fine di una barra su un'altra attività, e quando un'attività si sposta le collegate la
+// seguono (lo calcola il server, lib/schedule.js). Durante il trascinamento le collegate si muovono insieme.
 import { h, clear, toast, loading, fmtDate, today, STATUS, initials } from './ui.js';
 import { get, patch } from './api.js';
 import { store, loadProjects, loadAreas, userById, projectById, areaById } from './store.js';
-import { openTicket } from './tickets.js';
+import { openTicket, movedText } from './tickets.js';
 import { newActivity } from './activities.js';
 import { icon } from './icons.js';
 
@@ -88,7 +91,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
   clear(container).append(...[
     embedded ? null : h('div.page-head',
       h('div', h('h1', project ? project.name : 'Gantt'), h('div.sub', onlyProject
-        ? 'Ogni attività è un ticket del progetto: quando lo metti in «Fatto» è completata. Trascina una barra per spostarla, un bordo per allungarla.'
+        ? 'Ogni attività è un ticket del progetto: quando lo metti in «Fatto» è completata. Trascina una barra per spostarla, un bordo per allungarla, il pallino alla sua fine su un\'altra attività per collegarle: le collegate seguono il loro predecessore.'
         : 'Ogni barra è un progetto, lunga quanto le sue attività. Apri un progetto per vederne le attività, o clicca il nome per il suo Gantt.')),
       projectSelect),
     h('div.gx-tools',
@@ -105,7 +108,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
     h('div.gx-legend',
       onlyProject ? null : h('div', h('span.gx-lg-p'), 'Progetto (arancione = avanzamento)'),
       h('div', h('span.gx-lg-t'), 'Attività'), h('div', h('span.gx-lg-done'), 'Completata'), h('div', h('span.gx-lg-late'), 'In ritardo'),
-      h('div', h('span.gx-lg-ms'), 'Milestone (solo scadenza)'), h('div', icon('arrows', { size: 16 }), 'Dipendenze')),
+      h('div', h('span.gx-lg-ms'), 'Milestone (solo scadenza)'), h('div', icon('arrows', { size: 16 }), 'Collegamenti: trascina il pallino alla fine di una barra su un\'altra attività')),
     tip,
   ].filter(Boolean));
 
@@ -124,6 +127,19 @@ export async function ganttView(container, params, { embedded = false, onChange 
   const startOf = t => dn(t.start_date || t.due_date);
   const endOf = t => dn(t.due_date || t.start_date);
   const isDone = t => t.status === 'done';
+  const linksOf = t => t.links || (t.depends_on || []).map(id => ({ id, type: 'FS', lag: 0 }));
+  const LINK_SHORT = { FS: 'FI', SS: 'II', FF: 'FF', SF: 'IF' };
+  const linkLabel = l => `${LINK_SHORT[l.type] || 'FI'}${l.lag ? `${l.lag > 0 ? '+' : ''}${l.lag} g` : ''}`;
+  // successori diretti e indiretti di un ticket (per farli muovere insieme mentre lo si trascina)
+  function successorsOf(id) {
+    const out = new Set([id]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const t of tickets) if (!out.has(t.id) && linksOf(t).some(l => out.has(l.id))) { out.add(t.id); grew = true; }
+    }
+    out.delete(id);
+    return out;
+  }
   const isLate = t => !isDone(t) && t.due_date && dn(t.due_date) < TODAY;
   const dated = list => list.filter(t => (t.start_date || t.due_date) && (!hideDone || !isDone(t)))
     .sort((a, b) => startOf(a) - startOf(b) || endOf(a) - endOf(b));
@@ -246,32 +262,39 @@ export async function ganttView(container, params, { embedded = false, onChange 
       left += `<div class="gx-lc t${L ? ' late' : ''}" data-r="${i}" data-open="${t.id}" style="grid-row:${i + 2}">
         <div class="gx-nm"><span class="gx-st ${isMilestone(t) ? 'ms' : done ? 'done' : L ? 'late' : t.status === 'todo' && !t.progress ? 'todo' : ''}"></span><span title="${esc(t.title)}">${esc(t.title)}</span></div>
         ${av(who[0], who.length > 1 ? `${who.map(u => u.name).join(', ')}` : null, who.length > 1 ? `+${who.length - 1}` : '')}<span class="gx-d">${short(e)}</span><span class="gx-pc">${done ? 100 : t.progress}%</span></div>`;
-      const tipText = `${esc(t.title)}|${isMilestone(t) ? `Scadenza ${short(e)}` : `${short(s)} – ${short(e)}`}|${done ? 'Completata' : L ? `In ritardo · ${t.progress}%` : `${STATUS[t.status]} · ${t.progress}%`}${who.length ? ` · ${esc(who.map(u => u.name.split(' ')[0]).join(', '))}` : ''}`;
+      const preds = linksOf(t).map(l => { const p = tickets.find(x => x.id === l.id); return p ? `${esc(p.title)} (${linkLabel(l)})` : null; }).filter(Boolean);
+      const tipText = `${esc(t.title)}|${isMilestone(t) ? `Scadenza ${short(e)}` : `${short(s)} – ${short(e)}`}|${done ? 'Completata' : L ? `In ritardo · ${t.progress}%` : `${STATUS[t.status]} · ${t.progress}%`}${who.length ? ` · ${esc(who.map(u => u.name.split(' ')[0]).join(', '))}` : ''}${preds.length ? `<br>Dopo: ${preds.join(', ')}` : ''}`;
+      const dot = (left, top) => `<span class="gx-ln" data-from="${t.id}" title="Trascina su un'altra attività per collegarla" style="left:${left}px;top:${top}px"></span>`;
       if (isMilestone(t)) {
         const cx = x(s) + ppd / 2;
         pos.set(t.id, { x1: cx - 8, x2: cx + 8, y: y + RH / 2 });
-        bars += `<div class="gx-ms${done ? ' done' : ''}${L ? ' late' : ''}" data-open="${t.id}" data-tip="${tipText}" style="left:${cx - 7}px;top:${y + 13}px"></div>
-          <div class="gx-bl${L ? ' late' : ''}" style="left:${cx + 14}px;top:${y + 12}px">${short(s)}</div>`;
+        bars += `<div class="gx-ms${done ? ' done' : ''}${L ? ' late' : ''}" data-open="${t.id}" data-id="${t.id}" data-tip="${tipText}" style="left:${cx - 7}px;top:${y + 13}px"></div>${dot(cx + 10, y + 16)}
+          <div class="gx-bl${L ? ' late' : ''}" style="left:${cx + 22}px;top:${y + 12}px">${short(s)}</div>`;
       } else {
         const bx = x(s), bw = (e - s + 1) * ppd;
         pos.set(t.id, { x1: bx, x2: bx + bw, y: y + RH / 2 });
         bars += `<div class="gx-b tk${done ? ' done' : ''}${L ? ' late' : ''}" data-id="${t.id}" data-tip="${tipText}" style="left:${bx}px;width:${bw}px;top:${y + 9}px">
-          ${done ? '' : `<i style="width:${t.progress}%"></i>`}<span class="gx-h l"></span><span class="gx-h r"></span></div>`;
+          ${done ? '' : `<i style="width:${t.progress}%"></i>`}<span class="gx-h l"></span><span class="gx-h r"></span></div>${dot(bx + bw + 3, y + 16)}`;
       }
     });
     for (let i = rows.length; i < total; i++) left += `<div class="gx-lc f" style="grid-row:${i + 2}"></div>`;
 
-    // dipendenze: da fine a inizio, solo tra righe visibili
+    // collegamenti, solo tra righe visibili: escono dalla fine (o dall'inizio, per II e IF) del predecessore ed
+    // entrano nell'inizio (o nella fine, per FF e IF) del successore, come in Microsoft Project
     let deps = '';
     for (const r of rows) {
       if (r.kind !== 't') continue;
-      for (const id of r.t.depends_on || []) {
-        const A = pos.get(id), B = pos.get(r.t.id);
+      for (const l of linksOf(r.t)) {
+        const A = pos.get(l.id), B = pos.get(r.t.id);
         if (!A || !B) continue;
-        const x0 = A.x2, x1 = B.x1 - 2;
-        deps += x1 > x0 + 14
-          ? `<path d="M${x0} ${A.y}H${x0 + 8}V${B.y}H${x1}"/>`
-          : `<path d="M${x0} ${A.y}H${x0 + 8}V${B.y - 14}H${x1 - 10}V${B.y}H${x1}"/>`;
+        const fromStart = l.type === 'SS' || l.type === 'SF', toEnd = l.type === 'FF' || l.type === 'SF';
+        const sx = fromStart ? A.x1 : A.x2, p1 = sx + (fromStart ? -8 : 8);
+        const ex = toEnd ? B.x2 + 2 : B.x1 - 2, side = toEnd ? 1 : -1;
+        const direct = side < 0 ? p1 <= ex - 6 : p1 >= ex + 6;
+        const mid = B.y + (B.y >= A.y ? -14 : 14);
+        deps += direct
+          ? `<path d="M${sx} ${A.y}H${p1}V${B.y}H${ex}"/>`
+          : `<path d="M${sx} ${A.y}H${p1}V${mid}H${ex + 10 * side}V${B.y}H${ex}"/>`;
       }
     }
 
@@ -349,6 +372,55 @@ export async function ganttView(container, params, { embedded = false, onChange 
     };
     scroller.onmouseleave = () => { tip.hidden = true; };
     scroller.querySelectorAll('.gx-b.tk').forEach(el => { el.onpointerdown = e => startDrag(e, el); });
+    scroller.querySelectorAll('.gx-ln').forEach(el => { el.onpointerdown = e => startLink(e, el); });
+  }
+
+  // Collegare due attività come in Project: dal pallino alla fine di una barra a un'altra barra (o milestone).
+  // Il collegamento nuovo è fine-inizio senza scarto: il successore si mette subito dopo (lo sposta il server).
+  function startLink(e, dot) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const fromId = Number(dot.dataset.from);
+    const pred = tickets.find(x => x.id === fromId);
+    const tb = scroller.querySelector('.gx-tb'), svg = tb?.querySelector('.gx-dep');
+    if (!pred || !svg) return;
+    const at = ev => { const r = tb.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+    const [sx, sy] = at({ clientX: dot.getBoundingClientRect().left + 5, clientY: dot.getBoundingClientRect().top + 5 });
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    line.setAttribute('class', 'gx-ln-tmp');
+    svg.append(line);
+    dragging = { dot };
+    tip.hidden = true;
+    tb.classList.add('linking');
+    try { dot.setPointerCapture(e.pointerId); } catch { /* il collegamento funziona lo stesso */ }
+    let target = null;
+    const mark = el => { target?.classList.remove('gx-target'); target = el; target?.classList.add('gx-target'); };
+    dot.onpointermove = ev => {
+      const [x2, y2] = at(ev);
+      line.setAttribute('d', `M${sx} ${sy}L${x2} ${y2}`);
+      const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.gx-b.tk[data-id], .gx-ms[data-id]');
+      mark(over && Number(over.dataset.id) !== fromId ? over : null);
+    };
+    dot.onpointerup = dot.onpointercancel = async () => {
+      dot.onpointermove = dot.onpointerup = dot.onpointercancel = null;
+      line.remove();
+      tb.classList.remove('linking');
+      dragging = null;
+      const el = target;
+      mark(null);
+      if (!el) return;
+      const succ = tickets.find(x => x.id === Number(el.dataset.id));
+      if (!succ) return;
+      if (linksOf(succ).some(l => l.id === fromId)) { toast('Queste due attività sono già collegate'); return; }
+      try {
+        const r = await patch(`/api/tickets/${succ.id}`, { depends_on: [...linksOf(succ), { id: fromId, type: 'FS', lag: 0 }] }, { quiet: true });
+        toast(`Collegate: «${pred.title}» → «${succ.title}»`);
+        if (r.rescheduled?.length) toast(movedText(r.rescheduled));
+        await reload();
+        onChange?.();
+      } catch (err) { toast(err.message, 'err'); }
+    };
   }
 
   // Trascinamento: il corpo sposta inizio e fine, i bordi ne cambiano uno; scatta di un giorno alla volta.
@@ -367,25 +439,36 @@ export async function ganttView(container, params, { embedded = false, onChange 
     tip.hidden = true;
     try { el.setPointerCapture(e.pointerId); } catch { /* alcuni dispositivi non la concedono: il trascinamento funziona lo stesso */ }
     el.classList.add('drag');
+    // anteprima: spostando la barra (o la sua fine) le attività collegate si muovono insieme; le date esatte, in giorni
+    // lavorativi, le calcola il server al rilascio
+    const tb = scroller.querySelector('.gx-tb');
+    tb?.classList.add('dragging');
+    const followers = mode === 'start' ? [] : [...successorsOf(t.id)]
+      .filter(id => !isDone(tickets.find(x => x.id === id) || {}))
+      .flatMap(id => [...scroller.querySelectorAll(`.gx-b.tk[data-id="${id}"], .gx-ms[data-id="${id}"]`)])
+      .map(f => ({ f, left: f.offsetLeft }));
     el.onpointermove = ev => {
       dd = Math.round((ev.clientX - x0) / ppd);
       if (mode === 'move') el.style.left = `${left0 + dd * ppd}px`;
       else if (mode === 'start') { dd = Math.min(dd, e0 - s0); el.style.left = `${left0 + dd * ppd}px`; el.style.width = `${width0 - dd * ppd}px`; }
       else { dd = Math.max(dd, s0 - e0); el.style.width = `${width0 + dd * ppd}px`; }
+      for (const { f, left } of followers) { f.style.left = `${left + dd * ppd}px`; f.classList.toggle('follow', Boolean(dd)); }
     };
     el.onpointerup = async () => {
       el.onpointermove = el.onpointerup = null;
       el.classList.remove('drag');
+      tb?.classList.remove('dragging');
       dragging = null;
       if (!dd) { openTicket(t.id, { onSaved: refresh }); return; }
       const ns = mode === 'end' ? s0 : s0 + dd, ne = mode === 'start' ? e0 : e0 + dd;
-      const body = { start_date: iso(ns), due_date: iso(ne) };
+      // una milestone ha solo la scadenza, un ticket con il solo inizio solo l'inizio
+      const body = { start_date: t.start_date ? iso(ns) : null, due_date: t.due_date ? iso(ne) : null };
+      if (mode === 'move') body.keep_duration = true; // il server tiene la durata in giorni lavorativi, come Project
       try {
-        await patch(`/api/tickets/${t.id}`, body, { quiet: true });
-        Object.assign(t, body);
-        toast(`${t.title}: ${short(ns)} – ${short(ne)}`);
-        await loadProjects();
-        draw();
+        const r = await patch(`/api/tickets/${t.id}`, body, { quiet: true });
+        toast(`${t.title}: ${short(startOf(r))} – ${short(endOf(r))}`);
+        if (r.rescheduled?.length) toast(movedText(r.rescheduled));
+        await reload();
         onChange?.();
       } catch (err) { toast(err.message, 'err'); reload(); }
     };

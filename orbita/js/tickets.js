@@ -14,6 +14,13 @@ const VIEW_KEY = 'alma.ticketView';
 const savedView = () => { try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; } };
 const saveView = v => { try { localStorage.setItem(VIEW_KEY, v); } catch { /* niente */ } };
 
+// Tipi di collegamento del Gantt, con le sigle della versione italiana di Microsoft Project.
+export const LINK_TYPES = [['FS', 'Fine-inizio (FI)'], ['SS', 'Inizio-inizio (II)'], ['FF', 'Fine-fine (FF)'], ['SF', 'Inizio-fine (IF)']];
+// Messaggio per le attività spostate dalla programmazione automatica.
+export const movedText = moved => moved.length === 1
+  ? `Spostata anche «${moved[0].title}», collegata`
+  : `Spostate anche ${moved.length} attività collegate`;
+
 const isLate = t => t.due_date && t.status !== 'done' && t.due_date < today();
 
 // ── vista elenco/bacheca ───────────────────────────────────────────────────
@@ -303,9 +310,10 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
   });
   if (rdaOpen) { status.disabled = true; progress.disabled = true; }
 
-  // dipendenze: altri ticket dello stesso progetto (o tutti se senza progetto)
-  const depsBox = h('div.people');
-  let deps = [...t.depends_on];
+  // Predecessori, come in Microsoft Project: uno o più ticket dello stesso progetto (o tutti se senza progetto), ognuno
+  // con tipo di collegamento e scarto in giorni lavorativi. Il server sposta da solo l'attività quando si spostano loro.
+  const depsBox = h('div.links');
+  let deps = (t.links || t.depends_on.map(id => ({ id, type: 'FS', lag: 0 }))).map(l => ({ ...l }));
   let candidates = [];
   async function loadCandidates() {
     const pid = project.value;
@@ -315,14 +323,31 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
   function drawDeps() {
     clear(depsBox);
     for (const d of deps) {
-      const c = candidates.find(x => x.id === d);
-      depsBox.append(h('span.person-chip', { style: { paddingLeft: '8px' } }, c ? c.title : `#${d}`,
-        h('button', { type: 'button', on: { click: () => { deps = deps.filter(x => x !== d); drawDeps(); } } }, '×')));
+      const c = candidates.find(x => x.id === d.id);
+      const type = h('select.select.link-type', { 'aria-label': 'Tipo di collegamento', on: { change: e => { d.type = e.target.value; } } },
+        LINK_TYPES.map(([k, l]) => h('option', { value: k, selected: k === d.type }, l)));
+      const lag = h('input.input.link-lag', { type: 'number', min: '-999', max: '999', step: '1', value: String(d.lag), 'aria-label': 'Scarto in giorni lavorativi',
+        on: { input: e => { d.lag = Math.trunc(Number(e.target.value)) || 0; } } });
+      depsBox.append(h('div.link-row',
+        h('span.link-name', { title: c ? c.title : '' }, c ? `#${c.id} ${c.title}` : `#${d.id}`),
+        type, h('span.link-lag-box', lag, h('span.muted.small', 'g lav.')),
+        h('button.t-trash', { type: 'button', 'aria-label': 'Togli il collegamento', on: { click: () => { deps = deps.filter(x => x !== d); drawDeps(); } } }, icon('x', { size: 16 }))));
     }
-    const sel = h('select.select', { on: { change: e => { if (e.target.value) { deps.push(Number(e.target.value)); drawDeps(); } } } },
-      h('option', { value: '' }, '+ Dipende da…'),
-      candidates.filter(c => !deps.includes(c.id)).map(c => h('option', { value: String(c.id) }, `#${c.id} ${c.title}`)));
-    depsBox.append(sel);
+    // i successori non si possono scegliere come predecessori (sarebbe un ciclo)
+    const after = new Set();
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const c of candidates) if (!after.has(c.id) && (c.links || []).some(l => l.id === t.id || after.has(l.id))) { after.add(c.id); grew = true; }
+    }
+    const sel = h('select.select', { 'aria-label': 'Aggiungi un predecessore', on: { change: e => {
+      if (e.target.value) { deps.push({ id: Number(e.target.value), type: 'FS', lag: 0 }); drawDeps(); }
+    } } },
+    h('option', { value: '' }, '+ Aggiungi predecessore…'),
+    candidates.filter(c => !deps.some(d => d.id === c.id) && !after.has(c.id)).map(c => h('option', { value: String(c.id) }, `#${c.id} ${c.title}`)));
+    const succ = candidates.filter(c => (c.links || []).some(l => l.id === t.id));
+    depsBox.append(sel,
+      succ.length ? h('p.small.muted.link-note', `Successori: ${succ.map(c => `#${c.id} ${c.title}`).join(', ')}`) : '',
+      deps.length ? h('p.small.muted.link-note', 'Quando un predecessore si sposta, questa attività lo segue mantenendo lo scarto (negativo = anticipo).') : '');
   }
   project.addEventListener('change', loadCandidates);
 
@@ -338,7 +363,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       h('label.field', h('span', h('span', 'Avanzamento '), progressVal), progress)),
     rdaOpen ? '' : h('div.field', h('span', requireSchedule ? 'Responsabili' : 'Assegnato a'), people.el),
     h('label.field', h('span', 'Descrizione'), desc),
-    h('div.field', h('span', 'Dipende da (per il Gantt)'), depsBox),
+    h('div.field', h('span', 'Predecessori (Gantt)'), depsBox),
   ];
 
   const extra = h('div');
@@ -355,7 +380,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       due_date: due.value || null,
       progress: Number(progress.value),
       assignee_ids: people.value,
-      depends_on: deps,
+      depends_on: deps.map(({ id, type, lag }) => ({ id, type, lag })),
       ...(rda ? rda.values() : {}),
     };
     if (rdaOpen) { delete payload.status; delete payload.progress; delete payload.assignee_ids; }
@@ -365,6 +390,11 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
     const saved = isNew ? await post('/api/tickets', payload) : await patch(`/api/tickets/${t.id}`, payload);
     changed = true;
     if (close) { m.close(); toast(isNew ? 'Ticket creato' : 'Ticket salvato'); }
+    // programmazione automatica: date prese dai predecessori, successori spostati a catena
+    if ((payload.start_date || payload.due_date) && (saved.start_date !== payload.start_date || saved.due_date !== payload.due_date)) {
+      toast(`Date dai predecessori: ${[saved.start_date, saved.due_date].filter(Boolean).map(d => fmtDate(d)).join(' – ')}`);
+    }
+    if (saved.rescheduled?.length) toast(movedText(saved.rescheduled));
     return saved;
   }
 

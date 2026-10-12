@@ -108,3 +108,25 @@
   .gx-corner span:nth-child(2), .gx-corner span:nth-child(4), .gx-lc .gx-av, .gx-lc .gx-pc { display: none; }
   .gx-lc.t .gx-nm { padding-left: 12px; }
 }
+
+/* collegamenti come in Microsoft Project: pallino alla fine della barra da trascinare su un'altra attività */
+.gx-ln { position: absolute; z-index: 3; width: 10px; height: 10px; margin-top: -5px; border-radius: var(--radius-pill); background: var(--ap-white); border: 2px solid var(--ap-accent); cursor: crosshair; opacity: 0; transition: opacity var(--ap-dur) var(--ap-ease); touch-action: none; }
+.gx-b.tk:hover + .gx-ln, .gx-ms:hover + .gx-ln, .gx-ln:hover, .gx-tb.linking .gx-ln { opacity: 1; }
+.gx-tb.dragging .gx-ln { opacity: 0; pointer-events: none; }
+.gx-tb.linking, .gx-tb.linking .gx-b.tk { cursor: crosshair; }
+.gx-dep path.gx-ln-tmp { stroke: var(--ap-accent); stroke-dasharray: 4 3; marker-end: none; }
+.gx-target { box-shadow: 0 0 0 2px var(--ap-accent) !important; }
+.gx-b.tk.follow, .gx-ms.follow { opacity: .75; outline: 1px dashed var(--ap-accent); outline-offset: 2px; }
+.gx-tb.dragging .gx-dep { opacity: .25; }
+@media (hover: none) { .gx-ln { opacity: .7; } }
+
+/* predecessori nella scheda del ticket */
+.links { display: grid; gap: var(--ap-space-2); }
+.link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: var(--ap-space-2); padding: 6px 8px; border: 1px solid var(--rule); border-radius: var(--radius); }
+.link-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ap-fs-sm); }
+.link-row .link-type { width: auto; }
+.link-lag-box { display: inline-flex; align-items: center; gap: 4px; }
+.link-row .link-lag { width: 64px; text-align: right; -moz-appearance: textfield; appearance: textfield; }
+.link-row .link-lag::-webkit-inner-spin-button, .link-row .link-lag::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; } /* niente frecce minuscole: si scrive il numero */
+.link-note { margin: 0; }
+@media (max-width: 560px) { .link-row { grid-template-columns: minmax(0, 1fr) auto; } }

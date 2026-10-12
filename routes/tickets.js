@@ -4,6 +4,8 @@ const { HttpError, v } = require('../lib/http');
 const { graph, TIMEZONE } = require('../lib/graph');
 const { createTicketMail } = require('../lib/ticket-mail');
 const { findFunction, orgOidOf, headUserSql } = require('../lib/functions');
+const schedule = require('../lib/schedule');
+const { isWorkday, addWorkdays, workdaysIn } = require('../lib/workdays');
 
 const STATUSES = ['todo', 'doing', 'review', 'done'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -13,11 +15,30 @@ const SELECT = `
   SELECT t.*, p.name AS project_name, p.color AS project_color,
          COALESCE((SELECT json_agg(a.user_id ORDER BY a.user_id) FROM ticket_assignees a WHERE a.ticket_id = t.id), '[]') AS assignee_ids,
          COALESCE((SELECT json_agg(d.depends_on_id ORDER BY d.depends_on_id) FROM ticket_deps d WHERE d.ticket_id = t.id), '[]') AS depends_on,
+         COALESCE((SELECT json_agg(json_build_object('id', d.depends_on_id, 'type', d.type, 'lag', COALESCE(d.lag, 0)) ORDER BY d.depends_on_id)
+                     FROM ticket_deps d WHERE d.ticket_id = t.id), '[]') AS links,
          (SELECT COUNT(*)::int FROM ticket_comments c WHERE c.ticket_id = t.id) AS comment_count,
          (SELECT COUNT(*)::int FROM ticket_files f WHERE f.ticket_id = t.id) AS file_count,
          ${headUserSql('t.rda_head_oid')} AS rda_head_id
     FROM tickets t
     LEFT JOIN projects p ON p.id = t.project_id`;
+
+// Collegamenti (predecessori): numeri (solo l'id: tipo e scarto restano quelli che ha già, o FS 0)
+// oppure { id, type: FS|SS|FF|SF, lag: giorni lavorativi }.
+function readLinks(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new HttpError(400, 'Il campo «dipendenze» non è valido');
+  const out = new Map();
+  for (const x of value) {
+    const o = x !== null && typeof x === 'object' ? x : { id: x };
+    out.set(v.int(o.id, 'dipendenze', { min: 1 }), {
+      id: v.int(o.id, 'dipendenze', { min: 1 }),
+      type: o.type === undefined ? undefined : v.oneOf(o.type, 'tipo di collegamento', schedule.LINK_TYPES),
+      lag: o.lag === undefined || o.lag === null || o.lag === '' ? undefined : v.int(o.lag, 'scarto', { min: -999, max: 999 }),
+    });
+  }
+  return [...out.values()];
+}
 
 const nextDay = d => new Date(Date.parse(`${d}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
 
@@ -40,7 +61,7 @@ function readBody(body, { partial }) {
   return {
     fields,
     assigneeIds: v.ids(body.assignee_ids, 'assegnatari'),
-    dependsOn: v.ids(body.depends_on, 'dipendenze'),
+    dependsOn: readLinks(body.depends_on),
     // ore delle RDA interne: chi può cambiarle lo decide la PATCH
     hours: Object.fromEntries(Object.entries({
       hours_estimated: v.hours(body.hours_estimated, 'ore stimate'),
@@ -105,7 +126,9 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
     for (const uid of ids) await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ticketId, uid]);
   }
 
-  async function setDeps(q, ticketId, ids) {
+  // Salva i collegamenti di un ticket; restituisce true se ne è cambiato qualcuno (nuovo, tolto, tipo o scarto).
+  async function setDeps(q, ticketId, links) {
+    const ids = links.map(l => l.id);
     if (ids.includes(ticketId)) throw new HttpError(400, 'Un ticket non può dipendere da sé stesso');
     if (ids.length) {
       // Nessun ciclo: nessuna delle nuove dipendenze può a sua volta dipendere (anche indirettamente) da questo ticket.
@@ -118,8 +141,24 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       const found = await q.query('SELECT COUNT(*)::int AS n FROM tickets WHERE id = ANY($1::int[])', [ids]);
       if (found.rows[0].n !== ids.length) throw new HttpError(400, 'Una delle dipendenze non esiste');
     }
+    const { rows: old } = await q.query('SELECT depends_on_id AS id, type, lag FROM ticket_deps WHERE ticket_id = $1', [ticketId]);
+    const was = new Map(old.map(l => [l.id, l]));
+    let changed = old.length !== links.length;
     await q.query('DELETE FROM ticket_deps WHERE ticket_id = $1', [ticketId]);
-    for (const dep of ids) await q.query('INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES ($1, $2)', [ticketId, dep]);
+    for (const l of links) {
+      const prev = was.get(l.id);
+      // tipo e scarto non indicati: restano quelli di prima; un collegamento nuovo è fine-inizio senza scarto (come in Project)
+      const type = l.type || prev?.type || 'FS';
+      const lag = l.lag ?? (prev ? prev.lag : 0);
+      if (!prev || prev.type !== type || prev.lag !== lag) changed = true;
+      await q.query('INSERT INTO ticket_deps (ticket_id, depends_on_id, type, lag) VALUES ($1, $2, $3, $4)', [ticketId, l.id, type, lag]);
+    }
+    return changed;
+  }
+
+  // Attività spostate dalla programmazione automatica: il loro evento Outlook segue, senza far aspettare la risposta.
+  function syncMoved(moved) {
+    (async () => { for (const m of moved) await syncOutlook(m.id); })().catch(() => {});
   }
 
   // ── evento Outlook del ticket ──────────────────────────────────────────────
@@ -218,7 +257,8 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       await setAssignees(q, newId, assigneeIds || []);
       // chi viene assegnato a un ticket del progetto entra nel progetto
       if (fields.project_id) await access.addMembers(q, fields.project_id, assigneeIds || [], req.user.id);
-      await setDeps(q, newId, dependsOn || []);
+      // con dei predecessori parte quando glielo permettono i collegamenti (come in Project)
+      if (await setDeps(q, newId, dependsOn || [])) await schedule.reschedule(q, newId, { self: true });
       return newId;
     });
     const created = await getTicket(id);
@@ -232,11 +272,16 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
     const body = readBody(req.body || {}, { partial: true });
     const { fields, assigneeIds, dependsOn } = body;
     if (fields.project_id) await access.assertProject(req, fields.project_id); // spostarlo in un progetto che si vede
-    let previous = [];
+    let previous = [], moved = [];
     await db.tx(async q => {
       const before = await getTicket(id, q);
       previous = before.assignee_ids;
       Object.assign(fields, await rdaRules(q, req, before, body));
+      // barra spostata nel Gantt: come in Project la durata resta la stessa in giorni lavorativi e non si parte di festivo
+      if (req.body?.keep_duration === true && fields.start_date && before.start_date && before.due_date) {
+        fields.start_date = isWorkday(fields.start_date) ? fields.start_date : addWorkdays(fields.start_date, 1);
+        fields.due_date = addWorkdays(fields.start_date, Math.max(1, workdaysIn(before.start_date, before.due_date)) - 1);
+      }
       const start = fields.start_date !== undefined ? fields.start_date : before.start_date;
       const due = fields.due_date !== undefined ? fields.due_date : before.due_date;
       if (start && due && start > due) throw new HttpError(400, 'La scadenza è prima dell\'inizio');
@@ -250,12 +295,23 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       if (projectId && (assigneeIds || fields.project_id)) {
         await access.addMembers(q, projectId, assigneeIds || before.assignee_ids, req.user.id);
       }
-      if (dependsOn) await setDeps(q, id, dependsOn);
+      // Programmazione automatica (lib/schedule.js), come in Microsoft Project:
+      // - collegamenti nuovi o cambiati: il ticket si mette dove dicono i collegamenti;
+      // - date cambiate a mano: il ticket resta dove l'ha messo l'utente e i collegamenti prendono il nuovo scarto;
+      // in tutti e due i casi i successori (anche indiretti) seguono mantenendo i loro scarti.
+      const linksChanged = dependsOn ? await setDeps(q, id, dependsOn) : false;
+      const datesChanged = (fields.start_date !== undefined && fields.start_date !== before.start_date)
+        || (fields.due_date !== undefined && fields.due_date !== before.due_date);
+      if (linksChanged || datesChanged) {
+        if (!linksChanged) await schedule.fitLags(q, id);
+        moved = await schedule.reschedule(q, id, { self: linksChanged });
+      }
     });
-    const touchesEvent = ['title', 'description', 'start_date', 'due_date', 'status', 'project_id'].some(k => k in fields);
+    const touchesEvent = ['title', 'description', 'start_date', 'due_date', 'status', 'project_id'].some(k => k in fields) || moved.some(m => m.id === id);
     if (touchesEvent) await syncOutlook(id);
     const updated = await getTicket(id);
-    res.json(updated);
+    res.json({ ...updated, rescheduled: moved.filter(m => m.id !== id) });
+    syncMoved(moved.filter(m => m.id !== id));
     // email solo a chi è stato aggiunto ora
     if (assigneeIds) ticketMail.notifyAssigned(updated, assigneeIds.filter(uid => !previous.includes(uid)), req.user);
   });
