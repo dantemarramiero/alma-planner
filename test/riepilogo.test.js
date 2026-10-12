@@ -137,6 +137,7 @@ test('solleciti nell\'app: il giorno prima della scadenza e, dopo 2 giorni di ri
   const p = (await api('capo', 'POST', '/api/projects', { name: 'Comune Pescara' })).body;
   await api('capo', 'POST', '/api/tickets', { title: 'Scade lunedì', due_date: '2026-10-19', assignee_ids: [users.luca.id], project_id: p.id });
   await api('capo', 'POST', '/api/tickets', { title: 'Scaduto martedì', due_date: '2026-10-13', assignee_ids: [users.luca.id], project_id: p.id });
+  await api('capo', 'POST', '/api/tickets', { title: 'Scaduto ad agosto', due_date: '2026-08-03', assignee_ids: [users.luca.id], project_id: p.id });
   const friday = '2026-10-16';
   await digest.runReminders(friday);
   await digest.runReminders(friday); // secondo giro: niente doppioni
@@ -145,6 +146,7 @@ test('solleciti nell\'app: il giorno prima della scadenza e, dopo 2 giorni di ri
   assert.deepEqual(luca.filter(n => n.title === 'Scade lunedì').map(n => n.kind), ['due_tomorrow']); // di venerdì per il lunedì
   const capo = await kinds(users.capo.id);
   assert.deepEqual(capo.filter(n => n.title === 'Scaduto martedì').map(n => n.kind), ['overdue_project']);
+  assert.equal(capo.filter(n => n.title === 'Scaduto ad agosto').length, 0); // ritardi vecchi: niente raffica al primo giro
   // la notifica si legge nell'app con il titolo del ticket
   const list = (await api('capo', 'GET', '/api/notifications')).body;
   assert.ok(list.some(n => n.kind === 'overdue_project' && n.ticket_title === 'Scaduto martedì'));
