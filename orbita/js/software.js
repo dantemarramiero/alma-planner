@@ -34,7 +34,10 @@ export async function softwareView(container, parts = []) {
     h('div.seg.sw-tabs', TABS.map(([k, label]) => h('button', { type: 'button', class: k === tab ? 'on' : '', on: { click: () => { location.hash = `#/software/${k}`; } } }, label))),
     body);
   const data = await get('/api/software');
-  if (tab === 'cruscotto') dashboard(body, data);
+  if (tab === 'cruscotto') {
+    dashboard(body, data);
+    if (location.hash.includes('?libere')) document.getElementById('sw-libere')?.scrollIntoView({ block: 'start' });
+  }
   else if (tab === 'catalogo') catalog(body, data);
   else if (tab === 'persone') await peopleTab(body);
   else await packagesTab(body);
@@ -43,6 +46,10 @@ export async function softwareView(container, parts = []) {
 // ── cruscotto ─────────────────────────────────────────────────────────────
 function dashboard(box, data) {
   const t = data.totals;
+  // licenze pagate e non assegnate, le più costose prima
+  const free = data.software.filter(s => s.status !== 'archiviato').flatMap(s => s.plans.filter(p => p.free > 0 && p.unit_cost !== 0)
+    .map(p => ({ s, p, cost: p.monthly_unit === null ? null : p.free * p.monthly_unit })))
+    .sort((a, b) => ((b.cost || 0) - (a.cost || 0)) || b.p.free - a.p.free);
   const kpi = (label, value, sub, warn = false, href = null) => h(href ? 'a.sw-kpi' : 'div.sw-kpi', { class: warn ? 'warn' : '', href },
     h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
   const soon = data.software.filter(s => s.status !== 'archiviato' && s.renewal_date)
@@ -62,10 +69,17 @@ function dashboard(box, data) {
     h('div.sw-kpis',
       kpi('Spesa al mese', eur(t.monthly_cost), `circa ${eur(t.monthly_cost * 12)} all'anno`),
       kpi('Software in uso', num(t.software), t.to_check ? `${num(t.to_check)} scoperti da verificare` : 'tutti verificati', t.to_check > 0, '#/software/catalogo'),
-      kpi('Licenze pagate e libere', num(t.free_seats), t.free_cost ? `${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0),
+      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `pagate e libere, ${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/software/cruscotto?libere' : null),
       kpi('Licenze da recuperare', num(t.departed), t.departed ? 'account disattivati o persone uscite' : 'nessuna', t.departed > 0),
       kpi('Prezzi da completare', num(t.missing_cost + t.estimated), t.estimated ? `${num(t.estimated)} software con prezzo di listino stimato` : 'tutti inseriti', t.missing_cost + t.estimated > 0)),
     h('div.sw-grid',
+      free.length ? h('section.card.sw-card#sw-libere', h('h3', 'Licenze da assegnare'),
+        h('p.small.muted', 'Licenze già pagate che nessuno ha: assegnale a chi entra o riducile al prossimo rinnovo.'),
+        h('div.sw-list', free.map(({ s, p, cost }) => h('a.sw-line', { href: `#/software/${s.id}` },
+          h('span.grow', h('strong', p.name), h('span.small.muted', ` ${vendorKey(s)}${s.name !== vendorKey(s) ? ` · ${s.name}` : ''}`)),
+          h('span.sw-free-n', `${num(p.free)} ${p.free === 1 ? 'libera' : 'libere'}`),
+          h('span.small.muted.num', cost === null ? 'prezzo da inserire' : `${eur(cost)}/mese`),
+          p.renewal_date ? h('span.small.muted', `rinnovo ${fmtDate(p.renewal_date, { year: true })}`) : null)))) : null,
       sourcesCard(data),
       h('section.card.sw-card', h('h3', 'Dove va la spesa, per fornitore'),
         top.length ? h('div.sw-bars', top.map(s => h('a.sw-bar', { href: vendorHref(s.v) },

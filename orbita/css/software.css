@@ -94,3 +94,8 @@ table.list td.sw-wrap { max-width: 28rem; }
 /* sul telefono i selettori vanno a capo invece di allargare la pagina */
 .sw-tools .seg { flex-wrap: wrap; max-width: 100%; }
 .sw-tile-facts > div { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+.sw-free-n { font-weight: var(--ap-fw-bold); color: var(--orange-fill, var(--orange)); white-space: nowrap; }
+@media (max-width: 600px) {
+  .sw-line { flex-wrap: wrap; }
+  .sw-line .grow { flex: 1 1 100%; }
+}
