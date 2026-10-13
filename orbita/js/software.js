@@ -6,7 +6,7 @@ import { get, post, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 
-const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['pacchetti', 'Pacchetti per ruolo'], ['proposte', 'Proposte']];
+const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['libere', 'Da assegnare'], ['pacchetti', 'Pacchetti per ruolo'], ['proposte', 'Proposte']];
 const STATUS = { attivo: 'In uso', da_verificare: 'Da verificare', archiviato: 'Archiviato' };
 const BILLING = { mese: 'al mese', anno: 'all\'anno', una_tantum: 'una tantum' };
 const SOURCE = { manuale: 'A mano', microsoft: 'Microsoft 365', entra: 'Entra', claude: 'Claude (Anthropic)', pacchetto: 'Pacchetto' };
@@ -39,10 +39,9 @@ export async function softwareView(container, parts = []) {
   const data = await get('/api/software');
   // quante proposte aspettano il team IT, accanto al tab
   if (data.totals.proposals) tabs.querySelector('[data-k="proposte"]').append(h('span.sw-count-badge', num(data.totals.proposals)));
-  if (tab === 'cruscotto') {
-    dashboard(body, data);
-    if (location.hash.includes('?libere')) document.getElementById('sw-libere')?.scrollIntoView({ block: 'start' });
-  }
+  if (data.totals.free_seats) tabs.querySelector('[data-k="libere"]').append(h('span.sw-count-badge.soft', num(data.totals.free_seats)));
+  if (tab === 'cruscotto') dashboard(body, data);
+  else if (tab === 'libere') freeTab(body, data);
   else if (tab === 'catalogo') catalog(body, data);
   else if (tab === 'persone') await peopleTab(body);
   else if (tab === 'pacchetti') await packagesTab(body);
@@ -52,10 +51,6 @@ export async function softwareView(container, parts = []) {
 // ── cruscotto ─────────────────────────────────────────────────────────────
 function dashboard(box, data) {
   const t = data.totals;
-  // licenze pagate e non assegnate, le più costose prima
-  const free = data.software.filter(s => s.status !== 'archiviato').flatMap(s => s.plans.filter(p => p.free > 0 && p.unit_cost !== 0)
-    .map(p => ({ s, p, cost: p.monthly_unit === null ? null : p.free * p.monthly_unit })))
-    .sort((a, b) => ((b.cost || 0) - (a.cost || 0)) || b.p.free - a.p.free);
   const kpi = (label, value, sub, warn = false, href = null) => h(href ? 'a.sw-kpi' : 'div.sw-kpi', { class: warn ? 'warn' : '', href },
     h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
   const soon = data.software.filter(s => s.status !== 'archiviato' && s.renewal_date)
@@ -75,17 +70,10 @@ function dashboard(box, data) {
     h('div.sw-kpis',
       kpi('Spesa al mese', eur(t.monthly_cost), `circa ${eur(t.monthly_cost * 12)} all'anno`),
       kpi('Software in uso', num(t.software), t.to_check ? `${num(t.to_check)} scoperti da verificare` : 'tutti verificati', t.to_check > 0, '#/software/catalogo'),
-      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `pagate e libere, ${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/software/cruscotto?libere' : null),
+      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `pagate e libere, ${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/software/libere' : null),
       kpi('Licenze da recuperare', num(t.departed), t.departed ? 'account disattivati o persone uscite' : 'nessuna', t.departed > 0),
       kpi('Prezzi da completare', num(t.missing_cost + t.estimated), t.estimated ? `${num(t.estimated)} software con prezzo di listino stimato` : 'tutti inseriti', t.missing_cost + t.estimated > 0)),
     h('div.sw-grid',
-      free.length ? h('section.card.sw-card#sw-libere', h('h3', 'Licenze da assegnare'),
-        h('p.small.muted', 'Licenze già pagate che nessuno ha: assegnale a chi entra o riducile al prossimo rinnovo.'),
-        h('div.sw-list', free.map(({ s, p, cost }) => h('a.sw-line', { href: `#/software/${s.id}` },
-          h('span.grow', h('strong', p.name === 'Licenza' ? s.name : p.name), h('span.small.muted', ` ${vendorKey(s)}${s.name !== vendorKey(s) && p.name !== 'Licenza' ? ` · ${s.name}` : ''}`)),
-          h('span.sw-free-n', `${num(p.free)} ${p.free === 1 ? 'libera' : 'libere'}`),
-          h('span.small.muted.num', cost === null ? 'prezzo da inserire' : `${eur(cost)}/mese`),
-          p.renewal_date ? h('span.small.muted', `rinnovo ${fmtDate(p.renewal_date, { year: true })}`) : null)))) : null,
       sourcesCard(data),
       h('section.card.sw-card', h('h3', 'Dove va la spesa, per fornitore'),
         top.length ? h('div.sw-bars', top.map(s => h('a.sw-bar', { href: vendorHref(s.v) },
@@ -274,6 +262,71 @@ async function vendorView(container, vendor) {
             assignPlan({ ...p, software_id: s.id }, p.name === 'Licenza' ? s.name : `${s.name} · ${p.name}`, () => vendorView(container, vendor));
           } } }, icon('plus', { size: 14 }), 'Assegna')))))))
         : h('p.small.muted', 'Nessuna licenza inserita.'))));
+}
+
+// ── da assegnare ──────────────────────────────────────────────────────────
+// Licenze già pagate che nessuno ha, le più costose prima: un riquadro per licenza (o una riga), con «Assegna».
+function freeTab(box, data) {
+  const VIEW_KEY = 'alma.swFreeView';
+  let view = 'riquadri';
+  try { view = localStorage.getItem(VIEW_KEY) === 'elenco' ? 'elenco' : 'riquadri'; } catch { /* niente */ }
+  let q = '';
+  const all = data.software.filter(sw => sw.status !== 'archiviato')
+    .flatMap(sw => sw.plans.filter(p => p.free > 0 && p.unit_cost !== 0)
+      .map(p => ({ sw, p, label: p.name === 'Licenza' ? sw.name : p.name, cost: p.monthly_unit === null ? null : p.free * p.monthly_unit })))
+    .sort((a, b) => ((b.cost || 0) - (a.cost || 0)) || b.p.free - a.p.free);
+  const out = h('div');
+  const viewSeg = h('div.seg.sw-view', { role: 'group', 'aria-label': 'Vista' }, [['riquadri', 'Riquadri'], ['elenco', 'Elenco']].map(([k, label]) =>
+    h('button', { type: 'button', 'data-v': k, on: { click: () => { view = k; try { localStorage.setItem(VIEW_KEY, k); } catch { /* niente */ } draw(); } } },
+      icon(k === 'riquadri' ? 'grid' : 'list', { size: 15 }), label)));
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca una licenza o un fornitore', 'aria-label': 'Cerca', on: { input: debounce(e => { q = lc(e.target.value.trim()); draw(); }, 150) } });
+  const total = all.reduce((a, x) => a + (x.cost || 0), 0);
+  fill(box,
+    h('p.muted', all.length
+      ? `Licenze già pagate che nessuno ha: ${num(all.reduce((a, x) => a + x.p.free, 0))} in tutto, circa ${eur(total)} al mese. Assegnale a chi entra o riducile al prossimo rinnovo.`
+      : 'Nessuna licenza pagata e libera: tutte quelle acquistate sono assegnate.'),
+    all.length ? h('div.sw-tools', search, viewSeg) : null,
+    out);
+  draw();
+
+  function assign(x) {
+    return x.p.external_id
+      ? h('span.small.muted', x.p.external_id === 'collegati' ? '' : `si assegna in ${SOURCE[x.sw.source] || x.sw.source}`)
+      : h('button.btn.btn-sm', { type: 'button', on: { click: e => {
+        e.preventDefault();
+        e.stopPropagation();
+        assignPlan({ ...x.p, software_id: x.sw.id }, x.label, () => softwareView(box.closest('#view') || box.parentElement, ['software', 'libere']));
+      } } }, icon('plus', { size: 14 }), 'Assegna');
+  }
+
+  function draw() {
+    viewSeg.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.setAttribute('aria-pressed', String(b.dataset.v === view)); });
+    const rows = all.filter(x => !q || lc(`${x.label} ${x.sw.name} ${vendorKey(x.sw)}`).includes(q));
+    if (!all.length) return fill(out);
+    if (!rows.length) return fill(out, h('div.card.empty', 'Nessuna licenza trovata.'));
+    if (view === 'riquadri') {
+      return fill(out, h('div.sw-tiles', rows.map(x => h('a.sw-tile', { href: `#/software/${x.sw.id}` },
+        h('div.sw-tile-head', h('span.sw-mono', { style: { '--c': monoColor(vendorKey(x.sw)) }, 'aria-hidden': 'true' }, monogram(vendorKey(x.sw))),
+          h('div.grow', h('strong.sw-tile-name', x.label), h('div.small.muted.sw-tile-sub', x.sw.name !== x.label ? `${vendorKey(x.sw)} · ${x.sw.name}` : vendorKey(x.sw)))),
+        h('div.sw-tile-cost', h('strong.sw-free-big', num(x.p.free)), h('span.muted', x.p.free === 1 ? ' libera' : ' libere')),
+        h('div.sw-tile-use', { title: `${num(x.p.assigned)} assegnate di ${num(x.p.seats)}` }, h('i', { style: { width: `${Math.min(100, (x.p.assigned / x.p.seats) * 100)}%` } })),
+        h('dl.sw-tile-facts',
+          h('div', h('dt', 'Assegnate'), h('dd', `${num(x.p.assigned)} di ${num(x.p.seats)}`)),
+          h('div', h('dt', 'Costo delle libere'), h('dd', x.cost === null ? 'prezzo da inserire' : `${eur(x.cost)}/mese`)),
+          h('div', h('dt', 'Rinnovo'), h('dd', x.p.renewal_date ? fmtDate(x.p.renewal_date, { year: true }) : '—'))),
+        h('div.sw-tile-actions', assign(x))))));
+    }
+    fill(out, h('div.card.table-wrap', h('table.list',
+      h('thead', h('tr', ['Licenza', 'Fornitore', 'Libere', 'Assegnate', 'Costo delle libere', 'Rinnovo', ''].map(t => h('th', t)))),
+      h('tbody', rows.map(x => h('tr', { on: { click: () => { location.hash = `#/software/${x.sw.id}`; } } },
+        h('td', h('strong', x.label), x.sw.name !== x.label ? h('div.small.muted', x.sw.name) : null),
+        h('td', vendorKey(x.sw)),
+        h('td.num', h('span.sw-free-n', num(x.p.free))),
+        h('td.num', `${num(x.p.assigned)} di ${num(x.p.seats)}`),
+        h('td.num', x.cost === null ? h('span.muted', 'prezzo da inserire') : `${eur(x.cost)}/mese`),
+        h('td', x.p.renewal_date ? fmtDate(x.p.renewal_date, { year: true }) : h('span.muted', '—')),
+        h('td', assign(x))))))));
+  }
 }
 
 // ── scheda software ───────────────────────────────────────────────────────

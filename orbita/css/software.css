@@ -130,3 +130,8 @@ table.list td.sw-wrap { max-width: 28rem; }
 .sw-person-actions { margin-bottom: var(--ap-space-3); }
 .sw-plan-table td:last-child { text-align: right; white-space: nowrap; }
 .sw-over { color: var(--orange-fill, var(--orange)); font-weight: var(--ap-fw-bold); }
+
+/* Da assegnare: riquadri delle licenze pagate e libere */
+.sw-count-badge.soft { background: var(--ap-grey-200, var(--ap-grey-100)); color: var(--ap-text-strong); }
+.sw-free-big { font-size: 1.6rem; color: var(--orange-fill, var(--orange)); font-variant-numeric: tabular-nums; }
+.sw-tile-actions { display: flex; justify-content: flex-end; align-items: center; min-height: 32px; }
