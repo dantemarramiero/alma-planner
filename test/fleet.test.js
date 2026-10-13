@@ -405,6 +405,23 @@ test('importazione da Zoho: anteprima, categorie concordate, valori uniformati, 
   assert.equal(audi2.qr_token, audi.qr_token);
 });
 
+test('icone delle categorie: dal nome quando nessuno la sceglie, modificabili, arrivano con i mezzi', async () => {
+  const cats = (await api('gestore', 'GET', '/api/mezzi/categorie')).body;
+  const icon = name => cats.find(c => c.name === name)?.icon;
+  // categorie create dall'importazione di Zoho e a mano
+  assert.equal(icon('Autovetture'), 'auto');
+  assert.equal(icon('Escavatori'), 'escavatore');
+  assert.equal(icon('Da classificare'), 'generico');
+  assert.equal(icon('Furgoni'), 'furgone');
+  const gru = (await api('gestore', 'POST', '/api/mezzi/categorie', { name: 'Escavatori con gru' })).body;
+  assert.equal(gru.icon, 'gru');
+  assert.equal((await api('gestore', 'PATCH', `/api/mezzi/categorie/${gru.id}`, { icon: 'razzo' })).status, 400);
+  assert.equal((await api('gestore', 'PATCH', `/api/mezzi/categorie/${gru.id}`, { icon: 'escavatore' })).body.icon, 'escavatore');
+  const v = (await api('gestore', 'GET', '/api/mezzi/elenco')).body.find(x => x.code === 'MEZ193');
+  assert.equal(v.category_icon, 'auto');
+  assert.ok((await api('anna', 'GET', '/api/mezzi')).body.categories.every(c => typeof c.icon === 'string'));
+});
+
 test('manutenzioni: bolle allegate (PDF e foto), aperte dai gestori, e manutenzione registrata da una segnalazione', async () => {
   const list = (await api('gestore', 'GET', '/api/mezzi/elenco')).body;
   const car = list.find(x => x.code === 'MEZ192');

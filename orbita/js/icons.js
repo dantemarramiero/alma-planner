@@ -44,6 +44,20 @@ const P = {
   car: '<path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/>',
 };
 
+// Mezzi aziendali: un'icona per categoria (vista di lato). «veh-autocarro» è il truck di Lucide; le altre sono
+// disegnate nello stesso stile (tratto 1.75, 24×24) perché Lucide non ha escavatori, furgoni e cassoni.
+Object.assign(P, {
+  'veh-auto': '<path d="M2 15.5V12.5L4.5 8H14l3.5 4H21a1 1 0 0 1 1 1v2.5"/><path d="M4.5 12h13"/><path d="M10 8v4"/><path d="M8 16h7"/><path d="M2 16h2"/><path d="M19.5 16H22"/><circle cx="6" cy="16" r="2"/><circle cx="17.5" cy="16" r="2"/>',
+  'veh-autocarro': '<rect x="1.5" y="4" width="13.5" height="12" rx="1"/><path d="M15 16V8h3.5l3.5 4.5V16h-1.5"/><path d="M15 12h7"/><circle cx="4.5" cy="17.5" r="1.8"/><circle cx="9" cy="17.5" r="1.8"/><circle cx="18.5" cy="17.5" r="1.8"/>',
+  'veh-cassone-aperto': '<path d="M2 11v5h11"/><path d="M5 11v2"/><path d="M9 11v2"/><path d="M13 16V8h4l3 4h1a1 1 0 0 1 1 1v3h-2"/><path d="M8 16.5h7"/><circle cx="6" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/>',
+  'veh-furgone': '<path d="M4 16.5H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12l4 4h2a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1h-1"/><path d="M15 6v4h4"/><path d="M8.5 16.5h6"/><circle cx="6.5" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/>',
+  'veh-cassone-chiuso': '<rect x="2" y="4" width="11" height="12" rx="1"/><path d="M13 16V9h4l3 3.5h1a1 1 0 0 1 1 1V16h-2"/><path d="M8.5 16.5h6"/><circle cx="6" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/>',
+  'veh-escavatore': '<rect x="2" y="16" width="12" height="4" rx="2"/><path d="M4 16v-5h6v5"/><path d="M6 11V9h3"/><path d="M10 12l5-6 5 4"/><path d="M20 10v3l-2.5 1"/>',
+  'veh-gru': '<rect x="3" y="17" width="11" height="3" rx="1.5"/><path d="M5 17v-4h6v4"/><path d="M10 13 19 4"/><path d="M19 4v7"/><path d="M19 11a1.5 1.5 0 1 1-1.5 1.5"/>',
+  'veh-moto': '<circle cx="5" cy="16.5" r="3"/><circle cx="19" cy="16.5" r="3"/><path d="M5 16.5 8 11h7l4 5.5"/><path d="M7 9h5"/><rect x="9.5" y="12.5" width="4.5" height="3" rx="1"/><path d="M15 11l1.5-4h2.5"/>',
+  'veh-generico': '<rect x="3" y="6" width="18" height="10" rx="2"/><path d="M3 11h18"/><circle cx="7.5" cy="18" r="2"/><circle cx="16.5" cy="18" r="2"/>',
+});
+
 const NS = 'http://www.w3.org/2000/svg';
 
 // Un'icona come elemento SVG; title = testo per chi non vede l'icona (altrimenti è decorativa).

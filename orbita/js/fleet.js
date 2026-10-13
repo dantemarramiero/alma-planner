@@ -42,6 +42,24 @@ const annualCosts = a => {
   return e.length ? e.map(([k, n]) => `${ANNUAL[k] || k} ${eur(n)}`).join(' · ') : null;
 };
 
+// Icona del mezzo secondo la categoria (scelta in Impostazioni, altrimenti ricavata dal nome).
+const VEH_ICONS = [['auto', 'Auto'], ['autocarro', 'Autocarro'], ['furgone', 'Furgone'], ['cassone-aperto', 'Cassone aperto'], ['cassone-chiuso', 'Cassone chiuso'],
+  ['escavatore', 'Escavatore'], ['gru', 'Escavatore con gru'], ['moto', 'Moto'], ['generico', 'Altro']];
+function guessIcon(name) {
+  const n = String(name || '').toLowerCase();
+  if (/gru/.test(n)) return 'gru';
+  if (/escavat|ruspa|pala|terna|bob|mini/.test(n)) return 'escavatore';
+  if (/cassone aperto|pianale|ribaltabile|pick.?up/.test(n)) return 'cassone-aperto';
+  if (/cassone chiuso|centinato|furgonato/.test(n)) return 'cassone-chiuso';
+  if (/furgon/.test(n)) return 'furgone';
+  if (/autocarr|camion|trattore/.test(n)) return 'autocarro';
+  if (/moto|scooter|ciclomot/.test(n)) return 'moto';
+  if (/auto|vettur/.test(n)) return 'auto';
+  return 'generico';
+}
+const iconKey = (key, name) => key || guessIcon(name);
+const vehIcon = (key, name, size = 20) => h('span.fl-vico', { title: name || '' }, icon(`veh-${iconKey(key, name)}`, { size }));
+
 const field = (label, input, hint) => h('label.field', h('span', label), input, hint ? h('small.muted', hint) : null);
 const input = (attrs = {}) => h('input.input', attrs);
 const select = (options, value, attrs = {}) => h('select.select', attrs, options.map(([k, label]) => h('option', { value: k, selected: String(k) === String(value ?? '') }, label)));
@@ -100,7 +118,7 @@ function categoryCards(cats, manager) {
     const total = manager ? c.total : c.total - (c.assegnato || 0);
     const pct = total ? Math.round((c.libero / total) * 100) : 0;
     return h('div.card.fl-cat',
-      h('div.spread', h('strong', c.name), h('span.fl-free', { class: c.libero ? '' : 'none' }, `${c.libero} ${c.libero === 1 ? 'libero' : 'liberi'}`)),
+      h('div.spread', h('strong.fl-with-ico', vehIcon(c.icon, c.name, 22), c.name), h('span.fl-free', { class: c.libero ? '' : 'none' }, `${c.libero} ${c.libero === 1 ? 'libero' : 'liberi'}`)),
       h('div.fl-bar', h('i', { style: { width: `${pct}%` } })),
       h('div.small.muted', [`${total} in tutto`, c.in_uso && `${c.in_uso} in uso`, c.prenotato && `${c.prenotato} prenotati ora`,
         c.manutenzione && `${c.manutenzione} in manutenzione`, c.fuori_servizio && `${c.fuori_servizio} fuori servizio`, manager && c.assegnato && `${c.assegnato} assegnati`].filter(Boolean).join(' · ')),
@@ -112,7 +130,7 @@ function myBookings(list, reload) {
   if (!list.length) return h('div.card.empty', 'Nessuna prenotazione. Con «Prenota un mezzo» chiedi la categoria che ti serve.');
   return h('div.card.fl-list', list.map(b => h('a.fl-row', { href: `#/mezzi/prenotazioni/${b.id}` },
     h('div.grow',
-      h('div', h('strong', b.vehicle_id ? `${vName(b)}` : b.category_name), b.vehicle_id ? h('span.muted', ` ${vModel(b)}`) : h('span.muted', ' · mezzo da assegnare')),
+      h('div.fl-with-ico', vehIcon(b.category_icon, b.category_name, 18), h('strong', b.vehicle_id ? `${vName(b)}` : b.category_name), b.vehicle_id ? h('span.muted', ` ${vModel(b)}`) : h('span.muted', ' · mezzo da assegnare')),
       h('div.small.muted', `${dt(b.start_at)} → ${dt(b.end_at)} · ${b.purpose}`)),
     bookingPill(b.status),
     b.status === 'approvata' || b.status === 'in_corso' ? h('span.small.fl-act', b.status === 'approvata' ? 'Ritira' : 'Riconsegna') : null)));
@@ -125,6 +143,11 @@ export async function bookingForm({ onDone } = {}) {
   const start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
   const end = new Date(start); end.setHours(start.getHours() + 4);
   const cat = select(cats.map(c => [c.id, c.name]), cats[0].id);
+  // accanto alla tendina, il disegno della categoria scelta
+  const catIcon = h('span.fl-cat-select-ico');
+  const showCatIcon = () => { const c = cats.find(x => String(x.id) === cat.value); fill(catIcon, vehIcon(c?.icon, c?.name, 26)); };
+  cat.addEventListener('change', showCatIcon);
+  showCatIcon();
   const from = input({ type: 'datetime-local', value: toLocal(start), step: 900 });
   const to = input({ type: 'datetime-local', value: toLocal(end), step: 900 });
   const purpose = input({ placeholder: 'Es. sopralluogo cantiere, riunione dal cliente', maxLength: 300 });
@@ -148,7 +171,7 @@ export async function bookingForm({ onDone } = {}) {
   const m = modal({
     title: 'Prenota un mezzo',
     body: [
-      field('Categoria', cat, 'Chiedi il tipo di mezzo: quello preciso lo sceglie il gestore.'),
+      field('Categoria', h('div.fl-cat-select', catIcon, cat), 'Chiedi il tipo di mezzo: quello preciso lo sceglie il gestore.'),
       h('div.grid-2', field('Ritiro', from), field('Riconsegna', to)),
       avail,
       field('Motivo', purpose),
@@ -349,8 +372,8 @@ async function qrView(container, token) {
   fill(container,
     h('div.fl-qr',
       h('div.card.fl-qr-head',
-        x.photo_media_id ? h('img.fl-photo', { src: mediaUrl(x.photo_media_id), alt: '' }) : h('span.fl-photo.ph', icon('car', { size: 34 })),
-        h('div', h('div.fl-label', x.category_name), h('h1', vName(x)), h('div.muted', [vModel(x), x.km !== null ? `${num(x.km)} km` : null].filter(Boolean).join(' · ')),
+        x.photo_media_id ? h('img.fl-photo', { src: mediaUrl(x.photo_media_id), alt: '' }) : h('span.fl-photo.ph', icon(`veh-${iconKey(x.category_icon, x.category_name)}`, { size: 38 })),
+        h('div', h('div.fl-label', x.category_name), h('h1.fl-with-ico', vehIcon(x.category_icon, x.category_name, 30), vName(x)), h('div.muted', [vModel(x), x.km !== null ? `${num(x.km)} km` : null].filter(Boolean).join(' · ')),
           h('div.fl-qr-state', statePill(x.state), h('span.small', where)))),
       b ? h('div.card.fl-qr-mine', h('strong', b.status === 'in_corso' ? 'Lo stai usando tu' : 'È prenotato per te'),
         h('div.small.muted', `${dt(b.start_at)} → ${dt(b.end_at)} · ${b.purpose}`)) : null,
@@ -410,7 +433,7 @@ function vehicleCard(x) {
   }[x.state] || '';
   const late = x.state === 'in_uso' && new Date(x.current_end) < new Date();
   return h('a.card.fl-vcard', { href: `#/mezzi/v/${x.id}`, class: late ? 'late' : '' },
-    h('div.spread', h('strong', vName(x)), statePill(x.state)),
+    h('div.spread', h('strong.fl-with-ico', vehIcon(x.category_icon, x.category_name), vName(x)), statePill(x.state)),
     h('div.small.muted', `${vModel(x) || '—'} · ${x.category_name}`),
     h('div.small', late ? `In ritardo: doveva rientrare ${dt(x.current_end)} (${x.current_user_name})` : line),
     x.open_reports ? h('div.small.fl-warn', icon('bell', { size: 14 }), ` ${x.open_reports} ${x.open_reports === 1 ? 'segnalazione aperta' : 'segnalazioni aperte'}`) : null);
@@ -431,7 +454,7 @@ async function requestsTab(box) {
       h('thead', h('tr', ['Chi', 'Categoria / mezzo', 'Dal', 'Al', 'Motivo', 'Stato'].map(t => h('th', t)))),
       h('tbody', rows.map(b => h('tr', { on: { click: () => { location.hash = `#/mezzi/prenotazioni/${b.id}`; } } },
         h('td', h('strong', b.requester_name)),
-        h('td', b.vehicle_id ? `${vName(b)}` : h('span', b.category_name, h('span.muted', ' · da assegnare'))),
+        h('td.fl-with-ico', vehIcon(b.category_icon, b.category_name, 18), b.vehicle_id ? `${vName(b)}` : h('span', b.category_name, h('span.muted', ' · da assegnare'))),
         h('td', dt(b.start_at)), h('td', dt(b.end_at)),
         h('td', h('div', b.purpose), b.notes ? h('div.small.muted', b.notes) : null),
         h('td', bookingPill(b.status))))))));
@@ -495,7 +518,7 @@ async function plannerTab(box) {
       h('div.fl-plan-row.head', h('div.fl-plan-name'), h('div.fl-plan-days', days.map(x => h('span', { class: [x.getDay() % 6 === 0 ? 'we' : '', toLocal(x).slice(0, 10) === todayKey ? 'today' : ''].join(' ') },
         x.toLocaleDateString('it-IT', { weekday: 'short' }), h('b', String(x.getDate())))))),
       d.vehicles.map(x => h('div.fl-plan-row',
-        h('a.fl-plan-name', { href: `#/mezzi/v/${x.id}` }, h('strong', x.code), h('small', vModel(x) || x.category_name)),
+        h('a.fl-plan-name', { href: `#/mezzi/v/${x.id}` }, h('strong.fl-with-ico', vehIcon(x.category_icon, x.category_name, 16), x.code), h('small', vModel(x) || x.category_name)),
         h('div.fl-plan-days.track', days.map(dd => h('span', { class: dd.getDay() % 6 === 0 ? 'we' : '' })),
           d.maintenance.filter(m => m.vehicle_id === x.id).map(m => h('i.fl-bar-m', { style: pos(`${m.start_date}T00:00`, m.end_date ? `${String(m.end_date).slice(0, 10)}T23:59` : end), title: `${MAINT[m.kind]}${m.supplier ? ` · ${m.supplier}` : ''}` }, MAINT[m.kind])),
           d.bookings.filter(b => b.vehicle_id === x.id).map(b => h('a.fl-bar-b', {
@@ -531,7 +554,7 @@ async function listTab(box) {
     fill(table, h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', ['Mezzo', 'Categoria', 'Modello', 'Km', 'Stato', 'Prossima scadenza', 'Sede'].map(t => h('th', t)))),
       h('tbody', rows.map(x => h('tr', { on: { click: () => { location.hash = `#/mezzi/v/${x.id}`; } } },
-        h('td', h('strong', x.code), x.plate ? h('div.small.muted', x.plate) : null),
+        h('td', h('strong.fl-with-ico', vehIcon(x.category_icon, x.category_name, 18), x.code), x.plate ? h('div.small.muted', x.plate) : null),
         h('td', x.category_name), h('td', vModel(x) || '—'), h('td.num', num(x.km)),
         h('td', statePill(x.state), x.open_reports ? h('div.small.fl-warn', `${x.open_reports} segnalazioni`) : null),
         h('td', x.next_deadline ? deadlineDate(x.next_deadline) : '—'), h('td', x.location || '—')))))));
@@ -649,7 +672,7 @@ async function vehicleView(container, id) {
   const reload = () => vehicleView(container, id);
   if (!d.manager) {
     return fill(container,
-      h('div.page-head', h('div', h('h1', vName(x)), h('div.sub', `${vModel(x)} · ${x.category_name}`)), statePill(x.state)),
+      h('div.page-head', h('div', h('h1.fl-with-ico', vehIcon(x.category_icon, x.category_name, 30), vName(x)), h('div.sub', `${vModel(x)} · ${x.category_name}`)), statePill(x.state)),
       h('div.row.fl-actions', h('button.btn', { type: 'button', on: { click: () => reportDialog(x, reload) } }, 'Segnala un problema'),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => bookingForm() } }, 'Prenota un mezzo')));
   }
@@ -670,7 +693,7 @@ async function vehicleView(container, id) {
     dismesso: 'Dismesso',
   }[x.state];
   fill(container,
-    h('div.page-head', h('div', h('h1', vName(x)), h('div.sub', `${vModel(x) || '—'} · ${x.category_name}`)),
+    h('div.page-head', h('div', h('h1.fl-with-ico', vehIcon(x.category_icon, x.category_name, 30), vName(x)), h('div.sub', `${vModel(x) || '—'} · ${x.category_name}`)),
       h('div.row',
         h('button.btn', { type: 'button', on: { click: () => vehicleForm(x, reload) } }, 'Modifica'),
         h('button.btn', { type: 'button', on: { click: () => reportDialog(x, reload) } }, 'Segnala'),
@@ -1026,7 +1049,7 @@ async function settingsTab(box) {
   };
   name.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
   const catRow = c => h('div.fl-row', { class: c.archived ? 'muted' : '' },
-    h('div.grow', h('strong', c.name), h('div.small.muted', `${c.vehicles} mezzi${c.archived ? ' · archiviata' : ''}${c.description ? ` · ${c.description}` : ''}`)),
+    h('div.grow', h('strong.fl-with-ico', vehIcon(c.icon, c.name, 20), c.name), h('div.small.muted', `${c.vehicles} mezzi${c.archived ? ' · archiviata' : ''}${c.description ? ` · ${c.description}` : ''}`)),
     h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => categoryForm(c, () => settingsTab(box)) } }, 'Modifica'),
     h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: async () => { await patch(`/api/mezzi/categorie/${c.id}`, { archived: !c.archived }); settingsTab(box); } } }, c.archived ? 'Ripristina' : 'Archivia'),
     !c.vehicles ? h('button.btn.btn-sm.btn-ghost', { type: 'button', title: 'Elimina', on: { click: async () => {
@@ -1058,11 +1081,22 @@ function categoryForm(c, done) {
   const name = input({ value: c.name, maxLength: 80 });
   const desc = input({ value: c.description || '', maxLength: 300, placeholder: 'Es. 5 posti, patente B' });
   const pos = input({ type: 'number', value: c.position, min: 0 });
+  // icona: una griglia di disegni, quello scelto evidenziato
+  let chosen = iconKey(c.icon, c.name);
+  const picker = h('div.fl-icon-pick', { role: 'radiogroup', 'aria-label': 'Icona della categoria' }, VEH_ICONS.map(([k, label]) => h('button', {
+    type: 'button', role: 'radio', 'aria-checked': String(k === chosen), class: k === chosen ? 'on' : '', title: label, 'data-k': k,
+    on: { click: e => {
+      chosen = k;
+      picker.querySelectorAll('button').forEach(b => { const on = b.dataset.k === k; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+      e.currentTarget.blur();
+    } },
+  }, icon(`veh-${k}`, { size: 28 }), h('span', label))));
   const ok = h('button.btn.btn-primary', { type: 'button' }, 'Salva');
-  const m = modal({ title: 'Categoria', body: [field('Nome', name), field('Descrizione', desc), field('Ordine', pos)], actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok] });
+  const m = modal({ title: 'Categoria', body: [field('Nome', name), field('Icona', picker, 'Compare accanto ai mezzi della categoria: elenco, planner, QR ed etichette.'), field('Descrizione', desc), field('Ordine', pos)],
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok] });
   ok.addEventListener('click', async () => {
     try {
-      await patch(`/api/mezzi/categorie/${c.id}`, { name: name.value, description: desc.value, position: Number(pos.value) || 0 });
+      await patch(`/api/mezzi/categorie/${c.id}`, { name: name.value, description: desc.value, position: Number(pos.value) || 0, icon: chosen });
       m.close();
       done();
     } catch { /* messaggio già mostrato */ }
@@ -1142,6 +1176,6 @@ async function labelsView(container) {
       h('div.row', h('a.btn', { href: '#/mezzi/elenco' }, 'Torna ai mezzi'), h('button.btn.btn-primary', { type: 'button', on: { click: () => window.print() } }, 'Stampa'))),
     all.length ? h('div.fl-labels', all.map(x => h('div.fl-label-card',
       h('img', { src: `/api/mezzi/${x.id}/qr.svg`, alt: '' }),
-      h('div', h('div.fl-label-brand', 'Alma Planet · Mezzi'), h('strong', x.code), x.plate ? h('div', x.plate) : null, h('div.small', vModel(x)),
+      h('div', h('div.fl-label-brand', 'Alma Planet · Mezzi'), h('strong.fl-with-ico', vehIcon(x.category_icon, x.category_name, 22), x.code), x.plate ? h('div', x.plate) : null, h('div.small', vModel(x)),
         h('div.small.muted', 'Inquadra per ritirare, riconsegnare o segnalare un problema'))))) : h('div.card.empty', 'Nessun mezzo.'));
 }

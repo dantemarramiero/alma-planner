@@ -4,7 +4,7 @@
 // scadenze, manutenzioni, costi, storico di chi ha usato ogni mezzo, «chi guidava il…» per le multe.
 const QRCode = require('qrcode');
 const express = require('express');
-const { planImport, applyImport } = require('../lib/fleet-import');
+const { planImport, applyImport, iconFor, CATEGORY_ICONS } = require('../lib/fleet-import');
 const { HttpError, v } = require('../lib/http');
 const { checkOwnMedia, sniffImage, toBuffer } = require('../lib/media');
 const { newQrToken, vehicleName, itDateTime, esc, DEADLINE_LABEL } = require('../lib/fleet');
@@ -54,7 +54,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
   }
   async function getBooking(id) {
     const { rows: [b] } = await db.query(
-      `SELECT b.*, c.name AS category_name, u.name AS requester_name, u.email AS requester_email,
+      `SELECT b.*, c.name AS category_name, c.icon AS category_icon, u.name AS requester_name, u.email AS requester_email,
               v.code, v.plate, v.make, v.model, v.qr_token, d.name AS decided_by_name
          FROM vehicle_bookings b JOIN vehicle_categories c ON c.id = b.category_id JOIN users u ON u.id = b.requester_id
          LEFT JOIN vehicles v ON v.id = b.vehicle_id LEFT JOIN users d ON d.id = b.decided_by
@@ -82,7 +82,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
       db.query('SELECT * FROM vehicle_categories WHERE NOT archived ORDER BY position, lower(name)'),
       fleet.vehicleStates("v.status <> 'dismesso'"),
       db.query(
-        `SELECT b.*, c.name AS category_name, v.code, v.plate, v.make, v.model
+        `SELECT b.*, c.name AS category_name, c.icon AS category_icon, v.code, v.plate, v.make, v.model
            FROM vehicle_bookings b JOIN vehicle_categories c ON c.id = b.category_id LEFT JOIN vehicles v ON v.id = b.vehicle_id
           WHERE b.requester_id = $1 AND (b.status IN ('richiesta', 'approvata', 'in_corso') OR b.end_at > now() - interval '30 days')
           ORDER BY CASE b.status WHEN 'in_corso' THEN 0 WHEN 'approvata' THEN 1 WHEN 'richiesta' THEN 2 ELSE 3 END, b.start_at DESC
@@ -170,7 +170,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     if (req.query.from) add('b.end_at >= ?', when(req.query.from, 'da'));
     if (req.query.to) add('b.start_at <= ?', when(req.query.to, 'a'));
     const { rows } = await db.query(
-      `SELECT b.*, c.name AS category_name, u.name AS requester_name, v.code, v.plate, v.make, v.model, d.name AS decided_by_name
+      `SELECT b.*, c.name AS category_name, c.icon AS category_icon, u.name AS requester_name, v.code, v.plate, v.make, v.model, d.name AS decided_by_name
          FROM vehicle_bookings b JOIN vehicle_categories c ON c.id = b.category_id JOIN users u ON u.id = b.requester_id
          LEFT JOIN vehicles v ON v.id = b.vehicle_id LEFT JOIN users d ON d.id = b.decided_by
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
@@ -820,7 +820,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     if (req.query.from) add('COALESCE(b.returned_at, now()) >= ?', when(req.query.from, 'da'));
     if (req.query.to) add('b.picked_up_at <= ?', when(req.query.to, 'a'));
     const { rows } = await db.query(
-      `SELECT b.id, b.vehicle_id, v.code, v.plate, v.make, v.model, c.name AS category_name, u.name AS requester_name, u.email AS requester_email,
+      `SELECT b.id, b.vehicle_id, v.code, v.plate, v.make, v.model, c.name AS category_name, c.icon AS category_icon, u.name AS requester_name, u.email AS requester_email,
               b.purpose, b.destination, b.start_at, b.end_at, b.picked_up_at, b.returned_at, b.pickup_km, b.return_km, b.return_fuel, b.return_notes, b.walk_in, b.status
          FROM vehicle_bookings b JOIN vehicles v ON v.id = b.vehicle_id JOIN vehicle_categories c ON c.id = v.category_id JOIN users u ON u.id = b.requester_id
         WHERE ${where.join(' AND ')} ORDER BY b.picked_up_at DESC NULLS LAST LIMIT 2000`, params);
@@ -905,8 +905,8 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     const name = v.text(req.body?.name, 'nome', { max: 80, required: true });
     try {
       const { rows: [row] } = await db.query(
-        'INSERT INTO vehicle_categories (name, description, position) VALUES ($1, $2, (SELECT COALESCE(MAX(position), 0) + 1 FROM vehicle_categories)) RETURNING *',
-        [name, v.text(req.body?.description, 'descrizione', { max: 300 }) || '']);
+        'INSERT INTO vehicle_categories (name, description, position, icon) VALUES ($1, $2, (SELECT COALESCE(MAX(position), 0) + 1 FROM vehicle_categories), $3) RETURNING *',
+        [name, v.text(req.body?.description, 'descrizione', { max: 300 }) || '', v.oneOf(req.body?.icon, 'icona', CATEGORY_ICONS) ?? iconFor(name)]);
       res.status(201).json(row);
     } catch (err) {
       if (duplicate(err)) throw new HttpError(409, 'Esiste già una categoria con questo nome');
@@ -920,6 +920,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     const f = pick({
       name: v.text(req.body?.name, 'nome', { max: 80 }),
       description: v.text(req.body?.description, 'descrizione', { max: 300 }),
+      icon: v.oneOf(req.body?.icon, 'icona', CATEGORY_ICONS),
       position: v.int(req.body?.position, 'posizione', { min: 0, max: 10000 }),
       archived: typeof req.body?.archived === 'boolean' ? req.body.archived : undefined,
     });
