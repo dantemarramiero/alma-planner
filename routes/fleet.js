@@ -3,8 +3,10 @@
 // Gestori (fleet_managers, più gli amministratori): anagrafica, approvazioni con scelta del mezzo, planner,
 // scadenze, manutenzioni, costi, storico di chi ha usato ogni mezzo, «chi guidava il…» per le multe.
 const QRCode = require('qrcode');
+const express = require('express');
+const { planImport, applyImport } = require('../lib/fleet-import');
 const { HttpError, v } = require('../lib/http');
-const { checkOwnMedia } = require('../lib/media');
+const { checkOwnMedia, sniffImage, toBuffer } = require('../lib/media');
 const { newQrToken, vehicleName, itDateTime, esc, DEADLINE_LABEL } = require('../lib/fleet');
 
 const OWNERSHIP = ['proprieta', 'noleggio', 'leasing', 'comodato'];
@@ -444,6 +446,11 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
       status_note: v.text(b.status_note, 'nota sullo stato', { max: 500 }),
       photo_media_id: v.int(b.photo_media_id, 'foto', { min: 1, nullable: true }),
       notes: v.text(b.notes, 'note', { max: 5000 }),
+      env_class: v.text(b.env_class, 'classe ambientale', { max: 20 }),
+      commessa: v.text(b.commessa, 'commessa', { max: 300 }),
+      purchase_value: money(b.purchase_value, 'valore di acquisto'),
+      depreciation_rate: money(b.depreciation_rate, 'aliquota di ammortamento'),
+      hourly_cost: money(b.hourly_cost, 'costo orario'),
     });
   }
 
@@ -481,7 +488,10 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     const [deadlines, maintenance, costs, bookings, tickets] = await Promise.all([
       q(`SELECT d.*, u.name AS done_by_name FROM vehicle_deadlines d LEFT JOIN users u ON u.id = d.done_by
           WHERE d.vehicle_id = $1 ORDER BY (d.done_at IS NULL) DESC, d.due_date NULLS LAST, d.id`),
-      q('SELECT m.*, u.name AS created_by_name FROM vehicle_maintenance m LEFT JOIN users u ON u.id = m.created_by WHERE m.vehicle_id = $1 ORDER BY m.start_date DESC, m.id DESC'),
+      q(`SELECT m.*, u.name AS created_by_name,
+                COALESCE((SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'size', f.size, 'mime', f.mime, 'created_at', f.created_at) ORDER BY f.id)
+                            FROM vehicle_maintenance_files f WHERE f.maintenance_id = m.id), '[]') AS files
+           FROM vehicle_maintenance m LEFT JOIN users u ON u.id = m.created_by WHERE m.vehicle_id = $1 ORDER BY m.start_date DESC, m.id DESC`),
       q('SELECT c.*, u.name AS driver_name FROM vehicle_costs c LEFT JOIN users u ON u.id = c.driver_id WHERE c.vehicle_id = $1 ORDER BY c.occurred_at DESC LIMIT 300'),
       q(`SELECT b.*, u.name AS requester_name FROM vehicle_bookings b JOIN users u ON u.id = b.requester_id
           WHERE b.vehicle_id = $1 AND b.status IN ('approvata', 'in_corso', 'conclusa') ORDER BY b.start_at DESC LIMIT 300`),
@@ -679,6 +689,50 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     res.json(row);
   });
 
+  // Allegati della manutenzione (bolle, fatture, foto): PDF, immagini o documenti Office, fino a 15 MB.
+  const FILE_MAX = 15 * 1024 * 1024;
+  const fileType = buf => {
+    if (!Buffer.isBuffer(buf) || buf.length < 8) return null;
+    if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
+    const img = sniffImage(buf);
+    if (img) return img;
+    if (buf.subarray(4, 12).toString('latin1').startsWith('ftyphei') || buf.subarray(4, 12).toString('latin1').startsWith('ftypmif')) return 'image/heic';
+    if (buf[0] === 0x50 && buf[1] === 0x4b) return 'application/octet-stream'; // docx, xlsx (zip): si scaricano
+    return null;
+  };
+  app.post('/api/mezzi/manutenzioni/:id/allegati', express.raw({ type: () => true, limit: FILE_MAX }), async (req, res) => {
+    await fleet.assertManager(req);
+    const id = v.int(req.params.id, 'manutenzione', { min: 1 });
+    const { rows: [m] } = await db.query('SELECT id FROM vehicle_maintenance WHERE id = $1', [id]);
+    if (!m) throw new HttpError(404, 'Manutenzione non trovata');
+    const name = v.text(req.query.name, 'nome del file', { max: 200, required: true }).replace(/[\\/:*?"<>|]/g, '-');
+    const mime = fileType(req.body);
+    if (!mime) throw new HttpError(400, 'Formato non supportato: carica un PDF, una foto (JPG, PNG, HEIC) o un documento Word/Excel');
+    const { rows: [f] } = await db.query(
+      'INSERT INTO vehicle_maintenance_files (maintenance_id, name, mime, size, data, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, mime, size, created_at',
+      [id, name, mime, req.body.length, req.body, req.user.id]);
+    res.status(201).json(f);
+  });
+
+  app.get('/api/mezzi/allegati/:id', async (req, res) => {
+    await fleet.assertManager(req);
+    const { rows: [f] } = await db.query('SELECT name, mime, data FROM vehicle_maintenance_files WHERE id = $1', [v.int(req.params.id, 'allegato', { min: 1 })]);
+    if (!f) throw new HttpError(404, 'Allegato non trovato');
+    // PDF e immagini si aprono nel browser, il resto si scarica
+    const inline = /^(application\/pdf|image\/(jpeg|png|webp|gif))$/.test(f.mime);
+    res.set({
+      'Content-Type': f.mime,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+      'Cache-Control': 'private, max-age=3600',
+    }).send(toBuffer(f.data));
+  });
+
+  app.delete('/api/mezzi/allegati/:id', async (req, res) => {
+    await fleet.assertManager(req);
+    await db.query('DELETE FROM vehicle_maintenance_files WHERE id = $1', [v.int(req.params.id, 'allegato', { min: 1 })]);
+    res.json({ ok: true });
+  });
+
   app.delete('/api/mezzi/manutenzioni/:id', async (req, res) => {
     await fleet.assertManager(req);
     await db.query('DELETE FROM vehicle_maintenance WHERE id = $1', [v.int(req.params.id, 'manutenzione', { min: 1 })]);
@@ -796,9 +850,10 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
       name = 'storico-mezzi.csv';
     } else if (req.params.what === 'mezzi.csv') {
       const rows = await fleet.vehicleStates('true');
-      body = csv(['Codice', 'Targa', 'Categoria', 'Marca', 'Modello', 'Anno', 'Alimentazione', 'Possesso', 'Società', 'Fine contratto', 'Sede', 'Km', 'Stato', 'Assegnato a', 'Prossima scadenza'],
-        rows.map(r => [r.code, r.plate, r.category_name, r.make, r.model, r.year, r.fuel, r.ownership, r.lessor, r.contract_end ? String(r.contract_end).slice(0, 10) : '',
-          r.location, r.km, r.state, r.assigned_name, r.next_deadline ? String(r.next_deadline).slice(0, 10) : '']));
+      const dec = n => (n === null || n === undefined ? '' : String(n).replace('.', ','));
+      body = csv(['Codice', 'Targa', 'Telaio/matricola', 'Categoria', 'Marca', 'Modello', 'Anno', 'Alimentazione', 'Classe ambientale', 'Possesso', 'Società', 'Fine contratto', 'Sede', 'Km', 'Stato', 'Assegnato a', 'Commessa', 'Valore acquisto €', 'Ammortamento %', 'Costo orario €', 'Prossima scadenza'],
+        rows.map(r => [r.code, r.plate, r.vin, r.category_name, r.make, r.model, r.year, r.fuel, r.env_class, r.ownership, r.lessor, r.contract_end ? String(r.contract_end).slice(0, 10) : '',
+          r.location, r.km, r.state, r.assigned_name, r.commessa, dec(r.purchase_value), dec(r.depreciation_rate), dec(r.hourly_cost), r.next_deadline ? String(r.next_deadline).slice(0, 10) : '']));
       name = 'mezzi.csv';
     } else if (req.params.what === 'costi.csv') {
       const { rows } = await db.query(
@@ -813,6 +868,28 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
       name = 'costi-mezzi.csv';
     } else throw new HttpError(404, 'Esportazione non trovata');
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"` }).send(body);
+  });
+
+  // ── importazione da Zoho CRM (gestori) ─────────────────────────────────────
+  // Il CSV dell'esportazione «Mezzi» (Tutti i campi) arriva come testo: prima l'anteprima, poi la conferma.
+  const csvBody = express.text({ type: () => true, limit: '10mb' });
+  const previewOf = plan => ({
+    summary: plan.summary,
+    vehicles: plan.vehicles.map(x => ({
+      action: x._action, code: x.code, plate: x.plate, vin: x.vin, make: x.make, model: x.model, category: x.category,
+      fuel: x.fuel, env_class: x.env_class, ownership: x.ownership, status: x.status, commessa: x.commessa,
+      purchase_value: x.purchase_value, hourly_cost: x.hourly_cost, warnings: x._warn,
+    })),
+  });
+  app.post('/api/mezzi/importa/anteprima', csvBody, async (req, res) => {
+    await fleet.assertManager(req);
+    res.json(previewOf(await planImport(db, req.body)));
+  });
+  app.post('/api/mezzi/importa', csvBody, async (req, res) => {
+    await fleet.assertManager(req);
+    const plan = await planImport(db, req.body);
+    const done = await applyImport(db, plan, req.user.id);
+    res.json({ ...done, summary: plan.summary });
   });
 
   // ── impostazioni: categorie (gestori) e gestori (amministratori) ───────────

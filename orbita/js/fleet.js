@@ -36,6 +36,12 @@ const toLocal = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDat
 const fromLocal = s => (s ? new Date(s).toISOString() : '');
 const daysLeft = due => Math.round((Date.parse(`${String(due).slice(0, 10)}T12:00:00`) - Date.parse(`${toLocal(new Date()).slice(0, 10)}T12:00:00`)) / 86400000);
 
+const ANNUAL = { revisione: 'revisione', carburanti: 'carburanti', assicurazione: 'assicurazione', bollo: 'bollo' };
+const annualCosts = a => {
+  const e = Object.entries(a || {}).filter(([, n]) => n);
+  return e.length ? e.map(([k, n]) => `${ANNUAL[k] || k} ${eur(n)}`).join(' · ') : null;
+};
+
 const field = (label, input, hint) => h('label.field', h('span', label), input, hint ? h('small.muted', hint) : null);
 const input = (attrs = {}) => h('input.input', attrs);
 const select = (options, value, attrs = {}) => h('select.select', attrs, options.map(([k, label]) => h('option', { value: k, selected: String(k) === String(value ?? '') }, label)));
@@ -556,6 +562,11 @@ async function vehicleForm(x, done) {
     contract_end: input({ type: 'date', value: x?.contract_end ? String(x.contract_end).slice(0, 10) : '' }),
     location: input({ value: x?.location || '', maxLength: 120, placeholder: 'Es. sede di Pescara' }),
     vin: input({ value: x?.vin || '', maxLength: 40 }),
+    env_class: input({ value: x?.env_class || '', maxLength: 20, placeholder: 'Es. EURO 6D' }),
+    commessa: input({ value: x?.commessa || '', maxLength: 300 }),
+    purchase_value: input({ value: x?.purchase_value ?? '', inputmode: 'decimal' }),
+    depreciation_rate: input({ value: x?.depreciation_rate ?? '', inputmode: 'decimal', placeholder: 'Es. 20' }),
+    hourly_cost: input({ value: x?.hourly_cost ?? '', inputmode: 'decimal' }),
     fuel_card: input({ value: x?.fuel_card || '', maxLength: 60 }),
     telepass: input({ value: x?.telepass || '', maxLength: 60 }),
     status: select([['attivo', 'Attivo'], ['fuori_servizio', 'Fuori servizio'], ['dismesso', 'Dismesso']], x?.status || 'attivo'),
@@ -590,7 +601,9 @@ async function vehicleForm(x, done) {
       h('div.grid-2', field('Marca', f.make), field('Modello', f.model)),
       h('div.fl-grid-4', field('Anno', f.year), field('Alimentazione', f.fuel), field('Posti', f.seats), field('Possesso', f.ownership)),
       leasing,
-      h('div.grid-2', field('Sede o parcheggio', f.location), field('Numero di telaio', f.vin)),
+      h('div.grid-2', field('Sede o parcheggio', f.location), field('Telaio o matricola', f.vin)),
+      h('div.grid-2', field('Classe ambientale', f.env_class), field('Commessa', f.commessa)),
+      h('div.fl-grid-3', field('Valore di acquisto €', f.purchase_value), field('Ammortamento % l\'anno', f.depreciation_rate), field('Costo orario €', f.hourly_cost)),
       h('div.grid-2', field('Carta carburante', f.fuel_card), field('Telepass', f.telepass)),
       field('Assegnazione fissa (facoltativa)', assign.el, 'Un mezzo assegnato a una persona non entra nelle prenotazioni.'),
       x ? h('div.grid-2', field('Stato', f.status), field('Nota sullo stato', f.status_note)) : null,
@@ -606,6 +619,8 @@ async function vehicleForm(x, done) {
       year: intOrNull('year'), fuel: val('fuel'), seats: intOrNull('seats'), km: intOrNull('km'), ownership: val('ownership'),
       lessor: val('lessor'), contract_end: val('contract_end') || null, location: val('location'), vin: val('vin'),
       fuel_card: val('fuel_card'), telepass: val('telepass'), notes: val('notes'), assigned_user_id: assigned,
+      env_class: val('env_class'), commessa: val('commessa'), purchase_value: val('purchase_value'),
+      depreciation_rate: val('depreciation_rate'), hourly_cost: val('hourly_cost'),
       ...(x ? { status: val('status'), status_note: val('status_note') } : {}),
       ...(photoId ? { photo_media_id: photoId } : {}),
     };
@@ -639,7 +654,7 @@ async function vehicleView(container, id) {
         h('button.btn.btn-primary', { type: 'button', on: { click: () => bookingForm() } }, 'Prenota un mezzo')));
   }
   const t = d.totals;
-  const tab = (location.hash.split('?')[1] || '').replace('t=', '') || 'scadenze';
+  const tab = new URLSearchParams(location.hash.split('?')[1] || '').get('t') || 'scadenze';
   const SECTIONS = [['scadenze', `Scadenze (${d.deadlines.filter(z => !z.done_at).length})`], ['manutenzioni', `Manutenzioni (${d.maintenance.length})`],
     ['costi', `Costi (${d.costs.length})`], ['storico', `Chi l'ha usato (${d.bookings.filter(b => b.status !== 'approvata').length})`], ['segnalazioni', `Segnalazioni (${d.tickets.length})`]];
   const body = h('div');
@@ -667,7 +682,11 @@ async function vehicleView(container, id) {
         h('div.fl-kvs',
           info('Km', x.km !== null ? `${num(x.km)}${x.km_at ? ` (al ${day(x.km_at)})` : ''}` : null), info('Anno', x.year), info('Alimentazione', x.fuel), info('Posti', x.seats),
           info('Possesso', `${OWNERSHIP[x.ownership]}${x.lessor ? ` · ${x.lessor}` : ''}${x.contract_end ? ` · fino al ${day(x.contract_end)}` : ''}`),
-          info('Sede', x.location), info('Telaio', x.vin), info('Carta carburante', x.fuel_card), info('Telepass', x.telepass),
+          info('Classe ambientale', x.env_class), info('Commessa', x.commessa),
+          info('Sede', x.location), info('Telaio o matricola', x.vin), info('Carta carburante', x.fuel_card), info('Telepass', x.telepass),
+          info('Valore di acquisto', x.purchase_value !== null && x.purchase_value !== undefined ? `${eur(x.purchase_value)}${x.depreciation_rate !== null ? ` · ammortamento ${num(x.depreciation_rate)}% l'anno` : ''}` : null),
+          info('Costo orario', x.hourly_cost !== null && x.hourly_cost !== undefined ? `${eur(x.hourly_cost)} all'ora` : null),
+          info('Costi annui (da Zoho)', annualCosts(x.annual_costs)),
           info('Note', x.notes ? h('span.pre', x.notes) : null))),
       h('div.fl-vside',
         h('div.sw-kpis.sm',
@@ -686,7 +705,7 @@ async function vehicleView(container, id) {
   if (tab === 'manutenzioni') maintenanceSection(body, x, d.maintenance, reload);
   else if (tab === 'costi') costsSection(body, x, d.costs, reload);
   else if (tab === 'storico') usageSection(body, d.bookings);
-  else if (tab === 'segnalazioni') reportsSection(body, d.tickets);
+  else if (tab === 'segnalazioni') reportsSection(body, d.tickets, x, d.maintenance, reload);
   else deadlinesSection(body, x, d.deadlines, reload);
 }
 
@@ -779,28 +798,73 @@ function doneDialog(z, reload) {
 
 function maintenanceSection(box, x, list, reload) {
   fill(box,
-    h('div.toolbar', h('span.grow'), h('button.btn.btn-primary', { type: 'button', on: { click: () => maintenanceForm(x, null, reload) } }, icon('plus', { size: 16 }), 'Nuova manutenzione')),
+    h('div.toolbar', h('span.small.muted', 'Tagliandi, riparazioni, gomme, carrozzeria, con le bolle allegate.'), h('span.grow'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: () => maintenanceForm(x, null, reload) } }, icon('plus', { size: 16 }), 'Nuova manutenzione')),
     list.length ? h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', ['Tipo', 'Dal', 'Al', 'Officina', 'Km', 'Costo', 'Descrizione'].map(t => h('th', t)))),
+      h('thead', h('tr', ['Tipo', 'Dal', 'Al', 'Officina', 'Km', 'Costo', 'Descrizione', 'Bolle'].map(t => h('th', t)))),
       h('tbody', list.map(m => h('tr', { on: { click: () => maintenanceForm(x, m, reload) } },
-        h('td', MAINT[m.kind]), h('td', day(m.start_date)), h('td', m.end_date ? day(m.end_date) : h('span.fl-soon', 'in corso')),
-        h('td', m.supplier || '—'), h('td.num', num(m.km)), h('td.num', eur(m.cost)), h('td.small', m.description || '')))))) : h('div.card.empty', 'Nessuna manutenzione registrata. Mentre una manutenzione è aperta, il mezzo non si può prenotare.'));
+        h('td', MAINT[m.kind], m.ticket_id ? h('div.small.muted', 'da segnalazione') : null), h('td', day(m.start_date)), h('td', m.end_date ? day(m.end_date) : h('span.fl-soon', 'in corso')),
+        h('td', m.supplier || '—'), h('td.num', num(m.km)), h('td.num', eur(m.cost)), h('td.small', m.description || ''),
+        h('td', m.files?.length ? h('span.fl-clip', icon('paperclip', { size: 15 }), String(m.files.length)) : h('span.muted', '—'))))))) : h('div.card.empty', 'Nessuna manutenzione registrata. Mentre una manutenzione è aperta, il mezzo non si può prenotare.'));
 }
 
-function maintenanceForm(x, m0, reload) {
-  const kind = select(Object.entries(MAINT), m0?.kind || 'tagliando');
+// Allegati della manutenzione: elenco con apri/elimina e caricamento (anche più file insieme).
+// Per una manutenzione nuova i file scelti restano in attesa e partono dopo il salvataggio.
+function filesBox(maintenanceId, files = []) {
+  const pending = [];
+  const list = h('div.fl-files');
+  const draw = () => fill(list,
+    files.map(f => h('div.fl-file', icon('paperclip', { size: 15 }),
+      h('a', { href: `/api/mezzi/allegati/${f.id}`, target: '_blank', rel: 'noopener' }, f.name), h('span.small.muted', fmtKb(f.size)),
+      h('button.btn.btn-sm.btn-ghost', { type: 'button', title: 'Elimina', on: { click: async () => {
+        if (!await confirmDialog(`Eliminare «${f.name}»?`, { ok: 'Elimina', danger: true })) return;
+        await del(`/api/mezzi/allegati/${f.id}`);
+        files.splice(files.indexOf(f), 1);
+        draw();
+      } } }, icon('x', { size: 14 })))),
+    pending.map(p => h('div.fl-file', icon('paperclip', { size: 15 }), h('span.grow', p.name), h('span.small.muted', 'da caricare al salvataggio'),
+      h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => { pending.splice(pending.indexOf(p), 1); draw(); } } }, icon('x', { size: 14 })))),
+    !files.length && !pending.length ? h('span.small.muted', 'Nessuna bolla allegata.') : null);
+  async function upload(id, file) {
+    const f = await api('POST', `/api/mezzi/manutenzioni/${id}/allegati?name=${encodeURIComponent(file.name)}`, file, { raw: true, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
+    files.push(f);
+  }
+  const add = h('button.btn.btn-sm', { type: 'button', on: { click: () => {
+    const inp = Object.assign(document.createElement('input'), { type: 'file', multiple: true, accept: '.pdf,image/*,.doc,.docx,.xls,.xlsx' });
+    inp.addEventListener('change', async () => {
+      for (const file of inp.files) {
+        if (file.size > 15 * 1024 * 1024) { toast(`«${file.name}» supera 15 MB`, 'err'); continue; }
+        if (maintenanceId) { try { await upload(maintenanceId, file); } catch { /* messaggio già mostrato */ } } else pending.push(file);
+      }
+      draw();
+    });
+    inp.click();
+  } } }, icon('upload', { size: 15 }), 'Allega bolle o foto');
+  draw();
+  return {
+    el: h('div.field', h('span', 'Bolle e documenti'), list, h('div', add)),
+    // dopo il salvataggio di una manutenzione nuova
+    async flush(id) { for (const file of pending.splice(0)) await upload(id, file).catch(() => {}); },
+  };
+}
+const fmtKb = n => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+function maintenanceForm(x, m0, reload, { ticket } = {}) {
+  const kind = select(Object.entries(MAINT), m0?.kind || (ticket ? 'riparazione' : 'tagliando'));
   const start = input({ type: 'date', value: m0 ? String(m0.start_date).slice(0, 10) : toLocal(new Date()).slice(0, 10) });
   const end = input({ type: 'date', value: m0?.end_date ? String(m0.end_date).slice(0, 10) : '' });
   const km = input({ type: 'number', min: 0, value: m0?.km ?? '' });
   const supplier = input({ value: m0?.supplier || '', maxLength: 120, placeholder: 'Officina, gommista, carrozzeria' });
   const cost = input({ value: m0?.cost ?? '', inputmode: 'decimal', placeholder: 'Es. 180,50' });
-  const desc = h('textarea.input', { rows: 3, maxLength: 5000 }, m0?.description || '');
+  const desc = h('textarea.input', { rows: 3, maxLength: 5000 }, m0?.description || (ticket ? ticket.title.replace(/^Mezzo [^:]*:\s*/, '') : ''));
+  const attachments = filesBox(m0?.id || null, m0?.files ? [...m0.files] : []);
   const ok = h('button.btn.btn-primary', { type: 'button' }, 'Salva');
   const m = modal({
     title: m0 ? 'Manutenzione' : `Nuova manutenzione · ${vName(x)}`,
-    body: [h('div.grid-2', field('Tipo', kind), field('Officina', supplier)),
+    body: [ticket ? h('div.banner', `Dalla segnalazione: ${ticket.title}`) : null,
+      h('div.grid-2', field('Tipo', kind), field('Officina', supplier)),
       h('div.grid-2', field('In officina dal', start), field('Fino al', end, 'Vuoto = ancora in officina: il mezzo non si prenota')),
-      h('div.grid-2', field('Km', km), field('Costo €', cost)), field('Lavori fatti', desc)],
+      h('div.grid-2', field('Km', km), field('Costo €', cost)), field('Lavori fatti', desc), attachments.el],
     left: m0 ? [h('button.btn.btn-danger.btn-sm', { type: 'button', on: { click: async () => {
       if (!await confirmDialog('Eliminare la manutenzione?', { ok: 'Elimina', danger: true })) return;
       await del(`/api/mezzi/manutenzioni/${m0.id}`);
@@ -811,16 +875,18 @@ function maintenanceForm(x, m0, reload) {
   });
   ok.addEventListener('click', async () => {
     const body = { kind: kind.value, start_date: start.value, end_date: end.value || null, km: km.value === '' ? null : Number(km.value),
-      supplier: supplier.value, cost: cost.value, description: desc.value };
+      supplier: supplier.value, cost: cost.value, description: desc.value, ...(ticket ? { ticket_id: ticket.id } : {}) };
+    ok.disabled = true;
     try {
       if (m0) await patch(`/api/mezzi/manutenzioni/${m0.id}`, body);
       else {
         const r = await post(`/api/mezzi/elenco/${x.id}/manutenzioni`, body);
+        await attachments.flush(r.id);
         if (r.clashes?.length) toast(`Attenzione: ${r.clashes.length} prenotazioni approvate cadono in quei giorni (${r.clashes.map(c => c.name).join(', ')}). Cambia il mezzo dalle prenotazioni.`, 'err');
       }
       m.close();
       reload();
-    } catch { /* messaggio già mostrato */ }
+    } catch { ok.disabled = false; /* messaggio già mostrato */ }
   });
 }
 
@@ -897,10 +963,17 @@ function usageSection(box, list) {
       h('td', b.purpose), h('td.small', b.return_notes || '')))))) : h('div.card.empty', 'Il mezzo non è ancora stato usato.'));
 }
 
-function reportsSection(box, list) {
-  fill(box, list.length ? h('div.card.fl-list', list.map(t => h('a.fl-row', { href: `#/tickets/${t.id}` },
-    h('div.grow', h('strong', t.title), h('div.small.muted', `${t.created_by_name || '—'} · ${day(t.created_at)}`)),
-    h('span.pill', { class: `st-${t.status}` }, h('span.dot'), { todo: 'Da fare', doing: 'In corso', review: 'In revisione', done: 'Fatto' }[t.status])))) : h('div.card.empty', 'Nessuna segnalazione.'));
+// Segnalazioni (ticket dal QR): da ognuna si registra la manutenzione che la risolve, già collegata.
+function reportsSection(box, list, x, maintenance, reload) {
+  const handled = new Map(maintenance.filter(m => m.ticket_id).map(m => [m.ticket_id, m]));
+  fill(box, list.length ? h('div.card.fl-list', list.map(t => {
+    const m = handled.get(t.id);
+    return h('div.fl-row',
+      h('a.grow', { href: `#/tickets/${t.id}` }, h('strong', t.title), h('div.small.muted', `${t.created_by_name || '—'} · ${day(t.created_at)}`)),
+      h('span.pill', { class: `st-${t.status}` }, h('span.dot'), { todo: 'Da fare', doing: 'In corso', review: 'In revisione', done: 'Fatto' }[t.status]),
+      m ? h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => maintenanceForm(x, m, reload) } }, icon('check', { size: 15 }), `Manutenzione del ${day(m.start_date)}`)
+        : h('button.btn.btn-sm', { type: 'button', on: { click: () => maintenanceForm(x, null, reload, { ticket: t }) } }, icon('plus', { size: 15 }), 'Registra manutenzione'));
+  })) : h('div.card.empty', 'Nessuna segnalazione. Chi inquadra il QR del mezzo può segnalare un problema: arriva qui e ai gestori come ticket.'));
 }
 
 // ── gestori: tutte le scadenze ───────────────────────────────────────────────
@@ -973,6 +1046,9 @@ async function settingsTab(box) {
       store.me.is_admin ? [picker.el, h('div',
         h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: async () => { await api('PUT', '/api/mezzi/gestori', { user_ids: mgr }); toast('Gestori salvati'); settingsTab(box); } } }, 'Salva i gestori'))]
         : h('div.fl-list.flat', managers.length ? managers.map(m => h('div.fl-row', avatar(userById(m.user_id) || m, 28), h('span', m.name))) : h('p.muted', 'Nessuno: li sceglie un amministratore.'))),
+    h('section.card.sw-card', h('h3', 'Importa da Zoho CRM'),
+      h('p.small.muted', 'In Zoho CRM apri «Mezzi», menu «…» → «Esporta Mezzi», scegli «Tutti i campi» e CSV, poi scompatta lo .zip. Carica qui il file: prima vedi l\'anteprima, poi confermi. Reimportare aggiorna i mezzi già presi da Zoho, senza doppioni.'),
+      h('div', h('button.btn', { type: 'button', on: { click: () => importZoho(() => settingsTab(box)) } }, icon('upload', { size: 16 }), 'Carica il CSV di Zoho'))),
     h('section.card.sw-card', h('h3', 'QR code ed etichette'),
       h('p.small.muted', 'Ogni mezzo ha un QR code. Chi lo inquadra col telefono entra in Alma Planet col suo account Microsoft e può ritirare o riconsegnare la sua prenotazione, oppure segnalare un problema (diventa un ticket ai gestori; se il mezzo non è utilizzabile va subito fuori servizio).'),
       h('a.btn', { href: '#/mezzi/etichette' }, icon('crosshair', { size: 16 }), 'Stampa le etichette'))));
@@ -990,6 +1066,69 @@ function categoryForm(c, done) {
       m.close();
       done();
     } catch { /* messaggio già mostrato */ }
+  });
+}
+
+// ── importazione da Zoho CRM: anteprima e conferma ───────────────────────────
+async function importZoho(done) {
+  const file = await new Promise(resolve => {
+    const inp = Object.assign(document.createElement('input'), { type: 'file', accept: '.csv,text/csv' });
+    inp.addEventListener('change', () => resolve(inp.files[0] || null));
+    inp.click();
+  });
+  if (!file) return;
+  const text = await file.text();
+  const send = path => api('POST', path, text, { raw: true, headers: { 'Content-Type': 'text/csv; charset=utf-8' } });
+  let prev;
+  try { prev = await send('/api/mezzi/importa/anteprima'); } catch { return; }
+  const s = prev.summary;
+  let filter = 'tutti';
+  const table = h('div.fl-import-table');
+  const draw = () => {
+    const rows = prev.vehicles.filter(x => filter === 'tutti' || (filter === 'avvisi' ? x.warnings.length : x.category === filter));
+    fill(table, h('table.list',
+      h('thead', h('tr', ['', 'Codice', 'Targa o matricola', 'Marca e modello', 'Categoria', 'Alimentazione', 'Classe', 'Possesso', 'Avvisi'].map(t => h('th', t)))),
+      h('tbody', rows.map(x => h('tr',
+        h('td', h('span.pill.fl-bk', { class: x.action === 'nuovo' ? 'fl-bk-conclusa' : 'fl-bk-approvata' }, x.action === 'nuovo' ? 'Nuovo' : 'Aggiorna')),
+        h('td', h('strong', x.code)), h('td', x.plate || h('span.muted', x.vin || '—')), h('td', [x.make, x.model].filter(Boolean).join(' ') || '—'),
+        h('td', x.category), h('td', x.fuel || '—'), h('td', x.env_class || '—'), h('td', x.ownership === 'noleggio' ? 'Noleggio' : 'Proprietà'),
+        h('td.small', x.warnings.length ? h('span.fl-soon', x.warnings.join(' · ')) : ''))))));
+  };
+  const options = [['tutti', `Tutti (${s.total})`], ['avvisi', `Con avvisi (${s.warnings})`], ...Object.entries(s.by_category).map(([c, n]) => [c, `${c} (${n})`])];
+  const seg = h('div.seg.fl-import-seg', options.map(([k, l]) => h('button', { type: 'button', class: k === filter ? 'on' : '', on: { click: e => {
+    filter = k;
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.currentTarget));
+    draw();
+  } } }, l)));
+  draw();
+  const ok = h('button.btn.btn-primary', { type: 'button' }, `Importa ${s.total} mezzi`);
+  const m = modal({
+    title: 'Importa da Zoho CRM: anteprima',
+    wide: true,
+    body: [
+      h('div.sw-kpis',
+        h('div.sw-kpi', h('span.lab', 'Mezzi nel file'), h('strong.big', num(s.total)), h('span.sub', `${num(s.new)} nuovi, ${num(s.update)} da aggiornare`)),
+        h('div.sw-kpi', h('span.lab', 'Categorie nuove'), h('strong.big', num(s.new_categories.length)), h('span.sub', s.new_categories.join(', ') || 'nessuna')),
+        h('div.sw-kpi', h('span.lab', 'Senza targa'), h('strong.big', num(s.without_plate)), h('span.sub', 'macchine: la matricola va in «Telaio o matricola»')),
+        h('div.sw-kpi', { class: s.warnings ? 'warn' : '' }, h('span.lab', 'Con avvisi'), h('strong.big', num(s.warnings)), h('span.sub', 'da guardare, non bloccano'))),
+      h('p.small.muted', `Arrivano anche valore di acquisto (${num(s.with_value)} mezzi), costi annui (${num(s.with_costs)}) e commessa (${num(s.with_commessa)}). Km, foto, QR, prenotazioni e assegnazioni dei mezzi già in Alma Planet non si toccano.`),
+      seg, table,
+    ],
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok],
+  });
+  ok.addEventListener('click', async () => {
+    ok.disabled = true;
+    ok.textContent = 'Importazione in corso…';
+    try {
+      const r = await send('/api/mezzi/importa');
+      m.close();
+      toast(`Fatto: ${r.created} mezzi creati, ${r.updated} aggiornati${r.categories ? `, ${r.categories} categorie nuove` : ''}`);
+      categoriesCache = null;
+      done?.();
+    } catch {
+      ok.disabled = false;
+      ok.textContent = `Importa ${s.total} mezzi`;
+    }
   });
 }
 

@@ -340,3 +340,103 @@ test('senza gestori nominati: richieste e promemoria vanno agli amministratori',
   assert.match(after[0].body, /chiede un mezzo «Furgoni»/);
   assert.equal((await api('admin', 'GET', '/api/badges')).body.mezzi, 1);
 });
+
+// ── importazione da Zoho CRM ────────────────────────────────────────────────
+const ZOHO_HEAD = ['ID record', 'Commessa.id', 'Commessa', 'Targa', 'Proprietario di Mezzi.id', 'Proprietario di Mezzi', 'Ora creazione', 'Ora modifica',
+  'Ora ultima attività', 'Tag', 'Modalità iscrizione annullata', 'Ora  iscrizione annullata', 'Locked', 'Descrizione', 'Categoria', 'Modello',
+  'Classe Ambientale', 'Tipo di proprietà', 'Alimentazione', 'Stato', 'Assegnazione commessa', 'Uscita dalla commessa',
+  'Aliquota percentuale di ammortamento', 'Revisione', 'Costo Carburanti (€)', 'Assicurazioni(€)', 'Bollo(€)', 'Disponibile', 'UID',
+  'Valore Acquisto', "Valore moltiplicato per l'aliquota", 'Costo orario', 'Somma Costi', 'P. gasolio', 'P. benzina', 'Pippo', 'Formula 4', 'ASA',
+  'Orario del registro delle modifiche'];
+const zohoCell = v => (/[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+const zohoRow = o => [o.id, '', o.commessa || '', o.targa, '', 'X', '', '', '', '', '', '', 'false', o.descr || '', o.cat || '', o.modello || '',
+  o.classe || '', o.tipo || '', o.alim || '', o.stato || '', '', '', o.aliq || '', o.rev || '', '', '', o.bollo || '', 'false', o.uid,
+  o.valore || '', '', o.orario || '', '', '', '', '', '', '', ''].map(zohoCell).join(',');
+const zohoCsv = rows => `﻿${[ZOHO_HEAD.map(zohoCell).join(','), ...rows.map(zohoRow)].join('\r\n')}\r\n`;
+const sendCsv = (who, path, text) => fetch(base + path, { method: 'POST', headers: { cookie: users[who].cookie, 'X-Alma': '1', 'Content-Type': 'text/csv' }, body: text })
+  .then(async r => ({ status: r.status, body: await r.json() }));
+
+test('importazione da Zoho: anteprima, categorie concordate, valori uniformati, doppioni segnalati, reimportare aggiorna', async () => {
+  await api('admin', 'PUT', '/api/mezzi/gestori', { user_ids: [users.gestore.id] });
+  const csv = zohoCsv([
+    { id: 'zcrm_1', targa: 'FA052JV', cat: 'Autovettura', modello: 'AUDI A 7', classe: 'EURO 6B', tipo: "PROPRIETA'", alim: 'GASOLIO', stato: 'Di proprietà', uid: 'MEZ193', valore: '70000', aliq: '25.0', rev: '33642.16', bollo: '783.7', orario: '2.265148' },
+    { id: 'zcrm_2', targa: 'GJ959FA', cat: 'Autocarro', modello: 'CITROEN C3', classe: 'eur 6d', tipo: 'NOLEGGIO', alim: 'Gasolio', stato: 'Noleggio', uid: 'MEZ192', descr: 'Rescissione anticipata,\ncon dichiarazione' },
+    { id: 'zcrm_3', targa: 'YCEVIO57CAFD07037', cat: 'Escavatore', modello: 'GIREVOLE YANMAR', alim: 'GASOLIO', uid: 'MEZ312', commessa: 'AL1017 Lotto 2' },
+    { id: 'zcrm_4', targa: 'YCEVIO57CAFD07037', cat: 'Escavatori', modello: 'YANMAR VIO 57', uid: 'MEZ473' },
+    { id: 'zcrm_5', targa: 'AKL080', cat: '', modello: 'ROBOT CATERPILLAR', uid: 'MEZ500', alim: 'BENZINA/ELETTRICO' },
+  ]);
+  // solo i gestori, e solo un file di Zoho
+  assert.equal((await sendCsv('anna', '/api/mezzi/importa/anteprima', csv)).status, 403);
+  assert.equal((await sendCsv('gestore', '/api/mezzi/importa/anteprima', 'a,b\n1,2')).status, 400);
+
+  const prev = (await sendCsv('gestore', '/api/mezzi/importa/anteprima', csv)).body;
+  assert.equal(prev.summary.total, 5);
+  assert.equal(prev.summary.new, 5);
+  assert.deepEqual(prev.summary.new_categories, ['Autovetture', 'Autocarri', 'Escavatori', 'Da classificare']);
+  const by = Object.fromEntries(prev.vehicles.map(x => [x.code, x]));
+  assert.deepEqual([by.MEZ193.make, by.MEZ193.model, by.MEZ193.fuel, by.MEZ193.ownership], ['Audi', 'A 7', 'Gasolio', 'proprieta']);
+  assert.deepEqual([by.MEZ192.env_class, by.MEZ192.ownership], ['EURO 6D', 'noleggio']);
+  assert.deepEqual([by.MEZ312.plate, by.MEZ312.vin, by.MEZ312.make, by.MEZ312.model], [null, 'YCEVIO57CAFD07037', 'Yanmar', 'GIREVOLE']);
+  assert.match(by.MEZ473.warnings.join(' '), /matricola uguale a MEZ312/);
+  assert.deepEqual([by.MEZ500.plate, by.MEZ500.category, by.MEZ500.make, by.MEZ500.fuel], ['AKL080', 'Da classificare', 'Caterpillar', 'Ibrido benzina/elettrico']);
+  assert.equal((await api('gestore', 'GET', '/api/mezzi/elenco')).body.filter(x => x.code.startsWith('MEZ')).length, 0); // l'anteprima non scrive
+
+  const done = (await sendCsv('gestore', '/api/mezzi/importa', csv)).body;
+  assert.deepEqual([done.created, done.updated, done.categories], [5, 0, 4]);
+  const audi = (await api('gestore', 'GET', '/api/mezzi/elenco')).body.find(x => x.code === 'MEZ193');
+  assert.equal(audi.category_name, 'Autovetture');
+  assert.equal(Number(audi.purchase_value), 70000);
+  assert.equal(Number(audi.depreciation_rate), 25);
+  assert.deepEqual(audi.annual_costs, { revisione: 33642.16, bollo: 783.7 });
+  assert.equal(audi.state, 'libero');
+  const c3 = (await api('gestore', 'GET', '/api/mezzi/elenco')).body.find(x => x.code === 'MEZ192');
+  assert.equal(c3.notes, 'Rescissione anticipata,\ncon dichiarazione');
+  // i dati riservati non arrivano a chi non gestisce
+  assert.equal((await api('anna', 'GET', `/api/mezzi/elenco/${audi.id}`)).body.vehicle.purchase_value, undefined);
+
+  // reimportare: aggiorna, non duplica; km e stato cambiati in Alma Planet restano
+  await api('gestore', 'PATCH', `/api/mezzi/elenco/${audi.id}`, { km: 51000, status: 'fuori_servizio' });
+  const again = (await sendCsv('gestore', '/api/mezzi/importa', csv.replace('AUDI A 7', 'AUDI A7 Sportback'))).body;
+  assert.deepEqual([again.created, again.updated, again.categories], [0, 5, 0]);
+  const audi2 = (await api('gestore', 'GET', `/api/mezzi/elenco/${audi.id}`)).body.vehicle;
+  assert.equal(audi2.model, 'A7 Sportback');
+  assert.equal(audi2.km, 51000);
+  assert.equal(audi2.status, 'fuori_servizio');
+  assert.equal(audi2.qr_token, audi.qr_token);
+});
+
+test('manutenzioni: bolle allegate (PDF e foto), aperte dai gestori, e manutenzione registrata da una segnalazione', async () => {
+  const list = (await api('gestore', 'GET', '/api/mezzi/elenco')).body;
+  const car = list.find(x => x.code === 'MEZ192');
+  const t = (await api('luca', 'POST', `/api/mezzi/${car.id}/segnala`, { title: 'Rumore dal motore' })).body;
+  const m = (await api('gestore', 'POST', `/api/mezzi/elenco/${car.id}/manutenzioni`, { kind: 'riparazione', start_date: '2026-10-10', end_date: '2026-10-11', supplier: 'Officina Rossi', cost: '420', ticket_id: t.ticket_id })).body;
+  assert.equal(m.ticket_id, t.ticket_id);
+
+  const up = (name, body, who = 'gestore') => fetch(`${base}/api/mezzi/manutenzioni/${m.id}/allegati?name=${encodeURIComponent(name)}`, {
+    method: 'POST', headers: { cookie: users[who].cookie, 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body,
+  }).then(async r => ({ status: r.status, body: await r.json() }));
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj << >> endobj\ntrailer\n%%EOF');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = await up('Bolla 1234.pdf', pdf);
+  assert.equal(a.status, 201);
+  assert.equal(a.body.mime, 'application/pdf');
+  assert.equal((await up('foto.png', png)).body.mime, 'image/png');
+  assert.equal((await up('programma.exe', Buffer.from('MZ qualcosa di eseguibile'))).status, 400);
+  assert.equal((await up('bolla.pdf', pdf, 'anna')).status, 403);
+
+  const card = (await api('gestore', 'GET', `/api/mezzi/elenco/${car.id}`)).body;
+  const mm = card.maintenance.find(x => x.id === m.id);
+  assert.deepEqual(mm.files.map(f => f.name), ['Bolla 1234.pdf', 'foto.png']);
+  const got = await fetch(`${base}/api/mezzi/allegati/${a.body.id}`, { headers: { cookie: users.gestore.cookie } });
+  assert.equal(got.headers.get('content-type'), 'application/pdf');
+  assert.match(got.headers.get('content-disposition'), /inline; filename\*=UTF-8''Bolla%201234\.pdf/);
+  assert.ok(Buffer.from(await got.arrayBuffer()).equals(pdf));
+  assert.equal((await fetch(`${base}/api/mezzi/allegati/${a.body.id}`, { headers: { cookie: users.anna.cookie } })).status, 403);
+
+  await api('gestore', 'DELETE', `/api/mezzi/allegati/${a.body.id}`);
+  assert.equal((await api('gestore', 'GET', `/api/mezzi/elenco/${car.id}`)).body.maintenance.find(x => x.id === m.id).files.length, 1);
+  // cancellando la manutenzione vanno via anche le bolle
+  await api('gestore', 'DELETE', `/api/mezzi/manutenzioni/${m.id}`);
+  const { rows: [{ n }] } = await db.query('SELECT COUNT(*)::int AS n FROM vehicle_maintenance_files WHERE maintenance_id = $1', [m.id]);
+  assert.equal(n, 0);
+});

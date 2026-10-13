@@ -129,3 +129,15 @@ a.fl-plan-name:hover { background: var(--hover); }
   .fl-labels { grid-template-columns: repeat(2, 1fr); gap: 6mm; }
   .fl-label-card { border-color: var(--ap-grey-700); }
 }
+
+/* importazione da Zoho: anteprima */
+.fl-import-seg { flex-wrap: wrap; margin: var(--ap-space-2) 0; }
+.fl-import-table { max-height: 46vh; overflow: auto; border: 1px solid var(--rule); border-radius: 14px; }
+.fl-import-table table { font-size: var(--ap-fs-sm); }
+.fl-import-table th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+
+/* allegati delle manutenzioni (bolle, fatture, foto) */
+.fl-files { display: grid; gap: var(--ap-space-1); }
+.fl-file { display: flex; align-items: center; gap: var(--ap-space-2); padding: 6px 10px; border: 1px solid var(--rule); border-radius: 12px; min-width: 0; }
+.fl-file a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+.fl-clip { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); }
