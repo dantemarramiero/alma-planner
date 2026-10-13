@@ -256,15 +256,19 @@ async function vendorView(container, vendor) {
           h('div.small.muted', [s.category, SOURCE[s.source] && s.source !== 'manuale' ? `da ${SOURCE[s.source]}` : null, s.monthly_cost !== null ? `${eur(s.monthly_cost)} al mese` : null].filter(Boolean).join(' · '))),
         h('a.btn.btn-sm', { href: `#/software/${s.id}` }, 'Apri: persone e prezzi')),
       s.plans.length ? h('div.table-wrap', h('table.list.sw-plan-table',
-        h('thead', h('tr', ['Licenza', 'Acquistate', 'Assegnate', 'Libere', 'Prezzo', 'Al mese', 'Rinnovo'].map(x => h('th', x)))),
+        h('thead', h('tr', ['Licenza', 'Acquistate', 'Assegnate', 'Libere', 'Prezzo', 'Al mese', 'Rinnovo', ''].map(x => h('th', x)))),
         h('tbody', [...s.plans].sort((x, y) => ((y.monthly_cost || 0) - (x.monthly_cost || 0)) || x.name.localeCompare(y.name, 'it')).map(p => h('tr', { on: { click: () => { location.hash = `#/software/${s.id}`; } } },
           h('td', h('strong', p.name)),
           h('td.num', p.seats === null ? h('span.muted', p.external_id === 'collegati' ? '—' : 'senza limite') : num(p.seats)),
           h('td.num', num(p.assigned)),
-          h('td.num', p.free ? num(p.free) : h('span.muted', '—')),
+          h('td.num', p.over ? h('span.sw-over', `${num(p.over)} oltre`) : p.free ? num(p.free) : h('span.muted', '—')),
           h('td.num', p.unit_cost === null ? h('span.muted', '—') : [eur(p.unit_cost), h('small.muted', p.billing === 'anno' ? ' /anno' : p.billing === 'una_tantum' ? ' una tantum' : ' /mese'), p.cost_estimated ? h('small.muted', ' stimato') : null]),
           h('td.num', p.monthly_cost === null ? h('span.muted', '—') : eur(p.monthly_cost)),
-          h('td', p.renewal_date ? fmtDate(p.renewal_date, { year: true }) : h('span.muted', '—')))))))
+          h('td', p.renewal_date ? fmtDate(p.renewal_date, { year: true }) : h('span.muted', '—')),
+          h('td', p.external_id ? h('span.small.muted', p.external_id === 'collegati' ? '' : 'in Microsoft') : h('button.btn.btn-sm', { type: 'button', on: { click: e => {
+            e.stopPropagation();
+            assignPlan({ ...p, software_id: s.id }, p.name === 'Licenza' ? s.name : `${s.name} · ${p.name}`, () => vendorView(container, vendor));
+          } } }, icon('plus', { size: 14 }), 'Assegna')))))))
         : h('p.small.muted', 'Nessuna licenza inserita.'))));
 }
 
@@ -308,11 +312,7 @@ async function softwareDetail(container, id) {
             p.renewal_date ? `rinnovo ${fmtDate(p.renewal_date, { year: true })}` : null,
           ].filter(Boolean).join(' · '))),
         h('div.row',
-          managed ? null : h('button.btn.btn-sm', { type: 'button', on: { click: () => pickPeople({ title: `Assegna «${p.name}»`, exclude: people.map(a => a.person_oid), onPick: async oids => {
-            const r = await post(`/api/software/plans/${p.id}/assignments`, { oids });
-            toast(`Assegnata a ${num(r.added)} ${r.added === 1 ? 'persona' : 'persone'}`);
-            reload();
-          } }) } }, icon('plus', { size: 15 }), 'Assegna'),
+          managed ? null : h('button.btn.btn-sm', { type: 'button', on: { click: () => assignPlan({ ...p, software_id: s.id }, p.name === 'Licenza' ? s.name : p.name, reload) } }, icon('plus', { size: 15 }), 'Assegna'),
           h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => editPlan(s, p, reload) } }, 'Modifica'))),
       p.notes ? h('p.small', p.notes) : null,
       people.length ? h('div.sw-people', people.map(a => h('div.sw-person', { class: a.departed ? 'departed' : '' },
@@ -411,10 +411,21 @@ async function pickPeople({ title, exclude = [], onPick }) {
   const chosen = new Set();
   const list = h('div.sw-pick');
   const count = h('span.small.muted');
+  const found = h('span.small.muted');
   const search = h('input.input', { type: 'search', placeholder: 'Cerca per nome, ruolo o reparto', autofocus: true, on: { input: () => draw() } });
+  const filtered = () => {
+    const q = lc(search.value.trim());
+    return people.filter(p => !q || lc(`${p.name} ${p.job_title} ${p.department} ${p.email}`).includes(q));
+  };
+  const allBtn = h('button.btn.btn-sm', { type: 'button', on: { click: () => {
+    const rows = filtered();
+    const all = rows.every(p => chosen.has(p.oid));
+    for (const p of rows) { if (all) chosen.delete(p.oid); else chosen.add(p.oid); }
+    draw();
+  } } });
   const m = modal({
     title,
-    body: h('div.sw-form', search, list),
+    body: h('div.sw-form', search, h('div.sw-pick-bar', found, allBtn), list),
     left: [count],
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
@@ -427,11 +438,69 @@ async function pickPeople({ title, exclude = [], onPick }) {
   });
   draw();
   function draw() {
-    const q = lc(search.value.trim());
-    const rows = people.filter(p => !q || lc(`${p.name} ${p.job_title} ${p.department} ${p.email}`).includes(q)).slice(0, 200);
-    fill(list, rows.map(p => h('label.sw-pick-row', h('input', { type: 'checkbox', checked: chosen.has(p.oid), on: { change: e => { if (e.target.checked) chosen.add(p.oid); else chosen.delete(p.oid); count.textContent = chosen.size ? `${chosen.size} scelte` : ''; } } }),
+    const rows = filtered();
+    const shown = rows.slice(0, 200);
+    const all = rows.length > 0 && rows.every(p => chosen.has(p.oid));
+    found.textContent = `${num(rows.length)} ${rows.length === 1 ? 'persona trovata' : 'persone trovate'}${rows.length > shown.length ? ` (ne mostro ${shown.length})` : ''}`;
+    allBtn.textContent = all ? 'Togli tutti quelli trovati' : `Seleziona tutti quelli trovati (${num(rows.length)})`;
+    allBtn.disabled = !rows.length;
+    count.textContent = chosen.size ? `${num(chosen.size)} ${chosen.size === 1 ? 'scelta' : 'scelte'}` : '';
+    fill(list, shown.map(p => h('label.sw-pick-row', h('input', { type: 'checkbox', checked: chosen.has(p.oid), on: { change: e => { if (e.target.checked) chosen.add(p.oid); else chosen.delete(p.oid); draw(); } } }),
       h('span.grow', h('strong', p.name), h('span.small.muted', ` ${[p.job_title, p.department].filter(Boolean).join(' · ')}`)))));
     if (!rows.length) list.append(h('p.muted', 'Nessuno trovato.'));
+  }
+}
+
+// Assegna una licenza a più persone e dice com'è andata (chi l'aveva già non conta).
+async function assignPlan(p, label, onDone) {
+  const { assignments = [] } = p.software_id ? await get(`/api/software/${p.software_id}`) : {};
+  pickPeople({ title: `Assegna «${label}»`, exclude: assignments.filter(x => x.plan_id === p.id).map(x => x.person_oid), onPick: async oids => {
+    const r = await post(`/api/software/plans/${p.id}/assignments`, { oids });
+    toast(`«${label}» assegnata a ${num(r.added)} ${r.added === 1 ? 'persona' : 'persone'}`);
+    const over = p.seats === null || p.seats === undefined ? 0 : p.assigned + r.added - p.seats;
+    if (over > 0) toast(`Attenzione: ${num(over)} oltre le ${num(p.seats)} licenze acquistate di «${label}»`, 'err');
+    onDone?.();
+  } });
+}
+
+// Dalla scheda della persona: sceglie una o più licenze (solo quelle gestite qui) e gliele assegna.
+async function assignToPerson(oid, name, have, onDone) {
+  const data = await get('/api/software');
+  const owned = new Set(have);
+  const groups = data.software.filter(sw => sw.status === 'attivo')
+    .map(sw => ({ sw, plans: sw.plans.filter(p => !p.external_id && !owned.has(p.id)) }))
+    .filter(g => g.plans.length)
+    .sort((x, y) => vendorKey(x.sw).localeCompare(vendorKey(y.sw), 'it') || x.sw.name.localeCompare(y.sw.name, 'it'));
+  const chosen = new Set();
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca un software o un fornitore', autofocus: true, on: { input: () => draw() } });
+  const list = h('div.sw-pick');
+  const count = h('span.small.muted');
+  const m = modal({
+    title: `Assegna licenze a ${name}`,
+    body: h('div.sw-form', h('p.small.muted', 'Le licenze di Microsoft 365 si assegnano in Microsoft e arrivano qui con «Aggiorna».'), search, list),
+    left: [count],
+    actions: [
+      h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        if (!chosen.size) return toast('Scegli almeno una licenza', 'err');
+        let added = 0;
+        for (const id of chosen) added += (await post(`/api/software/plans/${id}/assignments`, { oids: [oid] })).added;
+        m.close();
+        toast(`${num(added)} ${added === 1 ? 'licenza assegnata' : 'licenze assegnate'} a ${name}`);
+        onDone?.();
+      } } }, 'Assegna'),
+    ],
+  });
+  draw();
+  function draw() {
+    const q = lc(search.value.trim());
+    const rows = groups.filter(g => !q || lc(`${vendorKey(g.sw)} ${g.sw.name} ${g.sw.category} ${g.plans.map(p => p.name).join(' ')}`).includes(q));
+    count.textContent = chosen.size ? `${num(chosen.size)} ${chosen.size === 1 ? 'scelta' : 'scelte'}` : '';
+    fill(list, rows.length ? rows.flatMap(g => g.plans.map(p => h('label.sw-pick-row',
+      h('input', { type: 'checkbox', checked: chosen.has(p.id), on: { change: e => { if (e.target.checked) chosen.add(p.id); else chosen.delete(p.id); draw(); } } }),
+      h('span.grow', h('strong', p.name === 'Licenza' ? g.sw.name : `${g.sw.name} · ${p.name}`), h('span.small.muted', ` ${vendorKey(g.sw)}${p.free !== null ? ` · ${num(p.free)} libere` : ''}`)),
+      h('span.small.muted', p.monthly_unit === null ? '' : `${eur(p.monthly_unit)}/mese`))))
+      : [h('p.muted', groups.length ? 'Nessuna licenza trovata.' : 'Nessuna licenza da assegnare qui: inserisci prima i software e i loro tipi di licenza.')]);
   }
 }
 
@@ -476,12 +545,13 @@ async function personDrawer(oid) {
     fill(body,
       h('p.muted', [d.person.job_title, d.person.department, d.person.email].filter(Boolean).join(' · ') || (d.person.departed ? 'Non è nell\'organigramma: casella senza posta, account disattivato o persona uscita.' : '')),
       h('div.sw-kpis.sm', h('div.sw-kpi', h('span.lab', 'Licenze'), h('strong.big', num(d.items.length))), h('div.sw-kpi', h('span.lab', 'Costo al mese'), h('strong.big', eur(d.monthly_cost)))),
+      d.person.departed ? null : h('div.row.sw-person-actions', h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => assignToPerson(oid, d.person.name, d.items.map(i => i.plan_id), draw) } }, icon('plus', { size: 14 }), 'Assegna licenza')),
       d.suggested_packages.length ? h('div.sw-suggest', h('span.small.muted', 'Pacchetti per il suo ruolo:'),
         d.suggested_packages.map(k => h('button.btn.btn-sm', { type: 'button', on: { click: () => applyPackage(k, [oid], draw) } }, icon('plus', { size: 14 }), k.name))) : null,
       bySw.size ? h('div.sw-list', [...bySw.entries()].map(([swId, g]) => h('a.sw-line', { href: `#/software/${swId}`, on: { click: () => m.close() } },
         h('span.grow', h('strong', g.name), h('span.small.muted', ` ${g.items.map(i => i.plan_name).join(', ')}`)),
         h('span.small.muted', g.items.map(i => SOURCE[i.source] || i.source).join(', ')),
-        h('span.num', eur(g.items.reduce((a, i) => a + (i.monthly_cost || 0), 0))))))
+        h('span.num', g.items.every(i => i.monthly_cost === null) ? h('span.muted', '—') : eur(g.items.reduce((a, i) => a + (i.monthly_cost || 0), 0))))))
         : h('p.muted', 'Nessun software assegnato.'));
   }
 }
