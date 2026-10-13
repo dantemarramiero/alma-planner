@@ -18,7 +18,8 @@
     "express": "^5.2.1",
     "frappe-gantt": "^1.2.2",
     "fullcalendar": "^6.1.21",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8"

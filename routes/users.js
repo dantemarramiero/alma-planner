@@ -7,12 +7,13 @@ const { checkOwnMedia } = require('../lib/media');
 // handle = parte dell'email prima della chiocciola, usata per le @menzioni.
 const USER_COLS = "u.id, u.email, u.name, u.job_title, split_part(u.email, '@', 1) AS handle, u.avatar_id, u.bio, u.last_login IS NOT NULL AS active";
 
-function registerUsers(app, { db, auth, isAdmin, internalChat, softwareAccess }) {
+function registerUsers(app, { db, auth, isAdmin, internalChat, softwareAccess, fleet }) {
   const getUser = async id => (await db.query(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [id])).rows[0];
 
   app.get('/api/me', async (req, res) => {
     res.json({ ...(await getUser(req.user.id)), microsoft: auth.msConfigured, is_admin: isAdmin(req), internal_chat: Boolean(internalChat),
-      software: softwareAccess ? await softwareAccess.canUse(req) : isAdmin(req) });
+      software: softwareAccess ? await softwareAccess.canUse(req) : isAdmin(req),
+      fleet_manager: fleet ? await fleet.isManager(req) : false });
   });
 
   app.patch('/api/me', async (req, res) => {

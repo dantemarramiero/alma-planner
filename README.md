@@ -13,6 +13,7 @@ Gestione del team interno Almacis: **progetti**, **ticket** assegnati a una o pi
 | Documenti | File caricati nella cartella OneDrive del progetto (quelli di un ticket in una sottocartella «Ticket N - titolo») o collegati da OneDrive; la pagina del progetto mostra quelli del progetto e delle attività |
 | Calendario | Eventi Outlook + ticket nello stesso calendario; crea, sposta e cancella eventi Outlook (anche riunioni Teams); un ticket si può mettere in calendario e l'evento segue le sue date |
 | OneDrive | Il proprio OneDrive, i file condivisi, i recenti, ricerca, caricamento (anche trascinando), nuove cartelle, scaricamento |
+| Mezzi (`#/mezzi`) | Parco mezzi per categorie. Tutti: mezzi liberi per categoria, richiesta di una categoria con note, le proprie prenotazioni, ritiro e riconsegna con i km dal QR code del mezzo (`/m/<codice>`, passa dal login), segnalazioni che diventano ticket ai gestori (se il mezzo non è utilizzabile va fuori servizio). Gestori (scelti da un amministratore; senza gestori, gli amministratori): approvazione con scelta del mezzo e controllo dei conflitti, planner a due settimane, anagrafica con etichette QR, scadenze con promemoria (giorni prima o km), manutenzioni (in officina = non prenotabile), costi, multe a chi aveva il mezzo, storico ed esportazioni CSV. Promemoria ogni 5 minuti: riconsegna (un'ora prima, il giorno prima per le lunghe, ritardo a chi ha il mezzo e ai gestori) e scadenze |
 
 ## Struttura
 

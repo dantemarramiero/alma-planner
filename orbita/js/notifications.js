@@ -18,6 +18,7 @@ function sentence(n) {
     case 'mention': return n.comment_id ? `ti ha menzionato in un commento:${quote(n.comment_body)}` : 'ti ha menzionato in un post.';
     case 'comment_like': return `ha messo mi piace al tuo commento:${quote(n.comment_body)}`;
     case 'pin': return 'ha messo in evidenza il tuo post.';
+    case 'mezzi': return n.body || '';
     case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
     case 'overdue_project': return `Ritardo nel tuo progetto:${quote(n.ticket_title)} è scaduto da almeno 2 giorni lavorativi.`;
     case 'note_mention': return `ti ha menzionato in una nota:${quote(n.note_body)}`;
@@ -34,6 +35,7 @@ function sentence(n) {
 // Dove porta il clic: il post, oppure la nota (tab Note del progetto, o la scheda del ticket).
 async function open(n) {
   if (n.post_id) return openPost(n.post_id, { focus: !!n.comment_id });
+  if (n.link) { location.hash = `#${n.link}`; return; } // parco mezzi: link già pronto
   if (n.kind === 'rda_new' || n.kind === 'rda_rejected') { location.hash = '#/rda'; return; }
   if (n.kind === 'software_proposal') { location.hash = '#/software/proposte'; return; }
   if (n.ticket_id) return (await import('./tickets.js')).openTicket(n.ticket_id, {});
@@ -57,9 +59,9 @@ export function notificationsView(view) {
 
   function row(n) {
     const u = userById(n.actor_id);
-    const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind); // li manda Alma Planet, non una persona
+    const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind) || (n.kind === 'mezzi' && !n.actor_id); // li manda Alma Planet, non una persona
     return h('button.notif', { type: 'button', class: n.read_at ? '' : 'new', on: { click: () => open(n) } },
-      system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
+      system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : n.kind === 'mezzi' ? 'car' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
       h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], sentence(n), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
       n.post_media_id ? h('img.notif-thumb', { src: mediaUrl(n.post_media_id), alt: '' }) : n.post_body ? h('span.notif-thumb.text', n.post_body) : null);
   }

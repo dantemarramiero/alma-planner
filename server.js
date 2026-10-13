@@ -33,6 +33,8 @@ const { createAccess } = require('./lib/access');
 const { importMicrosoftPhoto, purgeMedia } = require('./lib/media');
 const { rateLimit, createAudit } = require('./lib/security');
 const { registerAudit } = require('./routes/audit');
+const { registerFleet } = require('./routes/fleet');
+const { createFleet } = require('./lib/fleet');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -118,6 +120,12 @@ async function createApp(config, { db, confirmAccount } = {}) {
   // Pagine
   const pub = path.join(__dirname, 'orbita'); // tutta l'interfaccia di Alma Planet (HTML, CSS, JS, brand)
   app.get('/', (req, res) => (req.user ? res.redirect('/app') : res.sendFile(path.join(pub, 'index.html'))));
+  // QR code dei mezzi: il link passa dal server (l'hash #/… si perderebbe nel login di Microsoft), poi apre il mezzo.
+  app.get('/m/:token', (req, res) => {
+    const token = String(req.params.token).replace(/[^\w-]/g, '').slice(0, 40);
+    if (!req.user) return res.redirect(`/auth/login?returnTo=${encodeURIComponent(`/m/${token}`)}`);
+    res.redirect(`/app#/mezzi/qr/${token}`);
+  });
   // Ogni deploy serve JS e CSS da /b/<deploy>/…: un browser con file vecchi in cache non può riusarli
   // (mescolare moduli vecchi e nuovi rompeva Gantt, chat e organigramma). I percorsi relativi degli
   // import restano sotto lo stesso /b/<deploy>/, quindi tutta l'app arriva dalla stessa versione.
@@ -156,6 +164,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
+  deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
   registerUsers(app, deps);
   registerProjects(app, deps);
@@ -176,6 +185,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   registerDigest(app, deps);
   registerSearch(app, deps);
   registerSoftware(app, deps);
+  registerFleet(app, deps);
   registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 
@@ -189,14 +199,15 @@ async function createApp(config, { db, confirmAccount } = {}) {
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit, digest: deps.digest };
+  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit, digest } = await createApp(config);
-    digest.start(); // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
+    const { app, db, auth, audit, digest, fleet } = await createApp(config);
+    digest.start();
+    fleet.start(); // ogni 5 minuti: promemoria di riconsegna (a chi ha il mezzo e ai gestori) e delle scadenze dei mezzi // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
     setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();

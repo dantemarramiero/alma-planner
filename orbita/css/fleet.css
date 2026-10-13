@@ -1,0 +1,131 @@
+/* Mezzi aziendali (orbita/js/fleet.js). Colori solo dai token; angoli del refresh 2026. */
+.fl-tabs { margin-bottom: var(--ap-space-4); flex-wrap: wrap; }
+.fl-body { display: grid; gap: var(--ap-space-4); }
+.fl-section { display: grid; gap: var(--ap-space-2); margin-bottom: var(--ap-space-5); }
+.fl-label { font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-top: var(--ap-space-2); }
+.fl-hint { display: flex; align-items: center; gap: var(--ap-space-1); }
+.fl-warn { color: var(--amber); display: inline-flex; align-items: center; gap: 4px; }
+.fl-late { color: var(--red); font-weight: var(--ap-fw-medium); }
+.fl-soon { color: var(--amber); }
+.pre { white-space: pre-wrap; }
+
+/* stati dei mezzi e delle prenotazioni: badge tenui con il testo in tinta piena */
+.fl-st.fl-libero, .fl-bk.fl-bk-conclusa { background: var(--green-soft); color: var(--green); }
+.fl-st.fl-in_uso, .fl-bk.fl-bk-in_corso { background: var(--blue-soft); color: var(--blue); }
+.fl-st.fl-prenotato, .fl-bk.fl-bk-approvata { background: var(--orange-soft); color: var(--orange-dark); }
+.fl-st.fl-manutenzione, .fl-bk.fl-bk-richiesta { background: var(--amber-soft); color: var(--amber); }
+.fl-st.fl-fuori_servizio, .fl-bk.fl-bk-rifiutata { background: var(--red-soft); color: var(--red); }
+.fl-st.fl-dismesso, .fl-st.fl-assegnato, .fl-bk.fl-bk-annullata { background: var(--bg); color: var(--muted); }
+
+/* disponibilità per categoria */
+.fl-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--ap-space-3); }
+.fl-cat { padding: var(--ap-space-4); display: grid; gap: var(--ap-space-2); }
+.fl-free { font-weight: var(--ap-fw-bold); color: var(--green); white-space: nowrap; }
+.fl-free.none { color: var(--muted); }
+.fl-bar { height: 6px; border-radius: var(--radius-pill); background: var(--bg); overflow: hidden; }
+.fl-bar i { display: block; height: 100%; background: var(--green); border-radius: inherit; }
+
+/* elenchi a righe */
+.fl-list { display: grid; }
+.fl-list.flat { border: 0; }
+.fl-row { display: flex; align-items: center; gap: var(--ap-space-3); padding: var(--ap-space-3) var(--ap-space-4); border-bottom: 1px solid var(--rule); color: inherit; text-decoration: none; min-width: 0; }
+.fl-list.flat .fl-row { padding-left: 0; padding-right: 0; }
+.fl-row:last-child { border-bottom: 0; }
+a.fl-row:hover { background: var(--hover); }
+.fl-row .grow { min-width: 0; flex: 1; }
+.fl-row.late { box-shadow: inset 3px 0 0 var(--red); }
+.fl-act { color: var(--orange-dark); font-weight: var(--ap-fw-medium); white-space: nowrap; }
+.fl-done { margin-top: var(--ap-space-3); }
+.fl-done summary { cursor: pointer; color: var(--muted); margin-bottom: var(--ap-space-2); }
+
+/* richiesta e prenotazione */
+.fl-avail { display: flex; align-items: center; gap: var(--ap-space-1); font-size: var(--ap-fs-sm); color: var(--green); min-height: 22px; }
+.fl-avail.none { color: var(--amber); }
+.fl-detail { padding: var(--ap-space-4); display: grid; gap: var(--ap-space-2); max-width: 760px; }
+.fl-kv { display: grid; grid-template-columns: 170px 1fr; gap: var(--ap-space-3); align-items: baseline; }
+.fl-kv > span { color: var(--muted); font-size: var(--ap-fs-sm); }
+.fl-actions { margin: var(--ap-space-4) 0; gap: var(--ap-space-2); flex-wrap: wrap; }
+@media (max-width: 600px) { .fl-kv { grid-template-columns: 1fr; gap: 0; } }
+
+/* cruscotto dei gestori: i mezzi adesso */
+.fl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: var(--ap-space-3); }
+.fl-vcard { padding: var(--ap-space-4); display: grid; gap: var(--ap-space-1); color: inherit; text-decoration: none; }
+.fl-vcard:hover { box-shadow: var(--shadow); }
+.fl-vcard.late { box-shadow: inset 0 3px 0 var(--red); }
+
+/* scheda del mezzo */
+.fl-vhead { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: var(--ap-space-4); margin-bottom: var(--ap-space-4); }
+.fl-vinfo { padding: var(--ap-space-4); display: grid; gap: var(--ap-space-3); align-content: start; }
+.fl-vstate { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; }
+.fl-kvs { display: grid; gap: var(--ap-space-2); }
+.fl-vside { display: grid; gap: var(--ap-space-3); align-content: start; }
+.fl-qrbox { padding: var(--ap-space-3); display: flex; gap: var(--ap-space-3); align-items: center; }
+.fl-qrbox img { width: 112px; height: 112px; flex: none; }
+.fl-qrbox p { margin: 2px 0 6px; }
+.fl-photo { width: 72px; height: 72px; border-radius: 14px; object-fit: cover; flex: none; background: var(--bg); }
+.fl-photo.big { width: 100%; height: auto; max-height: 260px; }
+.fl-photo.ph { display: grid; place-items: center; color: var(--muted); }
+.fl-photo-edit { display: grid; gap: var(--ap-space-2); justify-items: center; }
+.fl-form-top { display: flex; gap: var(--ap-space-4); align-items: flex-start; }
+.fl-form-top .grow { flex: 1; min-width: 0; display: grid; gap: var(--ap-space-3); }
+.fl-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.fl-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.fl-who { display: flex; align-items: center; gap: var(--ap-space-2); min-height: 40px; }
+.fl-filters { align-items: flex-end; }
+.fl-filters .field { min-width: 140px; }
+@media (max-width: 860px) {
+  .fl-vhead { grid-template-columns: 1fr; }
+  .fl-grid-4 { grid-template-columns: 1fr 1fr; }
+  .fl-grid-3 { grid-template-columns: 1fr; }
+  .fl-form-top { flex-direction: column; align-items: stretch; }
+}
+
+/* QR inquadrato col telefono */
+.fl-qr { max-width: 520px; margin: 0 auto; display: grid; gap: var(--ap-space-3); }
+.fl-qr-head { padding: var(--ap-space-4); display: flex; gap: var(--ap-space-4); align-items: center; }
+.fl-qr-head h1 { margin: 2px 0; }
+.fl-qr-state { display: flex; gap: var(--ap-space-2); align-items: center; flex-wrap: wrap; margin-top: var(--ap-space-2); }
+.fl-qr-mine { padding: var(--ap-space-3) var(--ap-space-4); box-shadow: inset 0 3px 0 var(--orange); }
+.fl-qr-actions { display: grid; gap: var(--ap-space-2); }
+.fl-big { justify-content: center; padding: 14px 18px; font-size: var(--ap-fs-md); gap: var(--ap-space-2); width: 100%; }
+
+/* planner: una riga per mezzo, due settimane */
+.fl-plan-wrap { overflow-x: auto; }
+.fl-plan { min-width: 880px; background: var(--card); border: 1px solid var(--rule); border-radius: 18px; overflow: hidden; }
+.fl-plan-row { display: grid; grid-template-columns: 170px 1fr; border-bottom: 1px solid var(--rule); min-height: 46px; }
+.fl-plan-row:last-child { border-bottom: 0; }
+.fl-plan-row.head { min-height: 40px; background: var(--bg); }
+.fl-plan-name { display: grid; align-content: center; padding: 6px var(--ap-space-3); border-right: 1px solid var(--rule); color: inherit; text-decoration: none; min-width: 0; }
+.fl-plan-name small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.fl-plan-name:hover { background: var(--hover); }
+.fl-plan-days { display: grid; grid-template-columns: repeat(14, 1fr); position: relative; }
+.fl-plan-days > span { border-right: 1px solid var(--rule); font-size: var(--ap-fs-xs); color: var(--muted); text-align: center; display: grid; align-content: center; text-transform: capitalize; }
+.fl-plan-days > span:last-of-type { border-right: 0; }
+.fl-plan-days > span b { color: var(--ink); font-size: var(--ap-fs-sm); }
+.fl-plan-days > span.we { background: color-mix(in srgb, var(--bg) 60%, transparent); }
+.fl-plan-days > span.today { color: var(--orange-dark); }
+.fl-plan-days > span.today b { color: var(--orange-dark); }
+.fl-bar-b, .fl-bar-m { position: absolute; top: 9px; height: 26px; border-radius: var(--radius-pill); font-size: var(--ap-fs-xs); line-height: 26px; padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-decoration: none; font-style: normal; }
+.fl-bar-b.app { background: var(--orange-soft); color: var(--orange-dark); box-shadow: inset 0 0 0 1px var(--orange); }
+.fl-bar-b.run { background: var(--blue); color: var(--ap-white); }
+.fl-bar-b.done { background: var(--green-soft); color: var(--green); }
+.fl-bar-m { background: repeating-linear-gradient(45deg, var(--amber-soft), var(--amber-soft) 6px, var(--card) 6px, var(--card) 12px); color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+.fl-legend { display: inline-flex; align-items: center; gap: 6px; }
+.fl-lg { display: inline-block; width: 14px; height: 10px; border-radius: var(--radius-pill); margin-left: 8px; }
+.fl-lg.app { background: var(--orange-soft); box-shadow: inset 0 0 0 1px var(--orange); }
+.fl-lg.run { background: var(--blue); }
+.fl-lg.done { background: var(--green-soft); }
+.fl-lg.mnt { background: var(--amber-soft); box-shadow: inset 0 0 0 1px var(--amber); }
+
+/* etichette QR da stampare */
+.fl-labels { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--ap-space-3); }
+.fl-label-card { display: flex; gap: var(--ap-space-3); align-items: center; padding: var(--ap-space-3); border: 1px dashed var(--rule-strong); border-radius: 14px; background: var(--card); break-inside: avoid; }
+.fl-label-card img { width: 120px; height: 120px; flex: none; }
+.fl-label-card strong { font-size: 1.3rem; display: block; }
+.fl-label-brand { font-size: var(--ap-fs-xs); color: var(--orange-dark); font-weight: var(--ap-fw-bold); text-transform: uppercase; letter-spacing: 0.06em; }
+@media print {
+  .sidebar, .m-top, .m-tabs, .backbar, .fl-noprint, .toasts { display: none !important; }
+  .main { padding: 0 !important; margin: 0 !important; }
+  .fl-labels { grid-template-columns: repeat(2, 1fr); gap: 6mm; }
+  .fl-label-card { border-color: var(--ap-grey-700); }
+}

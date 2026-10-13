@@ -2,10 +2,10 @@
 // «internal» = chat interna con messaggi non letti, solo se è accesa (INTERNAL_CHAT=1).
 const { loadFunctions, orgOidOf } = require('../lib/functions');
 
-function registerNotifications(app, { db, live, internalChat }) {
+function registerNotifications(app, { db, live, internalChat, fleet }) {
   app.get('/api/notifications', async (req, res) => {
     const { rows } = await db.query(
-      `SELECT n.id, n.actor_id, n.kind, n.post_id, n.comment_id, n.note_id, n.ticket_id, n.read_at, n.created_at,
+      `SELECT n.id, n.actor_id, n.kind, n.post_id, n.comment_id, n.note_id, n.ticket_id, n.read_at, n.created_at, n.body, n.link,
               tk.title AS ticket_title, tk.rda_function, tk.hours_estimated, tk.hours_approved, tk.rda_reject_reason,
               nt.project_id AS note_project_id, nt.ticket_id AS note_ticket_id, left(nt.body, 120) AS note_body,
               left(c.body, 120) AS comment_body,
@@ -43,7 +43,11 @@ function registerNotifications(app, { db, live, internalChat }) {
     const rda = led.length
       ? (await db.query("SELECT COUNT(*)::int AS n FROM tickets WHERE rda_state = 'pending' AND rda_function = ANY($1::text[])", [led])).rows[0].n
       : 0;
-    res.json({ ...rows[0], rda });
+    // parco mezzi: richieste da approvare, per i gestori
+    const mezzi = fleet && await fleet.isManager(req)
+      ? (await db.query("SELECT COUNT(*)::int AS n FROM vehicle_bookings WHERE status = 'richiesta'")).rows[0].n
+      : 0;
+    res.json({ ...rows[0], rda, mezzi });
   });
 }
 

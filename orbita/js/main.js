@@ -18,6 +18,7 @@ import { fillIcons } from './icons.js';
 import { rdaView } from './rda.js';
 import { searchView, setupSearch } from './search.js';
 import { softwareView } from './software.js';
+import { fleetView } from './fleet.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -129,6 +130,9 @@ async function route() {
     case 'software':
       await softwareView(view, parts);
       break;
+    case 'mezzi':
+      await fleetView(view, parts);
+      break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
@@ -169,6 +173,7 @@ async function start() {
   setupMobile();
   setupSearch(); // casella di ricerca nella barra laterale, lente sul telefono, «/» e Ctrl+K
   document.addEventListener('me-changed', drawMe);
+  document.addEventListener('badges-changed', refreshBadges); // es. richiesta di un mezzo appena approvata
   document.getElementById('logout').addEventListener('click', async () => {
     await post('/auth/logout');
     location.href = '/';
