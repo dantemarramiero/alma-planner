@@ -280,3 +280,63 @@ test('prospetto per categoria: pacchetti con licenze di base e su richiesta; le 
   const ap = (await A('POST', `/api/software/packages/${byName.Operai.id}/apply`, { oids: ['o-luca'] })).body;
   assert.deepEqual([ap.added, ap.todo.map(t => t.plan)], [0, ['Exchange Online (Plan 1)']]);
 });
+
+test('Claude: membri dall\'Admin API (a pagine), abbinati a Microsoft per email; licenze acquistate a mano', async () => {
+  // senza chiave: «da collegare», e «Aggiorna» lo dice
+  delete process.env.ANTHROPIC_ADMIN_KEY;
+  let all = (await A('GET', '/api/software')).body;
+  assert.deepEqual(all.sources.find(s => s.key === 'claude'), { key: 'claude', label: 'Claude (Anthropic)', needs: 'ANTHROPIC_ADMIN_KEY', configured: false });
+  const none = await A('POST', '/api/software/sync/claude');
+  assert.deepEqual([none.status, none.body.code], [400, 'not_configured']);
+
+  // risposte finte di Anthropic: due pagine; una persona è in Microsoft, l'altra no
+  const pages = {
+    first: { data: [{ type: 'user', id: 'user_1', email: 'Dante@almacis.it', name: 'Dante M', role: 'primary_owner', added_at: '2026-01-01T00:00:00Z' }], has_more: true, first_id: 'user_1', last_id: 'user_1' },
+    second: { data: [{ type: 'user', id: 'user_2', email: 'consulente@esterno.it', name: 'Consulente', role: 'user', added_at: '2026-02-01T00:00:00Z' }], has_more: false, first_id: 'user_2', last_id: 'user_2' },
+  };
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (!String(url).startsWith('https://api.anthropic.com/')) return realFetch(url, opts);
+    seen.push({ url: String(url), key: opts.headers['x-api-key'], version: opts.headers['anthropic-version'] });
+    const body = new URL(url).searchParams.get('after_id') === 'user_1' ? pages.second : pages.first;
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  process.env.ANTHROPIC_ADMIN_KEY = 'sk-ant-admin-prova';
+  try {
+    const r = (await A('POST', '/api/software/sync/claude')).body;
+    assert.deepEqual([r.software, r.assignments], [1, 2]);
+    assert.equal(seen.length, 2);
+    assert.ok(seen.every(x => x.key === 'sk-ant-admin-prova' && x.version === '2023-06-01'));
+    assert.match(seen[1].url, /after_id=user_1/);
+
+    all = (await A('GET', '/api/software')).body;
+    const claude = all.software.find(s => s.name === 'Claude');
+    assert.deepEqual([claude.vendor, claude.source, claude.status], ['Anthropic', 'claude', 'attivo']);
+    const det = (await A('GET', `/api/software/${claude.id}`)).body;
+    const posti = det.plans[0];
+    assert.deepEqual(det.assignments.map(a => [a.person_oid, a.person_name]).sort(),
+      [['claude:consulente@esterno.it', 'Consulente'], ['o-dante', 'Dante']]); // Dante abbinato per email, anche con le maiuscole
+
+    // quantità e prezzo li scrive l'amministratore e restano dopo un nuovo «Aggiorna»
+    assert.equal((await A('PATCH', `/api/software/plans/${posti.id}`, { seats: 5, unit_cost: '30', billing: 'mese' })).status, 200);
+    assert.equal((await A('PATCH', `/api/software/plans/${posti.id}`, { name: 'Altro' })).status, 400);
+    await A('POST', '/api/software/sync/claude');
+    const again = (await A('GET', `/api/software/${claude.id}`)).body.plans[0];
+    assert.deepEqual([again.seats, again.unit_cost, again.assigned, again.free, again.monthly_cost], [5, 30, 2, 3, 150]);
+    // chi è su Claude ma non in Microsoft compare tra le persone, segnato a parte
+    const ppl = (await A('GET', '/api/software/people')).body;
+    assert.equal(ppl.find(p => p.oid === 'claude:consulente@esterno.it').not_in_org, true);
+
+    // chiave rifiutata da Anthropic: messaggio chiaro
+    globalThis.fetch = async (url, opts) => (String(url).startsWith('https://api.anthropic.com/')
+      ? new Response(JSON.stringify({ error: { message: 'invalid x-api-key' } }), { status: 401, headers: { 'content-type': 'application/json' } })
+      : realFetch(url, opts));
+    const bad = await A('POST', '/api/software/sync/claude');
+    assert.equal(bad.status, 403);
+    assert.match(bad.body.error, /Admin API key/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.ANTHROPIC_ADMIN_KEY;
+  }
+});

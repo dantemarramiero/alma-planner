@@ -9,7 +9,9 @@ import { icon } from './icons.js';
 const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['pacchetti', 'Pacchetti per ruolo'], ['proposte', 'Proposte']];
 const STATUS = { attivo: 'In uso', da_verificare: 'Da verificare', archiviato: 'Archiviato' };
 const BILLING = { mese: 'al mese', anno: 'all\'anno', una_tantum: 'una tantum' };
-const SOURCE = { manuale: 'A mano', microsoft: 'Microsoft 365', entra: 'Entra', pacchetto: 'Pacchetto' };
+const SOURCE = { manuale: 'A mano', microsoft: 'Microsoft 365', entra: 'Entra', claude: 'Claude (Anthropic)', pacchetto: 'Pacchetto' };
+// fonti che dicono chi ha la licenza ma non quante ne sono state comprate: la quantità si scrive a mano
+const SEATS_MANUAL = new Set(['claude']);
 
 const eur = n => (n === null || n === undefined ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: n >= 1000 ? 0 : 2 }));
 const num = n => Number(n || 0).toLocaleString('it-IT');
@@ -80,7 +82,7 @@ function dashboard(box, data) {
       free.length ? h('section.card.sw-card#sw-libere', h('h3', 'Licenze da assegnare'),
         h('p.small.muted', 'Licenze già pagate che nessuno ha: assegnale a chi entra o riducile al prossimo rinnovo.'),
         h('div.sw-list', free.map(({ s, p, cost }) => h('a.sw-line', { href: `#/software/${s.id}` },
-          h('span.grow', h('strong', p.name), h('span.small.muted', ` ${vendorKey(s)}${s.name !== vendorKey(s) ? ` · ${s.name}` : ''}`)),
+          h('span.grow', h('strong', p.name === 'Licenza' ? s.name : p.name), h('span.small.muted', ` ${vendorKey(s)}${s.name !== vendorKey(s) && p.name !== 'Licenza' ? ` · ${s.name}` : ''}`)),
           h('span.sw-free-n', `${num(p.free)} ${p.free === 1 ? 'libera' : 'libere'}`),
           h('span.small.muted.num', cost === null ? 'prezzo da inserire' : `${eur(cost)}/mese`),
           p.renewal_date ? h('span.small.muted', `rinnovo ${fmtDate(p.renewal_date, { year: true })}`) : null)))) : null,
@@ -116,11 +118,13 @@ function sourcesCard(data) {
       }
     } } }, icon('refresh', { size: 15 }), 'Aggiorna');
     const note = h('div');
+    if (!src.configured) btn.disabled = true;
     return h('div.sw-source', h('div.grow', h('strong', src.label),
-      h('div.small.muted', s ? `Aggiornato ${fmtDateTime(s.synced_at)}${s.synced_by_name ? ` da ${s.synced_by_name}` : ''}` : 'Mai aggiornato'), note), btn);
+      h('div.small.muted', !src.configured ? `Da collegare: manca la chiave del fornitore (variabile ${src.needs} su Railway)`
+        : s ? `Aggiornato ${fmtDateTime(s.synced_at)}${s.synced_by_name ? ` da ${s.synced_by_name}` : ''}` : 'Mai aggiornato'), note), btn);
   };
   return h('section.card.sw-card', h('h3', 'Collegamenti'),
-    h('p.small.muted', 'Leggono da soli software, licenze e assegnazioni. Gli altri software si inseriscono a mano; i prossimi collegamenti (Claude, Zoho…) si aggiungeranno qui.'),
+    h('p.small.muted', 'Leggono da soli software, licenze e assegnazioni. Gli altri software si inseriscono a mano; i prossimi collegamenti (Zoho, Adobe…) si aggiungeranno qui.'),
     data.sources.map(row));
 }
 
@@ -293,7 +297,9 @@ async function softwareDetail(container, id) {
         h('button.btn', { type: 'button', on: { click: () => editSoftware(s, reload) } }, 'Modifica'),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => editPlan(s, null, reload) } }, icon('plus', { size: 16 }), 'Tipo di licenza'))),
     s.notes ? h('p.sw-notes', s.notes) : null,
-    fromSource ? h('p.small.muted', `Quantità e assegnazioni arrivano da ${SOURCE[s.source]}: si aggiornano con «Aggiorna» nel cruscotto. Qui si inseriscono prezzi, rinnovi e note.`) : null,
+    fromSource ? h('p.small.muted', SEATS_MANUAL.has(s.source)
+      ? `Chi ha la licenza arriva da ${SOURCE[s.source]}: si aggiorna con «Aggiorna» nel cruscotto. Qui si inseriscono licenze acquistate, prezzi, rinnovi e note.`
+      : `Quantità e assegnazioni arrivano da ${SOURCE[s.source]}: si aggiornano con «Aggiorna» nel cruscotto. Qui si inseriscono prezzi, rinnovi e note.`) : null,
     plans);
 
   if (!s.plans.length) plans.append(h('div.card.empty', 'Nessuna licenza ancora. Aggiungi il primo tipo di licenza (per esempio «Standard», 10 licenze a 14 € al mese).'));
@@ -372,8 +378,9 @@ async function editSoftware(s, onSaved, defaults = {}) {
 
 function editPlan(s, p, onSaved) {
   const managed = Boolean(p?.external_id);
+  const seatsLocked = managed && !SEATS_MANUAL.has(s.source);
   const name = h('input.input', { value: p?.name || '', maxlength: 120, disabled: managed, placeholder: 'es. Standard, Pro, Business' });
-  const seats = h('input.input', { type: 'number', min: 0, value: p?.seats ?? '', disabled: managed, placeholder: 'vuoto = senza limite' });
+  const seats = h('input.input', { type: 'number', min: 0, value: p?.seats ?? '', disabled: seatsLocked, placeholder: 'vuoto = senza limite' });
   const cost = h('input.input', { inputmode: 'decimal', value: p?.unit_cost ?? '', placeholder: 'es. 14,00' });
   const billing = h('select.select', Object.entries(BILLING).map(([k, label]) => h('option', { value: k, selected: (p?.billing || 'mese') === k }, `Per licenza ${label}`)));
   const renewal = h('input.input', { type: 'date', value: p?.renewal_date?.slice(0, 10) || '' });
@@ -381,7 +388,7 @@ function editPlan(s, p, onSaved) {
   const m = modal({
     title: p ? `Licenza «${p.name}»` : `Nuovo tipo di licenza di ${s.name}`,
     body: h('div.sw-form',
-      managed ? h('p.small.muted', `Nome e quantità arrivano da ${SOURCE[s.source]}.`) : null,
+      managed ? h('p.small.muted', seatsLocked ? `Nome e quantità arrivano da ${SOURCE[s.source]}.` : `Il nome arriva da ${SOURCE[s.source]}; le licenze acquistate scrivile qui.`) : null,
       field('Nome', name), h('div.grid-2', field('Licenze acquistate', seats), field('Rinnovo', renewal)),
       h('div.grid-2', field('Prezzo di una licenza (€, IVA esclusa)', cost, p?.cost_estimated ? 'Ora è il listino stimato: metti quello della fattura.' : null), field('Si paga', billing)),
       field('Note', notes)),
@@ -395,7 +402,8 @@ function editPlan(s, p, onSaved) {
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
         const body = { unit_cost: cost.value, billing: billing.value, renewal_date: renewal.value || null, notes: notes.value };
-        if (!managed) Object.assign(body, { name: name.value, seats: seats.value === '' ? null : Number(seats.value) });
+        if (!managed) Object.assign(body, { name: name.value });
+        if (!seatsLocked) body.seats = seats.value === '' ? null : Number(seats.value);
         if (p) await patch(`/api/software/plans/${p.id}`, body); else await post(`/api/software/${s.id}/plans`, body);
         m.close();
         toast('Salvato');

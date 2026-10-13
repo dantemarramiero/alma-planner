@@ -114,7 +114,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
       software,
       vendor_people: Object.fromEntries([...vendorPeople].map(([v, set]) => [v, set.size])),
       sync: Object.fromEntries(syncs.map(s => [s.source, s])),
-      sources: Object.entries(SOURCES).map(([key, s]) => ({ key, label: s.label })),
+      sources: Object.entries(SOURCES).map(([key, s]) => ({ key, label: s.label, needs: s.needs || null, configured: !s.needs || Boolean(process.env[s.needs]) })),
       departed,
       totals: {
         software: active.filter(s => s.status === 'attivo').length,
@@ -233,7 +233,9 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     const plan = await getPlan(id);
     const d = readPlan(req.body || {}, { partial: true });
     // quantità e nome delle licenze lette da un collegamento li decide la fonte
-    if (plan.external_id && (d.seats !== undefined || d.name !== undefined)) {
+    // nome (e quantità, se la fonte la dà) delle licenze lette da un collegamento li decide la fonte
+    const seatsManual = Boolean(SOURCES[plan.source]?.seatsManual);
+    if (plan.external_id && (d.name !== undefined || (d.seats !== undefined && !seatsManual))) {
       throw new HttpError(400, `Nome e quantità di «${plan.name}» arrivano da ${SOURCES[plan.source]?.label || plan.source}: si cambiano lì`);
     }
     const cols = Object.keys(d);
@@ -560,13 +562,25 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
   app.post('/api/software/sync/:source', async (req, res) => {
     const source = v.oneOf(req.params.source, 'collegamento', Object.keys(SOURCES));
     const src = SOURCES[source];
-    const token = await auth.graphTokenFor(req.user.id, src.scopes);
     let list;
-    try {
-      list = await src.read(token);
-    } catch (err) {
-      if (err.status === 403) throw new HttpError(403, `Microsoft non concede la lettura: serve il consenso amministratore a ${src.scopes.join(', ')} per l'app Alma Planner`, 'consent');
-      throw err;
+    if (src.needs) {
+      // collegamento con una chiave del fornitore, salvata come variabile del servizio (mai nel database)
+      const apiKey = process.env[src.needs]?.trim();
+      if (!apiKey) throw new HttpError(400, `${src.label} non è ancora collegato: manca la variabile ${src.needs} su Railway`, 'not_configured');
+      const { rows: people } = await db.query('SELECT oid, name, email FROM org_people');
+      try {
+        list = await src.read({ apiKey, people });
+      } catch (err) {
+        throw new HttpError(err.status === 403 ? 403 : 502, err.message);
+      }
+    } else {
+      const token = await auth.graphTokenFor(req.user.id, src.scopes);
+      try {
+        list = await src.read({ token });
+      } catch (err) {
+        if (err.status === 403) throw new HttpError(403, `Microsoft non concede la lettura: serve il consenso amministratore a ${src.scopes.join(', ')} per l'app Alma Planner`, 'consent');
+        throw err;
+      }
     }
     res.json(await applySource(db, source, list, req.user.id));
   });
