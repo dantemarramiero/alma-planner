@@ -1,5 +1,5 @@
 // Ticket: lista, bacheca con trascinamento, scheda di dettaglio (drawer).
-import { h, clear, modal, confirmDialog, toast, fmtDate, fmtDateTime, today, addDays, statusPill, projChip, avatar, loading, debounce, isMobile, STATUS, PRIORITY } from './ui.js';
+import { h, clear, fill, modal, confirmDialog, toast, fmtDate, fmtDateTime, today, addDays, statusPill, projChip, avatar, loading, debounce, isMobile, STATUS, PRIORITY } from './ui.js';
 import { icon } from './icons.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store, userById, activeProjects, projectById, loadProjects } from './store.js';
@@ -281,6 +281,66 @@ function board(tickets, { onChange, hideProject }) {
 
 // ── scheda del ticket ──────────────────────────────────────────────────────
 // requireSchedule: il ticket è un'attività del Gantt, quindi servono inizio, scadenza e almeno un responsabile.
+// ── promemoria sul ticket ──────────────────────────────────────────────────
+// Chi vede il ticket manda a chi ci lavora (assegnati e autore) un testo scritto da lui: arriva nelle notifiche
+// di Alma Planet e per email dalla sua casella Outlook. Sotto, lo storico dei promemoria mandati.
+const MONTHS_IT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+function defaultReminderText(t) {
+  const due = t.due_date ? (() => { const [y, m, d] = String(t.due_date).slice(0, 10).split('-').map(Number); return `${d} ${MONTHS_IT[m - 1]}${y !== new Date().getFullYear() ? ` ${y}` : ''}`; })() : null;
+  const late = t.due_date && t.status !== 'done' && String(t.due_date).slice(0, 10) < new Date().toISOString().slice(0, 10);
+  return `Ciao, ti ricordo il ticket «${t.title}»${due ? (late ? `, che era in scadenza il ${due}` : `, in scadenza il ${due}`) : ''}.\nMi aggiorni su come procede?`;
+}
+
+async function reminderSection(box, t) {
+  const list = h('div.reminders');
+  const btn = h('button.btn.btn-sm', { type: 'button', on: { click: () => openReminder(t, load) } }, icon('bell', { size: 16 }), 'Manda un promemoria');
+  box.append(h('div.spread', h('h3', 'Promemoria'), btn), list);
+  await load();
+  async function load() {
+    const d = await get(`/api/tickets/${t.id}/reminders`, { quiet: true }).catch(() => null);
+    if (!d) return fill(list);
+    btn.disabled = !d.recipients.length;
+    btn.title = d.recipients.length ? '' : 'Nessuno a cui mandarlo: assegna il ticket a qualcuno';
+    fill(list, d.reminders.length
+      ? d.reminders.map(r => h('div.reminder', avatar(userById(r.sender_id) || { name: r.sender_name || '?' }, 28),
+        h('div.grow', h('div.reminder-head', h('strong', r.sender_name || 'Qualcuno'), h('span.muted.small', ` a ${(r.to_names || []).join(', ') || '—'} · ${fmtDateTime(r.created_at)}${r.emails_sent ? ` · ${r.emails_sent === 1 ? 'email inviata' : `${r.emails_sent} email inviate`}` : ''}`)),
+          h('div.reminder-body', r.message))))
+      : h('div.muted.small', d.recipients.length ? 'Nessun promemoria mandato.' : 'Il promemoria si manda a chi è assegnato al ticket o l\'ha creato.'));
+  }
+}
+
+async function openReminder(t, onSent) {
+  const d = await get(`/api/tickets/${t.id}/reminders`);
+  if (!d.recipients.length) return toast('Nessuno a cui mandarlo: assegna il ticket a qualcuno', 'err');
+  const chosen = new Set(d.recipients.filter(p => t.assignee_ids.includes(p.id)).map(p => p.id));
+  if (!chosen.size) d.recipients.forEach(p => chosen.add(p.id));
+  const who = h('div.reminder-who', d.recipients.map(p => h('label.check', h('input', { type: 'checkbox', checked: chosen.has(p.id), on: { change: e => { if (e.target.checked) chosen.add(p.id); else chosen.delete(p.id); } } }),
+    avatar(userById(p.id) || p, 22), ` ${p.name}`, t.assignee_ids.includes(p.id) ? '' : h('span.muted.small', ' (ha creato il ticket)'))));
+  const text = h('textarea.input', { rows: 5, maxlength: 2000, autofocus: true }, defaultReminderText(t));
+  const m = modal({
+    title: `Promemoria su «${t.title}»`,
+    body: [
+      h('div.field', h('span', 'A chi'), who),
+      h('label.field', h('span', 'Testo'), text),
+      h('div.muted.small', 'Arriva nelle notifiche di Alma Planet e per email dalla tua casella Outlook, con il link al ticket.'),
+    ],
+    actions: [
+      h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
+        if (!chosen.size) return toast('Scegli almeno una persona', 'err');
+        if (!text.value.trim()) return toast('Scrivi il testo del promemoria', 'err');
+        e.currentTarget.disabled = true;
+        try {
+          const r = await post(`/api/tickets/${t.id}/reminders`, { user_ids: [...chosen], message: text.value });
+          m.close();
+          toast(`Promemoria mandato a ${r.notified} ${r.notified === 1 ? 'persona' : 'persone'}${r.emails_sent ? ` (anche per email)` : ' (solo in Alma Planet: email non partita)'}`);
+          onSent?.();
+        } catch { e.currentTarget.disabled = false; }
+      } } }, icon('bell', { size: 16 }), 'Manda'),
+    ],
+  });
+}
+
 export async function openTicket(id, { defaults = {}, onSaved, requireSchedule = false } = {}) {
   const isNew = !id;
   let t = isNew
@@ -496,6 +556,10 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
       files.append(fileRow(f, { onRemove: async () => { await del(`/api/tickets/${t.id}/files/${f.id}`); changed = true; refresh(); } }));
     }
 
+    // Promemoria: testo scritto da me a chi lavora al ticket, nelle notifiche e per email
+    const reminders = h('div.section');
+    reminderSection(reminders, t);
+
     // Note con data (come nel CRM)
     const notesBox = h('div.section');
     notesPanel(notesBox, { url: `/api/tickets/${t.id}/notes` });
@@ -515,7 +579,7 @@ export async function openTicket(id, { defaults = {}, onSaved, requireSchedule =
           refresh();
         } } }, 'Commenta'))));
 
-    extra.append(outlook, files, notesBox, comments,
+    extra.append(outlook, reminders, files, notesBox, comments,
       h('div.muted.small.section', `Creato il ${fmtDateTime(t.created_at)} · aggiornato il ${fmtDateTime(t.updated_at)}`));
   }
 }

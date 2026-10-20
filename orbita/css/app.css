@@ -307,3 +307,11 @@ table.list tbody tr.picked { background: var(--ap-orange-tint); }
 .linked-folder .gx-chev { margin-right: -4px; }
 .linked-inner { padding-left: 34px; border-left: 2px solid var(--ap-grey-100); margin: 0 0 var(--ap-space-2) 10px; }
 .drive-queue { margin-bottom: var(--ap-space-3); }
+
+/* Promemoria sui ticket (orbita/js/tickets.js) */
+.reminders { display: grid; gap: var(--ap-space-2); margin-top: var(--ap-space-2); }
+.reminder { display: flex; gap: var(--ap-space-2); align-items: flex-start; }
+.reminder .grow { min-width: 0; }
+.reminder-body { white-space: pre-wrap; background: var(--ap-orange-tint, var(--ap-surface)); border-left: 3px solid var(--orange); border-radius: var(--radius); padding: var(--ap-space-2) var(--ap-space-3); margin-top: 2px; overflow-wrap: anywhere; }
+.reminder-who { display: grid; gap: var(--ap-space-1); }
+.reminder-who .check { display: flex; align-items: center; gap: var(--ap-space-2); }

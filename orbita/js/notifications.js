@@ -19,6 +19,7 @@ function sentence(n) {
     case 'comment_like': return `ha messo mi piace al tuo commento:${quote(n.comment_body)}`;
     case 'pin': return 'ha messo in evidenza il tuo post.';
     case 'mezzi': return n.body || '';
+    case 'ticket_reminder': return `ti manda un promemoria su${quote(n.ticket_title)}:${quote(n.body)}`;
     case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
     case 'overdue_project': return `Ritardo nel tuo progetto:${quote(n.ticket_title)} è scaduto da almeno 2 giorni lavorativi.`;
     case 'note_mention': return `ti ha menzionato in una nota:${quote(n.note_body)}`;

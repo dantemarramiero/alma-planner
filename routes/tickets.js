@@ -108,7 +108,7 @@ async function rdaRules(db, req, before, { fields, assigneeIds, hours }) {
   return extra;
 }
 
-function registerTickets(app, { db, auth, baseUrl, access }) {
+function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
   const ticketMail = createTicketMail({ db, auth, baseUrl }); // email a chi riceve un ticket
   async function getTicket(id, q = db) {
     const { rows } = await q.query(`${SELECT} WHERE t.id = $1`, [id]);
@@ -237,6 +237,57 @@ function registerTickets(app, { db, auth, baseUrl, access }) {
       db.query('SELECT c.*, u.name AS user_name FROM ticket_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.ticket_id = $1 ORDER BY c.created_at', [id]),
     ]);
     res.json({ ...t, files: files.rows, comments: comments.rows });
+  });
+
+  // ── promemoria: un testo scritto da chi vede il ticket, a chi ci lavora (assegnati e chi l'ha creato),
+  // nelle notifiche di Alma Planet e per email dalla sua casella Outlook ──────────────────────────────
+  const REMINDER_MAX = 2000;
+  // chi può riceverlo: assegnati e autore del ticket, tranne chi lo manda
+  async function reminderPeople(t, meId) {
+    const ids = [...new Set([...(t.assignee_ids || []), t.created_by].filter(Boolean))].filter(uid => uid !== meId);
+    if (!ids.length) return [];
+    const { rows } = await db.query('SELECT id, name, email FROM users WHERE id = ANY($1::int[]) ORDER BY name', [ids]);
+    return rows;
+  }
+
+  app.get('/api/tickets/:id/reminders', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
+    const t = await getTicket(id);
+    const [{ rows }, people] = await Promise.all([
+      db.query(
+        `SELECT r.id, r.message, r.to_user_ids, r.emails_sent, r.created_at, r.sender_id, u.name AS sender_name,
+                (SELECT array_agg(x.name ORDER BY x.name) FROM users x WHERE x.id = ANY(r.to_user_ids)) AS to_names
+           FROM ticket_reminders r LEFT JOIN users u ON u.id = r.sender_id
+          WHERE r.ticket_id = $1 ORDER BY r.created_at DESC LIMIT 50`, [id]),
+      reminderPeople(t, req.user.id),
+    ]);
+    res.json({ reminders: rows, recipients: people });
+  });
+
+  app.post('/api/tickets/:id/reminders', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
+    const t = await getTicket(id);
+    const message = v.text(req.body?.message, 'testo del promemoria', { max: REMINDER_MAX, required: true });
+    const allowed = await reminderPeople(t, req.user.id);
+    const wanted = v.ids(req.body?.user_ids, 'destinatari') ?? allowed.map(p => p.id);
+    if (!wanted.length) throw new HttpError(400, 'Scegli almeno una persona a cui mandare il promemoria');
+    const to = allowed.filter(p => wanted.includes(p.id));
+    if (to.length !== wanted.length) throw new HttpError(400, 'Il promemoria si manda solo a chi è assegnato al ticket o l\'ha creato');
+    // niente raffiche: uno ogni minuto per ticket da parte della stessa persona
+    const { rows: [recent] } = await db.query(
+      "SELECT 1 FROM ticket_reminders WHERE ticket_id = $1 AND sender_id = $2 AND created_at > now() - interval '1 minute'", [id, req.user.id]);
+    if (recent) throw new HttpError(429, 'Hai appena mandato un promemoria per questo ticket: aspetta un minuto');
+
+    const { rows: [r] } = await db.query(
+      'INSERT INTO ticket_reminders (ticket_id, sender_id, message, to_user_ids) VALUES ($1, $2, $3, $4) RETURNING id',
+      [id, req.user.id, message, to.map(p => p.id)]);
+    await notifier.notify({ userIds: to.map(p => p.id), actorId: req.user.id, kind: 'ticket_reminder', ticketId: id,
+      body: message.length > 300 ? `${message.slice(0, 300).trimEnd()}…` : message });
+    const emails = await ticketMail.sendReminder(t, to, req.user, message);
+    await db.query('UPDATE ticket_reminders SET emails_sent = $2 WHERE id = $1', [r.id, emails]);
+    res.status(201).json({ id: r.id, notified: to.length, emails_sent: emails });
   });
 
   app.post('/api/tickets', async (req, res) => {
