@@ -37,6 +37,7 @@ export function ticketsView(container, opts = {}) {
   };
   let tickets = [];
   const body = h('div');
+  const selected = new Set(); // ticket scelti per l'eliminazione (solo quelli che posso cancellare)
 
   const projectSelect = h('select.select', { on: { change: e => { state.project = e.target.value; load(); } } },
     h('option', { value: '' }, 'Tutti i progetti'),
@@ -97,9 +98,24 @@ export function ticketsView(container, opts = {}) {
     if (state.view === 'board') return body.append(board(tickets, { onChange: load, hideProject: fixed.project !== undefined }));
     if (!tickets.length) return body.append(h('div.card.empty', 'Nessun ticket. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newBtn.click(); } } }, 'Creane uno')));
     const sorted = [...tickets].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
+    // selezione: resta solo su ticket ancora in elenco e cancellabili
+    const deletable = sorted.filter(canDeleteTicket);
+    for (const id of [...selected]) if (!deletable.some(t => t.id === id)) selected.delete(id);
+    const allBox = h('input', { type: 'checkbox', 'aria-label': 'Seleziona tutti quelli che puoi eliminare', disabled: !deletable.length,
+      checked: deletable.length > 0 && deletable.every(t => selected.has(t.id)),
+      on: { click: e => e.stopPropagation(), change: e => { for (const t of deletable) { if (e.target.checked) selected.add(t.id); else selected.delete(t.id); } render(); } } });
+    if (selected.size) {
+      body.append(h('div.bulk-bar', h('strong', `${selected.size} ${selected.size === 1 ? 'ticket selezionato' : 'ticket selezionati'}`),
+        h('span.grow'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => { selected.clear(); render(); } } }, 'Annulla selezione'),
+        h('button.btn.btn-danger.btn-sm', { type: 'button', on: { click: () => deleteSelected() } }, icon('trash', { size: 15 }), 'Elimina selezionati')));
+    }
     body.append(h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-trash-col', { 'aria-label': 'Cancella' }))),
-      h('tbody', sorted.map(t => h('tr', { on: { click: () => openTicket(t.id, { onSaved: load }) } },
+      h('thead', h('tr', h('th.t-pick-col', allBox), h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-trash-col', { 'aria-label': 'Cancella' }))),
+      h('tbody', sorted.map(t => h('tr', { class: selected.has(t.id) ? 'picked' : '', on: { click: () => openTicket(t.id, { onSaved: load }) } },
+        h('td.t-pick-col', { on: { click: e => e.stopPropagation() } }, canDeleteTicket(t)
+          ? h('input', { type: 'checkbox', checked: selected.has(t.id), 'aria-label': `Seleziona «${t.title}»`, on: { change: e => { if (e.target.checked) selected.add(t.id); else selected.delete(t.id); render(); } } })
+          : null),
         h('td', h('div.t-title', t.title, rdaChip(t)), h('div.t-meta', `#${t.id}`, t.comment_count ? [' · ', icon('message', { size: 13, title: 'Commenti' }), ` ${t.comment_count}`] : '', t.file_count ? [' · ', icon('paperclip', { size: 13, title: 'File' }), ` ${t.file_count}`] : '')),
         fixed.project === undefined ? h('td', projChip(t.project_name, t.project_color)) : null,
         h('td', avatarsFor(t.assignee_ids)),
@@ -108,6 +124,15 @@ export function ticketsView(container, opts = {}) {
         h('td', { class: isLate(t) ? 'due-late' : '' }, t.due_date ? fmtDate(t.due_date) : h('span.muted', '—')),
         h('td.t-trash-col', trashButton(t, load)),
       ))))));
+  }
+
+  async function deleteSelected() {
+    const n = selected.size;
+    if (!await confirmDialog(`Eliminare ${n} ${n === 1 ? 'ticket' : 'ticket'}? Non si può annullare.`, { ok: 'Elimina', danger: true })) return;
+    const r = await post('/api/tickets/delete', { ids: [...selected] });
+    selected.clear();
+    toast(`${r.deleted.length} ${r.deleted.length === 1 ? 'ticket eliminato' : 'ticket eliminati'}${r.skipped.length ? `, ${r.skipped.length} non eliminabili` : ''}`, r.skipped.length ? 'err' : 'ok');
+    load();
   }
 
   load();

@@ -315,3 +315,8 @@ table.list tbody tr.picked { background: var(--ap-orange-tint); }
 .reminder-body { white-space: pre-wrap; background: var(--ap-orange-tint, var(--ap-surface)); border-left: 3px solid var(--orange); border-radius: var(--radius); padding: var(--ap-space-2) var(--ap-space-3); margin-top: 2px; overflow-wrap: anywhere; }
 .reminder-who { display: grid; gap: var(--ap-space-1); }
 .reminder-who .check { display: flex; align-items: center; gap: var(--ap-space-2); }
+
+/* Eliminare più ticket insieme (elenco dei ticket) */
+.bulk-bar { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; background: var(--ap-orange-tint, var(--ap-surface)); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-2) var(--ap-space-3); margin-bottom: var(--ap-space-3); }
+table.list th.t-pick-col, table.list td.t-pick-col { width: 36px; padding-right: 0; }
+table.list td.t-pick-col input, table.list th.t-pick-col input { width: 16px; height: 16px; cursor: pointer; }

@@ -367,14 +367,10 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
     if (assigneeIds) ticketMail.notifyAssigned(updated, assigneeIds.filter(uid => !previous.includes(uid)), req.user);
   });
 
-  app.delete('/api/tickets/:id', async (req, res) => {
-    const id = v.int(req.params.id, 'id', { min: 1 });
-    await access.assertTicket(req, id);
-    const t = await getTicket(id);
-    // Lo cancella solo chi l'ha creato; un ticket rimasto senza autore (persona uscita) lo cancella un amministratore.
-    if (t.created_by !== req.user.id && !(t.created_by === null && access.isAdmin(req))) {
-      throw new HttpError(403, 'Può cancellare il ticket solo chi l\'ha creato');
-    }
+  // Lo cancella solo chi l'ha creato; un ticket rimasto senza autore (persona uscita) lo cancella un amministratore.
+  const canDelete = (req, t) => t.created_by === req.user.id || (t.created_by === null && access.isAdmin(req));
+
+  async function removeTicket(id, t) {
     if (t.outlook_event_id && t.outlook_event_owner) {
       try {
         const token = await auth.graphToken(t.outlook_event_owner);
@@ -384,7 +380,38 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
       }
     }
     await db.query('DELETE FROM tickets WHERE id = $1', [id]);
+  }
+
+  app.delete('/api/tickets/:id', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await access.assertTicket(req, id);
+    const t = await getTicket(id);
+    if (!canDelete(req, t)) throw new HttpError(403, 'Può cancellare il ticket solo chi l\'ha creato');
+    await removeTicket(id, t);
     res.json({ ok: true });
+  });
+
+  // Più ticket insieme: si cancellano quelli che si possono cancellare; gli altri si dicono, con il motivo.
+  app.post('/api/tickets/delete', async (req, res) => {
+    const ids = v.ids(req.body?.ids, 'ticket') || [];
+    if (!ids.length) throw new HttpError(400, 'Scegli almeno un ticket');
+    if (ids.length > 200) throw new HttpError(400, 'Al massimo 200 ticket alla volta');
+    const deleted = [];
+    const skipped = [];
+    for (const id of ids) {
+      let t;
+      try {
+        await access.assertTicket(req, id);
+        t = await getTicket(id);
+      } catch {
+        skipped.push({ id, reason: 'non trovato' });
+        continue;
+      }
+      if (!canDelete(req, t)) { skipped.push({ id, title: t.title, reason: 'lo può cancellare solo chi l\'ha creato' }); continue; }
+      await removeTicket(id, t);
+      deleted.push(id);
+    }
+    res.json({ deleted, skipped });
   });
 
   // Aggiunge il ticket al calendario Outlook di chi clicca (o aggiorna l'evento che ha già).

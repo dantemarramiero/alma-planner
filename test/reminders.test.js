@@ -75,3 +75,15 @@ test('email del promemoria: testo di chi lo manda, riquadro del ticket, niente H
   assert.match(html, /25 ottobre 2026/);
   assert.match(html, /#\/tickets\/7/);
 });
+
+test('eliminare più ticket insieme: solo quelli creati da me; gli altri restano, con il motivo', async () => {
+  const mine1 = (await dante('POST', '/api/tickets', { title: 'Da togliere 1' })).body;
+  const mine2 = (await dante('POST', '/api/tickets', { title: 'Da togliere 2' })).body;
+  const other = (await anna('POST', '/api/tickets', { title: 'Di Anna' })).body;
+  assert.equal((await dante('POST', '/api/tickets/delete', { ids: [] })).status, 400);
+  const r = (await dante('POST', '/api/tickets/delete', { ids: [mine1.id, other.id, mine2.id, 999999] })).body;
+  assert.deepEqual(r.deleted.sort(), [mine1.id, mine2.id].sort());
+  assert.deepEqual(r.skipped.map(s => [s.id, s.reason]), [[other.id, 'lo può cancellare solo chi l\'ha creato'], [999999, 'non trovato']]);
+  assert.equal((await dante('GET', `/api/tickets/${mine1.id}`)).status, 404);
+  assert.equal((await anna('GET', `/api/tickets/${other.id}`)).status, 200);
+});
