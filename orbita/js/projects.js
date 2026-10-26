@@ -11,6 +11,7 @@ import { openChatWithEmails } from './teams.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
 import { projectEmails } from './project-emails.js';
+import { projectMeetings, openMeeting, meetingWhen } from './project-meetings.js';
 import { notesPanel } from './notes.js';
 
 const dates = p => {
@@ -181,6 +182,7 @@ const TABS = [
   ['ticket', 'Ticket'],
   ['documenti', 'Documenti'],
   ['email', 'Email'],
+  ['incontri', 'Incontri'],
   ['note', 'Note'],
   ['membri', 'Membri'],
 ];
@@ -250,6 +252,12 @@ export async function projectDetail(container, id) {
   get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
     if (list?.length) nav.querySelector('[data-k="email"]')?.append(h('span.pj-count', String(list.length)));
   }).catch(() => {});
+  function setMeetingsCount(n) {
+    const tabBtn = nav.querySelector('[data-k="incontri"]');
+    tabBtn?.querySelector('.pj-count')?.remove();
+    if (n) tabBtn?.append(h('span.pj-count', String(n)));
+  }
+  get(`/api/projects/${p.id}/meetings`, { quiet: true }).then(list => setMeetingsCount(list?.length || 0)).catch(() => {});
   // lo stesso per le note (del progetto e dei suoi ticket); si aggiorna quando se ne aggiungono o tolgono
   function setNotesCount(n) {
     const tabBtn = nav.querySelector('[data-k="note"]');
@@ -282,6 +290,7 @@ export async function projectDetail(container, id) {
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
     else if (k === 'documenti') projectDocuments(box, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) });
     else if (k === 'email') projectEmails(box, p);
+    else if (k === 'incontri') projectMeetings(box, p, { onCount: setMeetingsCount });
     else if (k === 'note') notesPanel(box, { url: `/api/projects/${p.id}/notes`, showTicket: true, onCount: setNotesCount });
     else if (k === 'membri') members(box);
   }
@@ -300,10 +309,21 @@ export async function projectDetail(container, id) {
     box.append(h('div.pj-over', h('div.pj-col', due, plan), h('div.pj-col.pj-side', desc, ppl, news)));
     timeline(plan.lastChild, p, () => show('panoramica'));
 
-    const [tickets, team, emails, notes] = await Promise.all([
+    const [tickets, team, emails, notes, meetings] = await Promise.all([
       get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`),
       get(`/api/projects/${p.id}/emails`, { quiet: true }).catch(() => []), get(`/api/projects/${p.id}/notes`, { quiet: true }).catch(() => []),
+      get(`/api/projects/${p.id}/meetings`, { quiet: true }).catch(() => []),
     ]);
+
+    // il prossimo incontro collegato al progetto (oggi o dopo)
+    const next = meetings.filter(m => String(m.start_at).slice(0, 10) >= today()).sort((a, b) => String(a.start_at).localeCompare(String(b.start_at)))[0];
+    desc.after(card('Prossimo incontro', 'incontri', 'Tutti', next
+      ? h('button.pj-meet', { type: 'button', on: { click: () => openMeeting(next.id, p, () => show('panoramica')) } },
+        h('span.mt-cal', h('span.mt-cal-m', fmtDate(next.start_at).split(' ')[1] || ''), h('span.mt-cal-d', String(Number(String(next.start_at).slice(8, 10))))),
+        h('span.pj-news-text', h('span.pj-news-title', next.subject),
+          h('small', meetingWhen(next), next.location ? ` · ${next.location}` : ''),
+          next.note_count || next.file_count ? h('small', [next.note_count ? `${next.note_count} ${next.note_count === 1 ? 'nota' : 'note'}` : null, next.file_count ? `${next.file_count} file` : null].filter(Boolean).join(' · ')) : null))
+      : h('p.muted', meetings.length ? 'Nessun incontro in programma.' : 'Nessun incontro collegato. Collegalo dal tab Incontri.')));
     const late = t => t.due_date && t.due_date < today();
     const upcoming = tickets.filter(t => t.due_date).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6);
     due.lastChild.replaceWith(upcoming.length

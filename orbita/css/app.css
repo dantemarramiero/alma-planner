@@ -320,3 +320,23 @@ table.list tbody tr.picked { background: var(--ap-orange-tint); }
 .bulk-bar { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; background: var(--ap-orange-tint, var(--ap-surface)); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-2) var(--ap-space-3); margin-bottom: var(--ap-space-3); }
 table.list th.t-pick-col, table.list td.t-pick-col { width: 36px; padding-right: 0; }
 table.list td.t-pick-col input, table.list th.t-pick-col input { width: 16px; height: 16px; cursor: pointer; }
+
+/* Selezionare in un colpo i ticket di uno stato (elenco: pillole; bacheca: casella nell'intestazione della colonna) */
+.pick-bar { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; margin-bottom: var(--ap-space-3); }
+.pick-chip { display: inline-flex; align-items: center; gap: var(--ap-space-2); border: 1px solid var(--rule); background: var(--card); color: var(--ap-text); border-radius: var(--radius-pill); padding: 4px 6px 4px 12px; font: inherit; font-size: var(--ap-fs-sm); cursor: pointer; transition: background var(--ap-dur), border-color var(--ap-dur), color var(--ap-dur); }
+.pick-chip:hover { border-color: var(--ap-accent); }
+.pick-chip.on { background: var(--ap-accent); border-color: var(--ap-accent); color: var(--ap-white); }
+.pick-n { min-width: 20px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--ap-grey-100); color: var(--ap-text); font-size: var(--ap-fs-xs); text-align: center; }
+.pick-chip.on .pick-n { background: rgba(255, 255, 255, .25); color: var(--ap-white); }
+.col-pick { display: inline-flex; align-items: center; gap: var(--ap-space-2); cursor: pointer; }
+.col-pick input { width: 15px; height: 15px; accent-color: var(--ap-accent); cursor: pointer; margin: 0; }
+.tcard.picked { background: var(--ap-orange-tint); border-color: var(--ap-accent); }
+
+/* Azioni nella riga del ticket: promemoria con un clic e cestino */
+.t-act-col { width: 76px; text-align: right; padding-left: 0 !important; }
+.t-acts { display: inline-flex; align-items: center; gap: 2px; }
+.t-remind { border: 0; background: none; color: var(--muted); padding: var(--ap-space-1); border-radius: var(--radius); cursor: pointer; display: inline-grid; place-items: center; flex: none; opacity: .45; transition: opacity var(--ap-dur), color var(--ap-dur), background var(--ap-dur); }
+.t-remind:hover, .t-remind:focus-visible { opacity: 1; color: var(--ap-accent-hover); background: var(--ap-orange-tint); }
+tr:hover .t-remind { opacity: 1; }
+.t-remind.sent { opacity: 1; color: var(--ap-accent); }
+.t-remind:disabled { cursor: progress; }

@@ -5,8 +5,9 @@
 import { h, clear, fill, avatar, toast, fmtDate, fmtDateTime, today, loading } from './ui.js';
 import { icon } from './icons.js';
 import { get, post, patch, del } from './api.js';
-import { store, userById, userByHandle } from './store.js';
+import { store, userById, userByHandle, projectById } from './store.js';
 import { withMentions } from './social.js';
+import { openMeeting, meetingWhen, noteFileLinks, uploadNoteFiles } from './project-meetings.js';
 
 export const NOTE_KINDS = [['nota', 'Nota'], ['telefonata', 'Telefonata'], ['riunione', 'Riunione'], ['decisione', 'Decisione']];
 const KIND_LABEL = Object.fromEntries(NOTE_KINDS);
@@ -85,8 +86,16 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
   function card(n) {
     const author = userById(n.author_id);
     const mine = canEdit(n);
+    const fileIn = h('input', { type: 'file', multiple: true, hidden: true, on: { change: async e => {
+      const files = [...e.target.files];
+      if (!files.length) return;
+      const up = await uploadNoteFiles(n.id, files);
+      if (up) toast(`${up} file ${up === 1 ? 'aggiunto' : 'aggiunti'} alla nota`);
+      load();
+    } } });
     const actions = mine ? h('div.nt-actions',
       h('button.link-btn', { type: 'button', on: { click: () => { editing = n.id; adding = false; draw(); } } }, 'Modifica'),
+      h('button.link-btn', { type: 'button', on: { click: () => fileIn.click() } }, 'Allega file'), fileIn,
       h('button.link-btn', { type: 'button', on: { click: () => save(n, { pinned: !n.pinned }) } }, n.pinned ? 'Sgancia' : 'Fissa'),
       h('button.link-btn.nt-del', { type: 'button', on: { click: () => remove(n) } }, 'Elimina')) : null;
     return h('article.nt-card', { class: n.pinned ? 'pinned' : '' },
@@ -96,9 +105,13 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
         n.pinned ? h('span.nt-pin', icon('pin', { size: 14, title: 'Fissata in alto' })) : null,
         showTicket && n.ticket_id ? h('button.nt-ticket', { type: 'button', title: 'Apri il ticket',
           on: { click: async () => (await import('./tickets.js')).openTicket(n.ticket_id, { onSaved: load }) } }, `Ticket #${n.ticket_id} · ${n.ticket_title || ''}`) : null,
+        n.meeting_id ? h('button.nt-ticket.nt-meeting', { type: 'button', title: 'Apri l\'incontro',
+          on: { click: () => openMeeting(n.meeting_id, projectById(n.project_id) || {}, load) } },
+          icon('calendar', { size: 13 }), ` Incontro · ${meetingWhen({ start_at: n.meeting_start, all_day: n.meeting_all_day }).split(' · ')[0]}`) : null,
         actions),
       n.title ? h('div.nt-title', n.title) : null,
-      h('div.nt-body', linkify(n.body)),
+      n.body ? h('div.nt-body', linkify(n.body)) : null,
+      noteFileLinks(n, mine ? load : null),
       h('div.nt-foot', author ? avatar(author, 20) : null, h('span', author?.name || 'Utente rimosso'),
         n.updated_at ? h('span.muted', ` · modificata il ${fmtDateTime(n.updated_at)}`) : null));
   }

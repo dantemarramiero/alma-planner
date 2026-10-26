@@ -78,6 +78,9 @@ a.pj-crumb:hover { color: var(--ink); }
 .pj-news-text { display: grid; min-width: 0; }
 .pj-news-title { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-news small { font-size: var(--ap-fs-xs); color: var(--muted); }
+.pj-meet { display: flex; align-items: center; gap: 14px; padding: 4px; margin: 0 -4px; border: 0; border-radius: var(--radius); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.pj-meet:hover { background: var(--hover); }
+.pj-meet .mt-cal { flex: none; }
 /* Attività: la linea del tempo del telefono, dentro il riquadro; le completate a righe verde chiaro come nel Gantt */
 .pj-plan > .card { border: 0; box-shadow: none; padding: 4px 0 0; background: none; }
 .pj-plan .m-tl-row.done .m-tl-bar { opacity: 1; background: repeating-linear-gradient(135deg, var(--green-soft) 0 6px, color-mix(in srgb, var(--green) 22%, var(--ap-white)) 6px 12px); }
