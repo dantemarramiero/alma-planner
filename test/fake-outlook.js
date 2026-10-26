@@ -53,8 +53,9 @@ function buildCalendar(seed) {
     const day = iso(d);
     const monday = d.getDay() === 1;
     const shared = monday || i % 3 === 0;
-    const hour = monday ? 8 : 9 + ((seed + i + 30) % 7);
-    const title = monday ? 'Riunione di cantiere' : TITOLI[(seed + i + 30) % TITOLI.length];
+    const k = shared ? i + 30 : seed + i + 30; // un invito condiviso è uguale per tutti: stesso orario e titolo
+    const hour = monday ? 8 : 9 + (k % 7);
+    const title = monday ? 'Riunione di cantiere' : TITOLI[k % TITOLI.length];
     out.push({
       id: `ev-${seed}-${day}`,
       iCalUId: monday ? 'cal-cantiere-settimanale' : shared ? `cal-shared-${day}` : `cal-u${seed}-${day}`,
@@ -62,7 +63,7 @@ function buildCalendar(seed) {
       start: { dateTime: `${day}T${pad(hour)}:00:00.0000000`, timeZone: 'Europe/Rome' },
       end: { dateTime: `${day}T${pad(hour + 1)}:30:00.0000000`, timeZone: 'Europe/Rome' },
       isAllDay: false, isCancelled: false,
-      location: { displayName: LUOGHI[(seed + i + 30) % LUOGHI.length] },
+      location: { displayName: LUOGHI[k % LUOGHI.length] },
       organizer: { emailAddress: { name: 'Ing. Paolo Verdi', address: 'p.verdi@regione.abruzzo.it' } },
       attendees: [{ emailAddress: { name: 'Team Almacis', address: 'team@almacis.it' } }, { emailAddress: { name: 'Studio Rossi Architetti', address: 'info@studiorossi.it' } }],
       onlineMeeting: i % 2 ? { joinUrl: `https://teams.microsoft.com/l/meetup-join/finto-${day}` } : null,
