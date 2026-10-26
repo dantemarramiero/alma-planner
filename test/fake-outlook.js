@@ -37,8 +37,48 @@ function buildMailbox(seed, count = 60) {
   return out;
 }
 
+// Calendario finto: un incontro al giorno lavorativo da 30 giorni fa a 30 giorni da oggi. Uno su tre è condiviso
+// (stesso iCalUId per tutti, come un invito); «Riunione di cantiere» si ripete ogni lunedì (stesso iCalUId, occorrenze diverse);
+// ogni tanto un evento creato da Alma per un ticket (categoria «Alma Planet»).
+const TITOLI = ['Sopralluogo cantiere', 'Riunione con il committente', 'Call progettazione impianti', 'Verifica SAL', 'Incontro fornitore serramenti', 'Revisione computo metrico'];
+const LUOGHI = ['Cantiere via Roma, Teramo', 'Sala riunioni Almacis', '', 'Comune di Pescara', ''];
+function buildCalendar(seed) {
+  const out = [];
+  const pad = n => String(n).padStart(2, '0');
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const now = new Date();
+  for (let i = -30; i <= 30; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    const day = iso(d);
+    const monday = d.getDay() === 1;
+    const shared = monday || i % 3 === 0;
+    const hour = monday ? 8 : 9 + ((seed + i + 30) % 7);
+    const title = monday ? 'Riunione di cantiere' : TITOLI[(seed + i + 30) % TITOLI.length];
+    out.push({
+      id: `ev-${seed}-${day}`,
+      iCalUId: monday ? 'cal-cantiere-settimanale' : shared ? `cal-shared-${day}` : `cal-u${seed}-${day}`,
+      subject: title,
+      start: { dateTime: `${day}T${pad(hour)}:00:00.0000000`, timeZone: 'Europe/Rome' },
+      end: { dateTime: `${day}T${pad(hour + 1)}:30:00.0000000`, timeZone: 'Europe/Rome' },
+      isAllDay: false, isCancelled: false,
+      location: { displayName: LUOGHI[(seed + i + 30) % LUOGHI.length] },
+      organizer: { emailAddress: { name: 'Ing. Paolo Verdi', address: 'p.verdi@regione.abruzzo.it' } },
+      attendees: [{ emailAddress: { name: 'Team Almacis', address: 'team@almacis.it' } }, { emailAddress: { name: 'Studio Rossi Architetti', address: 'info@studiorossi.it' } }],
+      onlineMeeting: i % 2 ? { joinUrl: `https://teams.microsoft.com/l/meetup-join/finto-${day}` } : null,
+      categories: i % 11 === 0 ? ['Alma Planet'] : [],
+      bodyPreview: `Ordine del giorno: ${title.toLowerCase()}.`,
+      body: { contentType: 'text', content: `Ordine del giorno:\n1. ${title}\n2. Varie ed eventuali\n\nhttps://teams.microsoft.com/l/meetup-join/finto-${day}` },
+      webLink: `https://outlook.office.com/calendar/item/ev-${seed}-${day}`,
+    });
+  }
+  return out;
+}
+
 function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {}) {
   const boxes = new Map();
+  const calendars = new Map();
+  const calendar = uid => { if (!calendars.has(uid)) calendars.set(uid, buildCalendar(uid)); return calendars.get(uid); };
   const sentMail = []; // email mandate con /me/sendMail (riepilogo del mattino, email di assegnazione)
   const box = uid => { if (!boxes.has(uid)) boxes.set(uid, buildMailbox(uid, mailboxSize)); return boxes.get(uid); };
   auth.graphToken = async userId => `fake:${userId}`;
@@ -80,9 +120,18 @@ function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {
       const { attachments, folder, ...rest } = x;
       return json(200, rest);
     }
+    if (path === '/me/calendarView') {
+      const from = parsed.searchParams.get('startDateTime'), to = parsed.searchParams.get('endDateTime');
+      const list = calendar(uid).filter(e => e.end.dateTime.slice(0, 19) > from && e.start.dateTime.slice(0, 19) < to).map(({ body, ...x }) => x);
+      return json(200, { value: list });
+    }
+    if ((m = path.match(/^\/me\/events\/([^/]+)$/))) {
+      const x = calendar(uid).find(y => y.id === decodeURIComponent(m[1]));
+      return x ? json(200, x) : json(404, { error: { message: 'Not found' } });
+    }
     return json(404, { error: { message: `Finto Graph: ${path} non previsto` } });
   };
-  return { mailbox: box, sentMail, restore: () => { global.fetch = realFetch; } };
+  return { mailbox: box, calendar, sentMail, restore: () => { global.fetch = realFetch; } };
 }
 
 module.exports = { installFakeOutlook };

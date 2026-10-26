@@ -11,6 +11,7 @@ import { openChatWithEmails } from './teams.js';
 import { ganttView } from './gantt.js';
 import { projectDocuments } from './activities.js';
 import { projectEmails } from './project-emails.js';
+import { projectMeetings } from './project-meetings.js';
 import { notesPanel } from './notes.js';
 
 const dates = p => {
@@ -181,6 +182,7 @@ const TABS = [
   ['ticket', 'Ticket'],
   ['documenti', 'Documenti'],
   ['email', 'Email'],
+  ['incontri', 'Incontri'],
   ['note', 'Note'],
   ['membri', 'Membri'],
 ];
@@ -237,6 +239,12 @@ export async function projectDetail(container, id) {
   get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
     if (list?.length) nav.querySelector('[data-k="email"]')?.append(h('span.pj-count', String(list.length)));
   }).catch(() => {});
+  function setMeetingsCount(n) {
+    const tabBtn = nav.querySelector('[data-k="incontri"]');
+    tabBtn?.querySelector('.pj-count')?.remove();
+    if (n) tabBtn?.append(h('span.pj-count', String(n)));
+  }
+  get(`/api/projects/${p.id}/meetings`, { quiet: true }).then(list => setMeetingsCount(list?.length || 0)).catch(() => {});
   // lo stesso per le note (del progetto e dei suoi ticket); si aggiorna quando se ne aggiungono o tolgono
   function setNotesCount(n) {
     const tabBtn = nav.querySelector('[data-k="note"]');
@@ -269,6 +277,7 @@ export async function projectDetail(container, id) {
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
     else if (k === 'documenti') projectDocuments(box, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) });
     else if (k === 'email') projectEmails(box, p);
+    else if (k === 'incontri') projectMeetings(box, p, { onCount: setMeetingsCount });
     else if (k === 'note') notesPanel(box, { url: `/api/projects/${p.id}/notes`, showTicket: true, onCount: setNotesCount });
     else if (k === 'membri') members(box);
   }
@@ -294,6 +303,7 @@ export async function projectDetail(container, id) {
     section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
     section('documenti', 'Documenti', b => projectDocuments(b, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) }));
     section('email', 'Email', b => projectEmails(b, p));
+    section('incontri', 'Incontri', b => projectMeetings(b, p, { onCount: setMeetingsCount }));
     section('note', 'Note', b => notesPanel(b, { url: `/api/projects/${p.id}/notes`, showTicket: true, title: 'Note del progetto e dei ticket', onCount: setNotesCount }));
 
     const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);

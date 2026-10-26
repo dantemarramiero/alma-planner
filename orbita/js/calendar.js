@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { openTicket } from './tickets.js';
+import { linkEventToProject } from './project-meetings.js';
 
 const SCOPE_KEY = 'alma.calScope';
 const GANTT_KEY = 'alma.calGantt';
@@ -132,7 +133,8 @@ export function calendarView(container, params = new URLSearchParams()) {
         await del(`/api/calendar/events/${encodeURIComponent(ev.id)}`);
         m.close(); toast('Evento cancellato'); cal.refetchEvents();
       } } }, 'Cancella')] : [],
-      actions: [h('a.btn', { href: ev.webLink, target: '_blank', rel: 'noopener' }, 'Apri in Outlook ↗'),
+      actions: [h('button.btn', { type: 'button', on: { click: () => { m.close(); linkEventToProject(ev); } } }, icon('folder', { size: 15 }), 'Collega a un progetto'),
+        h('a.btn', { href: ev.webLink, target: '_blank', rel: 'noopener' }, 'Apri in Outlook ↗'),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')],
     });
   }

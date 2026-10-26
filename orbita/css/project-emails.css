@@ -47,3 +47,34 @@
 .pj-pane > .pe-head:first-child { margin-top: 0; }
 .pj-section .pe-head { margin-top: 0; }
 .pj-section .pe-head h3 { display: none; }
+
+/* ── Incontri del progetto (orbita/js/project-meetings.js) ─────────────────────── */
+.mt-list { display: grid; gap: 6px; }
+.mt-group { font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 8px 0 2px; }
+.mt-group:first-child { margin-top: 0; }
+.mt-row { align-items: center; }
+.mt-cal { flex: none; width: 44px; display: grid; justify-items: center; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--card); line-height: 1.1; }
+.mt-cal-m { width: 100%; text-align: center; background: var(--ap-orange-tint); color: var(--ap-accent-hover); font-size: 10px; font-weight: var(--ap-fw-bold); text-transform: uppercase; letter-spacing: .06em; padding: 2px 0; }
+.mt-cal-d { font-size: var(--ap-fs-md); font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); padding: 3px 0 4px; }
+.mt-counts { display: flex; gap: 12px; font-size: var(--ap-fs-xs); color: var(--mid); }
+.mt-counts span { display: inline-flex; align-items: center; gap: 3px; }
+.mt-desc summary { cursor: pointer; color: var(--mid); font-size: var(--ap-fs-sm); margin-bottom: 6px; }
+.mt-desc .pe-body { max-height: 30vh; background: var(--ap-surface); border-radius: var(--radius); padding: 10px 12px; }
+.mt-notes-title { margin: 16px 0 8px; }
+.mt-notes { display: grid; gap: 8px; }
+.mt-note { border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; background: var(--card); display: grid; gap: 6px; }
+.mt-note-head { display: flex; align-items: center; gap: 6px; font-size: var(--ap-fs-sm); }
+.mt-note-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mt-files { display: flex; gap: 6px; flex-wrap: wrap; }
+.mt-file { display: inline-flex; align-items: center; gap: 2px; padding: 4px 6px 4px 10px; border: 1px solid var(--rule); border-radius: var(--radius); font-size: var(--ap-fs-sm); background: var(--card); max-width: 100%; }
+.mt-file a { text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-file a:hover { color: var(--ap-accent-hover); }
+.mt-file-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; border-radius: var(--radius); }
+.mt-file-x:hover { color: var(--red); background: var(--red-soft); }
+.mt-add { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.mt-add-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mt-add-foot .grow { flex: 1; }
+.mt-chosen { display: flex; gap: 6px; flex-wrap: wrap; }
+.mt-range { min-width: 150px; text-align: center; }
+.nt-meeting { display: inline-flex; align-items: center; gap: 3px; }
+.nt-card .mt-files { margin-top: 6px; }
