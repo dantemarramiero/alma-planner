@@ -95,23 +95,28 @@ export function ticketsView(container, opts = {}) {
   function render() {
     clear(body);
     if (mobile) return body.append(mobileList(tickets, { onChange: load, hideProject: fixed.project !== undefined, done: state.status === 'done' }));
-    if (state.view === 'board') return body.append(board(tickets, { onChange: load, hideProject: fixed.project !== undefined }));
+    // selezione: resta solo su ticket ancora in elenco e cancellabili
+    const deletable = tickets.filter(canDeleteTicket);
+    for (const id of [...selected]) if (!deletable.some(t => t.id === id)) selected.delete(id);
+    if (selected.size) body.append(bulkBar());
+    if (state.view === 'board') return body.append(board(tickets, { onChange: load, hideProject: fixed.project !== undefined, selected, onPick: render }));
     if (!tickets.length) return body.append(h('div.card.empty', 'Nessun ticket. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newBtn.click(); } } }, 'Creane uno')));
     const sorted = [...tickets].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
-    // selezione: resta solo su ticket ancora in elenco e cancellabili
-    const deletable = sorted.filter(canDeleteTicket);
-    for (const id of [...selected]) if (!deletable.some(t => t.id === id)) selected.delete(id);
     const allBox = h('input', { type: 'checkbox', 'aria-label': 'Seleziona tutti quelli che puoi eliminare', disabled: !deletable.length,
       checked: deletable.length > 0 && deletable.every(t => selected.has(t.id)),
-      on: { click: e => e.stopPropagation(), change: e => { for (const t of deletable) { if (e.target.checked) selected.add(t.id); else selected.delete(t.id); } render(); } } });
-    if (selected.size) {
-      body.append(h('div.bulk-bar', h('strong', `${selected.size} ${selected.size === 1 ? 'ticket selezionato' : 'ticket selezionati'}`),
-        h('span.grow'),
-        h('button.btn.btn-sm', { type: 'button', on: { click: () => { selected.clear(); render(); } } }, 'Annulla selezione'),
-        h('button.btn.btn-danger.btn-sm', { type: 'button', on: { click: () => deleteSelected() } }, icon('trash', { size: 15 }), 'Elimina selezionati')));
+      on: { click: e => e.stopPropagation(), change: e => { pickAll(deletable, e.target.checked); render(); } } });
+    // un clic seleziona (o toglie) tutti i ticket di uno stato: Fatto, In revisione…
+    const byStatus = Object.keys(STATUS).map(k => [k, deletable.filter(t => t.status === k)]).filter(([, list]) => list.length);
+    if (byStatus.length) {
+      body.append(h('div.pick-bar', h('span.muted.small', 'Seleziona tutti:'), byStatus.map(([k, list]) => {
+        const on = list.every(t => selected.has(t.id));
+        return h('button.pick-chip', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on),
+          title: on ? `Togli dalla selezione i ticket «${STATUS[k]}»` : `Seleziona i ticket «${STATUS[k]}» che puoi eliminare`,
+          on: { click: () => { pickAll(list, !on); render(); } } }, STATUS[k], h('span.pick-n', String(list.length)));
+      })));
     }
     body.append(h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', h('th.t-pick-col', allBox), h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-trash-col', { 'aria-label': 'Cancella' }))),
+      h('thead', h('tr', h('th.t-pick-col', allBox), h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-act-col', { 'aria-label': 'Azioni' }))),
       h('tbody', sorted.map(t => h('tr', { class: selected.has(t.id) ? 'picked' : '', on: { click: () => openTicket(t.id, { onSaved: load }) } },
         h('td.t-pick-col', { on: { click: e => e.stopPropagation() } }, canDeleteTicket(t)
           ? h('input', { type: 'checkbox', checked: selected.has(t.id), 'aria-label': `Seleziona «${t.title}»`, on: { change: e => { if (e.target.checked) selected.add(t.id); else selected.delete(t.id); render(); } } })
@@ -122,8 +127,19 @@ export function ticketsView(container, opts = {}) {
         h('td', statusPill(t.status)),
         h('td', h('span', { class: `pr-${t.priority}` }, PRIORITY[t.priority])),
         h('td', { class: isLate(t) ? 'due-late' : '' }, t.due_date ? fmtDate(t.due_date) : h('span.muted', '—')),
-        h('td.t-trash-col', trashButton(t, load)),
+        h('td.t-act-col', h('div.t-acts', remindButton(t), trashButton(t, load))),
       ))))));
+  }
+
+  function pickAll(list, on) {
+    for (const t of list) { if (on) selected.add(t.id); else selected.delete(t.id); }
+  }
+
+  function bulkBar() {
+    return h('div.bulk-bar', h('strong', `${selected.size} ${selected.size === 1 ? 'ticket selezionato' : 'ticket selezionati'}`),
+      h('span.grow'),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => { selected.clear(); render(); } } }, 'Annulla selezione'),
+      h('button.btn.btn-danger.btn-sm', { type: 'button', on: { click: () => deleteSelected() } }, icon('trash', { size: 15 }), 'Elimina selezionati'));
   }
 
   async function deleteSelected() {
@@ -230,6 +246,27 @@ export function trashButton(t, onDone) {
   }, trashIcon());
 }
 
+// Campanella nell'elenco: con un clic manda il promemoria con il testo già pronto agli assegnati
+// (se non ce ne sono, a chi ha creato il ticket), senza aprire il ticket. Testo diverso: dal ticket.
+function remindButton(t) {
+  if (t.status === 'done') return null;
+  const others = (t.assignee_ids || []).filter(id => id !== store.me.id);
+  if (!others.length && (!t.created_by || t.created_by === store.me.id)) return null; // nessuno a cui mandarlo
+  const names = (others.length ? others : [t.created_by]).map(id => userById(id)?.name).filter(Boolean);
+  const label = `Manda un promemoria${names.length ? ` a ${names.join(', ')}` : ''}`;
+  const btn = h('button.t-remind', { type: 'button', title: label, 'aria-label': `${label} su «${t.title}»`, on: { click: async e => {
+    e.stopPropagation();
+    btn.disabled = true;
+    try {
+      const r = await post(`/api/tickets/${t.id}/reminders`, { ...(others.length ? { user_ids: others } : {}), message: defaultReminderText(t) });
+      btn.classList.add('sent');
+      toast(`Promemoria mandato a ${names.join(', ') || `${r.notified} ${r.notified === 1 ? 'persona' : 'persone'}`}${r.emails_sent ? ' (anche per email)' : ' (solo in Alma Planet: email non partita)'}`);
+    } catch { /* l'errore lo mostra già api() */ }
+    setTimeout(() => { btn.disabled = false; }, 1500);
+  } } }, icon('bell', { size: 16 }));
+  return btn;
+}
+
 function trashIcon() {
   const tpl = document.createElement('template');
   tpl.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
@@ -243,15 +280,21 @@ function checkIcon() {
 }
 
 // Bacheca a colonne: trascinando una scheda cambia stato e ordine.
-function board(tickets, { onChange, hideProject }) {
+// La casella nell'intestazione di una colonna seleziona tutti i ticket di quello stato che posso eliminare.
+function board(tickets, { onChange, hideProject, selected, onPick }) {
   const cols = {};
   const root = h('div.board');
   let dragged = null;
 
   for (const [status, label] of Object.entries(STATUS)) {
     const list = tickets.filter(t => t.status === status).sort((a, b) => a.position - b.position);
+    const pickable = list.filter(canDeleteTicket);
+    const allOn = pickable.length > 0 && pickable.every(t => selected.has(t.id));
+    const colBox = pickable.length ? h('input', { type: 'checkbox', checked: allOn, 'aria-label': `Seleziona tutti i ticket «${label}» che puoi eliminare`,
+      title: `Seleziona tutti i ticket «${label}» che puoi eliminare`,
+      on: { change: e => { for (const t of pickable) { if (e.target.checked) selected.add(t.id); else selected.delete(t.id); } onPick(); } } }) : null;
     const col = h('div.col', { 'data-status': status },
-      h('div.col-head', h('span', label), h('span.muted', String(list.length))),
+      h('div.col-head', h('label.col-pick', colBox, h('span', label)), h('span.muted', String(list.length))),
       list.map(card));
     col.addEventListener('dragover', e => {
       e.preventDefault();
@@ -280,7 +323,7 @@ function board(tickets, { onChange, hideProject }) {
   }
 
   function card(t) {
-    const el = h('div.tcard', { draggable: 'true', 'data-id': String(t.id), on: {
+    const el = h('div.tcard', { draggable: 'true', 'data-id': String(t.id), class: selected.has(t.id) ? 'picked' : '', on: {
       click: () => openTicket(t.id, { onSaved: onChange }),
       dragstart: e => { dragged = t; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(t.id)); },
       dragend: () => { el.classList.remove('dragging'); },
