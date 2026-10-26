@@ -42,7 +42,27 @@ function trackBack(section) {
   if (stack[stack.length - 2] === here) stack.pop(); // si è tornati indietro
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
-  document.getElementById('backbar').hidden = section === 'home';
+  // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro
+  document.getElementById('backbar').hidden = section === 'home' || /^#\/projects\/\d+/.test(here);
+}
+
+// ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
+const RAIL_KEY = 'alma.railPinned';
+function setupRail() {
+  const btn = document.getElementById('rail-pin');
+  let pinned = false;
+  try { pinned = localStorage.getItem(RAIL_KEY) === '1'; } catch { /* niente */ }
+  const apply = () => {
+    document.body.classList.toggle('rail-pinned', pinned);
+    btn.setAttribute('aria-pressed', String(pinned));
+    btn.lastChild.textContent = pinned ? 'Richiudi la barra' : 'Tieni aperta';
+  };
+  apply();
+  btn.addEventListener('click', () => {
+    pinned = !pinned;
+    try { localStorage.setItem(RAIL_KEY, pinned ? '1' : '0'); } catch { /* niente */ }
+    apply();
+  });
 }
 function goBack() {
   const stack = readStack();
@@ -167,6 +187,7 @@ function drawMe() {
 
 async function start() {
   fillIcons(); // icone Lucide del menu laterale (data-icon in app.html)
+  setupRail();
   store.me = await get('/api/me');
   await Promise.all([loadUsers(), loadProjects()]);
   drawMe();

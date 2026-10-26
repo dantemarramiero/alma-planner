@@ -137,10 +137,6 @@
 }
 .proj-tile > span { display: block; }
 
-/* foglio dal basso: riceve il fuoco all'apertura (per Esc e lettori di schermo) senza bordo; scheda del progetto:
-   sul telefono basta la barra «← Indietro», il percorso «← Progetti › nome» si nasconde */
+/* foglio dal basso: riceve il fuoco all'apertura (per Esc e lettori di schermo) senza bordo.
+   Scheda del progetto: anche sul telefono l'indietro è il percorso «‹ Progetti» (la barra «← Indietro» lì non c'è) */
 .sheet:focus { outline: none; }
-@media (max-width: 760px) {
-  .pj-top { display: none; }
-  .pj-row { margin-top: 0; }
-}

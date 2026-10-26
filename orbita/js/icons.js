@@ -59,6 +59,13 @@ Object.assign(P, {
   'veh-generico': '<rect x="3" y="6" width="18" height="10" rx="2"/><path d="M3 11h18"/><circle cx="7.5" cy="18" r="2"/><circle cx="16.5" cy="18" r="2"/>',
 });
 
+// Scheda del progetto: percorso, «Modifica» e menu «Altre azioni».
+Object.assign(P, {
+  'chevron-left': '<path d="m15 18-6-6 6-6"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+});
+
 const NS = 'http://www.w3.org/2000/svg';
 
 // Un'icona come elemento SVG; title = testo per chi non vede l'icona (altrimenti è decorativa).

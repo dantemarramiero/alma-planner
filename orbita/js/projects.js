@@ -174,7 +174,7 @@ async function createArea() {
   return { id: r.id, name };
 }
 
-// ── scheda del progetto: intestazione, fatti, tab laterali (come la scheda opportunità di BOSS) ──────────
+// ── scheda del progetto: intestazione con quattro numeri, tab in orizzontale, Panoramica riassuntiva ──────────
 const TABS = [
   ['panoramica', 'Panoramica'],
   ['gantt', 'Gantt'],
@@ -201,37 +201,50 @@ export async function projectDetail(container, id) {
   let tab = tabFromHash();
   let cleanupTab = null;
 
-  // intestazione
+  // intestazione: percorso (l'unico «indietro» della pagina), nome e stato, azioni, quattro numeri
   const open = p.ticket_count - p.done_count;
+  const lateNote = h('span.pj-fact-note.pj-late');
+  const crew = h('span.pj-crew', h('span.muted', `${p.member_count + 1} ${p.member_count ? 'persone' : 'persona'}`));
   const head = h('header.pj-head', { style: { '--c': p.color } },
-    h('div.pj-top', h('a.pj-crumb', { href: '#/projects' }, '← Progetti'), h('span.pj-crumb-sep', '›'),
-      area ? [h('span.pj-crumb.pj-area', { style: { '--ac': area.color } }, h('span.area-dot'), area.name), h('span.pj-crumb-sep', '›')] : null, h('span.pj-crumb-cur', p.name)),
+    h('nav.pj-top', { 'aria-label': 'Percorso' },
+      h('a.pj-crumb', { href: '#/projects' }, icon('chevron-left', { size: 16 }), 'Progetti'),
+      area ? [h('span.pj-crumb-sep', '/'), h('span.pj-crumb.pj-area', { style: { '--ac': area.color } }, h('span.area-dot'), area.name)] : null),
     h('div.pj-row',
       h('div.pj-title',
-        h('h1', h('span.pj-swatch'), p.name),
-        h('div.pj-meta',
-          h('span.pill', { class: `pj-st-${p.status}` }, h('span.dot'), PROJECT_STATUS[p.status]),
-          h('span', [owner ? `Responsabile ${owner.name}` : 'Senza responsabile', `${p.member_count + 1} ${p.member_count ? 'persone' : 'persona'}`,
-            p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  ')))),
+        h('div.pj-name', h('span.pj-swatch'), h('h1', p.name),
+          h('span.pill', { class: `pj-st-${p.status}` }, h('span.dot'), PROJECT_STATUS[p.status])),
+        h('div.pj-meta', [owner ? `Responsabile ${owner.name}` : 'Senza responsabile',
+          p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  '))),
       h('div.pj-actions',
-        areaPicker(p, () => projectDetail(container, id)),
-        p.claude_url ? h('a.btn.btn-claude', { href: p.claude_url, target: '_blank', rel: 'noopener', title: 'Apre il progetto su claude.ai in una nuova scheda' }, 'Apri in Claude', icon('external', { size: 15 })) : null,
-        h('button.btn', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, '＋ Ticket'),
-        canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, 'Modifica') : null)),
+        canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, icon('pencil', { size: 16 }), 'Modifica') : null,
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, icon('plus', { size: 16 }), 'Nuovo ticket'),
+        moreMenu(
+          h('span.pj-menu-label', 'La tua macro area'),
+          areaPicker(p, () => projectDetail(container, id)),
+          h('span.pj-menu-sep'),
+          p.claude_url ? h('a.pj-menu-item', { href: p.claude_url, target: '_blank', rel: 'noopener', role: 'menuitem' }, icon('external', { size: 16 }), 'Apri in Claude') : null,
+          h('a.pj-menu-item', { href: `#/gantt?project=${p.id}`, role: 'menuitem' }, icon('gantt', { size: 16 }), 'Apri il Gantt a tutta pagina')))),
     h('div.pj-facts',
-      fact('Stato', PROJECT_STATUS[p.status]),
-      fact('Durata', dates(p)),
+      fact('Durata', dates(p), h('span.pj-fact-note', 'dalle attività del Gantt')),
       fact('Avanzamento', `${pct(p)} %`, h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
-      fact('Ticket aperti', `${open} di ${p.ticket_count}`),
-      fact('Responsabile', owner ? h('span.row', avatar(owner, 22), owner.name) : h('span.muted', 'Non assegnato'))));
+      fact('Ticket aperti', `${open} di ${p.ticket_count}`, lateNote),
+      fact('Persone', crew)));
+  // ticket in ritardo e volti delle persone: si leggono a parte
+  get(`/api/tickets?project=${p.id}&status=open`, { quiet: true }).then(list => {
+    const n = list.filter(t => t.due_date && t.due_date < today()).length;
+    if (n) lateNote.textContent = `${n} in ritardo`;
+  }).catch(() => {});
+  get(`/api/projects/${p.id}/members`, { quiet: true }).then(team => {
+    fill(crew, avatarsFor(team.map(m => m.id), 5), h('span.muted', `${team.length} ${team.length === 1 ? 'persona' : 'persone'}`));
+  }).catch(() => {});
 
-  // tab laterali (sul telefono diventano una barra scorrevole in alto)
-  const nav = h('nav.pj-nav', TABS.map(([k, label]) => h('button.pj-tab', {
-    type: 'button', 'data-k': k, class: k === tab ? 'on' : '',
+  // tab in orizzontale sotto l'intestazione (sul telefono scorrono)
+  const nav = h('nav.pj-nav', { role: 'tablist', 'aria-label': 'Sezioni del progetto' }, TABS.map(([k, label]) => h('button.pj-tab', {
+    type: 'button', role: 'tab', 'data-k': k, class: k === tab ? 'on' : '',
     on: { click: () => show(k) },
   }, k === 'gantt' && isMobile() ? 'Attività' : label, counter(k))));
   const content = h('div.pj-content');
-  clear(container).append(h('div.pj', head, h('div.pj-body', nav, content)));
+  clear(container).append(h('div.pj', head, nav, content));
   show(tab);
   // il numero di email accanto al tab si legge a parte (non è nei dati del progetto)
   get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
@@ -257,7 +270,7 @@ export async function projectDetail(container, id) {
   function show(k) {
     tab = k;
     history.replaceState(null, '', `#/projects/${p.id}/${k}`);
-    nav.querySelectorAll('.pj-tab').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+    nav.querySelectorAll('.pj-tab').forEach(b => { b.classList.toggle('on', b.dataset.k === k); b.setAttribute('aria-selected', String(b.dataset.k === k)); });
     cleanupTab?.();
     cleanupTab = null;
     const box = h('div.pj-pane');
@@ -273,38 +286,45 @@ export async function projectDetail(container, id) {
     else if (k === 'membri') members(box);
   }
 
-  // ── Panoramica: tutto il progetto in una pagina (riepilogo, Gantt, ticket, documenti, email, note);
-  // i tab a sinistra sono scorciatoie alle viste dedicate ──────────────────────────────────────────
+  // ── Panoramica: un riassunto, non le altre viste ripetute. Ogni riquadro porta al suo tab ─────────
   async function overview(box) {
-    const desc = h('section.card.pj-card', h('h3', 'Descrizione'),
+    const card = (title, linkTab, linkLabel, body) => h('section.card.pj-card',
+      h('div.pj-card-head', h('h2', title), linkTab ? h('button.pj-link', { type: 'button', on: { click: () => show(linkTab) } }, linkLabel) : null),
+      body);
+    const due = card('Prossime scadenze', 'ticket', 'Tutti i ticket', loading());
+    const plan = card('Attività', 'gantt', isMobile() ? 'Tutte le attività' : 'Apri il Gantt', h('div.pj-plan'));
+    const desc = card('Descrizione', null, null,
       p.description ? h('p.pj-desc', p.description) : h('p.muted', canManage(p) ? 'Nessuna descrizione. Aggiungila con «Modifica».' : 'Nessuna descrizione.'));
-    const due = h('section.card.pj-card', h('div.spread', h('h3', 'Prossime scadenze'), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show('ticket') } }, 'Tutti i ticket →')), loading());
-    const ppl = h('section.card.pj-card', h('div.spread', h('h3', 'Persone'), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show('membri') } }, canManage(p) ? 'Gestisci →' : 'Vedi →')), loading());
-    box.append(h('div.pj-grid', desc, ppl), due);
+    const ppl = card('Persone', 'membri', canManage(p) ? 'Gestisci' : 'Vedi', loading());
+    const news = card('Ultimi aggiornamenti', null, null, loading());
+    box.append(h('div.pj-over', h('div.pj-col', due, plan), h('div.pj-col.pj-side', desc, ppl, news)));
+    timeline(plan.lastChild, p, () => show('panoramica'));
 
-    // le sezioni di sempre, una sotto l'altra, ognuna con il collegamento al suo tab
-    const section = (k, title, fill) => {
-      const body = h('div');
-      box.append(h('section.pj-section', { id: `pj-${k}` },
-        h('div.spread', h('h2', title), h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => show(k) } }, 'Apri →')),
-        body));
-      fill(body);
-    };
-    section('gantt', isMobile() ? 'Attività' : 'Gantt', b => (isMobile() ? timeline(b, p, () => {}) : ganttView(b, new URLSearchParams({ project: String(p.id) }), { embedded: true })));
-    section('ticket', 'Ticket', b => ticketsView(b, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' }));
-    section('documenti', 'Documenti', b => projectDocuments(b, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) }));
-    section('email', 'Email', b => projectEmails(b, p));
-    section('note', 'Note', b => notesPanel(b, { url: `/api/projects/${p.id}/notes`, showTicket: true, title: 'Note del progetto e dei ticket', onCount: setNotesCount }));
-
-    const [tickets, team] = await Promise.all([get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`)]);
+    const [tickets, team, emails, notes] = await Promise.all([
+      get(`/api/tickets?project=${p.id}&status=open`), get(`/api/projects/${p.id}/members`),
+      get(`/api/projects/${p.id}/emails`, { quiet: true }).catch(() => []), get(`/api/projects/${p.id}/notes`, { quiet: true }).catch(() => []),
+    ]);
     const late = t => t.due_date && t.due_date < today();
     const upcoming = tickets.filter(t => t.due_date).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6);
     due.lastChild.replaceWith(upcoming.length
       ? h('div.pj-list', upcoming.map(t => h('button.pj-line', { type: 'button', on: { click: () => openTicket(t.id, { onSaved: () => show('panoramica') }) } },
-        h('span.grow', t.title), avatarsFor(t.assignee_ids, 3), h('span', { class: late(t) ? 'due-late' : 'muted' }, late(t) ? `scaduto ${fmtDate(t.due_date)}` : fmtDate(t.due_date)))))
+        h('span.pj-dot', { class: t.status === 'doing' ? 'doing' : '' }), h('span.grow', t.title), avatarsFor(t.assignee_ids, 3),
+        h('span.pj-due', { class: late(t) ? 'late' : '' }, late(t) ? `scaduto ${fmtDate(t.due_date)}` : fmtDate(t.due_date)))))
       : h('p.muted', 'Nessun ticket aperto con scadenza.'));
-    ppl.lastChild.replaceWith(h('div.pj-people', team.map(m => h('span.pj-person', { title: `${m.name}${m.owner ? ' · responsabile' : ''}` },
-      avatar(m, 30), h('span', h('strong', m.name.split(' ')[0]), h('small', m.owner ? 'Responsabile' : `${m.open_tickets} aperti`))))));
+    ppl.lastChild.replaceWith(h('div.pj-people', team.map(m => h('div.pj-person',
+      avatar(m, 30), h('span.grow', m.name), h('small', m.owner ? 'Responsabile' : `${m.open_tickets} ${m.open_tickets === 1 ? 'aperto' : 'aperti'}`)))));
+
+    // le ultime email e note del progetto, dalla più recente
+    const items = [
+      ...emails.slice(0, 3).map(e => ({ when: e.sent_at || '', ico: 'mail', title: e.subject || '(senza oggetto)', sub: ['Email', e.from_name, e.sent_at ? fmtDate(e.sent_at.slice(0, 10)) : null], k: 'email' })),
+      ...notes.slice().sort((a, b) => (b.note_date || '').localeCompare(a.note_date || '') || b.id - a.id).slice(0, 3)
+        .map(n => ({ when: n.note_date || '', ico: 'file-text', title: n.title || n.body.split('\n')[0], sub: ['Nota', userById(n.author_id)?.name, n.note_date ? fmtDate(n.note_date.slice(0, 10)) : null], k: 'note' })),
+    ].sort((a, b) => b.when.localeCompare(a.when)).slice(0, 4);
+    news.lastChild.replaceWith(items.length
+      ? h('div.pj-list', items.map(it => h('button.pj-news', { type: 'button', on: { click: () => show(it.k) } },
+        h('span.pj-news-ico', icon(it.ico, { size: 17 })),
+        h('span.pj-news-text', h('span.pj-news-title', it.title), h('small', it.sub.filter(Boolean).join(' · '))))))
+      : h('p.muted', 'Ancora nessuna email o nota nel progetto.'));
   }
 
   // ── Membri: chi vede e lavora al progetto ────────────────────────────────────
@@ -464,6 +484,23 @@ export function editProject(p, onSaved, defaults = {}) {
     toast(isNew ? 'Progetto creato' : 'Progetto salvato');
     onSaved?.({ id: isNew ? r.id : p.id });
   }
+}
+
+// Pulsante «…» dell'intestazione: un menu che si chiude cliccando fuori o con Esc.
+function moreMenu(...children) {
+  const pop = h('div.pj-menu', { role: 'menu', hidden: true }, children);
+  const btn = h('button.btn.pj-more-btn', { type: 'button', 'aria-label': 'Altre azioni', 'aria-haspopup': 'menu', 'aria-expanded': 'false', on: { click: () => toggle(pop.hidden) } }, icon('more'));
+  const wrap = h('div.pj-more', btn, pop);
+  const outside = e => { if (!wrap.contains(e.target)) toggle(false); };
+  const esc = e => { if (e.key === 'Escape') { toggle(false); btn.focus(); } };
+  function toggle(on) {
+    pop.hidden = !on;
+    btn.setAttribute('aria-expanded', String(on));
+    document[on ? 'addEventListener' : 'removeEventListener']('pointerdown', outside);
+    document[on ? 'addEventListener' : 'removeEventListener']('keydown', esc);
+  }
+  pop.addEventListener('click', e => { if (e.target.closest('a')) toggle(false); });
+  return wrap;
 }
 
 // Menu «macro area» nella scheda del progetto: sposta il progetto in una delle mie macro aree (solo per me).
