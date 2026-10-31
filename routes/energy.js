@@ -1,7 +1,11 @@
 // Alma Energy: modulo della BU Energy (business IPP). Membri del modulo, CRM (aziende e persone), opportunità delle
 // tre pipeline con lo storico degli stadi, collegamenti con un ruolo e simulatore dei rendimenti.
 // Tutto riservato ai membri del modulo (per ora Dante e Tullio): gli altri ricevono 403.
+const express = require('express');
 const { HttpError, v } = require('../lib/http');
+const {
+  planScreening, importScreening, planConventions, importConventions, ownersToPipeline, SIGNALS, OWNER_KEY_SQL, PRIORITY_ORDER,
+} = require('../lib/energy-import');
 const {
   STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys,
 } = require('../lib/energy');
@@ -432,7 +436,10 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
       db.query(`SELECT h.from_stage, h.to_stage, h.note, h.at, u.name AS user_name FROM energy_stage_history h
                   LEFT JOIN users u ON u.id = h.user_id WHERE h.opportunity_id = $1 ORDER BY h.at DESC, h.id DESC`, [id]),
     ]);
-    res.json({ ...o, links, history });
+    // revamping: le convenzioni GSE del proprietario, con gli incassi anno per anno
+    const conventions = o.kind === 'revamping'
+      ? (await db.query('SELECT * FROM energy_conventions WHERE opportunity_id = $1 ORDER BY rank NULLS LAST', [id])).rows : undefined;
+    res.json({ ...o, links, history, conventions });
   });
 
   app.patch('/api/energy/opportunities/:id', async (req, res) => {
@@ -503,6 +510,127 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     const { rowCount } = await db.query('DELETE FROM energy_links WHERE id = $1', [id]);
     if (!rowCount) throw new HttpError(404, 'Collegamento non trovato');
     res.json({ ok: true });
+  });
+
+  // ── pipeline a kanban: per ogni stadio quante sono, i MW e le prime schede ────────────────────
+  // Le schede sono ordinate per priorità (A prima) e poi per valore: punteggio dello screening, incassi persi, MW.
+  const CARDS_PER_STAGE = 60;
+  app.get('/api/energy/pipeline/:kind', async (req, res) => {
+    const kind = kindOf(req.params.kind);
+    const where = ['o.kind = $1'];
+    const params = [kind];
+    const add = (sql, val) => { params.push(val); where.push(sql.replace(/\?/g, `$${params.length}`)); };
+    if (req.query.priority) add('o.priority = ?', String(req.query.priority));
+    if (req.query.region) add('lower(o.region) = lower(?)', String(req.query.region));
+    if (req.query.province) add('lower(o.province) = lower(?)', String(req.query.province));
+    if (req.query.owner) add('o.owner_id = ?', Number(req.query.owner) || 0);
+    if (req.query.q) add('(o.title ILIKE ? OR o.city ILIKE ? OR c.name ILIKE ?)', `%${String(req.query.q).trim()}%`);
+    if (req.query.signal) add("(o.data->'segnali') @> jsonb_build_array(?::text)", String(req.query.signal));
+    const filter = where.join(' AND ');
+    const order = `array_position(ARRAY['A','B','C','D','Dati insufficienti']::text[], o.priority) NULLS LAST,
+      COALESCE((o.data->>'punteggio')::float, 0) DESC, COALESCE((o.data->>'incassi_persi')::float, 0) DESC, o.mw DESC NULLS LAST, o.id`;
+    const [{ rows: totals }, { rows: cards }, { rows: provinces }] = await Promise.all([
+      db.query(`SELECT o.stage, COUNT(*)::int AS n, COALESCE(SUM(o.mw), 0)::float AS mw, COALESCE(SUM(o.capex), 0)::float AS capex,
+                       COALESCE(SUM((o.data->>'incassi_persi')::float), 0)::float AS lost
+                  FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id WHERE ${filter} GROUP BY o.stage`, params),
+      db.query(`SELECT * FROM (
+                  SELECT o.id, o.title, o.stage, o.priority, o.mw, o.capex, o.city, o.province, o.region, o.project_id, o.stage_changed_at,
+                         c.name AS company_name, u.name AS owner_name,
+                         o.data->>'profilo' AS profilo, (o.data->>'punteggio')::float AS punteggio,
+                         (o.data->>'convenzioni')::int AS convenzioni, (o.data->>'incassi_persi')::float AS incassi_persi,
+                         o.data->'segnali' AS segnali, o.data->>'regime' AS regime,
+                         row_number() OVER (PARTITION BY o.stage ORDER BY ${order}) AS pos
+                    FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id LEFT JOIN users u ON u.id = o.owner_id
+                   WHERE ${filter}) x WHERE pos <= ${CARDS_PER_STAGE}`, params),
+      db.query("SELECT DISTINCT province FROM energy_opportunities WHERE kind = $1 AND province <> '' ORDER BY province", [kind]),
+    ]);
+    res.json({
+      stages: STAGES[kind].map(([key, label]) => {
+        const t = totals.find(x => x.stage === key) || { n: 0, mw: 0, capex: 0, lost: 0 };
+        return { key, label, count: t.n, mw: t.mw, capex: t.capex, lost: t.lost, cards: cards.filter(c => c.stage === key).sort((a, b) => a.pos - b.pos) };
+      }),
+      provinces: provinces.map(r => r.province),
+      perStage: CARDS_PER_STAGE,
+    });
+  });
+
+  // ── import dai file Excel (screening dei tetti, Database Conto Energia) ───────────────────────
+  // Il file arriva così com'è (corpo binario) con il nome nell'header X-File-Name; prima l'anteprima, poi la conferma.
+  const fileBody = express.raw({ type: () => true, limit: '25mb' });
+  const fileName = req => { try { return decodeURIComponent(String(req.get('X-File-Name') || '')).slice(0, 200); } catch { return ''; } };
+  app.post('/api/energy/import/screening/anteprima', fileBody, async (req, res) => {
+    res.json((await planScreening(db, req.body)).summary);
+  });
+  app.post('/api/energy/import/screening', fileBody, async (req, res) => {
+    res.json(await importScreening(db, req.body, { userId: req.user.id, fileName: fileName(req) }));
+  });
+  app.post('/api/energy/import/database-ce/anteprima', fileBody, async (req, res) => {
+    res.json((await planConventions(db, req.body)).summary);
+  });
+  app.post('/api/energy/import/database-ce', fileBody, async (req, res) => {
+    res.json(await importConventions(db, req.body, { userId: req.user.id, fileName: fileName(req) }));
+  });
+  app.get('/api/energy/imports', async (_req, res) => {
+    const { rows } = await db.query(
+      'SELECT i.id, i.kind, i.file_name, i.summary, i.at, u.name AS user_name FROM energy_imports i LEFT JOIN users u ON u.id = i.user_id ORDER BY i.at DESC LIMIT 20');
+    res.json(rows);
+  });
+
+  // ── Database impianti in Conto Energia: consultazione e «Porta in pipeline» ──────────────────
+  const SORTS = { incassi_persi: 'lost_per_year DESC NULLS LAST', variazione: 'variation ASC NULLS LAST', rank: 'rank ASC NULLS LAST', proprietario: 'lower(owner_name)' };
+  app.get('/api/energy/conventions', async (req, res) => {
+    const where = ['TRUE'];
+    const params = [];
+    const add = (sql, val) => { params.push(val); where.push(sql.replace(/\?/g, `$${params.length}`)); };
+    if (req.query.priority) add('priority = ?', String(req.query.priority));
+    if (req.query.owner_type) add('owner_type = ?', String(req.query.owner_type));
+    if (req.query.trend) add("trend ILIKE ? || '%'", String(req.query.trend));
+    if (req.query.region) add('region = ?', String(req.query.region));
+    if (req.query.signal) add('? = ANY(signals)', String(req.query.signal));
+    if (req.query.q) add('(owner_name ILIKE ? OR owner_vat ILIKE ? OR convention ILIKE ?)', `%${String(req.query.q).trim()}%`);
+    if (req.query.min_lost) add('lost_per_year >= ?', Number(req.query.min_lost) || 0);
+    if (req.query.in_pipeline === '1') where.push('opportunity_id IS NOT NULL');
+    if (req.query.in_pipeline === '0') where.push('opportunity_id IS NULL');
+    const sort = SORTS[req.query.sort] || SORTS.rank;
+    const page = Math.max(0, Number(req.query.page) || 0);
+    const size = 100;
+    const filter = where.join(' AND ');
+    const [{ rows }, { rows: [tot] }, { rows: facets }] = await Promise.all([
+      db.query(`SELECT *, ${OWNER_KEY_SQL} AS owner_key FROM energy_conventions WHERE ${filter} ORDER BY ${sort}, convention LIMIT ${size} OFFSET ${page * size}`, params),
+      db.query(`SELECT COUNT(*)::int AS n, COUNT(DISTINCT ${OWNER_KEY_SQL})::int AS owners, COALESCE(SUM(GREATEST(lost_per_year, 0)), 0)::float AS lost,
+                       COUNT(*) FILTER (WHERE opportunity_id IS NOT NULL)::int AS in_pipeline FROM energy_conventions WHERE ${filter}`, params),
+      db.query(`SELECT 'owner_type' AS f, owner_type AS v, COUNT(*)::int AS n FROM energy_conventions WHERE owner_type <> '' GROUP BY owner_type
+                UNION ALL SELECT 'region', region, COUNT(*)::int FROM energy_conventions WHERE region <> '' GROUP BY region
+                UNION ALL SELECT 'priority', priority, COUNT(*)::int FROM energy_conventions GROUP BY priority`),
+    ]);
+    const facet = f => facets.filter(x => x.f === f).sort((a, b) => b.n - a.n).map(x => [x.v, x.n]);
+    res.json({
+      conventions: rows, total: tot.n, owners: tot.owners, lost: tot.lost, inPipeline: tot.in_pipeline, page, pageSize: size,
+      facets: { owner_type: facet('owner_type'), region: facet('region').sort((a, b) => a[0].localeCompare(b[0])),
+        priority: facet('priority').sort((a, b) => PRIORITY_ORDER.indexOf(a[0]) - PRIORITY_ORDER.indexOf(b[0])) },
+      signals: SIGNALS,
+    });
+  });
+
+  // Porta in pipeline i proprietari scelti (owner_key delle righe del database).
+  app.post('/api/energy/conventions/pipeline', async (req, res) => {
+    const keys = req.body.owners;
+    if (!Array.isArray(keys) || !keys.length || keys.length > 500) throw new HttpError(400, 'Scegli da 1 a 500 proprietari');
+    const clean = [...new Set(keys.map(k => v.text(k, 'Proprietario', { max: 300 })).filter(Boolean))];
+    const out = await db.tx(q => ownersToPipeline(q, clean, req.user.id));
+    res.json(out);
+  });
+
+  // ── scadenze del FV classico (opzione sul terreno, STMG, integrazioni, validità del titolo) ───
+  app.get('/api/energy/scadenze', async (req, res) => {
+    const days = Math.min(Math.max(Number(req.query.days) || 90, 1), 730);
+    const { rows } = await db.query(
+      `SELECT o.id, o.title, o.kind, o.stage, s->>'label' AS label, (s->>'date')::date AS date
+         FROM energy_opportunities o, jsonb_array_elements(COALESCE(o.data->'scadenze', '[]'::jsonb)) s
+        WHERE o.stage NOT IN ('perso', 'target') AND s->>'date' ~ '^\\d{4}-\\d{2}-\\d{2}$' AND NOT COALESCE((s->>'done')::boolean, false)
+          AND (s->>'date')::date <= CURRENT_DATE + $1::int
+        ORDER BY (s->>'date')::date`, [days]);
+    res.json(rows);
   });
 
   // ── simulatore: calcolo senza salvare (gli scenari salvati arrivano con ALM2-9) ───────────────
