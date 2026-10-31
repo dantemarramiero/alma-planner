@@ -1,21 +1,24 @@
 // Alma Energy: modulo della BU Energy (business IPP), riservato ai suoi membri.
-// Panoramica delle tre pipeline, opportunità con stadio e collegamenti, CRM con aziende (filtro per tipo) e persone,
-// membri del modulo. Le pipeline a kanban, il simulatore e gli Impianti target arrivano con i ticket successivi.
+// Panoramica, pipeline a kanban (energy-pipeline.js), Database Conto Energia, tutte le opportunità con stadio e
+// collegamenti, CRM con aziende (filtro per tipo) e persone, membri del modulo. Simulatore e Impianti target arrivano dopo.
 import { h, clear, fill, modal, confirmDialog, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
+import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['opportunita', 'Opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['database', 'Database CE'],
+  ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
+const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
-let meta = null; // stadi, tipi di azienda, ruoli… dal server
-const num = (n, d = 0) => (n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('it-IT', { maximumFractionDigits: d }));
+export let meta = null; // stadi, tipi di azienda, ruoli… dal server
+export const num = (n, d = 0) => (n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('it-IT', { maximumFractionDigits: d }));
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
 const stageLabel = (kind, s) => (meta.stages[kind] || []).find(([k]) => k === s)?.[1] || s;
 const personName = p => [p.title, p.first_name, p.last_name].filter(Boolean).join(' ');
-const field = (label, control, hint) => h('label.field', h('span', label), control, hint ? h('small.muted', hint) : null);
-const input = (attrs = {}) => h('input.input', attrs);
-const select = (options, value, attrs = {}) => h('select.select', attrs, options.map(([k, label]) => h('option', { value: k, selected: String(k) === String(value ?? '') }, label)));
+export const field = (label, control, hint) => h('label.field', h('span', label), control, hint ? h('small.muted', hint) : null);
+export const input = (attrs = {}) => h('input.input', attrs);
+export const select = (options, value, attrs = {}) => h('select.select', attrs, options.map(([k, label]) => h('option', { value: k, selected: String(k) === String(value ?? '') }, label)));
 const textarea = (value, attrs = {}) => h('textarea.input', { rows: 3, ...attrs }, value || '');
 const userOptions = () => [['', '—'], ...store.users.filter(u => u.active !== false).map(u => [u.id, u.name])];
 const kindPill = kind => h('span.pill.en-kind', { class: `en-k-${kind}` }, meta.kinds[kind]);
@@ -42,7 +45,9 @@ export async function energyView(container, parts = []) {
     body);
   const data = await get('/api/energy');
   meta = data.meta;
-  if (tab === 'panoramica') overview(body, data);
+  if (tab === 'panoramica') await overview(body, data);
+  else if (PIPELINE_TABS[tab]) await pipelineView(body, PIPELINE_TABS[tab]);
+  else if (tab === 'database') await databaseView(body);
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);
   else if (tab === 'aziende') await companiesTab(body, parts[2]);
   else if (tab === 'persone') await peopleTab(body, parts[2]);
@@ -50,7 +55,7 @@ export async function energyView(container, parts = []) {
 }
 
 // ── panoramica ───────────────────────────────────────────────────────────────
-function overview(box, data) {
+async function overview(box, data) {
   const kpi = (label, value, sub, href) => h('a.sw-kpi', { href }, h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
   const byKind = kind => {
     const rows = data.counts.filter(c => c.kind === kind);
@@ -66,7 +71,8 @@ function overview(box, data) {
     h('div.sw-kpis',
       Object.keys(meta.kinds).map(kind => {
         const k = byKind(kind);
-        return kpi(meta.kinds[kind], num(k.open), `${num(k.mw, 1)} MW aperti · ${num(k.targets)} target`, `#/energy/opportunita?kind=${kind}`);
+        const tabKey = Object.entries(PIPELINE_TABS).find(([, x]) => x === kind)[0];
+        return kpi(meta.kinds[kind], num(k.open), `${num(k.mw, 1)} MW aperti · ${num(k.targets)} target`, `#/energy/${tabKey}`);
       }),
       kpi('CRM', num(data.crm.companies), `aziende · ${num(data.crm.people)} persone`, '#/energy/aziende')),
     h('div.sw-grid',
@@ -78,8 +84,9 @@ function overview(box, data) {
             h('span.sw-bar-name', label), h('span.sw-bar-track', h('i', { style: { width: `${n ? Math.max(3, (n / max) * 100) : 0}%` } })),
             h('span.sw-bar-val', num(n))))));
       }),
+      await deadlinesCard(),
       h('section.card.sw-card', h('h3', 'In arrivo'),
-        h('p.small.muted', 'Pipeline a kanban con l\'import dello screening tetti e del Database Conto Energia, simulatore dei rendimenti e Impianti target sono i prossimi passi (ticket ALM2-6 … ALM2-18).'))));
+        h('p.small.muted', 'Simulatore dei rendimenti, mappa e Impianti target sono i prossimi passi (ticket ALM2-6 … ALM2-9, ALM2-11, ALM2-15 … ALM2-18).'))));
 }
 
 // ── opportunità ─────────────────────────────────────────────────────────────
@@ -117,7 +124,7 @@ async function companyOptions() {
   return [['', '—'], ...companies.map(c => [c.id, c.name])];
 }
 
-async function opportunityForm({ kind, opp = null, onSaved }) {
+export async function opportunityForm({ kind, opp = null, onSaved }) {
   const companies = await companyOptions();
   const k = opp?.kind || kind;
   const form = h('div.en-form',
@@ -150,7 +157,7 @@ async function opportunityForm({ kind, opp = null, onSaved }) {
   });
 }
 
-async function openOpportunity(id, onChange) {
+export async function openOpportunity(id, onChange) {
   const o = await get(`/api/energy/opportunities/${id}`);
   const stages = meta.stages[o.kind].filter(([k]) => k !== 'target');
   const stageSel = select(stages, o.stage === 'target' ? '' : o.stage, { disabled: o.stage === 'target' });
@@ -186,6 +193,7 @@ async function openOpportunity(id, onChange) {
         ['Probabilità', o.probability !== null ? `${o.probability}%` : '—'], ['Priorità', o.priority || '—'],
         ['Luogo', [o.city, o.province, o.region].filter(Boolean).join(', ') || '—'], ['Responsabile', o.owner_name || '—'],
       ]), o.notes ? h('p.en-notes', o.notes) : null),
+      kindDetails(o, () => { m.close(); onChange?.(); openOpportunity(id, onChange); }),
       h('section.en-sec', h('div.en-sec-head', h('h3', 'Aziende e persone collegate'),
         h('button.btn.btn-sm', { type: 'button', on: { click: () => linkForm(id, async () => { drawLinks(await get(`/api/energy/opportunities/${id}`)); onChange?.(); }) } }, icon('plus', { size: 15 }), 'Collega')),
       links),
