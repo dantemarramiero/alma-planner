@@ -1,0 +1,51 @@
+/* Alma Energy: modulo della BU Energy. Riusa card, tabelle, pillole e i riquadri numerici del censimento software. */
+.en-light { font-weight: var(--ap-fw-light); }
+.en-tabs { margin-bottom: var(--ap-space-4); flex-wrap: wrap; }
+.en-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ap-space-4); } /* la tabella scorre dentro la card, non allarga la pagina */
+.en-filter { flex-wrap: wrap; }
+
+.en-chips { display: flex; flex-wrap: wrap; gap: var(--ap-space-2); }
+.en-chip { border: 1px solid var(--rule); cursor: pointer; background: var(--card); padding: var(--ap-space-1) var(--ap-space-3); }
+.en-chip:hover { border-color: var(--orange); }
+.en-chip.on { background: var(--orange); border-color: var(--orange); color: var(--ap-white); }
+.en-chip-n { margin-left: var(--ap-space-1); opacity: .75; font-variant-numeric: tabular-nums; }
+.en-types { display: flex; flex-wrap: wrap; gap: var(--ap-space-1); }
+
+.en-kind { background: var(--ap-grey-100); }
+.en-stage { background: var(--ap-surface); color: var(--ap-text-strong); }
+.en-stage.en-target { background: var(--green-soft); color: var(--green); }
+.en-lost { background: var(--red-soft, var(--ap-grey-100)); color: var(--red); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.en-form { display: grid; gap: var(--ap-space-3); }
+.en-row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.en-row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.en-type-block { border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-3); display: grid; gap: var(--ap-space-3); }
+.en-type-title { font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); text-transform: uppercase; letter-spacing: .06em; color: var(--orange); }
+.en-check { display: flex; gap: var(--ap-space-2); align-items: center; font-size: var(--ap-fs-sm); }
+.en-pc { display: grid; gap: var(--ap-space-2); margin-bottom: var(--ap-space-1); }
+.en-pc-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: var(--ap-space-2); align-items: center; }
+
+.en-detail { display: grid; gap: var(--ap-space-5); }
+.en-sec { display: grid; gap: var(--ap-space-2); }
+.en-sec h3 { font-size: var(--ap-fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: var(--ap-fw-medium); margin: 0; }
+.en-sec-head { display: flex; justify-content: space-between; align-items: center; gap: var(--ap-space-2); }
+.en-head-pills { display: flex; flex-wrap: wrap; gap: var(--ap-space-1); margin-top: var(--ap-space-1); }
+.en-stage-row { display: flex; gap: var(--ap-space-2); align-items: center; flex-wrap: wrap; }
+.en-stage-row .select, .en-stage-row .input { flex: 1; min-width: 180px; }
+.en-dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--ap-space-1) var(--ap-space-4); margin: 0; }
+.en-dl dt { color: var(--muted); font-size: var(--ap-fs-sm); }
+.en-dl dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.en-notes { white-space: pre-wrap; margin: 0; color: var(--ap-text); }
+.en-links { display: grid; gap: var(--ap-space-1); }
+.en-link { display: flex; align-items: center; gap: var(--ap-space-2); padding: var(--ap-space-2) var(--ap-space-3); border: 1px solid var(--rule); border-radius: var(--radius); color: inherit; text-decoration: none; }
+a.en-link:hover { border-color: var(--orange); }
+.en-link .grow { flex: 1; min-width: 0; }
+.en-history { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ap-space-2); }
+.en-members { max-width: 640px; }
+
+@media (max-width: 760px) {
+  .en-row2, .en-row3 { grid-template-columns: 1fr; }
+  .en-pc-row { grid-template-columns: 1fr auto; }
+  .en-pc-row .input { grid-column: 1; }
+}

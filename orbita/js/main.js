@@ -19,6 +19,7 @@ import { rdaView } from './rda.js';
 import { searchView, setupSearch } from './search.js';
 import { softwareView } from './software.js';
 import { fleetView } from './fleet.js';
+import { energyView } from './energy.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -153,6 +154,9 @@ async function route() {
     case 'mezzi':
       await fleetView(view, parts);
       break;
+    case 'energy':
+      await energyView(view, parts);
+      break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
@@ -208,6 +212,8 @@ async function start() {
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.software;
+  // Alma Energy: solo i membri della BU Energy (il server lo rifiuta comunque agli altri)
+  for (const id of ['nav-energy-label', 'nav-energy']) document.getElementById(id).hidden = !store.me.energy;
   refreshBadges();
 
   document.getElementById('back').addEventListener('click', goBack);
