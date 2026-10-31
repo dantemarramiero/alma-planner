@@ -36,6 +36,8 @@ const { rateLimit, createAudit } = require('./lib/security');
 const { registerAudit } = require('./routes/audit');
 const { registerFleet } = require('./routes/fleet');
 const { createFleet } = require('./lib/fleet');
+const { registerEnergy } = require('./routes/energy');
+const { createEnergyAccess } = require('./lib/energy');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -165,6 +167,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
+  deps.energyAccess = createEnergyAccess({ db, isAdmin }); // Alma Energy: solo i membri della BU Energy
   deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
   registerUsers(app, deps);
@@ -188,6 +191,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   registerSearch(app, deps);
   registerSoftware(app, deps);
   registerFleet(app, deps);
+  registerEnergy(app, deps);
   registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 
