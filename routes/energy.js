@@ -464,6 +464,12 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     const note = v.text(req.body.note, 'Nota', { max: 1000 }) || '';
     const lostReason = stage === 'perso' ? v.text(req.body.lost_reason, 'Motivo', { max: 300, required: true }) : '';
     if (stage === cur.stage) return res.json(cur);
+    // PPA on-site: dall'analisi dei consumi in poi serve una persona di riferimento collegata
+    const keys = stageKeys(cur.kind);
+    if (cur.kind === 'ppa_onsite' && stage !== 'perso' && keys.indexOf(stage) >= keys.indexOf('analisi_consumi')) {
+      const { rows: [p] } = await db.query('SELECT 1 FROM energy_links WHERE opportunity_id = $1 AND person_id IS NOT NULL LIMIT 1', [id]);
+      if (!p) throw new HttpError(400, 'Collega prima la persona di riferimento del cliente (scheda dell\'opportunità, «Collega»)');
+    }
     const opp = await db.tx(async q => {
       const { rows: [o] } = await q.query(
         `UPDATE energy_opportunities SET stage = $2, lost_reason = $3, stage_changed_at = now(), updated_at = now() WHERE id = $1 RETURNING *`,

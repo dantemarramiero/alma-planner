@@ -190,6 +190,18 @@ test('kanban: colonne per stadio con conteggi, schede in ordine di priorità e f
   assert.equal((await api('GET', '/api/energy/pipeline/nessuna')).status, 400);
 });
 
+test('PPA on-site: dall\'analisi dei consumi in poi serve la persona di riferimento', async () => {
+  const opp = (await api('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Capannone di prova' })).body;
+  const r = await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'analisi_consumi' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /persona di riferimento/);
+  assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'sopralluogo' })).status, 200);
+  assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'perso', lost_reason: 'Tetto in amianto' })).status, 200);
+  const p = (await api('POST', '/api/energy/people', { last_name: 'Verdi' })).body;
+  await api('POST', `/api/energy/opportunities/${opp.id}/links`, { person_id: p.id, role: 'referente' });
+  assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'analisi_consumi' })).status, 200);
+});
+
 test('FV classico: dati autorizzativi nel dato dell\'opportunità e scadenze in arrivo', async () => {
   const o = (await api('POST', '/api/energy/opportunities', { kind: 'fv_classico', title: 'Agrivoltaico Lanciano', mw: 12 })).body;
   assert.equal(o.stage, 'proposta');
