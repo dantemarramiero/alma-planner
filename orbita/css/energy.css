@@ -118,3 +118,23 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
 .en-cash-col i.neg { background: var(--red); }
 .en-cash-axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
 @media (max-width: 900px) { .en-sim { grid-template-columns: 1fr; } }
+
+/* ── Impianti target (orbita/js/energy-target.js) ──────────────────────── */
+.en-tk { font-weight: var(--ap-fw-medium); flex: none; }
+.en-tk-ppa_onsite { background: var(--orange); color: var(--ap-white); }
+.en-tk-revamping { background: var(--green-soft); color: var(--green); }
+.en-tk-fv_classico { background: var(--ap-grey-200); color: var(--ap-text-strong); }
+.en-progress { position: relative; height: 16px; border-radius: var(--radius-pill); background: var(--ap-grey-100); overflow: hidden; }
+.en-progress i { position: absolute; inset: 0 auto 0 0; background: var(--orange); opacity: .35; }
+.en-progress span { position: relative; display: block; text-align: center; font-size: 10px; line-height: 16px; color: var(--ap-text-strong); font-variant-numeric: tabular-nums; }
+.en-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ap-space-2); }
+.en-steps li { display: flex; align-items: center; gap: var(--ap-space-2); font-size: var(--ap-fs-sm); color: var(--muted); min-width: 0; }
+.en-step-n { flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--ap-grey-100); font-weight: var(--ap-fw-medium); font-size: var(--ap-fs-xs); }
+.en-step-attuale { color: var(--ap-text-strong); font-weight: var(--ap-fw-medium); }
+.en-step-attuale .en-step-n { background: var(--orange); color: var(--ap-white); }
+.en-step-fatto .en-step-n { background: var(--green-soft); color: var(--green); }
+.en-checklist { display: grid; gap: var(--ap-space-2); }
+.en-ok { background: var(--green-soft); color: var(--green); }
+.en-target-banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ap-space-2); }
+.en-target-tab { max-width: 960px; }
+@media (max-width: 760px) { .en-steps { grid-template-columns: 1fr 1fr; } }

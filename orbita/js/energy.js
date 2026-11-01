@@ -7,12 +7,18 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
 import { simulatorView, scenariosSection } from './energy-simulator.js';
+import { targetsView, openTarget, selectAsTargetButton } from './energy-target.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['database', 'Database CE'], ['simulatore', 'Simulatore'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Impianti target'], ['database', 'Database CE'], ['simulatore', 'Simulatore'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
 export let meta = null; // stadi, tipi di azienda, ruoli… dal server
+// Per le parti di Alma Energy aperte da fuori (tab «Impianto» del progetto): legge gli elenchi se non ci sono ancora.
+export async function ensureMeta() {
+  if (!meta) meta = (await get('/api/energy')).meta;
+  return meta;
+}
 export const num = (n, d = 0) => (n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('it-IT', { maximumFractionDigits: d }));
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
 const stageLabel = (kind, s) => (meta.stages[kind] || []).find(([k]) => k === s)?.[1] || s;
@@ -47,6 +53,7 @@ export async function energyView(container, parts = []) {
   meta = data.meta;
   if (tab === 'panoramica') await overview(body, data);
   else if (PIPELINE_TABS[tab]) await pipelineView(body, PIPELINE_TABS[tab]);
+  else if (tab === 'target') await targetsView(body);
   else if (tab === 'database') await databaseView(body);
   else if (tab === 'simulatore') await simulatorView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);
@@ -182,7 +189,9 @@ export async function openOpportunity(id, onChange) {
     drawer: true,
     title: h('div', h('h2', o.title), h('div.en-head-pills', kindPill(o.kind), stagePill(o.kind, o.stage))),
     body: h('div.en-detail',
-      o.stage === 'target' ? h('div.banner', 'È un Impianto target: si segue dal progetto.') : h('section.en-sec', h('h3', 'Stadio'),
+      o.project_id ? h('div.banner.en-target-banner', 'È un Impianto target: l\'iter commerciale si segue dalla scheda del target e dal progetto. ',
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => { m.close(); openTarget(id, onChange); } } }, 'Apri l\'iter'),
+        h('a.btn.btn-sm', { href: `#/projects/${o.project_id}/impianto` }, 'Apri il progetto')) : h('section.en-sec', h('h3', 'Stadio'),
         h('div.en-stage-row', stageSel, h('button.btn', { type: 'button', on: { click: async () => {
           if (stageSel.value === o.stage) return;
           await post(`/api/energy/opportunities/${id}/stage`, { stage: stageSel.value, note: note.value, lost_reason: lost.value });
@@ -190,7 +199,9 @@ export async function openOpportunity(id, onChange) {
           m.close();
           onChange?.();
           openOpportunity(id, onChange);
-        } } }, 'Cambia stadio')), lost, note),
+        } } }, 'Cambia stadio'),
+        // diventa Impianto target: nasce il progetto con l'iter commerciale (il FV classico solo da RTB)
+        selectAsTargetButton(o, pid => { m.close(); onChange?.(); location.hash = `#/projects/${pid}/impianto`; })), lost, note),
       h('section.en-sec', h('h3', 'Dati'), dl([
         ['Azienda', o.company_name || '—'], ['MW', num(o.mw, 3)], ['Capex', o.capex ? `${num(o.capex)} €` : '—'],
         ['Probabilità', o.probability !== null ? `${o.probability}%` : '—'], ['Priorità', o.priority || '—'],

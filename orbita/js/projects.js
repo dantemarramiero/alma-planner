@@ -195,10 +195,12 @@ export async function projectDetail(container, id) {
   const area = areaById(p?.area_id);
   if (!p) return clear(container).append(h('div.card.empty', 'Progetto non trovato, oppure non sei tra i suoi membri. ', h('a', { href: '#/projects' }, 'Torna ai progetti')));
   const owner = userById(p.owner_id);
+  // Impianto target di Alma Energy: in più il tab «Impianto» con l'iter commerciale e la scheda dell'impianto
+  const tabs = p.energy ? [TABS[0], ['impianto', 'Impianto'], ...TABS.slice(1)] : TABS;
   const tabFromHash = () => {
     const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2];
     if (t === 'cartella') return 'documenti'; // vecchio tab, ora dentro Documenti
-    return TABS.some(([k]) => k === t) ? t : 'panoramica';
+    return tabs.some(([k]) => k === t) ? t : 'panoramica';
   };
   let tab = tabFromHash();
   let cleanupTab = null;
@@ -241,7 +243,7 @@ export async function projectDetail(container, id) {
   }).catch(() => {});
 
   // tab in orizzontale sotto l'intestazione (sul telefono scorrono)
-  const nav = h('nav.pj-nav', { role: 'tablist', 'aria-label': 'Sezioni del progetto' }, TABS.map(([k, label]) => h('button.pj-tab', {
+  const nav = h('nav.pj-nav', { role: 'tablist', 'aria-label': 'Sezioni del progetto' }, tabs.map(([k, label]) => h('button.pj-tab', {
     type: 'button', role: 'tab', 'data-k': k, class: k === tab ? 'on' : '',
     on: { click: () => show(k) },
   }, k === 'gantt' && isMobile() ? 'Attività' : label, counter(k))));
@@ -293,6 +295,7 @@ export async function projectDetail(container, id) {
     else if (k === 'incontri') projectMeetings(box, p, { onCount: setMeetingsCount });
     else if (k === 'note') notesPanel(box, { url: `/api/projects/${p.id}/notes`, showTicket: true, onCount: setNotesCount });
     else if (k === 'membri') members(box);
+    else if (k === 'impianto') import('./energy-target.js').then(m => m.targetTab(box, p.id));
   }
 
   // ── Panoramica: un riassunto, non le altre viste ripetute. Ogni riquadro porta al suo tab ─────────
