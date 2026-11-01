@@ -1,7 +1,7 @@
 // Alma Energy: pipeline a kanban (PPA on-site, Revamping, FV classico), import dei file Excel con anteprima,
 // Database impianti in Conto Energia con «Porta in pipeline» e le parti della scheda che cambiano per tipo
 // (dati dello screening, incassi GSE e dati tecnici del revamping, dati autorizzativi e scadenze del FV classico).
-import { h, fill, modal, toast, loading, debounce, promptDialog, fmtDate } from './ui.js';
+import { h, fill, modal, toast, loading, debounce, promptDialog, confirmDialog, fmtDate } from './ui.js';
 import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';
 import { meta, num, openOpportunity, opportunityForm, field, input, select } from './energy.js';
@@ -16,6 +16,8 @@ const SIGNAL_LABEL = {
   piu_beneficiari: 'Più beneficiari', non_strategico: 'Non strategico', cambio_proprieta: 'Cambio di proprietà',
 };
 const signalPills = list => (list?.length ? h('div.en-signals', list.map(s => h('span.pill.en-signal', { class: `en-sig-${s}` }, SIGNAL_LABEL[s] || s))) : null);
+const STRATEGIA = { rivendita: 'Rivendita', gestione: 'Gestione' };
+const OFFERTA = { acquisto: 'Acquisto dell\'impianto', gestione_om: 'Gestione / O&M per il proprietario', revamping_terzi: 'Revamping per conto del proprietario' };
 const prioPill = p => (p ? h('span.pill.en-prio', { class: `en-p-${String(p).charAt(0)}` }, p === 'Dati insufficienti' ? 'n.d.' : p) : null);
 
 // ── kanban ───────────────────────────────────────────────────────────────────
@@ -25,7 +27,7 @@ const IMPORTS = {
 };
 
 export async function pipelineView(box, kind) {
-  const state = { q: '', priority: '', province: '', signal: '' };
+  const state = { q: '', priority: '', province: '', signal: '', strategia: '' };
   const board = h('div.en-board-wrap', loading());
   const provinceSel = select([['', 'Tutte le province']], '', { on: { change: e => { state.province = e.target.value; load(); } } });
   const imp = IMPORTS[kind];
@@ -36,6 +38,7 @@ export async function pipelineView(box, kind) {
         { on: { change: e => { state.priority = e.target.value; load(); } } }),
       provinceSel,
       kind === 'revamping' ? select([['', 'Tutti i segnali'], ...Object.entries(SIGNAL_LABEL)], '', { on: { change: e => { state.signal = e.target.value; load(); } } }) : null,
+      kind === 'revamping' ? select([['', 'Ogni strategia'], ...Object.entries(STRATEGIA)], '', { on: { change: e => { state.strategia = e.target.value; load(); } } }) : null,
       imp ? h('button.btn', { type: 'button', on: { click: () => importDialog(imp, load) } }, icon('upload', { size: 16 }), imp.label) : null,
       h('button.btn.btn-primary', { type: 'button', on: { click: () => opportunityForm({ kind, onSaved: o => { load(); openOpportunity(o.id, load); } }) } }, icon('plus', { size: 16 }), 'Nuova opportunità')),
     board);
@@ -48,7 +51,7 @@ export async function pipelineView(box, kind) {
       provincesFilled = true;
     }
     const total = data.stages.reduce((s, x) => s + x.count, 0);
-    if (!total && !state.q && !state.priority && !state.province && !state.signal) {
+    if (!total && !state.q && !state.priority && !state.province && !state.signal && !state.strategia) {
       return fill(board, h('div.card.empty', imp ? `Nessuna opportunità. Usa «${imp.label}» o «Nuova opportunità».` : 'Nessuna opportunità. Creane una con «Nuova opportunità».'));
     }
     fill(board, h('div.en-board', data.stages.map(st => column(kind, st, data.perStage, load))));
@@ -90,7 +93,7 @@ function column(kind, st, perStage, reload) {
 
 function card(kind, c, reload) {
   const meta2 = kind === 'revamping'
-    ? [c.convenzioni > 1 ? `${c.convenzioni} convenzioni` : '1 convenzione', c.incassi_persi ? `${eur(Math.round(c.incassi_persi))} persi/anno` : null]
+    ? [c.convenzioni > 1 ? `${c.convenzioni} convenzioni` : '1 convenzione', c.incassi_persi ? `${eur(Math.round(c.incassi_persi))} persi/anno` : null, STRATEGIA[c.strategia]]
     : [c.mw ? `${num(c.mw, 2)} MW` : null, c.profilo && kind === 'ppa_onsite' ? `profilo ${c.profilo}` : null, c.regime];
   const el = h('article.en-card', { draggable: c.stage !== 'target', tabindex: 0, on: {
     click: () => openOpportunity(c.id, reload),
@@ -254,7 +257,17 @@ function revampingSections(o, refresh) {
   const d = o.data || {};
   const tech = d.tecnici || {};
   const form = h('div.en-row2', TECH_FIELDS.map(([k, label, type]) => field(label, input({ 'data-t': k, value: tech[k] ?? '', type: type || 'text' }))));
+  const strategia = select([['', 'Da decidere'], ...Object.entries(STRATEGIA)], d.strategia || '');
+  const offerta = select([['', 'Da decidere'], ...Object.entries(OFFERTA)], d.tipo_offerta || '');
+  const several = (o.conventions?.length || 0) > 1;
   return [
+    h('section.en-sec', h('div.en-sec-head', h('h3', 'Strategia'),
+      h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
+        await patch(`/api/energy/opportunities/${o.id}`, { data: { strategia: strategia.value, tipo_offerta: offerta.value } });
+        toast('Strategia salvata');
+        refresh?.();
+      } } }, 'Salva')),
+    h('div.en-row2', field('Dopo l\'acquisto', strategia, 'Rivendere dopo il revamping o tenere in gestione: si confrontano nel simulatore.'), field('Tipo di offerta', offerta))),
     d.fonte === 'Database Conto Energia' ? h('section.en-sec', h('h3', 'Dal Database Conto Energia'),
       h('div.sw-kpis.sm',
         h('div.sw-kpi', h('span.lab', 'Incassi persi'), h('strong.big', eur(Math.round(d.incassi_persi || 0))), h('span.sub', 'all\'anno, rispetto al 2016-2019')),
@@ -266,7 +279,16 @@ function revampingSections(o, refresh) {
     o.conventions?.length ? h('section.en-sec', h('h3', `Convenzioni GSE (${o.conventions.length})`), h('div.table-wrap', h('table.list.en-small',
       h('thead', h('tr', ['Convenzione', 'Prio.', 'Incasso 23-25', 'Variazione', 'Persi/anno', 'Andamento'].map(t => h('th', t)))),
       h('tbody', o.conventions.map(c => h('tr', { title: [c.notes, c.notes2].filter(Boolean).join(' · ') },
-        h('td', c.convention), h('td', prioPill(c.priority)), h('td.num', eur(c.avg_recent === null ? null : Math.round(c.avg_recent))),
+        // «Stacca» accanto al numero, così si vede anche quando la tabella scorre
+        h('td', h('div.en-conv', c.convention, several ? h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Trattala in un\'opportunità sua', on: { click: async e => {
+          e.stopPropagation();
+          if (!await confirmDialog(`Staccare la convenzione ${c.convention} in un'opportunità sua? Parte dallo stesso stadio, con le stesse aziende e persone collegate.`, { ok: 'Stacca' })) return;
+          const r = await post(`/api/energy/conventions/${encodeURIComponent(c.convention)}/stacca`, {});
+          toast('Convenzione staccata');
+          refresh?.();
+          openOpportunity(r.id, refresh);
+        } } }, 'Stacca') : null)),
+        h('td', prioPill(c.priority)), h('td.num', eur(c.avg_recent === null ? null : Math.round(c.avg_recent))),
         h('td.num', { class: c.variation < 0 ? 'en-neg' : '' }, pct(c.variation)), h('td.num', eur(c.lost_per_year === null ? null : Math.round(c.lost_per_year))), h('td', c.trend))))))) : null,
     h('section.en-sec', h('div.en-sec-head', h('h3', 'Dati tecnici (da due diligence)'),
       h('button.btn.btn-sm', { type: 'button', on: { click: async () => {

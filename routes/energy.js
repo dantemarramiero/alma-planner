@@ -4,7 +4,7 @@
 const express = require('express');
 const { HttpError, v } = require('../lib/http');
 const {
-  planScreening, importScreening, planConventions, importConventions, ownersToPipeline, SIGNALS, OWNER_KEY_SQL, PRIORITY_ORDER,
+  planScreening, importScreening, planConventions, importConventions, ownersToPipeline, refreshRevamping, SIGNALS, OWNER_KEY_SQL, PRIORITY_ORDER,
 } = require('../lib/energy-import');
 const {
   STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys,
@@ -532,6 +532,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     if (req.query.owner) add('o.owner_id = ?', Number(req.query.owner) || 0);
     if (req.query.q) add('(o.title ILIKE ? OR o.city ILIKE ? OR c.name ILIKE ?)', `%${String(req.query.q).trim()}%`);
     if (req.query.signal) add("(o.data->'segnali') @> jsonb_build_array(?::text)", String(req.query.signal));
+    if (req.query.strategia) add("o.data->>'strategia' = ?", String(req.query.strategia));
     const filter = where.join(' AND ');
     const order = `array_position(ARRAY['A','B','C','D','Dati insufficienti']::text[], o.priority) NULLS LAST,
       COALESCE((o.data->>'punteggio')::float, 0) DESC, COALESCE((o.data->>'incassi_persi')::float, 0) DESC, o.mw DESC NULLS LAST, o.id`;
@@ -544,7 +545,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
                          c.name AS company_name, u.name AS owner_name,
                          o.data->>'profilo' AS profilo, (o.data->>'punteggio')::float AS punteggio,
                          (o.data->>'convenzioni')::int AS convenzioni, (o.data->>'incassi_persi')::float AS incassi_persi,
-                         o.data->'segnali' AS segnali, o.data->>'regime' AS regime,
+                         o.data->'segnali' AS segnali, o.data->>'regime' AS regime, o.data->>'strategia' AS strategia,
                          row_number() OVER (PARTITION BY o.stage ORDER BY ${order}) AS pos
                     FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id LEFT JOIN users u ON u.id = o.owner_id
                    WHERE ${filter}) x WHERE pos <= ${CARDS_PER_STAGE}`, params),
@@ -616,6 +617,42 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
         priority: facet('priority').sort((a, b) => PRIORITY_ORDER.indexOf(a[0]) - PRIORITY_ORDER.indexOf(b[0])) },
       signals: SIGNALS,
     });
+  });
+
+  // Stacca una convenzione dall'opportunità del proprietario in un'opportunità sua (es. un impianto da trattare a parte).
+  // La nuova parte dallo stesso stadio, con le stesse aziende e persone collegate.
+  app.post('/api/energy/conventions/:convention/stacca', async (req, res) => {
+    const conv = String(req.params.convention).slice(0, 40);
+    const out = await db.tx(async q => {
+      const { rows: [c] } = await q.query('SELECT * FROM energy_conventions WHERE convention = $1', [conv]);
+      if (!c) throw new HttpError(404, 'Convenzione non trovata');
+      if (!c.opportunity_id) throw new HttpError(400, 'La convenzione non è in pipeline: portala prima in pipeline');
+      const { rows: [parent] } = await q.query('SELECT * FROM energy_opportunities WHERE id = $1', [c.opportunity_id]);
+      const { rows: [{ n }] } = await q.query('SELECT COUNT(*)::int AS n FROM energy_conventions WHERE opportunity_id = $1', [parent.id]);
+      if (n < 2) throw new HttpError(400, 'È l\'unica convenzione dell\'opportunità: non c\'è niente da staccare');
+      const stage = parent.stage === 'target' ? 'da_analizzare' : parent.stage;
+      const { rows: [o] } = await q.query(
+        `INSERT INTO energy_opportunities (kind, title, stage, province, region, company_id, source_key, owner_id, created_by, data)
+         VALUES ('revamping', $1, $2, $3, $4, $5, $6, $7, $8, jsonb_build_object('staccata_da', $9::int)) RETURNING id`,
+        [`${c.owner_name} – convenzione ${c.convention}`, stage, parent.province, parent.region, parent.company_id, `convenzione:${c.convention}`,
+          parent.owner_id, req.user.id, parent.id]);
+      await q.query('UPDATE energy_conventions SET opportunity_id = $1 WHERE convention = $2', [o.id, conv]);
+      await q.query(
+        `INSERT INTO energy_links (opportunity_id, company_id, person_id, role)
+         SELECT $1, company_id, person_id, role FROM energy_links WHERE opportunity_id = $2 ON CONFLICT DO NOTHING`, [o.id, parent.id]);
+      await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, NULL, $2, $3, $4)',
+        [o.id, stage, `Staccata da «${parent.title}»`, req.user.id]);
+      await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $2, $3, $4)',
+        [parent.id, parent.stage, `Staccata la convenzione ${conv}`, req.user.id]);
+      // il titolo «(N convenzioni)» del proprietario segue il numero vero
+      if (/\(\d+ convenzioni\)$/.test(parent.title)) {
+        const title = n - 1 > 1 ? parent.title.replace(/\(\d+ convenzioni\)$/, `(${n - 1} convenzioni)`) : parent.title.replace(/ \(\d+ convenzioni\)$/, '');
+        await q.query('UPDATE energy_opportunities SET title = $2 WHERE id = $1', [parent.id, title]);
+      }
+      await refreshRevamping(q, [parent.id, o.id]);
+      return { id: o.id };
+    });
+    res.status(201).json(out);
   });
 
   // Porta in pipeline i proprietari scelti (owner_key delle righe del database).

@@ -176,6 +176,42 @@ test('Database CE: convenzioni nel database, in pipeline un\'opportunità per pr
   assert.equal((await api('GET', `/api/energy/opportunities/${ener.id}`)).body.stage, 'contatto');
 });
 
+test('revamping: staccare una convenzione in un\'opportunità sua, strategia e reimport che non la riattacca', async () => {
+  const { opportunities } = (await api('GET', '/api/energy/opportunities?kind=revamping&q=ENERVITABIO')).body;
+  const parent = opportunities[0];
+  await api('POST', `/api/energy/opportunities/${parent.id}/links`, { person_id: (await api('POST', '/api/energy/people', { last_name: 'Sanna' })).body.id, role: 'referente' });
+  const r = await api('POST', '/api/energy/conventions/603352/stacca', {});
+  assert.equal(r.status, 201);
+  const child = (await api('GET', `/api/energy/opportunities/${r.body.id}`)).body;
+  assert.equal(child.title, 'ENERVITABIO SANTA REPARATA S.R.L. – convenzione 603352');
+  assert.equal(child.stage, 'contatto'); // lo stadio dell'opportunità da cui viene
+  assert.deepEqual(child.conventions.map(c => c.convention), ['603352']);
+  assert.equal(child.priority, 'D');
+  assert.deepEqual(child.links.map(l => l.role).sort(), ['proprietario', 'referente']);
+  const after = (await api('GET', `/api/energy/opportunities/${parent.id}`)).body;
+  assert.equal(after.title, 'ENERVITABIO SANTA REPARATA S.R.L.'); // «(2 convenzioni)» tolto: ne resta una
+  assert.equal(after.conventions.length, 1);
+  assert.equal(after.history[0].note, 'Staccata la convenzione 603352');
+  // l'ultima convenzione non si stacca
+  assert.equal((await api('POST', '/api/energy/conventions/603836/stacca', {})).status, 400);
+  assert.equal((await api('POST', '/api/energy/conventions/999/stacca', {})).status, 404);
+
+  // reimport: la convenzione staccata resta nella sua opportunità
+  const file = database([
+    conv(1, 'A', '603836', 'ENERVITABIO SANTA REPARATA S.R.L.', '01130710955', 100000),
+    conv(7, 'D', '603352', 'ENERVITABIO SANTA REPARATA S.R.L.', '01130710955', -5000),
+  ]);
+  await api('POST', '/api/energy/import/database-ce', file, { raw: true });
+  assert.deepEqual((await api('GET', `/api/energy/opportunities/${r.body.id}`)).body.conventions.map(c => c.convention), ['603352']);
+  assert.equal((await api('GET', `/api/energy/opportunities/${parent.id}`)).body.conventions.length, 1);
+
+  // strategia: nel dato dell'opportunità, filtro nel kanban
+  await api('PATCH', `/api/energy/opportunities/${child.id}`, { data: { strategia: 'rivendita', tipo_offerta: 'acquisto' } });
+  const board = (await api('GET', '/api/energy/pipeline/revamping?strategia=rivendita')).body;
+  const cards = board.stages.flatMap(s => s.cards);
+  assert.deepEqual(cards.map(c => [c.id, c.strategia]), [[child.id, 'rivendita']]);
+});
+
 test('kanban: colonne per stadio con conteggi, schede in ordine di priorità e filtri', async () => {
   const ppa = (await api('GET', '/api/energy/pipeline/ppa_onsite')).body;
   assert.deepEqual(ppa.stages.map(s => s.key).slice(0, 2), ['da_qualificare', 'primo_contatto']);

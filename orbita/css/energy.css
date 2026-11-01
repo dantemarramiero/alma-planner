@@ -97,3 +97,4 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
   .en-board { grid-auto-columns: minmax(240px, 85vw); }
   .en-dl-row { grid-template-columns: 1fr auto; }
 }
+.en-conv { display: flex; align-items: center; gap: var(--ap-space-2); white-space: nowrap; }

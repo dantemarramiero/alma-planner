@@ -38,6 +38,7 @@ const { registerFleet } = require('./routes/fleet');
 const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { createEnergyAccess } = require('./lib/energy');
+const { createEnergyReminders } = require('./lib/energy-reminders');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -168,6 +169,7 @@ async function createApp(config, { db, confirmAccount } = {}) {
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
   deps.energyAccess = createEnergyAccess({ db, isAdmin }); // Alma Energy: solo i membri della BU Energy
+  deps.energyReminders = createEnergyReminders({ db, notifier: deps.notifier }); // Alma Energy: promemoria delle scadenze
   deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
   registerUsers(app, deps);
@@ -205,14 +207,15 @@ async function createApp(config, { db, confirmAccount } = {}) {
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet };
+  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit, digest, fleet } = await createApp(config);
+    const { app, db, auth, audit, digest, fleet, energyReminders } = await createApp(config);
     digest.start();
+    energyReminders.start(); // ogni 5 minuti, di giorno: scadenze delle opportunità di Alma Energy
     fleet.start(); // ogni 5 minuti: promemoria di riconsegna (a chi ha il mezzo e ai gestori) e delle scadenze dei mezzi // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
     setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
