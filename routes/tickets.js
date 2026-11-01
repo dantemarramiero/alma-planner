@@ -218,10 +218,12 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
     if (q) add('(t.title ILIKE ? OR t.description ILIKE $' + (params.length + 1) + ')', `%${String(q).slice(0, 100)}%`);
     if (from) add('COALESCE(t.due_date, t.start_date) >= ?', v.date(from, 'da'));
     if (to) add('COALESCE(t.start_date, t.due_date) <= ?', v.date(to, 'a'));
-    // solo i ticket dei progetti che si vedono (lib/access.js); per un amministratore il filtro è TRUE e non ha parametri
+    // solo i ticket dei progetti che si vedono (lib/access.js); per un amministratore il filtro non ha parametri
+    // (toglie solo i progetti di Alma Energy se non è della BU Energy)
     where.push(LIVE_SQL);
     const visible = access.ticketFilter(req, 't', `$${params.length + 1}`);
-    if (visible !== 'TRUE') { params.push(req.user.id); where.push(visible); }
+    if (!access.isAdmin(req)) params.push(req.user.id);
+    where.push(visible);
     const { rows } = await db.query(
       `${SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
        ORDER BY t.position, t.id LIMIT 2000`, params);

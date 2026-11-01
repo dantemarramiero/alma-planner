@@ -141,13 +141,13 @@ function registerNotes(app, { db, access, notifier }) {
   app.get('/api/projects/:id/notes', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });
     await access.assertProject(req, id);
-    // per un amministratore il filtro è TRUE e non usa l'utente: il parametro si passa solo se serve
+    // per un amministratore il filtro non usa l'utente: il parametro si passa solo se serve
     const filter = access.ticketFilter(req, 't', '$2');
     const { rows } = await db.query(
       `${NOTE_SELECT}
         WHERE n.deleted_at IS NULL
           AND (n.project_id = $1 OR (t.project_id = $1 AND ${filter}))
-        ${ORDER}`, filter === 'TRUE' ? [id] : [id, req.user.id]);
+        ${ORDER}`, access.isAdmin(req) ? [id] : [id, req.user.id]);
     res.json(rows);
   });
 

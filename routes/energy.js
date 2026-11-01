@@ -7,11 +7,12 @@ const {
   planScreening, importScreening, planConventions, importConventions, ownersToPipeline, refreshRevamping, SIGNALS, OWNER_KEY_SQL, PRIORITY_ORDER,
 } = require('../lib/energy-import');
 const {
-  STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys,
+  STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys, TARGET_STEPS, TARGET_OUTCOMES, checklistFor,
 } = require('../lib/energy');
 const { cashflows, buyRevampSell, portfolioYear, sensitivity, DEFAULTS, PRICE_CURVE } = require('../lib/energy-sim');
 const { runScenario, summaryOf, FV_DEFAULTS, REVAMPING_DEFAULTS, PPA_DEFAULTS } = require('../lib/energy-scenarios');
 const { writeXlsx } = require('../lib/xlsx');
+const { addWorkdays, romeNow } = require('../lib/workdays');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
 const duplicate = err => err?.code === '23505';
@@ -160,7 +161,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     ]);
     res.json({
       meta: { stages: STAGES, kinds: KINDS, companyTypes: COMPANY_TYPES, linkRoles: LINK_ROLES, relations: RELATIONS,
-        companyStatus: COMPANY_STATUS, influence: INFLUENCE, channels: CHANNELS },
+        companyStatus: COMPANY_STATUS, influence: INFLUENCE, channels: CHANNELS,
+        targetSteps: TARGET_STEPS.map(st => ({ key: st.key, label: st.label })), targetOutcomes: TARGET_OUTCOMES },
       members, counts, crm, can_manage_members: true, is_admin: Boolean(isAdmin(req)),
     });
   });
@@ -462,7 +464,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     const stage = v.oneOf(req.body.stage, 'Stadio', stageKeys(cur.kind));
     if (!stage) throw new HttpError(400, 'Scegli lo stadio');
     if (stage === 'target') throw new HttpError(400, 'Un\'opportunità diventa Impianto target con «Seleziona come target»');
-    if (cur.stage === 'target') throw new HttpError(400, 'L\'opportunità è già un Impianto target: si segue dal progetto');
+    // se il progetto del target è stato cancellato, l'opportunità torna a muoversi nella pipeline
+    if (cur.stage === 'target' && cur.project_id) throw new HttpError(400, 'L\'opportunità è già un Impianto target: si segue dal progetto');
     const note = v.text(req.body.note, 'Nota', { max: 1000 }) || '';
     const lostReason = stage === 'perso' ? v.text(req.body.lost_reason, 'Motivo', { max: 300, required: true }) : '';
     if (stage === cur.stage) return res.json(cur);
@@ -682,6 +685,182 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
         ORDER BY (s->>'date')::date`, [days]);
     res.json(rows);
   });
+
+  // ── Impianti target (ALM2-15 … ALM2-17) ─────────────────────────────────────────────────────
+  // «Seleziona come target»: l'opportunità diventa un progetto di Alma Planet riservato alla BU Energy (tutti i membri del
+  // modulo ne sono membri), con una riga del Gantt per ogni step dell'iter commerciale. L'opportunità resta la scheda
+  // dell'impianto: aziende, persone, scenari e dati non si copiano, si ritrovano dal progetto.
+  const STEP_KEYS = TARGET_STEPS.map(st => st.key);
+  const stepTicketTitle = (i, st) => `Step ${i + 1} · ${st.label}`;
+
+  async function energyMemberIds(q) {
+    const { rows } = await q.query('SELECT u.id FROM energy_members m JOIN users u ON lower(u.email) = m.email');
+    return rows.map(r => r.id);
+  }
+
+  app.post('/api/energy/opportunities/:id/target', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const o = await opportunityById(id);
+    if (o.project_id) throw new HttpError(400, 'È già un Impianto target');
+    if (o.stage === 'perso') throw new HttpError(400, 'L\'opportunità è persa: riaprila prima di farne un target');
+    if (o.kind === 'fv_classico' && o.stage !== 'rtb') throw new HttpError(400, 'Un progetto FV classico diventa target solo quando è RTB');
+    const owner = o.owner_id || req.user.id;
+    const projectId = await db.tx(async q => {
+      const today = romeNow().day;
+      const { rows: [p] } = await q.query(
+        `INSERT INTO projects (name, description, color, status, start_date, owner_id, energy)
+         VALUES ($1, $2, '#F2A900', 'active', $3, $4, true) RETURNING id`,
+        [o.title.slice(0, 200), `Impianto target di Alma Energy (${KINDS[o.kind]}). Scheda dell'impianto: Alma Energy → Impianti target.`, today, owner]);
+      for (const uid of await energyMemberIds(q)) {
+        if (uid !== owner) await q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [p.id, uid, req.user.id]);
+      }
+      // una riga del Gantt per step, una dopo l'altra, al responsabile dell'impianto
+      let start = today;
+      const { rows: [{ pos }] } = await q.query('SELECT COALESCE(MAX(position), 0) AS pos FROM tickets');
+      for (const [i, st] of TARGET_STEPS.entries()) {
+        const due = addWorkdays(start, st.days - 1);
+        const { rows: [t] } = await q.query(
+          `INSERT INTO tickets (project_id, title, description, status, start_date, due_date, position, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+          [p.id, stepTicketTitle(i, st), `Checklist nella scheda dell'impianto (Alma Energy).`, i === 0 ? 'doing' : 'todo', start, due, pos + i + 1, req.user.id]);
+        await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [t.id, owner]);
+        start = addWorkdays(due, 1);
+      }
+      await q.query(
+        `UPDATE energy_opportunities SET project_id = $2, stage = 'target', target_step = $3, target_outcome = NULL, target_checklist = '{}',
+                target_step_changed_at = now(), stage_changed_at = now(), updated_at = now() WHERE id = $1`, [id, p.id, STEP_KEYS[0]]);
+      await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
+        [id, o.stage, 'target', 'Selezionata come Impianto target', req.user.id]);
+      return p.id;
+    });
+    res.status(201).json({ project_id: projectId });
+  });
+
+  async function targetById(id) {
+    const o = await opportunityById(id);
+    if (!o.project_id) throw new HttpError(400, 'Non è un Impianto target');
+    return o;
+  }
+  // il ticket del Gantt di uno step: «Step N · …» nel progetto del target
+  const stepTicket = (q, projectId, i) => q.query(
+    'SELECT id FROM tickets WHERE project_id = $1 AND title = $2', [projectId, stepTicketTitle(i, TARGET_STEPS[i])]).then(r => r.rows[0]);
+
+  // Spunta o toglie una voce della checklist di uno step.
+  app.patch('/api/energy/opportunities/:id/target/checklist', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const o = await targetById(id);
+    const st = TARGET_STEPS.find(x => x.key === req.body.step);
+    if (!st) throw new HttpError(400, 'Step non valido');
+    const item = String(req.body.item || '');
+    if (!checklistFor(st, o.kind).some(([k]) => k === item)) throw new HttpError(400, 'Voce della checklist non valida');
+    const done = Boolean(req.body.done);
+    const { rows: [u] } = await db.query(
+      `UPDATE energy_opportunities SET target_checklist = jsonb_set(target_checklist, ARRAY[$2::text], COALESCE(target_checklist->$2, '{}'::jsonb) || jsonb_build_object($3::text, $4::boolean)),
+              updated_at = now() WHERE id = $1 RETURNING target_checklist`, [id, st.key, item, done]);
+    res.json(u.target_checklist);
+  });
+
+  // Passa allo step dopo (o a uno qualsiasi): serve la checklist dello step attuale completa, oppure un motivo per forzare.
+  app.post('/api/energy/opportunities/:id/target/step', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const o = await targetById(id);
+    if (o.target_outcome) throw new HttpError(400, 'L\'iter è chiuso: riaprilo per cambiare step');
+    const to = v.oneOf(req.body.step, 'Step', STEP_KEYS);
+    if (!to) throw new HttpError(400, 'Scegli lo step');
+    if (to === o.target_step) return res.json(o);
+    const curIdx = STEP_KEYS.indexOf(o.target_step);
+    const toIdx = STEP_KEYS.indexOf(to);
+    const reason = v.text(req.body.reason, 'Motivo', { max: 500 }) || '';
+    if (toIdx > curIdx) {
+      const missing = checklistFor(TARGET_STEPS[curIdx], o.kind).filter(([k]) => !o.target_checklist?.[o.target_step]?.[k]);
+      if (missing.length && !reason) throw new HttpError(400, `Checklist incompleta: ${missing.map(([, l]) => l).join(', ')}. Completala o scrivi il motivo per andare avanti.`, 'checklist');
+    }
+    await db.tx(async q => {
+      await q.query('UPDATE energy_opportunities SET target_step = $2, target_step_changed_at = now(), updated_at = now() WHERE id = $1', [id, to]);
+      await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
+        [id, `step:${o.target_step}`, `step:${to}`, reason ? `Forzato: ${reason}` : '', req.user.id]);
+      // Gantt: gli step passati sono fatti, quello attuale in corso, i successivi da fare
+      for (let i = 0; i < STEP_KEYS.length; i++) {
+        const t = await stepTicket(q, o.project_id, i);
+        if (t) await q.query('UPDATE tickets SET status = $2, updated_at = now() WHERE id = $1', [t.id, i < toIdx ? 'done' : i === toIdx ? 'doing' : 'todo']);
+      }
+    });
+    res.json(await opportunityById(id));
+  });
+
+  // Esito dell'iter: acquisito (closing) o perso; «riapri» lo toglie.
+  app.post('/api/energy/opportunities/:id/target/esito', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const o = await targetById(id);
+    const outcome = req.body.outcome === null || req.body.outcome === '' ? null : v.oneOf(req.body.outcome, 'Esito', Object.keys(TARGET_OUTCOMES));
+    const note = v.text(req.body.note, 'Nota', { max: 500 }) || '';
+    if (outcome === 'perso' && !note) throw new HttpError(400, 'Scrivi il motivo');
+    await db.tx(async q => {
+      await q.query('UPDATE energy_opportunities SET target_outcome = $2, updated_at = now() WHERE id = $1', [id, outcome]);
+      await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
+        [id, `step:${o.target_step}`, outcome ? `esito:${outcome}` : 'esito:riaperto', note, req.user.id]);
+      // acquisito: tutti gli step fatti e progetto concluso; perso: progetto concluso; riaperto: progetto di nuovo attivo
+      if (outcome === 'acquisito') await q.query("UPDATE tickets SET status = 'done', updated_at = now() WHERE project_id = $1 AND title LIKE 'Step %'", [o.project_id]);
+      await q.query('UPDATE projects SET status = $2, updated_at = now() WHERE id = $1', [o.project_id, outcome ? 'done' : 'active']);
+    });
+    res.json(await opportunityById(id));
+  });
+
+  // Kanban degli Impianti target: colonne per step, più le colonne degli esiti.
+  app.get('/api/energy/targets', async (req, res) => {
+    const params = [];
+    const where = ['o.project_id IS NOT NULL'];
+    if (req.query.kind) { params.push(kindOf(String(req.query.kind))); where.push(`o.kind = $${params.length}`); }
+    if (req.query.q) { params.push(`%${String(req.query.q).trim()}%`); where.push(`(o.title ILIKE $${params.length} OR c.name ILIKE $${params.length})`); }
+    const { rows } = await db.query(
+      `SELECT o.id, o.kind, o.title, o.priority, o.mw, o.capex, o.city, o.province, o.project_id, o.target_step, o.target_outcome,
+              o.target_checklist, o.target_step_changed_at, c.name AS company_name, u.name AS owner_name,
+              (o.data->'scenario'->>'irr')::float AS irr
+         FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id LEFT JOIN users u ON u.id = o.owner_id
+        WHERE ${where.join(' AND ')} ORDER BY o.target_step_changed_at DESC NULLS LAST`, params);
+    const withProgress = rows.map(r => {
+      const st = TARGET_STEPS.find(x => x.key === r.target_step);
+      const items = st ? checklistFor(st, r.kind) : [];
+      return { ...r, checklist_done: items.filter(([k]) => r.target_checklist?.[r.target_step]?.[k]).length, checklist_total: items.length, target_checklist: undefined };
+    });
+    const col = (key, label, list) => ({ key, label, count: list.length, mw: list.reduce((s, x) => s + (Number(x.mw) || 0), 0), cards: list });
+    res.json({
+      columns: [
+        ...TARGET_STEPS.map(st => col(st.key, st.label, withProgress.filter(x => !x.target_outcome && x.target_step === st.key))),
+        ...Object.entries(TARGET_OUTCOMES).map(([k, label]) => col(k, label, withProgress.filter(x => x.target_outcome === k))),
+      ],
+    });
+  });
+
+  // Target di un progetto, per il tab «Impianto» della scheda progetto.
+  app.get('/api/energy/projects/:projectId/target', async (req, res) => {
+    const pid = v.int(req.params.projectId, 'id', { min: 1 });
+    const { rows: [r] } = await db.query('SELECT id FROM energy_opportunities WHERE project_id = $1', [pid]);
+    if (!r) throw new HttpError(404, 'Il progetto non è un Impianto target');
+    res.json(await targetDetail(r.id));
+  });
+  app.get('/api/energy/opportunities/:id/target', async (req, res) => {
+    res.json(await targetDetail(v.int(req.params.id, 'id', { min: 1 })));
+  });
+
+  // Iter del target: step con checklist, stato e storico degli step.
+  async function targetDetail(id) {
+    const o = await targetById(id);
+    const { rows: history } = await db.query(
+      `SELECT h.from_stage, h.to_stage, h.note, h.at, u.name AS user_name FROM energy_stage_history h LEFT JOIN users u ON u.id = h.user_id
+        WHERE h.opportunity_id = $1 AND (h.to_stage LIKE 'step:%' OR h.to_stage LIKE 'esito:%' OR h.to_stage = 'target') ORDER BY h.at DESC, h.id DESC`, [id]);
+    const curIdx = STEP_KEYS.indexOf(o.target_step);
+    return {
+      id: o.id, title: o.title, kind: o.kind, project_id: o.project_id, target_step: o.target_step, target_outcome: o.target_outcome,
+      company_name: o.company_name, owner_name: o.owner_name, mw: o.mw, capex: o.capex, scenario: o.data?.scenario || null,
+      steps: TARGET_STEPS.map((st, i) => ({
+        key: st.key, label: st.label,
+        state: o.target_outcome === 'acquisito' || i < curIdx ? 'fatto' : i === curIdx ? (o.target_outcome ? 'chiuso' : 'attuale') : 'dopo',
+        checklist: checklistFor(st, o.kind).map(([k, label]) => ({ key: k, label, done: Boolean(o.target_checklist?.[st.key]?.[k]) })),
+      })),
+      history,
+    };
+  }
 
   // ── simulatore: calcolo senza salvare ─────────────────────────────────────────────────────────
   app.get('/api/energy/simulate/defaults', (_req, res) => res.json({

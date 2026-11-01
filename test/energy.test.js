@@ -201,3 +201,65 @@ test('scenari salvati: calcolo, salvataggio sull\'opportunità, scelto che porta
   assert.equal((await A('GET', `/api/energy/opportunities/${opp.id}`)).body.data.scenario, undefined);
   assert.equal((await X('GET', '/api/energy/scenarios')).status, 403);
 });
+
+test('Impianti target: progetto riservato alla BU Energy, iter a step con checklist, Gantt ed esito', async () => {
+  const opp = (await A('POST', '/api/energy/opportunities', { kind: 'revamping', title: 'Impianto da acquisire', mw: 3 })).body;
+  // FV classico: solo da RTB
+  const fv = (await A('POST', '/api/energy/opportunities', { kind: 'fv_classico', title: 'Greenfield non pronto' })).body;
+  assert.equal((await A('POST', `/api/energy/opportunities/${fv.id}/target`)).status, 400);
+
+  const r = await A('POST', `/api/energy/opportunities/${opp.id}/target`);
+  assert.equal(r.status, 201);
+  const pid = r.body.project_id;
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target`)).status, 400); // già target
+  const card = (await A('GET', `/api/energy/opportunities/${opp.id}`)).body;
+  assert.deepEqual([card.stage, card.project_id, card.target_step], ['target', pid, 'contatto_venditore']);
+
+  // il progetto: Dante (responsabile) e Tullio (membro del modulo) lo vedono, un amministratore fuori dalla BU Energy no
+  assert.equal((await A('GET', `/api/projects/${pid}`)).status, 200);
+  assert.equal((await T('GET', `/api/projects/${pid}`)).status, 200);
+  assert.equal((await X('GET', `/api/projects/${pid}`)).status, 404);
+  assert.ok(!(await X('GET', '/api/projects')).body.some(p => p.id === pid));
+  const tickets = (await A('GET', `/api/tickets?project_id=${pid}`)).body;
+  const list = Array.isArray(tickets) ? tickets : tickets.tickets;
+  assert.deepEqual(list.map(t => t.title).sort(), ['Step 1 · Contatto del venditore', 'Step 2 · Due diligence tecnica e legale', 'Step 3 · Approvazione dell\'investimento', 'Step 4 · Offerta']);
+  const step1 = list.find(t => t.title.startsWith('Step 1'));
+  assert.equal(step1.status, 'doing');
+  assert.equal((await X('GET', `/api/tickets/${step1.id}`)).status, 404);
+  const adminList = (await X('GET', '/api/tickets')).body;
+  assert.ok(!(Array.isArray(adminList) ? adminList : adminList.tickets).some(t => t.project_id === pid)); // nemmeno nell'elenco dei ticket
+  assert.ok(!(await X('GET', '/api/search?q=Impianto')).body.projects?.some(p => p.id === pid)); // né nella ricerca
+  assert.equal((await A('GET', `/api/energy/projects/${pid}/target`)).body.id, opp.id);
+
+  // avanti solo con la checklist completa, o forzando con un motivo
+  const blocked = await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'due_diligence' });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.body.error, /Checklist incompleta/);
+  for (const item of ['primo_contatto', 'interesse', 'nda', 'data_room']) {
+    await A('PATCH', `/api/energy/opportunities/${opp.id}/target/checklist`, { step: 'contatto_venditore', item, done: true });
+  }
+  assert.equal((await A('PATCH', `/api/energy/opportunities/${opp.id}/target/checklist`, { step: 'contatto_venditore', item: 'boh', done: true })).status, 400);
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'due_diligence' })).status, 200);
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'approvazione', reason: 'DD fatta dal consulente esterno' })).status, 200);
+  const detail = (await A('GET', `/api/energy/opportunities/${opp.id}/target`)).body;
+  assert.deepEqual(detail.steps.map(s => s.state), ['fatto', 'fatto', 'attuale', 'dopo']);
+  assert.equal(detail.steps[1].checklist.length, 11); // revamping: c'è anche la voce sugli incassi GSE
+  assert.equal(detail.history[0].note, 'Forzato: DD fatta dal consulente esterno');
+  const after = (await A('GET', `/api/tickets?project_id=${pid}`)).body;
+  const statuses = Object.fromEntries((Array.isArray(after) ? after : after.tickets).map(t => [t.title.slice(0, 6), t.status]));
+  assert.deepEqual([statuses['Step 1'], statuses['Step 2'], statuses['Step 3'], statuses['Step 4']], ['done', 'done', 'doing', 'todo']);
+
+  // kanban dei target
+  const board = (await A('GET', '/api/energy/targets')).body;
+  assert.equal(board.columns.find(c => c.key === 'approvazione').cards[0].id, opp.id);
+
+  // esito: perso chiede il motivo; acquisito chiude il progetto
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: 'perso' })).status, 400);
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: 'acquisito' })).body.target_outcome, 'acquisito');
+  assert.equal((await A('GET', `/api/projects/${pid}`)).body.status, 'done');
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'offerta' })).status, 400); // iter chiuso
+  assert.equal((await A('GET', '/api/energy/targets')).body.columns.find(c => c.key === 'acquisito').count, 1);
+  // riaperto: progetto di nuovo attivo
+  await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: null });
+  assert.equal((await A('GET', `/api/projects/${pid}`)).body.status, 'active');
+});
