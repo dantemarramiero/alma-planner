@@ -99,8 +99,7 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
 }
 .en-conv { display: flex; align-items: center; gap: var(--ap-space-2); white-space: nowrap; }
 
-
-/* ── simulatore ────────────────────────────────────────────────────────── */
+/* ── simulatore (orbita/js/energy-simulator.js) ───────────────────────── */
 .en-sim { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: var(--ap-space-4); align-items: start; margin-bottom: var(--ap-space-4); }
 .en-sim-form { display: grid; gap: var(--ap-space-2); }
 .en-sim-group { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-3); }
