@@ -7,7 +7,7 @@ const {
   planScreening, importScreening, planConventions, importConventions, ownersToPipeline, refreshRevamping, SIGNALS, OWNER_KEY_SQL, PRIORITY_ORDER,
 } = require('../lib/energy-import');
 const {
-  STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys, TARGET_STEPS, TARGET_OUTCOMES, checklistFor,
+  STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys, TARGET_STEPS, TARGET_OUTCOMES, checklistFor, STAGE_PROBABILITY,
 } = require('../lib/energy');
 const { cashflows, buyRevampSell, portfolioYear, sensitivity, DEFAULTS, PRICE_CURVE } = require('../lib/energy-sim');
 const { runScenario, summaryOf, FV_DEFAULTS, REVAMPING_DEFAULTS, PPA_DEFAULTS } = require('../lib/energy-scenarios');
@@ -684,6 +684,119 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
           AND (s->>'date')::date <= CURRENT_DATE + $1::int
         ORDER BY (s->>'date')::date`, [days]);
     res.json(rows);
+  });
+
+  // ── cruscotto (ALM2-18) ─────────────────────────────────────────────────────────────────────
+  // Per tipo e per stadio: quante, MW, capex e valore pesato con la probabilità dello stadio (o quella scritta
+  // sull'opportunità). Più IRR medio degli scenari scelti, opportunità ferme, step dei target in scadenza e ultimi cambi.
+  const probabilityOf = o => {
+    if (o.probability !== null && o.probability !== undefined) return o.probability;
+    if (o.project_id) return STAGE_PROBABILITY.target[o.target_outcome || o.target_step] ?? 50;
+    return STAGE_PROBABILITY[o.kind]?.[o.stage] ?? 0;
+  };
+  // fase dell'opportunità nel cruscotto: stadio della pipeline, step del target o esito
+  const phaseOf = o => (o.project_id ? `target:${o.target_outcome || o.target_step}` : o.stage);
+
+  async function dashboardData(days) {
+    const { rows } = await db.query(
+      `SELECT o.id, o.kind, o.title, o.stage, o.priority, o.mw, o.capex, o.probability, o.project_id, o.target_step, o.target_outcome,
+              o.stage_changed_at, o.target_step_changed_at, o.city, o.province, o.region, c.name AS company_name, u.name AS owner_name,
+              COALESCE((o.data->'scenario'->>'irr')::float, (o.data->'scenario'->>'irrC25')::float) AS irr
+         FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id LEFT JOIN users u ON u.id = o.owner_id`);
+    const closed = o => o.stage === 'perso' || o.target_outcome === 'perso';
+    const blank = () => ({ count: 0, mw: 0, capex: 0, mwWeighted: 0, capexWeighted: 0 });
+    const addTo = (acc, o) => {
+      const p = probabilityOf(o) / 100;
+      acc.count++;
+      acc.mw += Number(o.mw) || 0;
+      acc.capex += Number(o.capex) || 0;
+      acc.mwWeighted += (Number(o.mw) || 0) * p;
+      acc.capexWeighted += (Number(o.capex) || 0) * p;
+    };
+    const kinds = Object.fromEntries(Object.keys(KINDS).map(k => [k, { ...blank(), phases: {} }]));
+    const totals = blank();
+    const irrs = [];
+    for (const o of rows) {
+      const k = kinds[o.kind];
+      const ph = phaseOf(o);
+      k.phases[ph] ??= blank();
+      addTo(k.phases[ph], o);
+      if (closed(o) || o.target_outcome === 'acquisito') continue; // aperte: niente perse né già acquisite
+      addTo(k, o);
+      addTo(totals, o);
+      if (o.irr !== null && Number.isFinite(o.irr)) irrs.push(o.irr);
+    }
+    const targets = rows.filter(o => o.project_id);
+    // ferme: oltre il primo stadio (gli import partono tutti dal primo) e senza cambi da più di `days` giorni
+    const limit = Date.now() - days * 86400000;
+    const stale = rows.filter(o => !o.project_id && !closed(o) && o.stage !== 'target' && stageKeys(o.kind).indexOf(o.stage) > 0
+      && Date.parse(o.stage_changed_at) < limit)
+      .sort((a, b) => Date.parse(a.stage_changed_at) - Date.parse(b.stage_changed_at));
+    const [{ rows: dueSteps }, { rows: recent }] = await Promise.all([
+      db.query(
+        `SELECT t.id AS ticket_id, t.title, t.due_date::text AS due_date, t.status, o.id, o.title AS target_title, o.kind
+           FROM tickets t JOIN projects p ON p.id = t.project_id AND p.energy JOIN energy_opportunities o ON o.project_id = p.id
+          WHERE t.status <> 'done' AND t.title LIKE 'Step %' AND t.due_date IS NOT NULL AND t.due_date <= CURRENT_DATE + 14
+            AND o.target_outcome IS NULL
+          ORDER BY t.due_date LIMIT 20`),
+      db.query(
+        `SELECT h.opportunity_id AS id, o.title, o.kind, h.from_stage, h.to_stage, h.note, h.at, u.name AS user_name
+           FROM energy_stage_history h JOIN energy_opportunities o ON o.id = h.opportunity_id LEFT JOIN users u ON u.id = h.user_id
+          WHERE h.from_stage IS NOT NULL ORDER BY h.at DESC, h.id DESC LIMIT 15`),
+    ]);
+    return {
+      totals,
+      kinds,
+      irr: { avg: irrs.length ? irrs.reduce((s, x) => s + x, 0) / irrs.length : null, count: irrs.length },
+      targets: {
+        active: targets.filter(o => !o.target_outcome).length,
+        acquired: targets.filter(o => o.target_outcome === 'acquisito').length,
+        lost: targets.filter(o => o.target_outcome === 'perso').length,
+        mwActive: targets.filter(o => !o.target_outcome).reduce((s, o) => s + (Number(o.mw) || 0), 0),
+      },
+      stale: { days, count: stale.length, list: stale.slice(0, 15) },
+      dueSteps,
+      recent,
+      probability: STAGE_PROBABILITY,
+      rows,
+    };
+  }
+
+  app.get('/api/energy/cruscotto', async (req, res) => {
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+    const { rows, ...data } = await dashboardData(days);
+    res.json(data);
+  });
+
+  // Export in Excel: riepilogo per tipo e stadio, tutte le opportunità delle pipeline, gli Impianti target.
+  app.get('/api/energy/cruscotto/excel', async (_req, res) => {
+    const d = await dashboardData(30);
+    const label = o => (o.project_id ? (o.target_outcome ? TARGET_OUTCOMES[o.target_outcome] : TARGET_STEPS.find(s => s.key === o.target_step)?.label)
+      : STAGES[o.kind].find(([k]) => k === o.stage)?.[1] || o.stage);
+    const r2 = x => (x === null || x === undefined ? null : Math.round(Number(x) * 100) / 100);
+    const summary = [['Tipo', 'Fase', 'Opportunità', 'MW', 'Capex (€)', 'MW pesati', 'Capex pesato (€)', 'Probabilità (%)']];
+    for (const [kind, k] of Object.entries(d.kinds)) {
+      const phases = [...STAGES[kind].filter(([s]) => s !== 'target').map(([s, l]) => [s, l]),
+        ...TARGET_STEPS.map(s => [`target:${s.key}`, `Target · ${s.label}`]), ...Object.entries(TARGET_OUTCOMES).map(([s, l]) => [`target:${s}`, `Target · ${l}`])];
+      for (const [key, l] of phases) {
+        const p = k.phases[key];
+        if (!p) continue;
+        const prob = key.startsWith('target:') ? STAGE_PROBABILITY.target[key.slice(7)] : STAGE_PROBABILITY[kind][key] ?? 0;
+        summary.push([KINDS[kind], l, p.count, r2(p.mw), r2(p.capex), r2(p.mwWeighted), r2(p.capexWeighted), prob]);
+      }
+    }
+    const oppCols = ['Tipo', 'Opportunità', 'Fase', 'Priorità', 'Azienda', 'MW', 'Capex (€)', 'Probabilità (%)', 'IRR scenario scelto', 'Comune', 'Provincia', 'Regione', 'Responsabile', 'Ultimo cambio'];
+    const oppRow = o => [KINDS[o.kind], o.title, label(o), o.priority, o.company_name || '', r2(o.mw), r2(o.capex), probabilityOf(o), r2(o.irr), o.city, o.province, o.region,
+      o.owner_name || '', String(o.target_step_changed_at || o.stage_changed_at || '').slice(0, 10)];
+    const file = writeXlsx({
+      Riepilogo: summary,
+      Pipeline: [oppCols, ...d.rows.filter(o => !o.project_id).map(oppRow)],
+      'Impianti target': [oppCols, ...d.rows.filter(o => o.project_id).map(oppRow)],
+    });
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="Alma Energy ${romeNow().day}.xlsx"`,
+    }).send(file);
   });
 
   // ── Impianti target (ALM2-15 … ALM2-17) ─────────────────────────────────────────────────────

@@ -263,3 +263,34 @@ test('Impianti target: progetto riservato alla BU Energy, iter a step con checkl
   await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: null });
   assert.equal((await A('GET', `/api/projects/${pid}`)).body.status, 'active');
 });
+
+test('cruscotto: MW e capex per tipo e fase, valore pesato, IRR medio, ferme, step in scadenza, export', async () => {
+  const { readXlsx } = require('../lib/xlsx');
+  const a = (await A('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Cruscotto PPA', mw: 2, capex: 1000000 })).body;
+  const b = (await A('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Cruscotto PPA 2', mw: 1, capex: 500000, probability: 80 })).body;
+  await A('POST', `/api/energy/opportunities/${a.id}/stage`, { stage: 'primo_contatto' });
+  // ferma: cambio di stadio di 40 giorni fa
+  await db.query("UPDATE energy_opportunities SET stage_changed_at = now() - interval '40 days' WHERE id = $1", [a.id]);
+  const s = (await A('POST', '/api/energy/scenarios', { opportunity_id: a.id, name: 'Base', model: 'ppa_onsite', input: { roofArea: 20000 } })).body;
+  await A('POST', `/api/energy/scenarios/${s.id}/scegli`);
+
+  const d = (await A('GET', '/api/energy/cruscotto?days=30')).body;
+  const ppa = d.kinds.ppa_onsite;
+  assert.ok(ppa.phases.primo_contatto.count >= 1);
+  // pesato: a ha 2,4 MW (dallo scenario scelto) al 10% del primo contatto; b 1 MW all'80% scritto sull'opportunità
+  assert.ok(Math.abs(ppa.phases.primo_contatto.mwWeighted - ppa.phases.primo_contatto.mw * 0.1) < 1e-9);
+  assert.ok(ppa.phases.da_qualificare.mwWeighted >= 0.8 - 1e-9);
+  assert.ok(ppa.mwWeighted < ppa.mw);
+  assert.ok(d.irr.count >= 1 && d.irr.avg > 0);
+  assert.ok(d.stale.list.some(o => o.id === a.id));
+  assert.ok(!(await A('GET', '/api/energy/cruscotto?days=60')).body.stale.list.some(o => o.id === a.id));
+  assert.ok(d.recent.length > 0);
+  assert.ok(Array.isArray(d.dueSteps)); // gli step dei target del test precedente scadono fra settimane
+  assert.ok(d.targets.active + d.targets.acquired >= 1);
+
+  const res = await fetch(`${base}/api/energy/cruscotto/excel`, { headers: { cookie: dante } });
+  const book = readXlsx(Buffer.from(await res.arrayBuffer()));
+  assert.deepEqual(Object.keys(book), ['Riepilogo', 'Pipeline', 'Impianti target']);
+  assert.ok(book.Pipeline.some(r => r[1] === 'Cruscotto PPA 2' && r[7] === 80));
+  assert.equal((await X('GET', '/api/energy/cruscotto')).status, 403);
+});
