@@ -5,6 +5,7 @@ import { h, fill, modal, toast, loading, debounce, promptDialog, confirmDialog, 
 import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';
 import { meta, num, openOpportunity, opportunityForm, field, input, select } from './energy.js';
+import { mapView } from './energy-map.js';
 
 const eur = n => (n === null || n === undefined ? '—' : `${num(n)} €`);
 // 46.637.000 → «46,6 M», 203.750 → «204 k»
@@ -28,11 +29,18 @@ const IMPORTS = {
 
 export async function pipelineView(box, kind) {
   const state = { q: '', priority: '', province: '', signal: '', strategia: '' };
+  let view = 'kanban'; // oppure 'mappa' (ALM2-11)
   const board = h('div.en-board-wrap', loading());
+  const viewSeg = h('div.seg.en-filter', [['kanban', 'Kanban'], ['mappa', 'Mappa']].map(([k, label]) => h('button', { type: 'button', class: k === view ? 'on' : '', on: { click: e => {
+    view = k;
+    viewSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.currentTarget));
+    load();
+  } } }, label)));
   const provinceSel = select([['', 'Tutte le province']], '', { on: { change: e => { state.province = e.target.value; load(); } } });
   const imp = IMPORTS[kind];
   fill(box,
     h('div.toolbar',
+      viewSeg,
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, comune o azienda…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
       select([['', 'Tutte le priorità'], ['A', 'Priorità A'], ['B', 'Priorità B'], ['C', 'Priorità C'], ...(kind === 'revamping' ? [['D', 'Priorità D']] : [])], '',
         { on: { change: e => { state.priority = e.target.value; load(); } } }),
@@ -45,6 +53,7 @@ export async function pipelineView(box, kind) {
 
   let provincesFilled = false;
   async function load() {
+    if (view === 'mappa' && provincesFilled) return mapView(board, kind, state, p => openOpportunity(p.id, load));
     const data = await get(`/api/energy/pipeline/${kind}${qs(state)}`);
     if (!provincesFilled) {
       provinceSel.append(...data.provinces.map(p => h('option', { value: p }, p)));
@@ -54,6 +63,7 @@ export async function pipelineView(box, kind) {
     if (!total && !state.q && !state.priority && !state.province && !state.signal && !state.strategia) {
       return fill(board, h('div.card.empty', imp ? `Nessuna opportunità. Usa «${imp.label}» o «Nuova opportunità».` : 'Nessuna opportunità. Creane una con «Nuova opportunità».'));
     }
+    if (view === 'mappa') return mapView(board, kind, state, p => openOpportunity(p.id, load));
     fill(board, h('div.en-board', data.stages.map(st => column(kind, st, data.perStage, load))));
   }
   await load();

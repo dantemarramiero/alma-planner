@@ -146,6 +146,8 @@ async function createApp(config, { db, confirmAccount } = {}) {
     express.static(pub, { index: false, setHeaders: r => r.set('Cache-Control', current ? 'public, max-age=31536000, immutable' : 'no-cache') })(req, res, next);
   });
   app.use('/vendor/frappe-gantt', express.static(path.join(__dirname, 'node_modules', 'frappe-gantt', 'dist'), { maxAge: '7d' }));
+  // mappa delle opportunità di Alma Energy (fondo OpenStreetMap)
+  app.use('/vendor/leaflet', express.static(path.join(__dirname, 'node_modules', 'leaflet', 'dist'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar', express.static(path.join(__dirname, 'node_modules', 'fullcalendar'), { maxAge: '7d' }));
   app.use('/vendor/fullcalendar-locales', express.static(path.join(__dirname, 'node_modules', '@fullcalendar', 'core', 'locales'), { maxAge: '7d' }));
   // no-cache: il browser ricontrolla sempre (ETag, risposta 304 se uguale). Con una cache a tempo, dopo un

@@ -5,6 +5,7 @@ import { h, fill, modal, toast, loading, debounce, confirmDialog, promptDialog }
 import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';
 import { meta, num, select, openOpportunity, ensureMeta } from './energy.js';
+import { mapView } from './energy-map.js';
 
 const KIND_SHORT = { ppa_onsite: 'PPA on-site', revamping: 'Revamping', fv_classico: 'FV classico' };
 const kindPill = kind => h('span.pill.en-tk', { class: `en-tk-${kind}` }, KIND_SHORT[kind] || kind);
@@ -14,13 +15,21 @@ const when = iso => (iso ? new Date(iso).toLocaleString('it-IT', { dateStyle: 's
 // ── kanban dei target ────────────────────────────────────────────────────────
 export async function targetsView(box) {
   const state = { q: '', kind: '' };
+  let view = 'kanban'; // oppure 'mappa' (ALM2-11)
   const board = h('div.en-board-wrap', loading());
+  const viewSeg = h('div.seg.en-filter', [['kanban', 'Kanban'], ['mappa', 'Mappa']].map(([k, label]) => h('button', { type: 'button', class: k === view ? 'on' : '', on: { click: e => {
+    view = k;
+    viewSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.currentTarget));
+    load();
+  } } }, label)));
   fill(box,
     h('div.toolbar',
+      viewSeg,
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome o azienda…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
       select([['', 'Tutti i tipi'], ...Object.entries(KIND_SHORT)], '', { on: { change: e => { state.kind = e.target.value; load(); } } })),
     board);
   async function load() {
+    if (view === 'mappa') return mapView(board, 'target', { q: state.q }, p => openTarget(p.id, load));
     const { columns } = await get(`/api/energy/targets${qs(state)}`);
     if (!columns.some(c => c.count) && !state.q && !state.kind) {
       return fill(board, h('div.card.empty', 'Nessun Impianto target. Si sceglie dalla scheda di un\'opportunità con «Seleziona come target» (per il FV classico da RTB).'));

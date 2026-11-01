@@ -142,3 +142,13 @@ button.en-link { background: var(--card); text-align: left; width: 100%; font: i
 button.en-link:hover { border-color: var(--orange); }
 .en-linklike { background: none; border: 0; padding: 0; font: inherit; font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); cursor: pointer; text-align: left; }
 .en-linklike:hover { color: var(--orange); }
+
+/* ── mappa (orbita/js/energy-map.js) ───────────────────────────────────── */
+.en-map { height: min(70vh, 640px); border-radius: var(--radius-card); border: 1px solid var(--rule); overflow: hidden; z-index: 0; }
+.en-map-legend { display: flex; flex-wrap: wrap; gap: var(--ap-space-3); align-items: center; margin-top: var(--ap-space-2); font-size: var(--ap-fs-xs); color: var(--ap-text); }
+.en-map-legend span { display: inline-flex; align-items: center; gap: var(--ap-space-1); }
+.en-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.en-map-pop { display: grid; gap: var(--ap-space-1); min-width: 200px; font-family: inherit; }
+.en-map-actions { display: flex; gap: var(--ap-space-2); margin-top: var(--ap-space-1); }
+.leaflet-tooltip.en-map-count { background: transparent; border: 0; box-shadow: none; font-weight: var(--ap-fw-bold); color: var(--ap-text-strong); }
+@media (max-width: 760px) { .en-map { height: 60vh; } }

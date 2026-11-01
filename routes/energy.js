@@ -531,19 +531,53 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
   // ── pipeline a kanban: per ogni stadio quante sono, i MW e le prime schede ────────────────────
   // Le schede sono ordinate per priorità (A prima) e poi per valore: punteggio dello screening, incassi persi, MW.
   const CARDS_PER_STAGE = 60;
-  app.get('/api/energy/pipeline/:kind', async (req, res) => {
-    const kind = kindOf(req.params.kind);
+  // Filtri comuni a kanban e mappa (la query ha o = opportunità, c = azienda principale).
+  function pipelineFilter(kind, query) {
     const where = ['o.kind = $1'];
     const params = [kind];
     const add = (sql, val) => { params.push(val); where.push(sql.replace(/\?/g, `$${params.length}`)); };
-    if (req.query.priority) add('o.priority = ?', String(req.query.priority));
-    if (req.query.region) add('lower(o.region) = lower(?)', String(req.query.region));
-    if (req.query.province) add('lower(o.province) = lower(?)', String(req.query.province));
-    if (req.query.owner) add('o.owner_id = ?', Number(req.query.owner) || 0);
-    if (req.query.q) add('(o.title ILIKE ? OR o.city ILIKE ? OR c.name ILIKE ?)', `%${String(req.query.q).trim()}%`);
-    if (req.query.signal) add("(o.data->'segnali') @> jsonb_build_array(?::text)", String(req.query.signal));
-    if (req.query.strategia) add("o.data->>'strategia' = ?", String(req.query.strategia));
-    const filter = where.join(' AND ');
+    if (query.priority) add('o.priority = ?', String(query.priority));
+    if (query.region) add('lower(o.region) = lower(?)', String(query.region));
+    if (query.province) add('lower(o.province) = lower(?)', String(query.province));
+    if (query.owner) add('o.owner_id = ?', Number(query.owner) || 0);
+    if (query.q) add('(o.title ILIKE ? OR o.city ILIKE ? OR c.name ILIKE ?)', `%${String(query.q).trim()}%`);
+    if (query.signal) add("(o.data->'segnali') @> jsonb_build_array(?::text)", String(query.signal));
+    if (query.strategia) add("o.data->>'strategia' = ?", String(query.strategia));
+    return { filter: where.join(' AND '), params };
+  }
+
+  // Mappa (ALM2-11): tutte le opportunità del tipo con i filtri del kanban. Con le coordinate diventano punti;
+  // senza (il Database CE ha solo la sede del proprietario) si contano per regione.
+  app.get('/api/energy/map/:kind', async (req, res) => {
+    let filter, params;
+    if (req.params.kind === 'target') { // gli Impianti target dei tre tipi
+      params = req.query.q ? [`%${String(req.query.q).trim()}%`] : [];
+      filter = `o.project_id IS NOT NULL${params.length ? ' AND (o.title ILIKE $1 OR c.name ILIKE $1)' : ''}`;
+    } else {
+      const kind = Object.keys(KINDS).includes(req.params.kind) ? req.params.kind : null;
+      if (!kind) throw new HttpError(400, 'Tipo non valido');
+      ({ filter, params } = pipelineFilter(kind, req.query));
+    }
+    const { rows } = await db.query(
+      `SELECT o.id, o.kind, o.title, o.stage, o.priority, o.mw, o.lat, o.lon, o.region, o.province, o.city, o.project_id,
+              o.target_step, o.target_outcome, c.name AS company_name, (o.data->>'incassi_persi')::float AS incassi_persi
+         FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id
+        WHERE ${filter} AND o.stage <> 'perso'`, params);
+    const points = rows.filter(r => r.lat !== null && r.lon !== null);
+    const regions = {};
+    for (const r of rows.filter(x => x.lat === null || x.lon === null)) {
+      const k = r.region || 'Senza regione';
+      regions[k] ??= { region: k, count: 0, mw: 0, lost: 0 };
+      regions[k].count++;
+      regions[k].mw += Number(r.mw) || 0;
+      regions[k].lost += Math.max(0, Number(r.incassi_persi) || 0);
+    }
+    res.json({ points, regions: Object.values(regions).sort((a, b) => b.count - a.count) });
+  });
+
+  app.get('/api/energy/pipeline/:kind', async (req, res) => {
+    const kind = kindOf(req.params.kind);
+    const { filter, params } = pipelineFilter(kind, req.query);
     const order = `array_position(ARRAY['A','B','C','D','Dati insufficienti']::text[], o.priority) NULLS LAST,
       COALESCE((o.data->>'punteggio')::float, 0) DESC, COALESCE((o.data->>'incassi_persi')::float, 0) DESC, o.mw DESC NULLS LAST, o.id`;
     const [{ rows: totals }, { rows: cards }, { rows: provinces }] = await Promise.all([

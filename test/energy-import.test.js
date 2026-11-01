@@ -252,3 +252,14 @@ test('FV classico: dati autorizzativi nel dato dell\'opportunità e scadenze in 
   assert.deepEqual(s.map(x => x.label), ['Opzione sul terreno']);
   assert.equal((await api('GET', '/api/energy/scadenze?days=500')).body.length, 2);
 });
+
+test('mappa: punti dove ci sono le coordinate (screening), regioni per chi non le ha (Database CE), filtri del kanban', async () => {
+  const ppa = (await api('GET', '/api/energy/map/ppa_onsite')).body;
+  assert.ok(ppa.points.length >= 2);
+  assert.ok(ppa.points.every(p => typeof p.lat === 'number' && typeof p.lon === 'number'));
+  assert.equal((await api('GET', '/api/energy/map/ppa_onsite?priority=B')).body.points.length, 1);
+  const rev = (await api('GET', '/api/energy/map/revamping')).body;
+  assert.equal(rev.points.length, 0);
+  assert.ok(rev.regions.some(r => r.region === 'Abruzzo' && r.count >= 1));
+  assert.equal((await api('GET', '/api/energy/map/nessuno')).status, 400);
+});
