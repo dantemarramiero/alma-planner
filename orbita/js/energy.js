@@ -62,39 +62,85 @@ export async function energyView(container, parts = []) {
   else membersTab(body, data);
 }
 
-// ── panoramica ───────────────────────────────────────────────────────────────
-async function overview(box, data) {
-  const kpi = (label, value, sub, href) => h('a.sw-kpi', { href }, h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
-  const byKind = kind => {
-    const rows = data.counts.filter(c => c.kind === kind);
-    const open = rows.filter(c => !['perso', 'target'].includes(c.stage));
-    return {
-      open: open.reduce((s, c) => s + c.n, 0),
-      mw: open.reduce((s, c) => s + c.mw, 0),
-      targets: rows.filter(c => c.stage === 'target').reduce((s, c) => s + c.n, 0),
-      stages: (meta.stages[kind] || []).map(([k, label]) => [label, rows.find(c => c.stage === k)?.n || 0]),
-    };
-  };
+// ── panoramica = cruscotto (ALM2-18) ─────────────────────────────────────────
+// MW e capex aperti e pesati con la probabilità della fase, IRR medio degli scenari scelti, Impianti target; per ogni
+// tipo le fasi (stadi della pipeline, poi step ed esiti dei target) con MW o numero; opportunità ferme, step in
+// scadenza, scadenze del FV classico e ultimi cambi. Export in Excel.
+const eurShort = n => (Math.abs(n) >= 1e6 ? `${num(n / 1e6, 1)} M€` : `${num(Math.round(n / 1000))} k€`);
+const ago = iso => { const d = Math.round((Date.now() - Date.parse(iso)) / 86400000); return d <= 0 ? 'oggi' : d === 1 ? 'ieri' : `${d} giorni fa`; };
+
+async function overview(box, data, days = 30) {
+  const d = await get(`/api/energy/cruscotto?days=${days}`);
+  const kpi = (label, value, sub, href) => h(href ? 'a.sw-kpi' : 'div.sw-kpi', { href }, h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
+  const phaseLabel = (kind, key) => (key.startsWith('target:')
+    ? `Target · ${meta.targetSteps.find(s => s.key === key.slice(7))?.label || meta.targetOutcomes[key.slice(7)] || key.slice(7)}`
+    : stageLabel(kind, key));
+  const phasesOf = kind => [...meta.stages[kind].filter(([k]) => k !== 'target').map(([k]) => k),
+    ...meta.targetSteps.map(s => `target:${s.key}`), ...Object.keys(meta.targetOutcomes).map(k => `target:${k}`)];
+  const exportBtn = h('button.btn', { type: 'button', on: { click: async () => {
+    const res = await fetch('/api/energy/cruscotto/excel', { credentials: 'same-origin' });
+    if (!res.ok) return toast('Export non riuscito', 'err');
+    const url = URL.createObjectURL(await res.blob());
+    const a = h('a', { href: url, download: `Alma Energy ${new Date().toISOString().slice(0, 10)}.xlsx` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } } }, icon('sheet', { size: 16 }), 'Esporta Excel');
+  const daysSel = select([['30', 'ferme da 30 giorni'], ['60', 'da 60 giorni'], ['90', 'da 90 giorni']], String(days),
+    { on: { change: e => overview(box, data, Number(e.target.value)) } });
+
   fill(box,
+    h('div.toolbar', h('span.grow.small.muted', 'Valori pesati con la probabilità della fase (la probabilità scritta sull\'opportunità prevale).'), exportBtn),
     h('div.sw-kpis',
-      Object.keys(meta.kinds).map(kind => {
-        const k = byKind(kind);
-        const tabKey = Object.entries(PIPELINE_TABS).find(([, x]) => x === kind)[0];
-        return kpi(meta.kinds[kind], num(k.open), `${num(k.mw, 1)} MW aperti · ${num(k.targets)} target`, `#/energy/${tabKey}`);
-      }),
+      kpi('MW in pipeline', `${num(d.totals.mw, 1)} MW`, `${num(d.totals.mwWeighted, 1)} MW pesati · ${num(d.totals.count)} opportunità aperte`),
+      kpi('Capex in pipeline', eurShort(d.totals.capex), `${eurShort(d.totals.capexWeighted)} pesato`),
+      kpi('IRR medio', d.irr.avg === null ? '—' : `${num(d.irr.avg * 100, 1)}%`, d.irr.count ? `su ${num(d.irr.count)} scenari scelti` : 'nessuno scenario scelto'),
+      kpi('Impianti target', num(d.targets.active), `${num(d.targets.mwActive, 1)} MW · ${num(d.targets.acquired)} acquisiti · ${num(d.targets.lost)} persi`, '#/energy/target'),
       kpi('CRM', num(data.crm.companies), `aziende · ${num(data.crm.people)} persone`, '#/energy/aziende')),
     h('div.sw-grid',
       Object.keys(meta.kinds).map(kind => {
-        const k = byKind(kind);
-        const max = Math.max(1, ...k.stages.map(([, n]) => n));
-        return h('section.card.sw-card', h('h3', meta.kinds[kind]),
-          h('div.sw-bars', k.stages.map(([label, n]) => h('div.sw-bar',
-            h('span.sw-bar-name', label), h('span.sw-bar-track', h('i', { style: { width: `${n ? Math.max(3, (n / max) * 100) : 0}%` } })),
-            h('span.sw-bar-val', num(n))))));
+        const k = d.kinds[kind];
+        const phases = phasesOf(kind).map(key => [key, k.phases[key]]).filter(([key, p]) => p || !key.startsWith('target:'));
+        // barre sul numero di opportunità (i MW mancano finché non c'è la due diligence, es. il Database CE), MW accanto se noti
+        const val = p => p?.count || 0;
+        const max = Math.max(1, ...phases.map(([, p]) => val(p)));
+        const tabKey = Object.entries(PIPELINE_TABS).find(([, x]) => x === kind)[0];
+        return h('section.card.sw-card',
+          h('div.en-sec-head', h('h3', h('a', { href: `#/energy/${tabKey}` }, meta.kinds[kind])),
+            h('span.small.muted', `${num(k.count)} aperte · ${num(k.mw, 1)} MW · ${num(k.mwWeighted, 1)} pesati`)),
+          h('div.sw-bars', phases.map(([key, p]) => h('div.sw-bar', { title: p ? `${num(p.count)} · ${num(p.mw, 2)} MW · capex ${eurShort(p.capex)} · pesati ${num(p.mwWeighted, 2)} MW` : '' },
+            h('span.sw-bar-name', phaseLabel(kind, key)), h('span.sw-bar-track', h('i', { style: { width: `${val(p) ? Math.max(3, (val(p) / max) * 100) : 0}%` } })),
+            h('span.sw-bar-val', `${num(p?.count || 0)}${p?.mw ? ` · ${num(p.mw, 1)} MW` : ''}`)))));
       }),
+      h('section.card.sw-card',
+        h('div.en-sec-head', h('h3', `Opportunità ferme (${num(d.stale.count)})`), daysSel),
+        d.stale.list.length ? h('div.en-links', d.stale.list.map(o => h('button.en-link', { type: 'button', on: { click: () => openOpportunity(o.id, () => overview(box, data, days)) } },
+          h('div.grow', h('strong', o.title), h('div.t-meta', `${meta.kinds[o.kind]} · ${stageLabel(o.kind, o.stage)}${o.owner_name ? ` · ${o.owner_name}` : ''}`)),
+          h('span.small.muted', ago(o.stage_changed_at)))))
+          : h('p.muted.small', `Nessuna opportunità ferma da più di ${days} giorni oltre il primo stadio.`)),
+      h('section.card.sw-card', h('h3', 'Step dei target in scadenza (14 giorni)'),
+        d.dueSteps.length ? h('div.en-links', d.dueSteps.map(t => h('button.en-link', { type: 'button', on: { click: () => openTarget(t.id, () => overview(box, data, days)) } },
+          h('div.grow', h('strong', t.target_title), h('div.t-meta', t.title)),
+          h('span', { class: t.due_date < new Date().toISOString().slice(0, 10) ? 'due-late' : '' }, fmtDate(t.due_date, { year: true })))))
+          : h('p.muted.small', 'Nessuno step in scadenza.')),
       await deadlinesCard(),
-      h('section.card.sw-card', h('h3', 'In arrivo'),
-        h('p.small.muted', 'Mappa delle opportunità, Impianti target e cruscotto sono i prossimi passi (ticket ALM2-11, ALM2-15 … ALM2-18).'))));
+      h('section.card.sw-card', h('h3', 'Ultimi cambi'),
+        d.recent.length ? h('ul.en-history', d.recent.map(x => h('li',
+          h('button.en-linklike', { type: 'button', on: { click: () => openOpportunity(x.id, () => overview(box, data, days)) } }, x.title),
+          h('span.muted', ` → ${historyText(x)}`),
+          h('div.t-meta', [new Date(x.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }), x.user_name, x.note].filter(Boolean).join(' · ')))))
+          : h('p.muted.small', 'Ancora nessun cambio.'))));
+}
+
+// «Primo contatto», «Target · Due diligence», «Acquisito»… da una riga dello storico.
+function historyText(x) {
+  const s = x.to_stage;
+  if (s === 'target') return 'Impianto target';
+  if (s.startsWith('step:')) return `Target · ${meta.targetSteps.find(t => t.key === s.slice(5))?.label || s.slice(5)}`;
+  if (s === 'esito:riaperto') return 'Iter riaperto';
+  if (s.startsWith('esito:')) return meta.targetOutcomes[s.slice(6)] || s;
+  return stageLabel(x.kind, s);
 }
 
 // ── opportunità ─────────────────────────────────────────────────────────────

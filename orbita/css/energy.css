@@ -138,3 +138,7 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
 .en-target-banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ap-space-2); }
 .en-target-tab { max-width: 960px; }
 @media (max-width: 760px) { .en-steps { grid-template-columns: 1fr 1fr; } }
+button.en-link { background: var(--card); text-align: left; width: 100%; font: inherit; cursor: pointer; }
+button.en-link:hover { border-color: var(--orange); }
+.en-linklike { background: none; border: 0; padding: 0; font: inherit; font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); cursor: pointer; text-align: left; }
+.en-linklike:hover { color: var(--orange); }
