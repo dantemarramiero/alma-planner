@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { createApp, readConfig } = require('../server');
 const { createDb } = require('../lib/db');
 
-let server, base, db, A, T, X;
+let server, base, db, A, T, X, dante;
 const ADMIN = 'admin@almacis.it';
 
 async function login(email) {
@@ -30,7 +30,8 @@ before(async () => {
   server.keepAliveTimeout = 60000;
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  A = as(await login('dante.marramiero@almacis.it')); // membro dalla migrazione
+  dante = await login('dante.marramiero@almacis.it');
+  A = as(dante); // membro dalla migrazione
   T = as(await login('tullio@almacis.it'));
   X = as(await login(ADMIN)); // amministratore ma non della BU Energy
 });
@@ -144,4 +145,59 @@ test('simulatore: calcolo con le ipotesi del Modello fotovoltaico e input non va
   assert.equal((await A('POST', '/api/energy/simulate', { model: 'cashflows', input: { capex: {} } })).status, 400);
   assert.equal((await A('POST', '/api/energy/simulate', { model: 'cashflows', input: { sizeMw: 'tanti' } })).status, 400);
   assert.equal((await X('POST', '/api/energy/simulate', { model: 'brs', input: {} })).status, 403);
+});
+
+test('scenari salvati: calcolo, salvataggio sull\'opportunità, scelto che porta i numeri, export Excel', async () => {
+  const { readXlsx } = require('../lib/xlsx');
+  const calc = (await A('POST', '/api/energy/scenarios/calcola', { model: 'ppa_onsite', input: { roofArea: 20000, kwhPerKwp: 1300 } })).body;
+  assert.equal(calc.plant.kwp, 2400);
+  assert.equal((await A('POST', '/api/energy/scenarios/calcola', { model: 'boh', input: {} })).status, 400);
+  assert.equal((await A('POST', '/api/energy/scenarios/calcola', { model: 'ppa_onsite', input: { 'x;drop': 1 } })).status, 400);
+
+  const opp = (await A('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Tetto per scenari' })).body;
+  const s1 = (await A('POST', '/api/energy/scenarios', { opportunity_id: opp.id, name: 'PPA 100 €/MWh', model: 'ppa_onsite', input: { roofArea: 20000 } })).body;
+  const s2 = (await A('POST', '/api/energy/scenarios', { opportunity_id: opp.id, name: 'PPA 110 €/MWh', model: 'ppa_onsite', input: { roofArea: 20000, ppaPrice: 110 } })).body;
+  assert.equal(s1.summary.mw, 2.4);
+  assert.ok(s2.summary.irr > s1.summary.irr);
+  const draft = (await A('POST', '/api/energy/scenarios', { name: 'Bozza revamping', model: 'revamping', input: {} })).body;
+  assert.equal((await A('GET', '/api/energy/scenarios?opportunity=bozze')).body[0].id, draft.id);
+  assert.equal((await A('POST', `/api/energy/scenarios/${draft.id}/scegli`)).status, 400); // una bozza non si sceglie
+
+  assert.equal((await A('POST', `/api/energy/scenarios/${s2.id}/scegli`)).status, 200);
+  assert.equal((await A('POST', `/api/energy/scenarios/${s1.id}/scegli`)).status, 200); // uno solo scelto per opportunità
+  const list = (await A('GET', `/api/energy/scenarios?opportunity=${opp.id}`)).body;
+  assert.deepEqual(list.map(s => [s.id, s.chosen]), [[s1.id, true], [s2.id, false]]);
+  let card = (await A('GET', `/api/energy/opportunities/${opp.id}`)).body;
+  assert.equal(Number(card.mw), 2.4);
+  assert.equal(card.data.scenario.id, s1.id);
+  // modificare lo scenario scelto aggiorna l'opportunità
+  await A('PATCH', `/api/energy/scenarios/${s1.id}`, { input: { roofArea: 30000 } });
+  card = (await A('GET', `/api/energy/opportunities/${opp.id}`)).body;
+  assert.equal(Number(card.mw), 3.6);
+  assert.equal((await A('GET', `/api/energy/scenarios/${s1.id}`)).body.result.plant.kwp, 3600);
+
+  // export: tre fogli leggibili
+  const res = await fetch(`${base}/api/energy/scenarios/${s1.id}/excel`, { headers: { cookie: dante } });
+  assert.match(res.headers.get('content-type'), /spreadsheetml/);
+  const book = readXlsx(Buffer.from(await res.arrayBuffer()));
+  assert.deepEqual(Object.keys(book), ['Riepilogo', 'Ipotesi', 'Flussi']);
+  assert.equal(book.Flussi.length, 22); // intestazione + anno 0 + 20 anni
+  const fv = await fetch(`${base}/api/energy/scenarios/excel`, { method: 'POST', headers: { cookie: dante, 'X-Alma': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'fv_classico', name: 'Greenfield', input: {} }) });
+  assert.deepEqual(Object.keys(readXlsx(Buffer.from(await fv.arrayBuffer()))), ['Riepilogo', 'Ipotesi', 'Variante A', 'Variante B', 'Variante C']);
+
+  // PPA: la proposta chiede uno scenario salvato (qui c'è) e la persona di riferimento
+  const p = (await A('POST', '/api/energy/people', { last_name: 'Neri' })).body;
+  await A('POST', `/api/energy/opportunities/${opp.id}/links`, { person_id: p.id, role: 'referente' });
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'proposta' })).status, 200);
+  const bare = (await A('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Senza scenario' })).body;
+  await A('POST', `/api/energy/opportunities/${bare.id}/links`, { person_id: p.id, role: 'referente' });
+  const noScen = await A('POST', `/api/energy/opportunities/${bare.id}/stage`, { stage: 'proposta' });
+  assert.equal(noScen.status, 400);
+  assert.match(noScen.body.error, /scenario/);
+
+  // cancellando lo scenario scelto l'opportunità perde il riferimento
+  await A('DELETE', `/api/energy/scenarios/${s1.id}`);
+  assert.equal((await A('GET', `/api/energy/opportunities/${opp.id}`)).body.data.scenario, undefined);
+  assert.equal((await X('GET', '/api/energy/scenarios')).status, 403);
 });

@@ -10,6 +10,8 @@ const {
   STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys,
 } = require('../lib/energy');
 const { cashflows, buyRevampSell, portfolioYear, sensitivity, DEFAULTS, PRICE_CURVE } = require('../lib/energy-sim');
+const { runScenario, summaryOf, FV_DEFAULTS, REVAMPING_DEFAULTS, PPA_DEFAULTS } = require('../lib/energy-scenarios');
+const { writeXlsx } = require('../lib/xlsx');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
 const duplicate = err => err?.code === '23505';
@@ -470,6 +472,11 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
       const { rows: [p] } = await db.query('SELECT 1 FROM energy_links WHERE opportunity_id = $1 AND person_id IS NOT NULL LIMIT 1', [id]);
       if (!p) throw new HttpError(400, 'Collega prima la persona di riferimento del cliente (scheda dell\'opportunità, «Collega»)');
     }
+    // e dalla proposta in poi uno scenario del simulatore salvato sull'opportunità
+    if (cur.kind === 'ppa_onsite' && stage !== 'perso' && keys.indexOf(stage) >= keys.indexOf('proposta')) {
+      const { rows: [sc] } = await db.query('SELECT 1 FROM energy_scenarios WHERE opportunity_id = $1 LIMIT 1', [id]);
+      if (!sc) throw new HttpError(400, 'Salva prima uno scenario del simulatore sull\'opportunità: la proposta parte da lì');
+    }
     const opp = await db.tx(async q => {
       const { rows: [o] } = await q.query(
         `UPDATE energy_opportunities SET stage = $2, lost_reason = $3, stage_changed_at = now(), updated_at = now() WHERE id = $1 RETURNING *`,
@@ -676,34 +683,188 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     res.json(rows);
   });
 
-  // ── simulatore: calcolo senza salvare (gli scenari salvati arrivano con ALM2-9) ───────────────
-  app.get('/api/energy/simulate/defaults', (_req, res) => res.json({ defaults: DEFAULTS, priceCurve: PRICE_CURVE }));
+  // ── simulatore: calcolo senza salvare ─────────────────────────────────────────────────────────
+  app.get('/api/energy/simulate/defaults', (_req, res) => res.json({
+    defaults: DEFAULTS, priceCurve: PRICE_CURVE, fv: FV_DEFAULTS, revamping: REVAMPING_DEFAULTS, ppa: PPA_DEFAULTS,
+  }));
 
   app.post('/api/energy/simulate', (req, res) => {
     const model = v.oneOf(req.body.model, 'Modello', ['cashflows', 'brs', 'portfolio']);
-    const input = req.body.input;
-    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpError(400, 'Le ipotesi non sono valide');
-    // solo numeri finiti (e l'elenco dei capex e dei prezzi): niente funzioni né oggetti strani dal browser
-    const clean = {};
-    for (const [k, val] of Object.entries(input)) {
-      if (k === 'capex') {
-        if (!val || typeof val !== 'object') throw new HttpError(400, 'Il capex non è valido');
-        clean.capex = Object.fromEntries(Object.entries(val).map(([name, x]) => [String(name).slice(0, 40), num(x, `capex ${name}`, { min: 0 }) || 0]));
-      } else if (k === 'prices') {
-        if (!Array.isArray(val) || !val.length || val.length > 60) throw new HttpError(400, 'La curva dei prezzi non è valida');
-        clean.prices = val.map((x, i) => num(x, `prezzo anno ${i + 1}`, { min: 0, max: 10000 }));
-      } else {
-        const n = num(val, k);
-        if (n !== null && n !== undefined) clean[k] = n;
-      }
-    }
-    if (clean.years !== undefined && (clean.years < 1 || clean.years > 50)) throw new HttpError(400, 'Gli anni vanno da 1 a 50');
+    const clean = cleanInput(req.body.input);
     if (model === 'brs') return res.json(buyRevampSell(clean));
     if (model === 'portfolio') return res.json(portfolioYear(clean));
     if (!(clean.sizeMw > 0)) throw new HttpError(400, 'Indica la taglia dell\'impianto in MW');
     const out = cashflows(clean);
     res.json({ ...out, sensitivity: req.body.sensitivity ? sensitivity(clean) : undefined });
   });
+
+  // ── scenari: FV classico, revamping, PPA on-site (ALM2-6 … ALM2-9) ───────────────────────────
+  const MODELS = ['fv_classico', 'revamping', 'ppa_onsite'];
+  const calc = (model, input) => runScenario(v.oneOf(model, 'Scenario', MODELS) || (() => { throw new HttpError(400, 'Scegli lo scenario'); })(), cleanInput(input));
+
+  // calcolo senza salvare (la pagina del simulatore ricalcola a ogni modifica)
+  app.post('/api/energy/scenarios/calcola', (req, res) => {
+    res.json(calc(req.body.model, req.body.input));
+  });
+
+  app.get('/api/energy/scenarios', async (req, res) => {
+    const params = [];
+    let where = 'TRUE';
+    if (req.query.opportunity === 'bozze') where = 's.opportunity_id IS NULL';
+    else if (req.query.opportunity) { params.push(Number(req.query.opportunity) || 0); where = 's.opportunity_id = $1'; }
+    const { rows } = await db.query(
+      `SELECT s.id, s.opportunity_id, o.title AS opportunity_title, s.name, s.model, s.summary, s.chosen, s.updated_at, u.name AS created_by_name
+         FROM energy_scenarios s LEFT JOIN energy_opportunities o ON o.id = s.opportunity_id LEFT JOIN users u ON u.id = s.created_by
+        WHERE ${where} ORDER BY s.chosen DESC, s.updated_at DESC LIMIT 200`, params);
+    res.json(rows);
+  });
+
+  async function scenarioById(id) {
+    const { rows: [s] } = await db.query('SELECT * FROM energy_scenarios WHERE id = $1', [id]);
+    if (!s) throw new HttpError(404, 'Scenario non trovato');
+    return s;
+  }
+
+  app.post('/api/energy/scenarios', async (req, res) => {
+    const name = v.text(req.body.name, 'Nome', { max: 120, required: true });
+    const oppId = v.int(req.body.opportunity_id, 'Opportunità', { min: 1, nullable: true }) ?? null;
+    if (oppId) await opportunityById(oppId);
+    const input = cleanInput(req.body.input);
+    const result = calc(req.body.model, input);
+    const { rows: [s] } = await db.query(
+      `INSERT INTO energy_scenarios (opportunity_id, name, model, input, summary, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [oppId, name, req.body.model, JSON.stringify(input), JSON.stringify(summaryOf(result)), req.user.id]);
+    res.status(201).json(s);
+  });
+
+  app.get('/api/energy/scenarios/:id', async (req, res) => {
+    const s = await scenarioById(v.int(req.params.id, 'id', { min: 1 }));
+    res.json({ ...s, result: runScenario(s.model, s.input) });
+  });
+
+  app.patch('/api/energy/scenarios/:id', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const cur = await scenarioById(id);
+    const name = v.text(req.body.name, 'Nome', { max: 120 }) || cur.name;
+    const input = req.body.input === undefined ? cur.input : cleanInput(req.body.input);
+    const summary = summaryOf(runScenario(cur.model, input));
+    const { rows: [s] } = await db.query(
+      'UPDATE energy_scenarios SET name = $2, input = $3, summary = $4, updated_at = now() WHERE id = $1 RETURNING *',
+      [id, name, JSON.stringify(input), JSON.stringify(summary)]);
+    if (s.chosen && s.opportunity_id) await applyChosen(db, s);
+    res.json(s);
+  });
+
+  // Lo scenario scelto porta i suoi numeri sull'opportunità (MW, capex, rendimento).
+  async function applyChosen(q, s) {
+    const sum = s.summary || {};
+    await q.query(
+      `UPDATE energy_opportunities SET mw = COALESCE($2, mw), capex = COALESCE($3, capex), data = data || $4::jsonb, updated_at = now() WHERE id = $1`,
+      [s.opportunity_id, sum.mw ?? null, sum.capex === undefined || sum.capex === null ? null : Math.round(sum.capex),
+        JSON.stringify({ scenario: { id: s.id, name: s.name, model: s.model, ...sum } })]);
+  }
+
+  app.post('/api/energy/scenarios/:id/scegli', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const s = await scenarioById(id);
+    if (!s.opportunity_id) throw new HttpError(400, 'Collega prima lo scenario a un\'opportunità');
+    await db.tx(async q => {
+      await q.query('UPDATE energy_scenarios SET chosen = false WHERE opportunity_id = $1 AND chosen', [s.opportunity_id]);
+      await q.query('UPDATE energy_scenarios SET chosen = true WHERE id = $1', [id]);
+      await applyChosen(q, s);
+    });
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/energy/scenarios/:id', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const s = await scenarioById(id);
+    await db.tx(async q => {
+      await q.query('DELETE FROM energy_scenarios WHERE id = $1', [id]);
+      if (s.chosen && s.opportunity_id) await q.query("UPDATE energy_opportunities SET data = data - 'scenario' WHERE id = $1", [s.opportunity_id]);
+    });
+    res.json({ ok: true });
+  });
+
+  // Export in Excel: dello scenario salvato, o di quello sullo schermo (POST con modello e ipotesi).
+  const sendXlsx = (res, name, model, input) => {
+    const file = writeXlsx(scenarioSheets(name, runScenario(model, input)));
+    const safe = name.replace(/[^\w\- àèéìòù]/gi, '').trim().slice(0, 60) || 'scenario';
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${safe}.xlsx"; filename*=UTF-8''${encodeURIComponent(`${safe}.xlsx`)}`,
+    }).send(file);
+  };
+  app.get('/api/energy/scenarios/:id/excel', async (req, res) => {
+    const s = await scenarioById(v.int(req.params.id, 'id', { min: 1 }));
+    sendXlsx(res, s.name, s.model, s.input);
+  });
+  app.post('/api/energy/scenarios/excel', (req, res) => {
+    v.oneOf(req.body.model, 'Scenario', MODELS);
+    sendXlsx(res, v.text(req.body.name, 'Nome', { max: 120 }) || 'Scenario', req.body.model, cleanInput(req.body.input));
+  });
+}
+
+// Ipotesi dal browser: solo numeri finiti, più l'elenco dei capex e la curva dei prezzi. Niente funzioni né oggetti strani.
+function cleanInput(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpError(400, 'Le ipotesi non sono valide');
+  const clean = {};
+  for (const [k, val] of Object.entries(input)) {
+    if (!/^[a-zA-Z][\w]{0,40}$/.test(k)) throw new HttpError(400, 'Le ipotesi non sono valide');
+    if (k === 'capex') {
+      if (!val || typeof val !== 'object') throw new HttpError(400, 'Il capex non è valido');
+      clean.capex = Object.fromEntries(Object.entries(val).map(([name, x]) => [String(name).slice(0, 40), num(x, `capex ${name}`, { min: 0 }) || 0]));
+    } else if (k === 'prices') {
+      if (!Array.isArray(val) || !val.length || val.length > 60) throw new HttpError(400, 'La curva dei prezzi non è valida');
+      clean.prices = val.map((x, i) => num(x, `prezzo anno ${i + 1}`, { min: 0, max: 10000 }));
+    } else {
+      const n = num(val, k);
+      if (n !== null && n !== undefined) clean[k] = n;
+    }
+  }
+  if (clean.years !== undefined && (clean.years < 1 || clean.years > 50)) throw new HttpError(400, 'Gli anni vanno da 1 a 50');
+  return clean;
+}
+
+// Fogli dell'Excel di uno scenario: ipotesi, risultati e flussi anno per anno.
+const FLOW_COLS = [['year', 'Anno'], ['energy', 'Energia (MWh)'], ['revenue', 'Ricavi energia'], ['extraRevenue', 'Altri ricavi'], ['opex', 'OPEX'],
+  ['ebitda', 'EBITDA'], ['depreciation', 'Ammortamenti'], ['interest', 'Interessi'], ['taxes', 'Imposte'], ['netIncome', 'Utile netto'],
+  ['capex', 'Capex'], ['debtRepaid', 'Rimborso debito'], ['fcfUnlevered', 'FCF unlevered'], ['fcfLevered', 'FCF levered']];
+const KPI_LABELS = [['capex', 'Capex (€)'], ['debt', 'Debito (€)'], ['equity', 'Equity (€)'], ['wacc', 'WACC'], ['irrUnlevered', 'IRR di progetto'],
+  ['irrLevered', 'IRR dell\'equity'], ['npvUnlevered', 'VAN al WACC (€)'], ['npvLevered', 'VAN dell\'equity (€)'], ['paybackUnlevered', 'Payback (anni)'],
+  ['dscrMin', 'DSCR minimo'], ['dscrAvg', 'DSCR medio'], ['lcoe', 'LCOE (€/MWh)'], ['roe', 'ROE primo anno']];
+const r2 = x => (typeof x === 'number' && Number.isFinite(x) ? Math.round(x * 10000) / 10000 : x);
+const flowSheet = rows => [FLOW_COLS.map(([, l]) => l), ...rows.map(r => FLOW_COLS.map(([k]) => r2(r[k])))];
+const kpiRows = kpi => KPI_LABELS.filter(([k]) => kpi[k] !== undefined && kpi[k] !== null).map(([k, l]) => [l, r2(kpi[k])]);
+
+function scenarioSheets(name, result) {
+  const inputs = [['Ipotesi', 'Valore'], ...Object.entries(result.inputs || {})
+    .filter(([, val]) => typeof val === 'number').map(([k, val]) => [k, val])];
+  if (result.model === 'fv_classico') {
+    const cols = [['year', 'Anno'], ['projects', 'Progetti'], ['mwp', 'MWp sviluppati'], ['rtb', 'MWp a RTB'], ['built', 'MWp costruiti'],
+      ['outflow', 'Esborsi Almacis'], ['revenue', 'Ricavi Almacis'], ['net', 'Risultato']];
+    const sheets = { Riepilogo: [[name, 'A Solo sviluppo', 'B Costruisci e vendi', 'C Costruisci e gestisci'],
+      ...[['outflow', 'Esborsi Almacis (€)'], ['revenue', 'Ricavi Almacis (€)'], ['net', 'Risultato netto (€)'], ['roi', 'ROI'], ['atRisk', 'Capitale a rischio (€)']]
+        .map(([k, l]) => [l, ...['A', 'B', 'C'].map(x => r2(result.variants[x].totals[k]))]),
+      ['IRR a 25 anni degli impianti tenuti (C)', '', '', r2(result.variants.C.longTerm.irr)]], Ipotesi: inputs };
+    for (const x of ['A', 'B', 'C']) sheets[`Variante ${x}`] = [cols.map(([, l]) => l), ...result.variants[x].years.map(y => cols.map(([k]) => r2(y[k])))];
+    return sheets;
+  }
+  if (result.model === 'revamping') {
+    return {
+      Riepilogo: [[name, 'Valore'], ['Taglia dopo il repowering (MW)', result.sizeAfter],
+        ['Rivendita: utile del ciclo (€)', r2(result.rivendita.kpi.netIncome)], ['Rivendita: ROE del ciclo', r2(result.rivendita.kpi.roe)],
+        ['Rivendita: margine per MW (€)', r2(result.rivendita.kpi.marginPerMw)], ...kpiRows(result.gestione.kpi).map(([l, x]) => [`Gestione: ${l}`, x]),
+        ['Conviene', result.confronto.meglio]],
+      Ipotesi: inputs, 'Flussi gestione': flowSheet(result.gestione.rows),
+    };
+  }
+  return {
+    Riepilogo: [[name, 'Valore'], ['Potenza (kWp)', r2(result.plant.kwp)], ['Produzione primo anno (MWh)', r2(result.plant.energy1)],
+      ['Risparmio del cliente, primo anno (€)', r2(result.customer.saving1)], ['Risparmio del cliente, contratto (€)', r2(result.customer.savingTotal)],
+      ...kpiRows(result.flows.kpi)],
+    Ipotesi: inputs, Flussi: flowSheet(result.flows.rows),
+  };
 }
 
 module.exports = { registerEnergy };
