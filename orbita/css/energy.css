@@ -1,6 +1,6 @@
 /* Alma Energy: modulo della BU Energy. Riusa card, tabelle, pillole e i riquadri numerici del censimento software. */
 .en-light { font-weight: var(--ap-fw-light); }
-.en-tabs { margin-bottom: var(--ap-space-4); flex-wrap: wrap; }
+.en-eyebrow { font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); text-transform: uppercase; letter-spacing: .06em; color: var(--orange); }
 .en-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ap-space-4); } /* la tabella scorre dentro la card, non allarga la pagina */
 .en-filter { flex-wrap: wrap; }
 
@@ -98,3 +98,24 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
   .en-dl-row { grid-template-columns: 1fr auto; }
 }
 .en-conv { display: flex; align-items: center; gap: var(--ap-space-2); white-space: nowrap; }
+
+
+/* ── simulatore ────────────────────────────────────────────────────────── */
+.en-sim { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: var(--ap-space-4); align-items: start; margin-bottom: var(--ap-space-4); }
+.en-sim-form { display: grid; gap: var(--ap-space-2); }
+.en-sim-group { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-3); }
+.en-sim-group summary { cursor: pointer; font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); text-transform: uppercase; letter-spacing: .06em; color: var(--orange); }
+.en-sim-group[open] summary { margin-bottom: var(--ap-space-3); }
+.en-sim-results { display: grid; gap: var(--ap-space-4); min-width: 0; }
+.en-sec > summary { cursor: pointer; font-size: var(--ap-fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: var(--ap-fw-medium); }
+.en-versus { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--ap-space-3); }
+.en-best { border-color: var(--green); }
+.en-base { font-weight: var(--ap-fw-bold); }
+.en-current { border-color: var(--orange); }
+.en-cash { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; height: 160px; border-bottom: 0; }
+.en-cash::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--rule); }
+.en-cash-col { position: relative; }
+.en-cash-col i { position: absolute; left: 0; right: 0; background: var(--green); border-radius: 2px; }
+.en-cash-col i.neg { background: var(--red); }
+.en-cash-axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+@media (max-width: 900px) { .en-sim { grid-template-columns: 1fr; } }

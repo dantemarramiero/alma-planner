@@ -35,7 +35,16 @@
   <div class="shell">
     <aside class="sidebar">
       <a class="brand brand-side" href="#/" aria-label="Alma Planet, home"><svg class="brand-logo" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100"><svg x="0" y="8" width="84" height="84" viewBox="0 0 100 100"><defs><mask id="lg-s" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#fff"></rect><g transform="rotate(-18 50 50)" fill="none" stroke="#000" stroke-width="7" stroke-linecap="round"><path d="M6 50A44 12 0 0 0 94 50M10 50A40 9 0 0 0 90 50"></path></g></mask></defs><g transform="rotate(-18 50 50)" fill="none" stroke="#FF8A26" stroke-width="2.6" stroke-linecap="round"><path d="M6 50A44 12 0 0 1 94 50M10 50A40 9 0 0 1 90 50"></path></g><circle cx="50" cy="50" r="25" fill="#FF8A26" mask="url(#lg-s)"></circle><g transform="rotate(-18 50 50)" fill="none" stroke="#FF8A26" stroke-width="2.6" stroke-linecap="round"><path d="M6 50A44 12 0 0 0 94 50M10 50A40 9 0 0 0 90 50"></path></g></svg><text x="104" y="69" font-family="Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="54" letter-spacing="-0.5"><tspan font-weight="300" fill="#2C2C2C">Alma </tspan><tspan font-weight="700" fill="#FF8A26">Planet</tspan></text></svg></a>
-      <nav class="nav">
+      <!-- selettore del modulo, come in MyWinery: Alma Planet o Alma Energy (domani Alma Social); solo a chi ne ha più di uno -->
+      <div class="ws-switch" id="ws-switch" hidden>
+        <button class="ws-trigger" id="ws-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="ws-menu">
+          <span class="ws-badge" id="ws-badge" data-icon="house"></span>
+          <span class="ws-text"><span class="ws-eyebrow">Modulo</span><span class="ws-name" id="ws-name">Alma Planet</span></span>
+          <span class="ws-chevron" data-icon="chevrons-up-down" data-size="16"></span>
+        </button>
+        <div class="ws-menu" id="ws-menu" role="menu" hidden></div>
+      </div>
+      <nav class="nav" data-ws="planet">
         <span class="nav-label">Intranet</span>
         <a href="#/" data-nav="home"><span class="nav-ico" data-icon="house"></span>Home</a>
         <a href="#/notifications" data-nav="notifications"><span class="nav-ico" data-icon="bell"></span>Notifiche<span class="nav-badge" data-badge="notifications" hidden></span></a>
@@ -53,10 +62,25 @@
         <a href="#/direct" data-nav="direct"><span class="nav-ico" data-icon="message"></span>Chat<span class="nav-badge" data-badge="direct" hidden></span></a>
         <a href="#/chat" data-nav="chat" id="nav-chat" hidden><span class="nav-ico" data-icon="message"></span>Chat interna<span class="nav-badge" data-badge="internal" hidden></span></a>
         <a href="#/org" data-nav="org"><span class="nav-ico" data-icon="network"></span>Organigramma</a>
-        <span class="nav-label" id="nav-energy-label" hidden>BU Energy</span>
-        <a href="#/energy" data-nav="energy" id="nav-energy" hidden><span class="nav-ico" data-icon="zap"></span>Alma Energy</a>
         <span class="nav-label" id="nav-admin-label" hidden>Amministrazione</span>
         <a href="#/software" data-nav="software" id="nav-software" hidden><span class="nav-ico" data-icon="package"></span>Software e licenze</a>
+      </nav>
+      <!-- menu di Alma Energy: le sezioni del modulo -->
+      <nav class="nav" data-ws="energy" hidden>
+        <a href="#/energy/panoramica" data-nav="energy-panoramica"><span class="nav-ico" data-icon="layout-dashboard"></span>Panoramica</a>
+        <span class="nav-label">Pipeline</span>
+        <a href="#/energy/ppa" data-nav="energy-ppa"><span class="nav-ico" data-icon="sun"></span>PPA on-site</a>
+        <a href="#/energy/revamping" data-nav="energy-revamping"><span class="nav-ico" data-icon="refresh"></span>Revamping</a>
+        <a href="#/energy/fv" data-nav="energy-fv"><span class="nav-ico" data-icon="solar-panel"></span>FV classico</a>
+        <a href="#/energy/opportunita" data-nav="energy-opportunita"><span class="nav-ico" data-icon="list"></span>Tutte le opportunità</a>
+        <span class="nav-label">Strumenti</span>
+        <a href="#/energy/database" data-nav="energy-database"><span class="nav-ico" data-icon="database"></span>Database CE</a>
+        <a href="#/energy/simulatore" data-nav="energy-simulatore"><span class="nav-ico" data-icon="calculator"></span>Simulatore</a>
+        <span class="nav-label">CRM</span>
+        <a href="#/energy/aziende" data-nav="energy-aziende"><span class="nav-ico" data-icon="building"></span>Aziende</a>
+        <a href="#/energy/persone" data-nav="energy-persone"><span class="nav-ico" data-icon="users"></span>Persone</a>
+        <span class="nav-label">Modulo</span>
+        <a href="#/energy/membri" data-nav="energy-membri"><span class="nav-ico" data-icon="key-round"></span>Membri</a>
       </nav>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-sm rail-pin" id="rail-pin" type="button" aria-pressed="false"><span class="nav-ico" data-icon="pin"></span><span>Tieni aperta</span></button>

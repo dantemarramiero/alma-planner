@@ -6,8 +6,9 @@ import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
+import { simulatorView, scenariosSection } from './energy-simulator.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['database', 'Database CE'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['database', 'Database CE'], ['simulatore', 'Simulatore'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
@@ -39,15 +40,15 @@ export async function energyView(container, parts = []) {
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
   const body = h('div.en-body', loading());
   fill(container,
-    h('div.page-head', h('div', h('h1', h('span.en-light', 'Alma '), 'Energy'),
-      h('div.sub', 'Business IPP della BU Energy: PPA on-site, revamping e repowering, fotovoltaico classico.'))),
-    h('div.seg.en-tabs', TABS.map(([k, label]) => h('button', { type: 'button', class: k === tab ? 'on' : '', on: { click: () => { location.hash = `#/energy/${k}`; } } }, label))),
+    // le sezioni sono nel menu laterale del modulo (selettore «Modulo» come in MyWinery): qui il titolo della sezione
+    h('div.page-head', h('div', h('div.en-eyebrow', 'Alma Energy'), h('h1', TABS.find(([k]) => k === tab)[1]))),
     body);
   const data = await get('/api/energy');
   meta = data.meta;
   if (tab === 'panoramica') await overview(body, data);
   else if (PIPELINE_TABS[tab]) await pipelineView(body, PIPELINE_TABS[tab]);
   else if (tab === 'database') await databaseView(body);
+  else if (tab === 'simulatore') await simulatorView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);
   else if (tab === 'aziende') await companiesTab(body, parts[2]);
   else if (tab === 'persone') await peopleTab(body, parts[2]);
@@ -86,7 +87,7 @@ async function overview(box, data) {
       }),
       await deadlinesCard(),
       h('section.card.sw-card', h('h3', 'In arrivo'),
-        h('p.small.muted', 'Simulatore dei rendimenti, mappa e Impianti target sono i prossimi passi (ticket ALM2-6 … ALM2-9, ALM2-11, ALM2-15 … ALM2-18).'))));
+        h('p.small.muted', 'Mappa delle opportunità, Impianti target e cruscotto sono i prossimi passi (ticket ALM2-11, ALM2-15 … ALM2-18).'))));
 }
 
 // ── opportunità ─────────────────────────────────────────────────────────────
@@ -159,6 +160,8 @@ export async function opportunityForm({ kind, opp = null, onSaved }) {
 
 export async function openOpportunity(id, onChange) {
   const o = await get(`/api/energy/opportunities/${id}`);
+  const scenariosBox = h('div');
+  scenariosSection(o).then(el => scenariosBox.replaceChildren(el)); // scenari del simulatore, caricati a parte
   const stages = meta.stages[o.kind].filter(([k]) => k !== 'target');
   const stageSel = select(stages, o.stage === 'target' ? '' : o.stage, { disabled: o.stage === 'target' });
   const lost = input({ placeholder: 'Motivo (obbligatorio se perso)', hidden: o.stage !== 'perso', value: o.lost_reason || '' });
@@ -194,6 +197,7 @@ export async function openOpportunity(id, onChange) {
         ['Luogo', [o.city, o.province, o.region].filter(Boolean).join(', ') || '—'], ['Responsabile', o.owner_name || '—'],
       ]), o.notes ? h('p.en-notes', o.notes) : null),
       kindDetails(o, () => { m.close(); onChange?.(); openOpportunity(id, onChange); }),
+      scenariosBox,
       h('section.en-sec', h('div.en-sec-head', h('h3', 'Aziende e persone collegate'),
         h('button.btn.btn-sm', { type: 'button', on: { click: () => linkForm(id, async () => { drawLinks(await get(`/api/energy/opportunities/${id}`)); onChange?.(); }) } }, icon('plus', { size: 15 }), 'Collega')),
       links),

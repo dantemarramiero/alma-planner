@@ -140,3 +140,11 @@
 /* foglio dal basso: riceve il fuoco all'apertura (per Esc e lettori di schermo) senza bordo.
    Scheda del progetto: anche sul telefono l'indietro è il percorso «‹ Progetti» (la barra «← Indietro» lì non c'è) */
 .sheet:focus { outline: none; }
+
+/* Menu ☰: scelta del modulo (Alma Planet / Alma Energy) in cima, come il selettore della barra laterale */
+.menu-modules { display: grid; gap: 6px; margin-bottom: 10px; }
+.menu-modules-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.menu-modules-seg { display: flex; }
+.menu-modules-seg a { flex: 1; text-align: center; padding: 8px 10px; text-decoration: none; color: var(--ink); font-weight: 500; border-radius: var(--radius); }
+.menu-modules-seg a.on { background: var(--card); box-shadow: inset 0 -2px 0 var(--orange); }
+.menu-list a.active { color: var(--orange-dark, var(--orange)); }

@@ -410,3 +410,33 @@ table.list td:first-child{min-width:220px}
   body:not(.rail-pinned) .sidebar:not(:hover):not(:has(:focus-visible)) .side-search .input{color:transparent}
   body:not(.rail-pinned) .sidebar:not(:hover):not(:has(:focus-visible)) .side-search .input::placeholder{color:transparent}
 }
+
+/* ── Selettore del modulo nella barra laterale (01/11/2026, come in MyWinery) ─────────────────────
+   Alma Planet / Alma Energy (domani Alma Social): riquadro sotto il logo con «MODULO» e il nome, menu che si apre
+   sotto. Ogni modulo ha il suo menu laterale (nav[data-ws], main.js). Nella barra a icone resta solo il quadratino. */
+.ws-switch{position:relative;margin:var(--ap-space-3) 0 var(--ap-space-1)}
+.ws-switch[hidden]{display:none}
+.ws-trigger{width:100%;display:flex;align-items:center;gap:var(--ap-space-3);padding:6px;min-height:52px;border-radius:14px;border:1px solid var(--rf-line);background:var(--ap-white);cursor:pointer;text-align:left;color:var(--ap-text-strong);font:inherit;transition:background var(--ap-dur) var(--ap-ease),border-color var(--ap-dur) var(--ap-ease)}
+.ws-trigger:hover,.ws-switch.is-on .ws-trigger{background:var(--rf-soft);border-color:color-mix(in srgb,var(--ap-accent) 35%,var(--rf-line))}
+.ws-trigger:focus-visible{outline:none;box-shadow:var(--ap-focus)}
+.ws-badge{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--orange-fill);color:var(--ap-white)}
+.ws-text{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.ws-eyebrow{font-size:10.5px;font-weight:var(--ap-fw-bold);letter-spacing:.1em;text-transform:uppercase;color:var(--ap-grey-500)}
+.ws-name{font-weight:var(--ap-fw-bold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-chevron{margin-left:auto;color:var(--ap-grey-500);display:grid}
+.ws-menu{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:60;display:flex;flex-direction:column;gap:2px;padding:6px;background:var(--ap-white);border:1px solid var(--rf-line);border-radius:14px;box-shadow:var(--rf-shadow-lg)}
+.ws-menu[hidden]{display:none}
+.ws-menu a{display:flex;align-items:center;gap:var(--ap-space-3);padding:6px 8px;border-radius:10px;color:var(--ap-text-strong);text-decoration:none;font-weight:var(--ap-fw-medium)}
+.ws-menu a:hover{background:var(--rf-soft)}
+.ws-menu a.active{background:var(--ap-orange-tint)}
+.ws-menu .ws-badge{width:30px;height:30px;border-radius:9px;background:var(--ap-grey-200);color:var(--ap-text-strong)}
+.ws-menu a.active .ws-badge{background:var(--orange-fill);color:var(--ap-white)}
+.ws-check{margin-left:auto;color:var(--orange-fill);visibility:hidden;display:grid}
+.ws-menu a.active .ws-check{visibility:visible}
+@media (min-width:761px){
+  .ws-trigger,.ws-menu a{white-space:nowrap;overflow:hidden}
+  body:not(.rail-pinned) .sidebar:not(:hover):not(:has(:focus-visible)) .ws-trigger{border-color:transparent;background:transparent;padding:6px 3px}
+  body:not(.rail-pinned) .sidebar:not(:hover):not(:has(:focus-visible)) .ws-text,
+  body:not(.rail-pinned) .sidebar:not(:hover):not(:has(:focus-visible)) .ws-chevron{opacity:0}
+  body:not(.rail-pinned) .sidebar:not(:hover):not(:has(:focus-visible)) .ws-menu{display:none}
+}

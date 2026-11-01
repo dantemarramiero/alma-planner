@@ -20,6 +20,7 @@ import { searchView, setupSearch } from './search.js';
 import { softwareView } from './software.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
+import { icon } from './icons.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -43,8 +44,8 @@ function trackBack(section) {
   if (stack[stack.length - 2] === here) stack.pop(); // si è tornati indietro
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
-  // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro
-  document.getElementById('backbar').hidden = section === 'home' || /^#\/projects\/\d+/.test(here);
+  // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
+  document.getElementById('backbar').hidden = section === 'home' || section === 'energy' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -65,6 +66,64 @@ function setupRail() {
     apply();
   });
 }
+// ── selettore del modulo nella barra laterale, come in MyWinery: Alma Planet o Alma Energy (domani Alma Social) ──
+// Ogni modulo ha il suo menu laterale e ricorda l'ultima pagina aperta: tornandoci si riparte da lì.
+// Il selettore si vede solo a chi ha più di un modulo; gli altri hanno Alma Planet come sempre.
+const MODULES = [
+  { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/', can: () => true },
+  { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
+];
+const moduleOf = section => (section === 'energy' ? 'energy' : 'planet');
+const MOD_KEY = 'alma.modulePages';
+const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
+const availableModules = () => MODULES.filter(m => m.can());
+
+function setModuleMenu(open) {
+  const menu = document.getElementById('ws-menu');
+  menu.hidden = !open;
+  document.getElementById('ws-trigger').setAttribute('aria-expanded', String(open));
+  document.getElementById('ws-switch').classList.toggle('is-on', open);
+}
+
+function drawModule(section) {
+  const current = moduleOf(section);
+  const pages = { ...readPages(), [current]: location.hash || '#/' };
+  try { sessionStorage.setItem(MOD_KEY, JSON.stringify(pages)); } catch { /* niente */ }
+  const mods = availableModules();
+  const mod = MODULES.find(m => m.key === current);
+  // menu laterale del modulo
+  for (const nav of document.querySelectorAll('.sidebar [data-ws]')) nav.hidden = nav.dataset.ws !== current;
+  const sw = document.getElementById('ws-switch');
+  sw.hidden = mods.length < 2;
+  if (sw.hidden) return;
+  document.getElementById('ws-name').textContent = mod.label;
+  document.getElementById('ws-badge').replaceChildren(icon(mod.icon, { size: 18 }));
+  document.getElementById('ws-menu').replaceChildren(...mods.map(m => {
+    const a = document.createElement('a');
+    a.href = m.key === current ? m.home : (pages[m.key] || m.home);
+    a.setAttribute('role', 'menuitem');
+    a.className = m.key === current ? 'active' : '';
+    const badge = document.createElement('span');
+    badge.className = 'ws-badge';
+    badge.append(icon(m.icon, { size: 16 }));
+    const check = document.createElement('span');
+    check.className = 'ws-check';
+    check.append(icon('check', { size: 16 }));
+    a.append(badge, m.label, check);
+    a.addEventListener('click', () => setModuleMenu(false));
+    return a;
+  }));
+}
+
+function setupModules() {
+  const trigger = document.getElementById('ws-trigger');
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    setModuleMenu(document.getElementById('ws-menu').hidden);
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('#ws-switch')) setModuleMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setModuleMenu(false); });
+}
 function goBack() {
   const stack = readStack();
   if (stack.length > 1) history.back();
@@ -78,12 +137,15 @@ async function route() {
   const section = parts[0] || 'home';
 
   closeOverlays();
-  const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home' : section;
+  // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
+  const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
+    : section === 'energy' ? `energy-${parts[1] || 'panoramica'}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
   document.title = section === 'direct' ? 'Chat · Alma Planet' : 'Alma Planet';
   trackBack(section);
+  drawModule(section);
   cleanup?.();
   cleanup = null;
   clear(view).append(loading());
@@ -192,6 +254,7 @@ function drawMe() {
 async function start() {
   fillIcons(); // icone Lucide del menu laterale (data-icon in app.html)
   setupRail();
+  setupModules();
   store.me = await get('/api/me');
   await Promise.all([loadUsers(), loadProjects()]);
   drawMe();
@@ -212,8 +275,6 @@ async function start() {
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.software;
-  // Alma Energy: solo i membri della BU Energy (il server lo rifiuta comunque agli altri)
-  for (const id of ['nav-energy-label', 'nav-energy']) document.getElementById(id).hidden = !store.me.energy;
   refreshBadges();
 
   document.getElementById('back').addEventListener('click', goBack);
