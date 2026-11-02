@@ -24,6 +24,7 @@ const OSM = {
     way(1, { building: 'retail', name: 'Conad Superstore', shop: 'supermarket', 'addr:city': 'Pescara' }, gA),
     way(2, { building: 'industrial' }, gB),
     way(3, { building: 'industrial', name: 'Piccola Srl' }, gC),
+    way(4, { building: 'yes' }, square(42.30, 13.90, 60)), // 3.600 m² in campagna, senza nome: fuori
     { type: 'way', id: 10, tags: { landuse: 'industrial', name: 'Fater' }, bounds: { minlat: 42.44, maxlat: 42.47, minlon: 14.19, maxlon: 14.22 } },
     { type: 'node', id: 20, lat: 42.4502, lon: 14.2003, tags: { 'generator:source': 'solar', power: 'generator' } },
     { type: 'node', id: 30, lat: 42.455, lon: 14.205, tags: { place: 'town', name: 'Cepagatti' } },
@@ -43,6 +44,8 @@ async function fakeFetch(url) {
   }
   if (url.includes('PVcalc')) {
     calls.pvgis++;
+    // il centro della cella del supermercato cade in mare: risponde solo il punto dell'edificio
+    if (url.includes('lat=42.5&lon=14.1')) return new Response(JSON.stringify({ message: 'Location over the sea', status: 400 }), { status: 400 });
     return new Response(JSON.stringify({ outputs: { totals: { fixed: { E_y: 1300 } } } }), { status: 200 });
   }
   throw new Error(`chiamata inattesa: ${url}`);
@@ -77,6 +80,22 @@ test('OpenStreetMap: superficie, azienda dall\'edificio o dall\'area, profilo, c
   assert.deepEqual([a.company, a.profilo, a.city, a.fv_osm], ['Conad Superstore', 'D1', 'Pescara', 'No']);
   assert.deepEqual([b.company, b.profilo, b.city, b.fv_osm, b.fonte, b.confidenza], ['Fater', 'D3', 'Cepagatti', 'Sì', "OSM (nome dell'area)", 'bassa']);
   assert.equal(cellOf(42.40, 14.10), '42.5,14.1');
+});
+
+test('OpenStreetMap: un multipoligono a pezzi si richiude; pezzi aperti e superfici impossibili si scartano', () => {
+  const g = square(42.40, 14.10, 100);
+  // il quadrato in due vie, la seconda al contrario, più un pezzo che non si chiude
+  const rel = { type: 'relation', id: 7, tags: { building: 'industrial', name: 'Due Pezzi Spa' }, bounds: bounds(g), members: [
+    { type: 'way', role: 'outer', geometry: g.slice(0, 3) },
+    { type: 'way', role: 'outer', geometry: [...g.slice(2)].reverse() },
+    { type: 'way', role: 'outer', geometry: square(42.50, 14.50, 5000).slice(0, 3) },
+  ] };
+  const open = { type: 'way', id: 8, tags: { building: 'industrial' }, bounds: bounds(g), geometry: square(42.6, 14.6, 3000).slice(0, 4) };
+  const huge = way(9, { building: 'industrial' }, square(42.7, 14.7, 1000)); // 1 km²: errore della mappa
+  const rows = parseOverpass({ elements: [rel, open, huge] }, { minArea: 2000 });
+  assert.deepEqual(rows.map(r => r.key), ['r7']);
+  assert.ok(Math.abs(rows[0].area - 10000) < 5);
+  assert.ok(Math.abs(rows[0].lat - 42.40045) < 0.0001);
 });
 
 test('screening per provincia: opportunità PPA con punteggio e producibilità, rifarlo non duplica', async () => {
