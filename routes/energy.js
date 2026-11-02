@@ -7,7 +7,7 @@ const {
   planScreening, importScreening, planConventions, importConventions, ownersToPipeline, refreshRevamping, SIGNALS, OWNER_KEY_SQL, PRIORITY_ORDER,
 } = require('../lib/energy-import');
 const {
-  STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys, TARGET_STEPS, TARGET_OUTCOMES, checklistFor, STAGE_PROBABILITY,
+  STAGES, KINDS, COMPANY_TYPES, LINK_ROLES, RELATIONS, COMPANY_STATUS, INFLUENCE, CHANNELS, stageKeys, CLOSED_STAGES, openStages, FORWARD_ACTIONS, TARGET_STEPS, TARGET_OUTCOMES, checklistFor, STAGE_PROBABILITY,
 } = require('../lib/energy');
 const { cashflows, buyRevampSell, portfolioYear, sensitivity, DEFAULTS, PRICE_CURVE } = require('../lib/energy-sim');
 const { runScenario, summaryOf, FV_DEFAULTS, REVAMPING_DEFAULTS, PPA_DEFAULTS } = require('../lib/energy-scenarios');
@@ -163,7 +163,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     res.json({
       meta: { stages: STAGES, kinds: KINDS, companyTypes: COMPANY_TYPES, linkRoles: LINK_ROLES, relations: RELATIONS,
         companyStatus: COMPANY_STATUS, influence: INFLUENCE, channels: CHANNELS,
-        targetSteps: TARGET_STEPS.map(st => ({ key: st.key, label: st.label })), targetOutcomes: TARGET_OUTCOMES },
+        targetSteps: TARGET_STEPS.map(st => ({ key: st.key, label: st.label })), targetOutcomes: TARGET_OUTCOMES,
+        closedStages: CLOSED_STAGES, forwardActions: FORWARD_ACTIONS },
       members, counts, crm, can_manage_members: true, is_admin: Boolean(isAdmin(req)),
     });
   });
@@ -455,6 +456,15 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     if (f.data) f.data = { ...cur.data, ...f.data };
     if (!Object.keys(f).length) return res.json(cur);
     const { rows: [o] } = await db.query(updateSql('energy_opportunities', f), [id, ...vals(f)]);
+    // il progetto dell'opportunità porta il suo nome e il suo responsabile
+    if (o.project_id && (f.title || f.owner_id)) {
+      await db.query('UPDATE projects SET name = $2, owner_id = COALESCE($3, owner_id), updated_at = now() WHERE id = $1', [o.project_id, o.title.slice(0, 200), o.owner_id]);
+      // chi era responsabile resta nel progetto come membro
+      if (cur.owner_id && cur.owner_id !== o.owner_id) {
+        await db.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [o.project_id, cur.owner_id, req.user.id]);
+      }
+      if (o.owner_id) await db.query('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [o.project_id, o.owner_id]);
+    }
     // profilo di consumo cambiato sulla scheda di un tetto: punteggio e priorità con i parametri in uso
     if (o.kind === 'ppa_onsite' && f.data && f.data.profilo !== (cur.data || {}).profilo) {
       await tiers.rescoreRoof(db, id);
@@ -463,44 +473,89 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     res.json(o);
   });
 
-  // Cambio di stadio: resta nello storico. «perso» chiede il motivo; «target» passa da «Seleziona come target».
+  // Cosa serve per andare in uno stadio (ALM2-24, come i campi richiesti dal blueprint di BOSS): la finestra del
+  // passaggio li mostra, il server li controlla. PPA on-site: dall'analisi dei consumi la persona di riferimento,
+  // dalla proposta uno scenario del simulatore salvato sull'opportunità.
+  async function stageRequirements(o, stage) {
+    const out = [];
+    const keys = stageKeys(o.kind);
+    if (CLOSED_STAGES.includes(stage)) return out;
+    if (o.kind === 'ppa_onsite' && keys.indexOf(stage) >= keys.indexOf('analisi_consumi')) {
+      const { rows: [p] } = await db.query('SELECT 1 FROM energy_links WHERE opportunity_id = $1 AND person_id IS NOT NULL LIMIT 1', [o.id]);
+      out.push({ key: 'persona', label: 'Persona di riferimento del cliente collegata', ok: Boolean(p),
+        hint: 'Collegala nel tab «Opportunità», riquadro «Aziende e persone collegate».' });
+    }
+    if (o.kind === 'ppa_onsite' && keys.indexOf(stage) >= keys.indexOf('proposta')) {
+      const { rows: [sc] } = await db.query('SELECT 1 FROM energy_scenarios WHERE opportunity_id = $1 LIMIT 1', [o.id]);
+      out.push({ key: 'scenario', label: 'Scenario del simulatore salvato sull\'opportunità', ok: Boolean(sc), hint: 'La proposta parte da lì: «Apri nel simulatore».' });
+    }
+    return out;
+  }
+  app.get('/api/energy/opportunities/:id/stage/:stage', async (req, res) => {
+    const o = await opportunityById(v.int(req.params.id, 'id', { min: 1 }));
+    const stage = v.oneOf(req.params.stage, 'Stadio', stageKeys(o.kind));
+    res.json({ requirements: await stageRequirements(o, stage), creates_project: !o.project_id && openStages(o.kind).indexOf(stage) > 0 });
+  });
+
+  // Cambio di stadio: resta nello storico. «perso» e «scartato» chiedono il motivo, riaprire da uno stadio chiuso
+  // (persa, scartata, standby) la motivazione; «target» passa da «Seleziona come target». Oltre il primo stadio
+  // l'opportunità ha il suo progetto di Alma Planet (deciso da Dante il 02/11).
   app.post('/api/energy/opportunities/:id/stage', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const cur = await opportunityById(id);
     const stage = v.oneOf(req.body.stage, 'Stadio', stageKeys(cur.kind));
     if (!stage) throw new HttpError(400, 'Scegli lo stadio');
     if (stage === 'target') throw new HttpError(400, 'Un\'opportunità diventa Impianto target con «Seleziona come target»');
-    // se il progetto del target è stato cancellato, l'opportunità torna a muoversi nella pipeline
-    if (cur.stage === 'target' && cur.project_id) throw new HttpError(400, 'L\'opportunità è già un Impianto target: si segue dal progetto');
+    if (cur.target_step) throw new HttpError(400, 'L\'opportunità è un Impianto target: si segue dall\'iter commerciale');
     const note = v.text(req.body.note, 'Nota', { max: 1000 }) || '';
-    const lostReason = stage === 'perso' ? v.text(req.body.lost_reason, 'Motivo', { max: 300, required: true }) : '';
+    const closing = stage === 'perso' || stage === 'scartato';
+    const lostReason = closing ? v.text(req.body.lost_reason, 'Motivo', { max: 300, required: true }) : '';
     if (stage === cur.stage) return res.json(cur);
-    // PPA on-site: dall'analisi dei consumi in poi serve una persona di riferimento collegata
-    const keys = stageKeys(cur.kind);
-    if (cur.kind === 'ppa_onsite' && stage !== 'perso' && keys.indexOf(stage) >= keys.indexOf('analisi_consumi')) {
-      const { rows: [p] } = await db.query('SELECT 1 FROM energy_links WHERE opportunity_id = $1 AND person_id IS NOT NULL LIMIT 1', [id]);
-      if (!p) throw new HttpError(400, 'Collega prima la persona di riferimento del cliente (scheda dell\'opportunità, «Collega»)');
+    if (CLOSED_STAGES.includes(cur.stage) && !CLOSED_STAGES.includes(stage) && !note) {
+      throw new HttpError(400, 'Scrivi perché la riapri');
     }
-    // e dalla proposta in poi uno scenario del simulatore salvato sull'opportunità
-    if (cur.kind === 'ppa_onsite' && stage !== 'perso' && keys.indexOf(stage) >= keys.indexOf('proposta')) {
-      const { rows: [sc] } = await db.query('SELECT 1 FROM energy_scenarios WHERE opportunity_id = $1 LIMIT 1', [id]);
-      if (!sc) throw new HttpError(400, 'Salva prima uno scenario del simulatore sull\'opportunità: la proposta parte da lì');
-    }
+    const missing = (await stageRequirements(cur, stage)).filter(r => !r.ok);
+    if (missing.length) throw new HttpError(400, `Prima: ${missing.map(r => r.label.toLowerCase()).join('; ')}`);
     const opp = await db.tx(async q => {
       const { rows: [o] } = await q.query(
         `UPDATE energy_opportunities SET stage = $2, lost_reason = $3, stage_changed_at = now(), updated_at = now() WHERE id = $1 RETURNING *`,
         [id, stage, lostReason]);
       await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
-        [id, cur.stage, stage, stage === 'perso' ? [lostReason, note].filter(Boolean).join(' · ') : note, req.user.id]);
+        [id, cur.stage, stage, closing ? [lostReason, note].filter(Boolean).join(' · ') : note, req.user.id]);
+      if (openStages(o.kind).indexOf(stage) > 0) o.project_id = await ensureProject(q, o, req.user.id);
       return o;
     });
     res.json(opp);
   });
 
+  // Il progetto di Alma Planet dell'opportunità (Gantt, ticket, documenti, email, incontri, note, membri): nasce la prima
+  // volta che serve, riservato alla BU Energy, con i membri del modulo. Restituisce l'id.
+  async function ensureProject(q, o, userId) {
+    if (o.project_id) return o.project_id;
+    const owner = o.owner_id || userId;
+    const { rows: [p] } = await q.query(
+      `INSERT INTO projects (name, description, color, status, start_date, owner_id, energy)
+       VALUES ($1, $2, '#F2A900', 'active', $3, $4, true) RETURNING id`,
+      [o.title.slice(0, 200), `Opportunità di Alma Energy (${KINDS[o.kind]}).`, romeNow().day, owner]);
+    for (const uid of await energyMemberIds(q)) {
+      if (uid !== owner) await q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [p.id, uid, userId]);
+    }
+    await q.query('UPDATE energy_opportunities SET project_id = $2 WHERE id = $1', [o.id, p.id]);
+    return p.id;
+  }
+
+  // Dal progetto all'opportunità (link dei ticket e delle notifiche che portano a #/projects/…).
+  app.get('/api/energy/projects/:projectId/opportunity', async (req, res) => {
+    const pid = v.int(req.params.projectId, 'projectId', { min: 1 });
+    const { rows: [r] } = await db.query('SELECT id FROM energy_opportunities WHERE project_id = $1', [pid]);
+    if (!r) throw new HttpError(404, 'Il progetto non è di un\'opportunità');
+    res.json(r);
+  });
+
   app.delete('/api/energy/opportunities/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const cur = await opportunityById(id);
-    if (cur.project_id) throw new HttpError(400, 'L\'opportunità è già un Impianto target: archivia il progetto invece di cancellarla');
+    if (cur.project_id) throw new HttpError(400, 'L\'opportunità ha il suo progetto: segnala persa o scartata invece di cancellarla');
     await db.query('DELETE FROM energy_opportunities WHERE id = $1', [id]);
     res.json({ ok: true });
   });
@@ -558,17 +613,17 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     let filter, params;
     if (req.params.kind === 'target') { // gli Impianti target dei tre tipi
       params = req.query.q ? [`%${String(req.query.q).trim()}%`] : [];
-      filter = `o.project_id IS NOT NULL${params.length ? ' AND (o.title ILIKE $1 OR c.name ILIKE $1)' : ''}`;
+      filter = `o.target_step IS NOT NULL${params.length ? ' AND (o.title ILIKE $1 OR c.name ILIKE $1)' : ''}`;
     } else {
       const kind = Object.keys(KINDS).includes(req.params.kind) ? req.params.kind : null;
       if (!kind) throw new HttpError(400, 'Tipo non valido');
       ({ filter, params } = pipelineFilter(kind, req.query));
     }
     const { rows } = await db.query(
-      `SELECT o.id, o.kind, o.title, o.stage, o.priority, o.mw, o.lat, o.lon, o.region, o.province, o.city, o.project_id,
+      `SELECT o.id, o.kind, o.title, o.stage, o.priority, o.mw, o.lat, o.lon, o.region, o.province, o.city, o.project_id, o.target_step,
               o.target_step, o.target_outcome, c.name AS company_name, (o.data->>'incassi_persi')::float AS incassi_persi
          FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id
-        WHERE ${filter} AND o.stage <> 'perso'`, params);
+        WHERE ${filter} AND o.stage NOT IN ('perso', 'scartato')`, params);
     const points = rows.filter(r => r.lat !== null && r.lon !== null);
     const regions = {};
     for (const r of rows.filter(x => x.lat === null || x.lon === null)) {
@@ -749,7 +804,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     const { rows } = await db.query(
       `SELECT o.id, o.title, o.kind, o.stage, s->>'label' AS label, (s->>'date')::date AS date
          FROM energy_opportunities o, jsonb_array_elements(COALESCE(o.data->'scadenze', '[]'::jsonb)) s
-        WHERE o.stage NOT IN ('perso', 'target') AND s->>'date' ~ '^\\d{4}-\\d{2}-\\d{2}$' AND NOT COALESCE((s->>'done')::boolean, false)
+        WHERE o.stage NOT IN ('perso', 'scartato', 'target') AND s->>'date' ~ '^\\d{4}-\\d{2}-\\d{2}$' AND NOT COALESCE((s->>'done')::boolean, false)
           AND (s->>'date')::date <= CURRENT_DATE + $1::int
         ORDER BY (s->>'date')::date`, [days]);
     res.json(rows);
@@ -760,11 +815,11 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
   // sull'opportunità). Più IRR medio degli scenari scelti, opportunità ferme, step dei target in scadenza e ultimi cambi.
   const probabilityOf = o => {
     if (o.probability !== null && o.probability !== undefined) return o.probability;
-    if (o.project_id) return STAGE_PROBABILITY.target[o.target_outcome || o.target_step] ?? 50;
+    if (o.target_step) return STAGE_PROBABILITY.target[o.target_outcome || o.target_step] ?? 50;
     return STAGE_PROBABILITY[o.kind]?.[o.stage] ?? 0;
   };
   // fase dell'opportunità nel cruscotto: stadio della pipeline, step del target o esito
-  const phaseOf = o => (o.project_id ? `target:${o.target_outcome || o.target_step}` : o.stage);
+  const phaseOf = o => (o.target_step ? `target:${o.target_outcome || o.target_step}` : o.stage);
 
   async function dashboardData(days) {
     const { rows } = await db.query(
@@ -772,7 +827,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
               o.stage_changed_at, o.target_step_changed_at, o.city, o.province, o.region, c.name AS company_name, u.name AS owner_name,
               COALESCE((o.data->'scenario'->>'irr')::float, (o.data->'scenario'->>'irrC25')::float) AS irr
          FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id LEFT JOIN users u ON u.id = o.owner_id`);
-    const closed = o => o.stage === 'perso' || o.target_outcome === 'perso';
+    const closed = o => CLOSED_STAGES.includes(o.stage) || o.target_outcome === 'perso';
     const blank = () => ({ count: 0, mw: 0, capex: 0, mwWeighted: 0, capexWeighted: 0 });
     const addTo = (acc, o) => {
       const p = probabilityOf(o) / 100;
@@ -795,10 +850,10 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
       addTo(totals, o);
       if (o.irr !== null && Number.isFinite(o.irr)) irrs.push(o.irr);
     }
-    const targets = rows.filter(o => o.project_id);
+    const targets = rows.filter(o => o.target_step);
     // ferme: oltre il primo stadio (gli import partono tutti dal primo) e senza cambi da più di `days` giorni
     const limit = Date.now() - days * 86400000;
-    const stale = rows.filter(o => !o.project_id && !closed(o) && o.stage !== 'target' && stageKeys(o.kind).indexOf(o.stage) > 0
+    const stale = rows.filter(o => !o.target_step && !closed(o) && o.stage !== 'target' && stageKeys(o.kind).indexOf(o.stage) > 0
       && Date.parse(o.stage_changed_at) < limit)
       .sort((a, b) => Date.parse(a.stage_changed_at) - Date.parse(b.stage_changed_at));
     const [{ rows: dueSteps }, { rows: recent }] = await Promise.all([
@@ -840,7 +895,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
   // Export in Excel: riepilogo per tipo e stadio, tutte le opportunità delle pipeline, gli Impianti target.
   app.get('/api/energy/cruscotto/excel', async (_req, res) => {
     const d = await dashboardData(30);
-    const label = o => (o.project_id ? (o.target_outcome ? TARGET_OUTCOMES[o.target_outcome] : TARGET_STEPS.find(s => s.key === o.target_step)?.label)
+    const label = o => (o.target_step ? (o.target_outcome ? TARGET_OUTCOMES[o.target_outcome] : TARGET_STEPS.find(s => s.key === o.target_step)?.label)
       : STAGES[o.kind].find(([k]) => k === o.stage)?.[1] || o.stage);
     const r2 = x => (x === null || x === undefined ? null : Math.round(Number(x) * 100) / 100);
     const summary = [['Tipo', 'Fase', 'Opportunità', 'MW', 'Capex (€)', 'MW pesati', 'Capex pesato (€)', 'Probabilità (%)']];
@@ -859,8 +914,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
       o.owner_name || '', String(o.target_step_changed_at || o.stage_changed_at || '').slice(0, 10)];
     const file = writeXlsx({
       Riepilogo: summary,
-      Pipeline: [oppCols, ...d.rows.filter(o => !o.project_id).map(oppRow)],
-      'Impianti target': [oppCols, ...d.rows.filter(o => o.project_id).map(oppRow)],
+      Pipeline: [oppCols, ...d.rows.filter(o => !o.target_step).map(oppRow)],
+      'Impianti target': [oppCols, ...d.rows.filter(o => o.target_step).map(oppRow)],
     });
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -883,19 +938,16 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
   app.post('/api/energy/opportunities/:id/target', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const o = await opportunityById(id);
-    if (o.project_id) throw new HttpError(400, 'È già un Impianto target');
-    if (o.stage === 'perso') throw new HttpError(400, 'L\'opportunità è persa: riaprila prima di farne un target');
+    if (o.target_step) throw new HttpError(400, 'È già un Impianto target');
+    if (CLOSED_STAGES.includes(o.stage)) throw new HttpError(400, 'L\'opportunità è chiusa o in standby: riaprila prima di farne un target');
     if (o.kind === 'fv_classico' && o.stage !== 'rtb') throw new HttpError(400, 'Un progetto FV classico diventa target solo quando è RTB');
     const owner = o.owner_id || req.user.id;
     const projectId = await db.tx(async q => {
       const today = romeNow().day;
-      const { rows: [p] } = await q.query(
-        `INSERT INTO projects (name, description, color, status, start_date, owner_id, energy)
-         VALUES ($1, $2, '#F2A900', 'active', $3, $4, true) RETURNING id`,
-        [o.title.slice(0, 200), `Impianto target di Alma Energy (${KINDS[o.kind]}). Scheda dell'impianto: Alma Energy → Impianti target.`, today, owner]);
-      for (const uid of await energyMemberIds(q)) {
-        if (uid !== owner) await q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [p.id, uid, req.user.id]);
-      }
+      // lo stesso progetto dell'opportunità (o nuovo, se era ancora al primo stadio)
+      const pid = await ensureProject(q, o, req.user.id);
+      await q.query("UPDATE projects SET description = CASE WHEN description LIKE 'Opportunità di Alma Energy%' THEN $2 ELSE description END, updated_at = now() WHERE id = $1",
+        [pid, `Impianto target di Alma Energy (${KINDS[o.kind]}).`]);
       // una riga del Gantt per step, una dopo l'altra, al responsabile dell'impianto
       let start = today;
       const { rows: [{ pos }] } = await q.query('SELECT COALESCE(MAX(position), 0) AS pos FROM tickets');
@@ -904,23 +956,23 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
         const { rows: [t] } = await q.query(
           `INSERT INTO tickets (project_id, title, description, status, start_date, due_date, position, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-          [p.id, stepTicketTitle(i, st), `Checklist nella scheda dell'impianto (Alma Energy).`, i === 0 ? 'doing' : 'todo', start, due, pos + i + 1, req.user.id]);
+          [pid, stepTicketTitle(i, st), `Checklist nella scheda dell'impianto (Alma Energy).`, i === 0 ? 'doing' : 'todo', start, due, pos + i + 1, req.user.id]);
         await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [t.id, owner]);
         start = addWorkdays(due, 1);
       }
       await q.query(
         `UPDATE energy_opportunities SET project_id = $2, stage = 'target', target_step = $3, target_outcome = NULL, target_checklist = '{}',
-                target_step_changed_at = now(), stage_changed_at = now(), updated_at = now() WHERE id = $1`, [id, p.id, STEP_KEYS[0]]);
+                target_step_changed_at = now(), stage_changed_at = now(), updated_at = now() WHERE id = $1`, [id, pid, STEP_KEYS[0]]);
       await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
         [id, o.stage, 'target', 'Selezionata come Impianto target', req.user.id]);
-      return p.id;
+      return pid;
     });
     res.status(201).json({ project_id: projectId });
   });
 
   async function targetById(id) {
     const o = await opportunityById(id);
-    if (!o.project_id) throw new HttpError(400, 'Non è un Impianto target');
+    if (!o.target_step) throw new HttpError(400, 'Non è un Impianto target');
     return o;
   }
   // il ticket del Gantt di uno step: «Step N · …» nel progetto del target
@@ -991,7 +1043,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
   // Kanban degli Impianti target: colonne per step, più le colonne degli esiti.
   app.get('/api/energy/targets', async (req, res) => {
     const params = [];
-    const where = ['o.project_id IS NOT NULL'];
+    const where = ['o.target_step IS NOT NULL'];
     if (req.query.kind) { params.push(kindOf(String(req.query.kind))); where.push(`o.kind = $${params.length}`); }
     if (req.query.q) { params.push(`%${String(req.query.q).trim()}%`); where.push(`(o.title ILIKE $${params.length} OR c.name ILIKE $${params.length})`); }
     const { rows } = await db.query(

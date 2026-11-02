@@ -71,7 +71,7 @@ export async function pipelineView(box, kind) {
 
 function column(kind, st, perStage, reload) {
   const sub = kind === 'revamping' ? (st.lost ? `${eur(Math.round(st.lost))} persi/anno` : '') : st.mw ? `${num(st.mw, 1)} MW` : '';
-  const col = h('section.en-col', { class: st.key === 'perso' ? 'lost' : st.key === 'target' ? 'target' : '', 'data-stage': st.key },
+  const col = h('section.en-col', { class: meta.closedStages.includes(st.key) ? 'lost' : st.key === 'target' ? 'target' : '', 'data-stage': st.key },
     h('header.en-col-head', h('span.en-col-name', st.label), h('span.en-col-n', num(st.count))),
     sub ? h('div.en-col-sub', sub) : null,
     h('div.en-cards', st.cards.map(c => card(kind, c, reload))),
@@ -90,11 +90,16 @@ function column(kind, st, perStage, reload) {
     const from = e.dataTransfer.getData('application/x-stage');
     if (!id || from === st.key || st.key === 'target') return;
     let lost_reason;
-    if (st.key === 'perso') {
-      lost_reason = await promptDialog('Perché è persa?', { label: 'Motivo', ok: 'Segna come persa' });
+    let note;
+    if (st.key === 'perso' || st.key === 'scartato') {
+      lost_reason = await promptDialog(st.key === 'perso' ? 'Perché è persa?' : 'Perché la scarti?', { label: 'Motivo', ok: st.label });
       if (!lost_reason) return;
+    } else if (meta.closedStages.includes(from) && !meta.closedStages.includes(st.key)) {
+      // come in BOSS: riaprire da persa, scartata o standby chiede la motivazione
+      note = await promptDialog('Riapri l\'opportunità', { label: 'Perché la riapri', ok: 'Riapri' });
+      if (!note) return;
     }
-    await post(`/api/energy/opportunities/${id}/stage`, { stage: st.key, lost_reason });
+    await post(`/api/energy/opportunities/${id}/stage`, { stage: st.key, lost_reason, note });
     toast(`Spostata in «${st.label}»`);
     reload();
   });

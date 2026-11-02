@@ -4,7 +4,7 @@
 import { h, fill, modal, toast, loading, debounce, confirmDialog, promptDialog } from './ui.js';
 import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';
-import { meta, num, select, openOpportunity, ensureMeta } from './energy.js';
+import { meta, num, select, ensureMeta } from './energy.js';
 import { mapView } from './energy-map.js';
 
 const KIND_SHORT = { ppa_onsite: 'PPA on-site', revamping: 'Revamping', fv_classico: 'FV classico' };
@@ -29,7 +29,7 @@ export async function targetsView(box) {
       select([['', 'Tutti i tipi'], ...Object.entries(KIND_SHORT)], '', { on: { change: e => { state.kind = e.target.value; load(); } } })),
     board);
   async function load() {
-    if (view === 'mappa') return mapView(board, 'target', { q: state.q }, p => openTarget(p.id, load));
+    if (view === 'mappa') return mapView(board, 'target', { q: state.q }, p => openTarget(p.id));
     const { columns } = await get(`/api/energy/targets${qs(state)}`);
     if (!columns.some(c => c.count) && !state.q && !state.kind) {
       return fill(board, h('div.card.empty', 'Nessun Impianto target. Si sceglie dalla scheda di un\'opportunità con «Seleziona come target» (per il FV classico da RTB).'));
@@ -38,7 +38,7 @@ export async function targetsView(box) {
       h('header.en-col-head', h('span.en-col-name', c.label), h('span.en-col-n', num(c.count))),
       c.mw ? h('div.en-col-sub', `${num(c.mw, 1)} MW`) : null,
       h('div.en-cards', c.cards.map(t => h('article.en-card', { tabindex: 0, on: {
-        click: () => openTarget(t.id, load), keydown: e => { if (e.key === 'Enter') openTarget(t.id, load); },
+        click: () => openTarget(t.id), keydown: e => { if (e.key === 'Enter') openTarget(t.id); },
       } },
       h('div.en-card-top', kindPill(t.kind), h('span.en-card-title', t.title)),
       t.company_name && !t.title.startsWith(t.company_name) ? h('div.t-meta', t.company_name) : null,
@@ -100,8 +100,8 @@ function iterPanel(d, refresh, { inProject = false } = {}) {
       h('dt', 'Scenario scelto'), h('dd', d.scenario ? `${d.scenario.name}${d.scenario.irr !== undefined ? ` · IRR ${pct(d.scenario.irr)}` : ''}` : '—'),
       h('dt', 'Responsabile'), h('dd', d.owner_name || '—')),
     h('div.en-stage-row',
-      h('button.btn.btn-sm', { type: 'button', on: { click: () => openOpportunity(d.id, refresh) } }, 'Scheda dell\'impianto (aziende, persone, scenari)'),
-      inProject ? null : h('a.btn.btn-sm', { href: `#/projects/${d.project_id}/gantt` }, icon('folder', { size: 15 }), 'Apri il progetto'))),
+      h('a.btn.btn-sm', { href: `#/energy/opportunita/${d.id}/opportunita` }, 'Dati dell\'impianto (aziende, persone, scenari)'),
+      h('a.btn.btn-sm', { href: `#/energy/opportunita/${d.id}/gantt` }, icon('gantt', { size: 15 }), 'Gantt'))),
     d.history.length ? h('section.en-sec', h('h3', 'Storico dell\'iter'), h('ul.en-history', d.history.map(x => h('li',
       h('strong', historyLabel(x.to_stage)), x.note ? h('span.muted', ` · ${x.note}`) : null,
       h('div.t-meta', [when(x.at), x.user_name].filter(Boolean).join(' · ')))))) : null);
@@ -115,17 +115,12 @@ function historyLabel(s) {
   return s;
 }
 
-export async function openTarget(id, onChange) {
-  const d = await get(`/api/energy/opportunities/${id}/target`);
-  const m = modal({
-    drawer: true,
-    title: h('div', h('h2', d.title), h('div.en-head-pills', kindPill(d.kind), h('span.pill.en-stage', h('span.dot'),
-      d.target_outcome ? meta.targetOutcomes[d.target_outcome] : d.steps.find(s => s.state === 'attuale')?.label))),
-    body: iterPanel(d, () => { m.close(); onChange?.(); openTarget(id, onChange); }),
-  });
+// L'iter del target si segue nella pagina dell'opportunità, tab «Iter del target» (ALM2-24).
+export function openTarget(id) {
+  location.hash = `#/energy/opportunita/${id}/iter`;
 }
 
-// Tab «Impianto» nella scheda del progetto di Alma Planet.
+// Tab «Iter del target» nella pagina dell'opportunità.
 export async function targetTab(box, projectId) {
   fill(box, loading());
   let d;
@@ -142,10 +137,10 @@ export async function targetTab(box, projectId) {
 export function selectAsTargetButton(o, onDone) {
   const ready = o.kind !== 'fv_classico' || o.stage === 'rtb';
   return h('button.btn', {
-    type: 'button', disabled: !ready || o.stage === 'perso',
-    title: ready ? 'Crea il progetto dell\'impianto con l\'iter commerciale' : 'Il FV classico diventa target quando è RTB',
+    type: 'button', disabled: !ready || meta.closedStages.includes(o.stage),
+    title: ready ? 'Parte l\'iter commerciale dell\'impianto' : 'Il FV classico diventa target quando è RTB',
     on: { click: async () => {
-      if (!await confirmDialog(`Fare di «${o.title}» un Impianto target? Nasce un progetto di Alma Planet riservato alla BU Energy, con Gantt, ticket, documenti, note e incontri, e l'iter: contatto del venditore, due diligence, approvazione, offerta.`, { ok: 'Seleziona come target' })) return;
+      if (!await confirmDialog(`Fare di «${o.title}» un Impianto target? Parte l'iter commerciale (contatto del venditore, due diligence, approvazione, offerta), con uno step per riga nel Gantt del progetto dell'opportunità.`, { ok: 'Seleziona come target' })) return;
       const r = await post(`/api/energy/opportunities/${o.id}/target`, {});
       toast('Impianto target creato');
       onDone?.(r.project_id);

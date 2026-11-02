@@ -86,7 +86,8 @@ export async function projectsView(container) {
   function draw() {
     drawSelect();
     clear(body);
-    const list = store.projects.filter(p => showArchived || p.status !== 'archived');
+    // i progetti delle opportunità di Alma Energy si aprono da Alma Energy (ALM2-24)
+    const list = store.projects.filter(p => !p.energy && (showArchived || p.status !== 'archived'));
     if (!store.areas.length) {
       // senza macro aree: la griglia di sempre, con l'invito a crearle
       if (!list.length) return body.append(h('div.card.empty', 'Ancora nessun progetto.'));
@@ -188,19 +189,32 @@ const TABS = [
 ];
 const canManage = p => p.my_role === 'owner' || p.my_role === 'admin';
 
-export async function projectDetail(container, id) {
+// opts (pagina dell'opportunità di Alma Energy, ALM2-24): base dell'indirizzo dei tab, percorso, riga in più
+// nell'intestazione (lo stadio), azioni al posto di «Modifica» e tab in più dopo la Panoramica: [chiave, etichetta, disegna].
+export async function projectDetail(container, id, opts = {}) {
   clear(container).append(loading());
   await Promise.all([loadProjects(), loadAreas()]);
   const p = projectById(id);
   const area = areaById(p?.area_id);
   if (!p) return clear(container).append(h('div.card.empty', 'Progetto non trovato, oppure non sei tra i suoi membri. ', h('a', { href: '#/projects' }, 'Torna ai progetti')));
+  // il progetto di un'opportunità di Alma Energy si apre nella pagina dell'opportunità
+  if (p.energy && !opts.base) {
+    const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2] || '';
+    const r = await get(`/api/energy/projects/${p.id}/opportunity`, { quiet: true }).catch(() => null);
+    if (r) {
+      location.replace(`#/energy/opportunita/${r.id}${t ? `/${t === 'impianto' ? 'iter' : t}` : ''}`);
+      return;
+    }
+  }
   const owner = userById(p.owner_id);
-  // Impianto target di Alma Energy: in più il tab «Impianto» con l'iter commerciale e la scheda dell'impianto
-  const tabs = p.energy ? [TABS[0], ['impianto', 'Impianto'], ...TABS.slice(1)] : TABS;
+  const extra = opts.extraTabs || [];
+  const tabs = [TABS[0], ...extra.map(([k, label]) => [k, label]), ...TABS.slice(1)];
+  const base = opts.base || `#/projects/${p.id}`;
+  const reload = () => projectDetail(container, id, opts);
   const tabFromHash = () => {
-    const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2];
+    const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[base.replace(/^#\/?/, '').split('/').length];
     if (t === 'cartella') return 'documenti'; // vecchio tab, ora dentro Documenti
-    return tabs.some(([k]) => k === t) ? t : 'panoramica';
+    return tabs.some(([k]) => k === t) ? t : opts.defaultTab || 'panoramica';
   };
   let tab = tabFromHash();
   let cleanupTab = null;
@@ -211,8 +225,9 @@ export async function projectDetail(container, id) {
   const crew = h('span.pj-crew', h('span.muted', `${p.member_count + 1} ${p.member_count ? 'persone' : 'persona'}`));
   const head = h('header.pj-head', { style: { '--c': p.color } },
     h('nav.pj-top', { 'aria-label': 'Percorso' },
-      h('a.pj-crumb', { href: '#/projects' }, icon('chevron-left', { size: 16 }), 'Progetti'),
-      area ? [h('span.pj-crumb-sep', '/'), h('span.pj-crumb.pj-area', { style: { '--ac': area.color } }, h('span.area-dot'), area.name)] : null),
+      opts.crumb ? h('a.pj-crumb', { href: opts.crumb.href }, icon('chevron-left', { size: 16 }), opts.crumb.label)
+        : h('a.pj-crumb', { href: '#/projects' }, icon('chevron-left', { size: 16 }), 'Progetti'),
+      area && !opts.crumb ? [h('span.pj-crumb-sep', '/'), h('span.pj-crumb.pj-area', { style: { '--ac': area.color } }, h('span.area-dot'), area.name)] : null),
     h('div.pj-row',
       h('div.pj-title',
         h('div.pj-name', h('span.pj-swatch'), h('h1', p.name),
@@ -220,11 +235,11 @@ export async function projectDetail(container, id) {
         h('div.pj-meta', [owner ? `Responsabile ${owner.name}` : 'Senza responsabile',
           p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  '))),
       h('div.pj-actions',
-        canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, () => projectDetail(container, id)) } }, icon('pencil', { size: 16 }), 'Modifica') : null,
+        opts.actions ? opts.actions() : canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, reload) } }, icon('pencil', { size: 16 }), 'Modifica') : null,
         h('button.btn.btn-primary', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, icon('plus', { size: 16 }), 'Nuovo ticket'),
         moreMenu(
           h('span.pj-menu-label', 'La tua macro area'),
-          areaPicker(p, () => projectDetail(container, id)),
+          areaPicker(p, reload),
           h('span.pj-menu-sep'),
           p.claude_url ? h('a.pj-menu-item', { href: p.claude_url, target: '_blank', rel: 'noopener', role: 'menuitem' }, icon('external', { size: 16 }), 'Apri in Claude') : null,
           h('a.pj-menu-item', { href: `#/gantt?project=${p.id}`, role: 'menuitem' }, icon('gantt', { size: 16 }), 'Apri il Gantt a tutta pagina')))),
@@ -232,7 +247,8 @@ export async function projectDetail(container, id) {
       fact('Durata', dates(p), h('span.pj-fact-note', 'dalle attività del Gantt')),
       fact('Avanzamento', `${pct(p)} %`, h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
       fact('Ticket aperti', `${open} di ${p.ticket_count}`, lateNote),
-      fact('Persone', crew)));
+      fact('Persone', crew)),
+    opts.head || null);
   // ticket in ritardo e volti delle persone: si leggono a parte
   get(`/api/tickets?project=${p.id}&status=open`, { quiet: true }).then(list => {
     const n = list.filter(t => t.due_date && t.due_date < today()).length;
@@ -279,23 +295,24 @@ export async function projectDetail(container, id) {
   // Ogni tab si disegna quando lo si apre, quindi mostra sempre dati aggiornati.
   function show(k) {
     tab = k;
-    history.replaceState(null, '', `#/projects/${p.id}/${k}`);
+    history.replaceState(null, '', `${base}/${k}`);
     nav.querySelectorAll('.pj-tab').forEach(b => { b.classList.toggle('on', b.dataset.k === k); b.setAttribute('aria-selected', String(b.dataset.k === k)); });
     cleanupTab?.();
     cleanupTab = null;
     const box = h('div.pj-pane');
     clear(content).append(box);
-    if (k === 'panoramica') overview(box);
+    const ex = extra.find(([x]) => x === k);
+    if (ex) ex[2](box, reload);
+    else if (k === 'panoramica') overview(box);
     else if (k === 'gantt') {
       if (isMobile()) timeline(box, p, () => {});
       else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
-    else if (k === 'documenti') projectDocuments(box, p.id, { canManage: canManage(p), onFolderChanged: () => projectDetail(container, id) });
+    else if (k === 'documenti') projectDocuments(box, p.id, { canManage: canManage(p), onFolderChanged: reload });
     else if (k === 'email') projectEmails(box, p);
     else if (k === 'incontri') projectMeetings(box, p, { onCount: setMeetingsCount });
     else if (k === 'note') notesPanel(box, { url: `/api/projects/${p.id}/notes`, showTicket: true, onCount: setNotesCount });
     else if (k === 'membri') members(box);
-    else if (k === 'impianto') import('./energy-target.js').then(m => m.targetTab(box, p.id));
   }
 
   // ── Panoramica: un riassunto, non le altre viste ripetute. Ogni riquadro porta al suo tab ─────────
@@ -383,7 +400,7 @@ export async function projectDetail(container, id) {
       await del(`/api/projects/${p.id}/members/${m.id}`);
       if (self) { await loadProjects(); location.hash = '#/projects'; return; }
       toast(`${m.name} non è più nel progetto`);
-      projectDetail(container, id); // ricarica anche intestazione e contatori
+      reload(); // ricarica anche intestazione e contatori
     }
 
     function addPeople() {
@@ -398,7 +415,7 @@ export async function projectDetail(container, id) {
             await post(`/api/projects/${p.id}/members`, { user_ids: picker.value });
             md.close();
             toast(picker.value.length === 1 ? 'Persona aggiunta al progetto' : `${picker.value.length} persone aggiunte al progetto`);
-            projectDetail(container, id); // ricarica anche intestazione e contatori
+            reload(); // ricarica anche intestazione e contatori
           } } }, 'Aggiungi'),
         ],
       });

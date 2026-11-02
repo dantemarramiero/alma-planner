@@ -7,8 +7,9 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
 import { simulatorView, scenariosSection } from './energy-simulator.js';
-import { targetsView, openTarget, selectAsTargetButton } from './energy-target.js';
+import { targetsView, openTarget } from './energy-target.js';
 import { paramsView } from './energy-params.js';
+import { opportunityPage } from './energy-opportunity.js';
 
 const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Impianti target'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['parametri', 'Parametri dei tier'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
@@ -22,15 +23,15 @@ export async function ensureMeta() {
 }
 export const num = (n, d = 0) => (n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('it-IT', { maximumFractionDigits: d }));
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
-const stageLabel = (kind, s) => (meta.stages[kind] || []).find(([k]) => k === s)?.[1] || s;
+export const stageLabel = (kind, s) => (meta.stages[kind] || []).find(([k]) => k === s)?.[1] || s;
 const personName = p => [p.title, p.first_name, p.last_name].filter(Boolean).join(' ');
 export const field = (label, control, hint) => h('label.field', h('span', label), control, hint ? h('small.muted', hint) : null);
 export const input = (attrs = {}) => h('input.input', attrs);
 export const select = (options, value, attrs = {}) => h('select.select', attrs, options.map(([k, label]) => h('option', { value: k, selected: String(k) === String(value ?? '') }, label)));
 const textarea = (value, attrs = {}) => h('textarea.input', { rows: 3, ...attrs }, value || '');
 const userOptions = () => [['', '—'], ...store.users.filter(u => u.active !== false).map(u => [u.id, u.name])];
-const kindPill = kind => h('span.pill.en-kind', { class: `en-k-${kind}` }, meta.kinds[kind]);
-const stagePill = (kind, stage) => h('span.pill.en-stage', { class: stage === 'perso' ? 'en-lost' : stage === 'target' ? 'en-target' : '' }, h('span.dot'), stageLabel(kind, stage));
+export const kindPill = kind => h('span.pill.en-kind', { class: `en-k-${kind}` }, meta.kinds[kind]);
+export const stagePill = (kind, stage) => h('span.pill.en-stage', { class: meta.closedStages?.includes(stage) ? 'en-lost' : stage === 'target' ? 'en-target' : '' }, h('span.dot'), stageLabel(kind, stage));
 
 // Legge i campi di un form: { nome: valore } dai controlli con data-k.
 function read(form) {
@@ -45,6 +46,11 @@ function read(form) {
 export async function energyView(container, parts = []) {
   if (!store.me.energy) return fill(container, h('div.card.empty', 'Alma Energy è riservato alla BU Energy.'));
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
+  // la pagina di un'opportunità ha la sua intestazione, come i progetti (ALM2-24)
+  if (tab === 'opportunita' && Number(parts[2])) {
+    await ensureMeta();
+    return opportunityPage(container, Number(parts[2]));
+  }
   const body = h('div.en-body', loading());
   fill(container,
     // le sezioni sono nel menu laterale del modulo (selettore «Modulo» come in MyWinery): qui il titolo della sezione
@@ -172,7 +178,6 @@ async function opportunitiesTab(box, openId) {
         h('td.num', num(o.mw, 2)), h('td', [o.city, o.province].filter(Boolean).join(', ') || '—'), h('td', o.owner_name || '—')))))));
   }
   await load();
-  if (openId) openOpportunity(Number(openId), load);
 }
 
 async function companyOptions() {
@@ -213,15 +218,17 @@ export async function opportunityForm({ kind, opp = null, onSaved }) {
   });
 }
 
-export async function openOpportunity(id, onChange) {
-  const o = await get(`/api/energy/opportunities/${id}`);
+// La pagina dell'opportunità (ALM2-24) si apre all'indirizzo #/energy/opportunita/<id>: da pipeline, mappa, elenchi.
+export function openOpportunity(id) {
+  location.hash = `#/energy/opportunita/${id}`;
+}
+
+// Tab «Opportunità» della pagina: dati, parti del tipo (screening, incassi GSE, dati autorizzativi), scenari del
+// simulatore, aziende e persone collegate, storico degli stadi. refresh() ridisegna la pagina.
+export function opportunitySheet(o, refresh) {
+  const id = o.id;
   const scenariosBox = h('div');
   scenariosSection(o).then(el => scenariosBox.replaceChildren(el)); // scenari del simulatore, caricati a parte
-  const stages = meta.stages[o.kind].filter(([k]) => k !== 'target');
-  const stageSel = select(stages, o.stage === 'target' ? '' : o.stage, { disabled: o.stage === 'target' });
-  const lost = input({ placeholder: 'Motivo (obbligatorio se perso)', hidden: o.stage !== 'perso', value: o.lost_reason || '' });
-  stageSel.addEventListener('change', () => { lost.hidden = stageSel.value !== 'perso'; });
-  const note = input({ placeholder: 'Nota sul passaggio (facoltativa)' });
   const links = h('div.en-links');
   const drawLinks = data => fill(links, data.links.length ? data.links.map(l => h('div.en-link',
     h('div.grow', h('strong', l.company_id ? l.company_name : personName(l)), h('div.t-meta', meta.linkRoles[l.role] || l.role,
@@ -230,47 +237,34 @@ export async function openOpportunity(id, onChange) {
     h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Scollega', on: { click: async () => {
       await del(`/api/energy/links/${l.id}`);
       drawLinks(await get(`/api/energy/opportunities/${id}`));
-      onChange?.();
     } } }, icon('x', { size: 15 })))) : h('p.muted.small', 'Nessuna azienda o persona collegata.'));
   drawLinks(o);
-  const m = modal({
-    drawer: true,
-    title: h('div', h('h2', o.title), h('div.en-head-pills', kindPill(o.kind), stagePill(o.kind, o.stage))),
-    body: h('div.en-detail',
-      o.project_id ? h('div.banner.en-target-banner', 'È un Impianto target: l\'iter commerciale si segue dalla scheda del target e dal progetto. ',
-        h('button.btn.btn-sm', { type: 'button', on: { click: () => { m.close(); openTarget(id, onChange); } } }, 'Apri l\'iter'),
-        h('a.btn.btn-sm', { href: `#/projects/${o.project_id}/impianto` }, 'Apri il progetto')) : h('section.en-sec', h('h3', 'Stadio'),
-        h('div.en-stage-row', stageSel, h('button.btn', { type: 'button', on: { click: async () => {
-          if (stageSel.value === o.stage) return;
-          await post(`/api/energy/opportunities/${id}/stage`, { stage: stageSel.value, note: note.value, lost_reason: lost.value });
-          toast('Stadio aggiornato');
-          m.close();
-          onChange?.();
-          openOpportunity(id, onChange);
-        } } }, 'Cambia stadio'),
-        // diventa Impianto target: nasce il progetto con l'iter commerciale (il FV classico solo da RTB)
-        selectAsTargetButton(o, pid => { m.close(); onChange?.(); location.hash = `#/projects/${pid}/impianto`; })), lost, note),
-      h('section.en-sec', h('h3', 'Dati'), dl([
-        ['Azienda', o.company_name || '—'], ['MW', num(o.mw, 3)], ['Capex', o.capex ? `${num(o.capex)} €` : '—'],
+  const historyLabel = s => (s.startsWith('step:') ? meta.targetSteps.find(x => x.key === s.slice(5))?.label || s
+    : s.startsWith('esito:') ? meta.targetOutcomes[s.slice(6)] || 'Iter riaperto' : stageLabel(o.kind, s));
+  return h('div.en-sheet',
+    h('div.en-sheet-main',
+      h('section.card.sw-card.en-sec', h('div.en-sec-head', h('h3', 'Dati'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => opportunityForm({ opp: o, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica')),
+      dl([
+        ['Tipo', meta.kinds[o.kind]], ['Azienda', o.company_name || '—'], ['MW', num(o.mw, 3)], ['Capex', o.capex ? `${num(o.capex)} €` : '—'],
         ['Probabilità', o.probability !== null ? `${o.probability}%` : '—'], ['Priorità', o.priority || '—'],
         ['Luogo', [o.city, o.province, o.region].filter(Boolean).join(', ') || '—'], ['Responsabile', o.owner_name || '—'],
+        ...(o.lost_reason && meta.closedStages.includes(o.stage) ? [['Motivo', o.lost_reason]] : []),
       ]), o.notes ? h('p.en-notes', o.notes) : null),
-      kindDetails(o, () => { m.close(); onChange?.(); openOpportunity(id, onChange); }),
-      scenariosBox,
-      h('section.en-sec', h('div.en-sec-head', h('h3', 'Aziende e persone collegate'),
-        h('button.btn.btn-sm', { type: 'button', on: { click: () => linkForm(id, async () => { drawLinks(await get(`/api/energy/opportunities/${id}`)); onChange?.(); }) } }, icon('plus', { size: 15 }), 'Collega')),
+      h('div.card.sw-card', kindDetails(o, refresh)),
+      scenariosBox),
+    h('div.en-sheet-side',
+      h('section.card.sw-card.en-sec', h('div.en-sec-head', h('h3', 'Aziende e persone collegate'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => linkForm(id, async () => drawLinks(await get(`/api/energy/opportunities/${id}`))) } }, icon('plus', { size: 15 }), 'Collega')),
       links),
-      h('section.en-sec', h('h3', 'Storico'), h('ul.en-history', o.history.map(x => h('li',
-        h('strong', stageLabel(o.kind, x.to_stage)), x.from_stage ? h('span.muted', ` da ${stageLabel(o.kind, x.from_stage)}`) : h('span.muted', ' (creata)'),
-        h('div.t-meta', [new Date(x.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }), x.user_name, x.note].filter(Boolean).join(' · '))))))),
-    left: [h('button.btn.btn-ghost.danger', { type: 'button', hidden: Boolean(o.project_id), on: { click: async () => {
-      if (!await confirmDialog(`Cancellare l'opportunità «${o.title}»?`, { ok: 'Cancella', danger: true })) return;
-      await del(`/api/energy/opportunities/${id}`);
-      m.close();
-      onChange?.();
-    } } }, 'Cancella')],
-    actions: [h('button.btn', { type: 'button', on: { click: () => { m.close(); opportunityForm({ opp: o, onSaved: () => { onChange?.(); openOpportunity(id, onChange); } }); } } }, icon('pencil', { size: 15 }), 'Modifica')],
-  });
+      h('section.card.sw-card.en-sec', h('h3', 'Storico'), h('ul.en-history', o.history.map(x => h('li',
+        h('strong', historyLabel(x.to_stage)), x.from_stage ? h('span.muted', ` da ${historyLabel(x.from_stage)}`) : h('span.muted', ' (creata)'),
+        h('div.t-meta', [new Date(x.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }), x.user_name, x.note].filter(Boolean).join(' · ')))))),
+      o.project_id ? null : h('button.btn.btn-ghost.danger', { type: 'button', on: { click: async () => {
+        if (!await confirmDialog(`Cancellare l'opportunità «${o.title}»?`, { ok: 'Cancella', danger: true })) return;
+        await del(`/api/energy/opportunities/${id}`);
+        history.back();
+      } } }, 'Cancella l\'opportunità')));
 }
 
 function dl(pairs) {

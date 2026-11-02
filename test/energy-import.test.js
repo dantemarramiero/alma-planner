@@ -235,7 +235,9 @@ test('PPA on-site: dall\'analisi dei consumi in poi serve la persona di riferime
   assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'perso', lost_reason: 'Tetto in amianto' })).status, 200);
   const p = (await api('POST', '/api/energy/people', { last_name: 'Verdi' })).body;
   await api('POST', `/api/energy/opportunities/${opp.id}/links`, { person_id: p.id, role: 'referente' });
-  assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'analisi_consumi' })).status, 200);
+  // riaprire da «Persa» chiede la motivazione (come in BOSS)
+  assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'analisi_consumi' })).status, 400);
+  assert.equal((await api('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'analisi_consumi', note: 'Il cliente ci ha ricontattati' })).status, 200);
 });
 
 test('FV classico: dati autorizzativi nel dato dell\'opportunità e scadenze in arrivo', async () => {

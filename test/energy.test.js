@@ -294,3 +294,45 @@ test('cruscotto: MW e capex per tipo e fase, valore pesato, IRR medio, ferme, st
   assert.ok(book.Pipeline.some(r => r[1] === 'Cruscotto PPA 2' && r[7] === 80));
   assert.equal((await X('GET', '/api/energy/cruscotto')).status, 403);
 });
+
+test('stadi come in BOSS: progetto oltre il primo stadio, scartata e standby, riapertura con motivazione, target sullo stesso progetto', async () => {
+  const opp = (await A('POST', '/api/energy/opportunities', { kind: 'revamping', title: 'Proprietario da contattare' })).body;
+  assert.equal(opp.project_id, null); // al primo stadio niente progetto
+  const req = (await A('GET', `/api/energy/opportunities/${opp.id}/stage/proprietario`)).body;
+  assert.deepEqual([req.requirements, req.creates_project], [[], true]);
+
+  const moved = (await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'proprietario' })).body;
+  const pid = moved.project_id;
+  assert.ok(pid);
+  const project = (await A('GET', `/api/projects/${pid}`)).body;
+  assert.deepEqual([project.name, project.energy], ['Proprietario da contattare', true]);
+  assert.equal((await T('GET', `/api/projects/${pid}`)).status, 200); // i membri del modulo ci sono
+  assert.equal((await X('GET', `/api/projects/${pid}`)).status, 404); // gli altri no
+  assert.equal((await A('GET', `/api/energy/projects/${pid}/opportunity`)).body.id, opp.id);
+
+  // il nome dell'opportunità è quello del progetto
+  await A('PATCH', `/api/energy/opportunities/${opp.id}`, { title: 'Solare Srl (2 convenzioni)' });
+  assert.equal((await A('GET', `/api/projects/${pid}`)).body.name, 'Solare Srl (2 convenzioni)');
+
+  // scartata chiede il motivo; standby no; da standby si riapre solo con la motivazione
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'scartato' })).status, 400);
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'standby' })).status, 200);
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target`)).status, 400); // ferma: niente target
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'contatto' })).status, 400);
+  const back = (await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'contatto', note: 'Ha richiamato lui' })).body;
+  assert.deepEqual([back.stage, back.project_id], ['contatto', pid]); // stesso progetto
+
+  // Impianto target: stesso progetto, con gli step nel Gantt
+  const t = (await A('POST', `/api/energy/opportunities/${opp.id}/target`)).body;
+  assert.equal(t.project_id, pid);
+  const list = (await A('GET', `/api/tickets?project_id=${pid}`)).body;
+  assert.equal((Array.isArray(list) ? list : list.tickets).filter(x => x.title.startsWith('Step ') && x.project_id === pid).length, 4);
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'offerta' })).status, 400); // si segue dall'iter
+  assert.equal((await A('DELETE', `/api/energy/opportunities/${opp.id}`)).status, 400);
+
+  // PPA: la finestra del passaggio dice cosa manca
+  const ppa = (await A('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Tetto con requisiti' })).body;
+  const need = (await A('GET', `/api/energy/opportunities/${ppa.id}/stage/proposta`)).body.requirements;
+  assert.deepEqual(need.map(r => [r.key, r.ok]), [['persona', false], ['scenario', false]]);
+  assert.equal((await A('GET', '/api/energy')).body.meta.forwardActions.ppa_onsite.proposta, 'Invia la proposta');
+});

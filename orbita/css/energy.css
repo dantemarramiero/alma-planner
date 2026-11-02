@@ -127,6 +127,33 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
 .en-changed { color: var(--orange); font-weight: var(--ap-fw-bold); }
 .en-params-log { max-width: 640px; }
 
+/* ── pagina dell'opportunità e stadio come in BOSS (orbita/js/energy-opportunity.js) ── */
+.en-stagebar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ap-space-3); margin-top: var(--ap-space-4); padding-top: var(--ap-space-4); border-top: 1px solid var(--rule); }
+.en-stagebar-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--ap-space-1) var(--ap-space-3); min-width: 0; }
+.en-stagebar-steps li { display: inline-flex; align-items: center; gap: 6px; font-size: var(--ap-fs-sm); color: var(--muted); }
+.en-stagebar-steps li.done { color: var(--ink); }
+.en-stagebar-steps li.now { color: var(--ink); font-weight: var(--ap-fw-medium); }
+.en-stagebar-dot { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--ap-grey-100); font-size: 11px; font-weight: var(--ap-fw-medium); }
+.en-stagebar-steps li.done .en-stagebar-dot { background: var(--green-soft); color: var(--green); }
+.en-stagebar-steps li.now .en-stagebar-dot { background: var(--orange); color: var(--ap-white); }
+.en-stagebar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ap-space-2); }
+.en-more { position: relative; }
+.en-more > summary { list-style: none; }
+.en-more > summary::-webkit-details-marker { display: none; }
+.en-more-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 200px; display: grid; padding: 6px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); box-shadow: var(--shadow); }
+.en-more-menu button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: var(--radius); cursor: pointer; color: var(--ink); font: inherit; }
+.en-more-menu button:hover { background: var(--hover); }
+.en-reqs { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ap-space-2); }
+.en-reqs li { display: flex; gap: var(--ap-space-2); align-items: flex-start; }
+.en-reqs li.ok { color: var(--green); }
+.en-reqs li.ko { color: var(--red); }
+.en-reqs li span { color: var(--ink); }
+.en-sheet { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: var(--ap-space-4); align-items: start; }
+.en-sheet-main, .en-sheet-side { display: grid; gap: var(--ap-space-4); min-width: 0; }
+.pj-nav .pj-tab:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 900px) { .en-sheet { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .en-stagebar-steps li:not(.now) span:not(.en-stagebar-dot) { display: none; } }
+
 /* ── Impianti target (orbita/js/energy-target.js) ──────────────────────── */
 .en-tk { font-weight: var(--ap-fw-medium); flex: none; }
 .en-tk-ppa_onsite { background: var(--orange); color: var(--ap-white); }

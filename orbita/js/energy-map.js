@@ -35,7 +35,7 @@ const colorFor = p => {
 };
 
 function stageText(p) {
-  if (p.project_id) {
+  if (p.target_step) {
     return p.target_outcome ? meta.targetOutcomes[p.target_outcome] : `Target · ${meta.targetSteps.find(s => s.key === p.target_step)?.label || ''}`;
   }
   return (meta.stages[p.kind] || []).find(([k]) => k === p.stage)?.[1] || p.stage;
