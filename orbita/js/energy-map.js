@@ -58,7 +58,13 @@ export async function mapView(box, kind, filters, onOpen) {
     h('span', h('i.en-dot', { style: { background: colorFor({}) } }), 'Altre'),
     h('span', h('i.en-dot', { style: { background: colorFor({ stage: 'target' }) } }), 'Impianto target'),
     h('span.muted', `${num(data.points.length)} sulla mappa${data.regions.length ? ` · ${num(data.regions.reduce((s, r) => s + r.count, 0))} senza coordinate, contate per regione` : ''}`));
-  fill(box, el, legend);
+  // regione o provincia senza tetti: si parte da lì con lo screening (ALM2-25)
+  const place = filters.province || filters.region;
+  const hint = !data.points.length && place && kind !== 'revamping'
+    ? h('div.card.en-map-hint', h('span', `Ancora nessun tetto in ${place}.`),
+      h('a.btn.btn-sm.btn-primary', { href: `#/energy/screening?${filters.province ? 'provincia' : 'regione'}=${encodeURIComponent(place)}` }, 'Avvia lo screening qui'))
+    : null;
+  fill(box, hint, el, legend);
 
   const map = L.map(el, { preferCanvas: true, zoomControl: true }).setView([42.3, 12.6], 6);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {

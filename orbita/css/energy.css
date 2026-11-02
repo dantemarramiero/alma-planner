@@ -166,6 +166,8 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
 .en-scr-progress { display: grid; gap: var(--ap-space-1); }
 .en-scr-error { color: var(--red); font-size: var(--ap-fs-sm); }
 
+.en-map-hint { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ap-space-2); margin-bottom: var(--ap-space-3); }
+
 /* ── Impianti target (orbita/js/energy-target.js) ──────────────────────── */
 .en-tk { font-weight: var(--ap-fw-medium); flex: none; }
 .en-tk-ppa_onsite { background: var(--orange); color: var(--ap-white); }
