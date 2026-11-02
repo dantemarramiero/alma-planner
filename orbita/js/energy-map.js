@@ -63,6 +63,9 @@ export async function mapView(box, kind, filters, onOpen) {
   const map = L.map(el, { preferCanvas: true, zoomControl: true }).setView([42.3, 12.6], 6);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '&copy; contributori di <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    // OpenStreetMap vuole sapere da quale sito arrivano le richieste (senza, risponde «Access blocked»), ma Alma Planet
+    // dice al browser di non mandare l'indirizzo ad altri siti: per le sole tessere della mappa si manda il dominio
+    referrerPolicy: 'origin',
   }).addTo(map);
 
   const bounds = [];
