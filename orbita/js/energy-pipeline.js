@@ -28,7 +28,7 @@ const IMPORTS = {
 };
 
 export async function pipelineView(box, kind) {
-  const state = { q: '', priority: '', province: '', signal: '', strategia: '' };
+  const state = { q: '', priority: '', region: '', province: '', signal: '', strategia: '' };
   let view = 'kanban'; // oppure 'mappa' (ALM2-11)
   const board = h('div.en-board-wrap', loading());
   const viewSeg = h('div.seg.en-filter', [['kanban', 'Kanban'], ['mappa', 'Mappa']].map(([k, label]) => h('button', { type: 'button', class: k === view ? 'on' : '', on: { click: e => {
@@ -36,7 +36,20 @@ export async function pipelineView(box, kind) {
     viewSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.currentTarget));
     load();
   } } }, label)));
+  // regione (tutte e venti) e provincia: senza regione le province con opportunità, con la regione le sue
+  let withData = [];
   const provinceSel = select([['', 'Tutte le province']], '', { on: { change: e => { state.province = e.target.value; load(); } } });
+  const fillProvinces = () => {
+    const region = meta.regions.find(r => r.name === state.region);
+    const names = region ? region.provinces.map(p => p.name) : withData;
+    provinceSel.replaceChildren(...[['', 'Tutte le province'], ...names.map(n => [n, n])].map(([k, label]) => h('option', { value: k, selected: k === state.province }, label)));
+  };
+  const regionSel = select([['', 'Tutta Italia'], ...meta.regions.map(r => [r.name, r.name])], '', { on: { change: e => {
+    state.region = e.target.value;
+    state.province = '';
+    fillProvinces();
+    load();
+  } } });
   const imp = IMPORTS[kind];
   fill(box,
     h('div.toolbar',
@@ -44,6 +57,7 @@ export async function pipelineView(box, kind) {
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, comune o azienda…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
       select([['', 'Tutte le priorità'], ['A', 'Priorità A'], ['B', 'Priorità B'], ['C', 'Priorità C'], ...(kind === 'revamping' ? [['D', 'Priorità D']] : [])], '',
         { on: { change: e => { state.priority = e.target.value; load(); } } }),
+      regionSel,
       provinceSel,
       kind === 'revamping' ? select([['', 'Tutti i segnali'], ...Object.entries(SIGNAL_LABEL)], '', { on: { change: e => { state.signal = e.target.value; load(); } } }) : null,
       kind === 'revamping' ? select([['', 'Ogni strategia'], ...Object.entries(STRATEGIA)], '', { on: { change: e => { state.strategia = e.target.value; load(); } } }) : null,
@@ -56,11 +70,12 @@ export async function pipelineView(box, kind) {
     if (view === 'mappa' && provincesFilled) return mapView(board, kind, state, p => openOpportunity(p.id, load));
     const data = await get(`/api/energy/pipeline/${kind}${qs(state)}`);
     if (!provincesFilled) {
-      provinceSel.append(...data.provinces.map(p => h('option', { value: p }, p)));
+      withData = data.provinces;
+      fillProvinces();
       provincesFilled = true;
     }
     const total = data.stages.reduce((s, x) => s + x.count, 0);
-    if (!total && !state.q && !state.priority && !state.province && !state.signal && !state.strategia) {
+    if (!total && !state.q && !state.priority && !state.region && !state.province && !state.signal && !state.strategia) {
       return fill(board, h('div.card.empty', imp ? `Nessuna opportunità. Usa «${imp.label}» o «Nuova opportunità».` : 'Nessuna opportunità. Creane una con «Nuova opportunità».'));
     }
     if (view === 'mappa') return mapView(board, kind, state, p => openOpportunity(p.id, load));

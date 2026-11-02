@@ -94,6 +94,8 @@ export async function mapView(box, kind, filters, onOpen) {
     bounds.push(c);
   }
   if (bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 11 });
+  // regione scelta e niente da mostrare: la mappa va comunque lì (per lo screening si usa «Screening per provincia»)
+  else if (filters.region && REGION_CENTERS[filters.region]) map.setView(REGION_CENTERS[filters.region], 8);
   // la mappa nasce in un contenitore appena aggiunto: ricalcola le misure quando è a schermo
   setTimeout(() => map.invalidateSize(), 50);
 }

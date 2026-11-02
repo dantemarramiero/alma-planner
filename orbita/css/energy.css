@@ -154,6 +154,18 @@ table.en-small th, table.en-small td { padding: var(--ap-space-2); }
 @media (max-width: 900px) { .en-sheet { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .en-stagebar-steps li:not(.now) span:not(.en-stagebar-dot) { display: none; } }
 
+/* ── screening per provincia (orbita/js/energy-screening.js) ───────────── */
+.en-scr-regions { display: grid; gap: var(--ap-space-1); max-height: 60vh; overflow-y: auto; }
+.en-scr-region { border-bottom: 1px solid var(--rule); padding: var(--ap-space-2) 0; }
+.en-scr-region summary { display: flex; align-items: center; justify-content: space-between; gap: var(--ap-space-2); cursor: pointer; }
+.en-scr-provinces { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--ap-space-1) var(--ap-space-3); padding: var(--ap-space-2) 0 0 var(--ap-space-5); }
+.en-scr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ap-space-3); }
+.en-scr-run { display: grid; gap: var(--ap-space-1); padding-bottom: var(--ap-space-3); border-bottom: 1px solid var(--rule); }
+.en-scr-run:last-child { border-bottom: 0; padding-bottom: 0; }
+.en-scr-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ap-space-2); }
+.en-scr-progress { display: grid; gap: var(--ap-space-1); }
+.en-scr-error { color: var(--red); font-size: var(--ap-fs-sm); }
+
 /* ── Impianti target (orbita/js/energy-target.js) ──────────────────────── */
 .en-tk { font-weight: var(--ap-fw-medium); flex: none; }
 .en-tk-ppa_onsite { background: var(--orange); color: var(--ap-white); }

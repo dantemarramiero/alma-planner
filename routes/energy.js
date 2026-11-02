@@ -13,6 +13,7 @@ const { cashflows, buyRevampSell, portfolioYear, sensitivity, DEFAULTS, PRICE_CU
 const { runScenario, summaryOf, FV_DEFAULTS, REVAMPING_DEFAULTS, PPA_DEFAULTS } = require('../lib/energy-scenarios');
 const { writeXlsx } = require('../lib/xlsx');
 const tiers = require('../lib/energy-tiers');
+const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { addWorkdays, romeNow } = require('../lib/workdays');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
@@ -147,7 +148,7 @@ const updateSql = (table, f) => `UPDATE ${table} SET ${cols(f).map((c, i) => `${
 const jsonCols = new Set(['extra', 'data']);
 const vals = f => Object.entries(f).map(([k, val]) => (jsonCols.has(k) ? JSON.stringify(val) : val));
 
-function registerEnergy(app, { db, energyAccess, isAdmin }) {
+function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
   app.use('/api/energy', (req, _res, next) => {
     energyAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Alma Energy è riservato alla BU Energy')), next);
   });
@@ -164,7 +165,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
       meta: { stages: STAGES, kinds: KINDS, companyTypes: COMPANY_TYPES, linkRoles: LINK_ROLES, relations: RELATIONS,
         companyStatus: COMPANY_STATUS, influence: INFLUENCE, channels: CHANNELS,
         targetSteps: TARGET_STEPS.map(st => ({ key: st.key, label: st.label })), targetOutcomes: TARGET_OUTCOMES,
-        closedStages: CLOSED_STAGES, forwardActions: FORWARD_ACTIONS },
+        closedStages: CLOSED_STAGES, forwardActions: FORWARD_ACTIONS, regions: REGIONS },
       members, counts, crm, can_manage_members: true, is_admin: Boolean(isAdmin(req)),
     });
   });
@@ -454,6 +455,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     const f = opportunityFields(req.body, { partial: true });
     delete f.kind;
     if (f.data) f.data = { ...cur.data, ...f.data };
+    // profilo cambiato a mano su un tetto: resta anche quando si rifà l'import o lo screening
+    if (f.data && cur.kind === 'ppa_onsite' && req.body.data?.profilo !== undefined && req.body.data.profilo !== (cur.data || {}).profilo) f.data.profilo_manuale = true;
     if (!Object.keys(f).length) return res.json(cur);
     const { rows: [o] } = await db.query(updateSql('energy_opportunities', f), [id, ...vals(f)]);
     // il progetto dell'opportunità porta il suo nome e il suo responsabile
@@ -715,6 +718,37 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     res.json(key === 'screening'
       ? await tiers.applyScreening(db, req.body.params, req.user.id)
       : await tiers.applyCe(db, req.body.params, req.user.id, { toPipeline: req.body.to_pipeline === true }));
+  });
+
+  // ── screening dei tetti per provincia (ALM2-23) ───────────────────────────────────────────────
+  const SCREENING_COLS = `s.id, s.provinces, s.min_area, s.use_places, s.status, s.progress, s.summary, s.error, s.created_at, s.started_at,
+                          s.finished_at, u.name AS user_name`;
+  app.get('/api/energy/screenings', async (_req, res) => {
+    const { rows } = await db.query(`SELECT ${SCREENING_COLS} FROM energy_screenings s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC LIMIT 30`);
+    res.json({ screenings: rows, regions: REGIONS, places: energyScreening.hasPlaces });
+  });
+  app.post('/api/energy/screenings', async (req, res) => {
+    const provinces = [...new Set(Array.isArray(req.body.provinces) ? req.body.provinces.map(String) : [])];
+    if (!provinces.length) throw new HttpError(400, 'Scegli almeno una provincia');
+    if (provinces.length > 40) throw new HttpError(400, 'Al massimo 40 province per giro');
+    const unknown = provinces.find(p => !PROVINCES.has(p));
+    if (unknown) throw new HttpError(400, `Provincia sconosciuta: ${unknown}`);
+    const minArea = v.int(req.body.min_area, 'Superficie minima', { min: 500, max: 100000 }) ?? 2000;
+    const usePlaces = req.body.use_places === true && energyScreening.hasPlaces;
+    const { rows: [s] } = await db.query(
+      'INSERT INTO energy_screenings (provinces, min_area, use_places, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
+      [provinces, minArea, usePlaces, req.user.id]);
+    energyScreening.kick();
+    res.status(201).json(s);
+  });
+  app.post('/api/energy/screenings/:id/ferma', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const { rows: [s] } = await db.query(
+      `UPDATE energy_screenings SET status = CASE WHEN status = 'in_coda' THEN 'fermato' ELSE 'fermando' END,
+              finished_at = CASE WHEN status = 'in_coda' THEN now() ELSE finished_at END
+        WHERE id = $1 AND status IN ('in_coda', 'in_corso') RETURNING id, status`, [id]);
+    if (!s) throw new HttpError(400, 'Il giro non è in corso');
+    res.json(s);
   });
 
   // ── Database impianti in Conto Energia: consultazione e «Porta in pipeline» ──────────────────

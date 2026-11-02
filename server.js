@@ -39,6 +39,7 @@ const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { createEnergyAccess } = require('./lib/energy');
 const { createEnergyReminders } = require('./lib/energy-reminders');
+const { createScreeningRunner } = require('./lib/energy-screening');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -66,7 +67,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -172,6 +173,8 @@ async function createApp(config, { db, confirmAccount } = {}) {
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
   deps.energyAccess = createEnergyAccess({ db, isAdmin }); // Alma Energy: solo i membri della BU Energy
   deps.energyReminders = createEnergyReminders({ db, notifier: deps.notifier }); // Alma Energy: promemoria delle scadenze
+  // Alma Energy: screening dei tetti per provincia in background (nei test OpenStreetMap e PVGIS sono finti)
+  deps.energyScreening = createScreeningRunner({ db, ...(energyFetch ? { fetchImpl: energyFetch, retryDelayMs: 0 } : {}) });
   deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
   registerUsers(app, deps);
@@ -209,15 +212,16 @@ async function createApp(config, { db, confirmAccount } = {}) {
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders };
+  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit, digest, fleet, energyReminders } = await createApp(config);
+    const { app, db, auth, audit, digest, fleet, energyReminders, energyScreening } = await createApp(config);
     digest.start();
     energyReminders.start(); // ogni 5 minuti, di giorno: scadenze delle opportunità di Alma Energy
+    energyScreening.start().catch(err => console.warn('[energy] screening non ripartito', err.message)); // giri in coda dopo un riavvio
     fleet.start(); // ogni 5 minuti: promemoria di riconsegna (a chi ha il mezzo e ai gestori) e delle scadenze dei mezzi // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
     setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
