@@ -12,6 +12,7 @@ const {
 const { cashflows, buyRevampSell, portfolioYear, sensitivity, DEFAULTS, PRICE_CURVE } = require('../lib/energy-sim');
 const { runScenario, summaryOf, FV_DEFAULTS, REVAMPING_DEFAULTS, PPA_DEFAULTS } = require('../lib/energy-scenarios');
 const { writeXlsx } = require('../lib/xlsx');
+const tiers = require('../lib/energy-tiers');
 const { addWorkdays, romeNow } = require('../lib/workdays');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
@@ -454,6 +455,11 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     if (f.data) f.data = { ...cur.data, ...f.data };
     if (!Object.keys(f).length) return res.json(cur);
     const { rows: [o] } = await db.query(updateSql('energy_opportunities', f), [id, ...vals(f)]);
+    // profilo di consumo cambiato sulla scheda di un tetto: punteggio e priorità con i parametri in uso
+    if (o.kind === 'ppa_onsite' && f.data && f.data.profilo !== (cur.data || {}).profilo) {
+      await tiers.rescoreRoof(db, id);
+      return res.json(await opportunityById(id));
+    }
     res.json(o);
   });
 
@@ -625,6 +631,35 @@ function registerEnergy(app, { db, energyAccess, isAdmin }) {
     const { rows } = await db.query(
       'SELECT i.id, i.kind, i.file_name, i.summary, i.at, u.name AS user_name FROM energy_imports i LEFT JOIN users u ON u.id = i.user_id ORDER BY i.at DESC LIMIT 20');
     res.json(rows);
+  });
+
+  // ── parametri dei tier (ALM2-22): anteprima e applicazione ───────────────────────────────────
+  const TIER_KEYS = ['screening', 'database_ce'];
+  const tierKey = value => {
+    if (!TIER_KEYS.includes(value)) throw new HttpError(404, 'Parametri non trovati');
+    return value;
+  };
+  app.get('/api/energy/parametri', async (_req, res) => {
+    const [params, { rows: log }] = await Promise.all([
+      tiers.getParams(db),
+      db.query(`SELECT l.id, l.key, l.summary, l.at, u.name AS user_name FROM energy_settings_log l LEFT JOIN users u ON u.id = l.user_id
+                 ORDER BY l.at DESC, l.id DESC LIMIT 20`),
+    ]);
+    res.json({
+      ...params, log,
+      defaults: { screening: tiers.SCREENING_DEFAULTS, database_ce: tiers.CE_DEFAULTS },
+      profiles: tiers.PROFILES, signals: SIGNALS,
+    });
+  });
+  app.post('/api/energy/parametri/:key/anteprima', async (req, res) => {
+    const key = tierKey(req.params.key);
+    res.json(key === 'screening' ? await tiers.previewScreening(db, req.body.params) : await tiers.previewCe(db, req.body.params));
+  });
+  app.post('/api/energy/parametri/:key', async (req, res) => {
+    const key = tierKey(req.params.key);
+    res.json(key === 'screening'
+      ? await tiers.applyScreening(db, req.body.params, req.user.id)
+      : await tiers.applyCe(db, req.body.params, req.user.id, { toPipeline: req.body.to_pipeline === true }));
   });
 
   // ── Database impianti in Conto Energia: consultazione e «Porta in pipeline» ──────────────────

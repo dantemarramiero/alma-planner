@@ -224,7 +224,7 @@ export async function databaseView(box) {
 
 // ── parti della scheda dell'opportunità che cambiano per tipo ────────────────
 export function kindDetails(o, refresh) {
-  if (o.kind === 'ppa_onsite') return screeningSection(o);
+  if (o.kind === 'ppa_onsite') return screeningSection(o, refresh);
   if (o.kind === 'revamping') return revampingSections(o, refresh);
   if (o.kind === 'fv_classico') return fvSections(o, refresh);
   return [];
@@ -232,13 +232,24 @@ export function kindDetails(o, refresh) {
 
 const pairs = list => h('dl.en-dl', list.filter(([, val]) => val !== null && val !== undefined && val !== '').flatMap(([k, val]) => [h('dt', k), h('dd', val)]));
 
-function screeningSection(o) {
+const PROFILES = [['D1', 'D1 · diurni 7 su 7 o continui'], ['D2', 'D2 · energivori su 2-3 turni'], ['D3', 'D3 · cinque giorni, un turno'],
+  ['D4', 'D4 · consumi bassi o nulli'], ['ND', 'ND · da verificare'], ['X', 'X · escluso']];
+
+function screeningSection(o, refresh) {
   const d = o.data || {};
   if (d.fonte !== 'Screening tetti') return [];
   const sat = o.lat && o.lon ? h('a', { href: `https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lon}`, target: '_blank', rel: 'noopener' }, 'Apri la vista satellite') : null;
-  return [h('section.en-sec', h('h3', 'Dallo screening dei tetti'), pairs([
+  // il profilo si corregge qui: punteggio e priorità si ricalcolano con i parametri dei tier
+  const profile = select(PROFILES, d.profilo || 'ND', { on: { change: async e => {
+    await patch(`/api/energy/opportunities/${o.id}`, { data: { profilo: e.target.value } });
+    toast('Profilo cambiato: punteggio e priorità ricalcolati');
+    refresh?.();
+  } } });
+  return [h('section.en-sec', h('h3', 'Dallo screening dei tetti'),
+    field('Profilo di consumo', profile, 'Punti e soglie in «Parametri dei tier».'),
+    pairs([
     ['Punteggio', d.punteggio !== null ? `${num(d.punteggio)} (taglia ${num(d.punti_taglia)} + profilo ${num(d.punti_profilo)})` : null],
-    ['Profilo di consumo', d.profilo], ['Attività', d.attivita], ['Giorni e turni', [d.giorni && `${d.giorni} giorni/sett.`, d.turni].filter(Boolean).join(' · ')],
+    ['Attività', d.attivita], ['Giorni e turni', [d.giorni && `${d.giorni} giorni/sett.`, d.turni].filter(Boolean).join(' · ')],
     ['Perché', d.motivazione], ['Confidenza', d.confidenza], ['Area', d.area_produttiva],
     ['Tetto', d.superficie ? `${num(d.superficie)} m²` : null], ['Potenza stimata', d.kwp ? `${num(d.kwp)} kWp` : null],
     ['Produzione', d.mwh ? `${num(d.mwh)} MWh/anno (${num(d.kwh_kwp)} kWh/kWp)` : null], ['Ricavi lordi', d.ricavi_k ? `${num(d.ricavi_k)} k€/anno` : null],

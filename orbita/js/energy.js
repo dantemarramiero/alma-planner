@@ -8,8 +8,9 @@ import { icon } from './icons.js';
 import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
 import { simulatorView, scenariosSection } from './energy-simulator.js';
 import { targetsView, openTarget, selectAsTargetButton } from './energy-target.js';
+import { paramsView } from './energy-params.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Impianti target'], ['database', 'Database CE'], ['simulatore', 'Simulatore'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Impianti target'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['parametri', 'Parametri dei tier'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
@@ -55,6 +56,7 @@ export async function energyView(container, parts = []) {
   else if (PIPELINE_TABS[tab]) await pipelineView(body, PIPELINE_TABS[tab]);
   else if (tab === 'target') await targetsView(body);
   else if (tab === 'database') await databaseView(body);
+  else if (tab === 'parametri') await paramsView(body);
   else if (tab === 'simulatore') await simulatorView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);
   else if (tab === 'aziende') await companiesTab(body, parts[2]);
