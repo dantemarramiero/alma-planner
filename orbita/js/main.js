@@ -66,14 +66,21 @@ function setupRail() {
     apply();
   });
 }
-// ── selettore del modulo nella barra laterale, come in MyWinery: Alma Planet o Alma Energy (domani Alma Social) ──
-// Ogni modulo ha il suo menu laterale e ricorda l'ultima pagina aperta: tornandoci si riparte da lì.
-// Il selettore si vede solo a chi ha più di un modulo; gli altri hanno Alma Planet come sempre.
+// ── selettore del modulo nella barra laterale, come in MyWinery ──
+// Alma Planet è la intranet (feed, chat, persone), Alma Project il planner (ticket, progetti, calendario, mezzi),
+// Alma Energy solo per chi ce l'ha. Ogni modulo ha il suo menu laterale e ricorda l'ultima pagina aperta:
+// tornandoci si riparte da lì. Con Planet e Project sempre presenti il selettore lo vedono tutti.
 const MODULES = [
   { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/', can: () => true },
+  { key: 'project', label: 'Alma Project', icon: 'folder-kanban', home: '#/mine', can: () => true },
   { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
 ];
-const moduleOf = section => (section === 'energy' ? 'energy' : 'planet');
+// sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
+const PROJECT_SECTIONS = new Set(['mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar', 'drive', 'software']);
+let lastModule = 'planet';
+const moduleOf = section => (section === 'search' ? lastModule
+  : PROJECT_SECTIONS.has(section) ? 'project'
+  : section === 'energy' ? 'energy' : 'planet');
 const MOD_KEY = 'alma.modulePages';
 const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
 const availableModules = () => MODULES.filter(m => m.can());
@@ -87,6 +94,7 @@ function setModuleMenu(open) {
 
 function drawModule(section) {
   const current = moduleOf(section);
+  lastModule = current;
   const pages = { ...readPages(), [current]: location.hash || '#/' };
   try { sessionStorage.setItem(MOD_KEY, JSON.stringify(pages)); } catch { /* niente */ }
   const mods = availableModules();
@@ -143,7 +151,8 @@ async function route() {
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
-  document.title = section === 'direct' ? 'Chat · Alma Planet' : 'Alma Planet';
+  const modLabel = MODULES.find(m => m.key === moduleOf(section))?.label || 'Alma Planet';
+  document.title = section === 'direct' ? `Chat · ${modLabel}` : modLabel;
   trackBack(section);
   drawModule(section);
   cleanup?.();

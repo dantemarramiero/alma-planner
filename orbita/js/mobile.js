@@ -70,8 +70,8 @@ function openCreate() {
     opt('mezzo', 'var(--amber)', 'Mezzo aziendale', 'Prenota un\'auto o un furgone', () => go('#/mezzi/prenota'))));
 }
 
-// Moduli (Alma Planet, Alma Energy…) presi dal selettore della barra laterale: in cima al menu, e sotto le voci
-// del modulo in cui si è. In Alma Energy le voci sono quelle del suo menu laterale.
+// Moduli (Alma Planet, Alma Project, Alma Energy…) presi dal selettore della barra laterale: in cima al menu,
+// e sotto le voci del modulo in cui si è, cioè quelle del suo menu laterale.
 function moduleChoice(close) {
   const items = [...document.querySelectorAll('#ws-menu a')];
   if (document.getElementById('ws-switch').hidden || !items.length) return null;
@@ -79,27 +79,20 @@ function moduleChoice(close) {
     h('a', { href: a.getAttribute('href'), class: a.classList.contains('active') ? 'on' : '', on: { click: () => close() } }, a.textContent))));
 }
 
+// Le voci del modulo corrente, prese dal suo menu laterale: senza quelle nascoste (es. Chat interna a chi non ce
+// l'ha) e senza quelle che sul telefono sono già nelle barre in alto e in basso (Home, Notifiche, Chat, Profilo…).
 function openMenu() {
-  if (location.hash.startsWith('#/energy')) return openEnergyMenu();
-  const link = (hash, ico, label) => h('a', { href: hash, on: { click: () => close() } }, h('span.nav-ico', icon(ico)), label);
-  const close = sheet('Menu', h('div', moduleChoice(() => close()), h('nav.menu-list',
-    link('#/projects', 'folder', 'Progetti'),
-    link('#/tickets', 'list', 'Tutti i ticket'),
-    link('#/rda', 'arrows', 'RDA interne'),
-    link('#/mezzi', 'car', 'Mezzi aziendali'),
-    link('#/gantt', 'gantt', 'Gantt'),
-    link('#/drive', 'cloud', 'OneDrive'),
-    link('#/org', 'network', 'Organigramma'),
-    store.me.internal_chat ? link('#/chat', 'message', 'Chat interna') : null,
-    store.me.software ? link('#/software', 'package', 'Software e licenze') : null,
+  const nav = document.querySelector('.sidebar nav[data-ws]:not([hidden])');
+  const onBars = new Set([...document.querySelectorAll('.m-top [data-nav], .m-tabs [data-nav]')].map(a => a.dataset.nav));
+  const items = [...(nav?.querySelectorAll('a[data-nav]') || [])]
+    .filter(a => !a.hidden && !onBars.has(a.dataset.nav))
+    .map(a => h('a', {
+      href: a.getAttribute('href'), class: a.classList.contains('active') ? 'active' : '', on: { click: () => close() },
+    }, h('span.nav-ico', icon(a.querySelector('[data-icon]')?.dataset.icon || 'file')),
+    [...a.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join('').trim()));
+  const close = sheet(document.getElementById('ws-name').textContent || 'Menu', h('div', moduleChoice(() => close()), h('nav.menu-list',
+    items,
     h('button.danger', { type: 'button', on: { click: async () => { await post('/auth/logout'); location.href = '/'; } } }, h('span.nav-ico', icon('log-out')), 'Esci'))));
-}
-
-function openEnergyMenu() {
-  const items = [...document.querySelectorAll('.sidebar nav[data-ws="energy"] a')].map(a => h('a', {
-    href: a.getAttribute('href'), class: a.classList.contains('active') ? 'active' : '', on: { click: () => close() },
-  }, h('span.nav-ico', icon(a.querySelector('[data-icon]')?.dataset.icon || 'file')), a.textContent));
-  const close = sheet('Alma Energy', h('div', moduleChoice(() => close()), h('nav.menu-list', items)));
 }
 
 function drawMe() {

@@ -35,7 +35,7 @@
   <div class="shell">
     <aside class="sidebar">
       <a class="brand brand-side" href="#/" aria-label="Alma Planet, home"><svg class="brand-logo" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100"><svg x="0" y="8" width="84" height="84" viewBox="0 0 100 100"><defs><mask id="lg-s" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#fff"></rect><g transform="rotate(-18 50 50)" fill="none" stroke="#000" stroke-width="7" stroke-linecap="round"><path d="M6 50A44 12 0 0 0 94 50M10 50A40 9 0 0 0 90 50"></path></g></mask></defs><g transform="rotate(-18 50 50)" fill="none" stroke="#FF8A26" stroke-width="2.6" stroke-linecap="round"><path d="M6 50A44 12 0 0 1 94 50M10 50A40 9 0 0 1 90 50"></path></g><circle cx="50" cy="50" r="25" fill="#FF8A26" mask="url(#lg-s)"></circle><g transform="rotate(-18 50 50)" fill="none" stroke="#FF8A26" stroke-width="2.6" stroke-linecap="round"><path d="M6 50A44 12 0 0 0 94 50M10 50A40 9 0 0 0 90 50"></path></g></svg><text x="104" y="69" font-family="Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="54" letter-spacing="-0.5"><tspan font-weight="300" fill="#2C2C2C">Alma </tspan><tspan font-weight="700" fill="#FF8A26">Planet</tspan></text></svg></a>
-      <!-- selettore del modulo, come in MyWinery: Alma Planet o Alma Energy (domani Alma Social); solo a chi ne ha più di uno -->
+      <!-- selettore del modulo, come in MyWinery: Alma Planet (intranet), Alma Project (planner) e Alma Energy per chi ce l'ha -->
       <div class="ws-switch" id="ws-switch" hidden>
         <button class="ws-trigger" id="ws-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="ws-menu">
           <span class="ws-badge" id="ws-badge" data-icon="house"></span>
@@ -44,24 +44,30 @@
         </button>
         <div class="ws-menu" id="ws-menu" role="menu" hidden></div>
       </div>
+      <!-- menu di Alma Planet: la intranet (feed, chat, persone) -->
       <nav class="nav" data-ws="planet">
         <span class="nav-label">Intranet</span>
         <a href="#/" data-nav="home"><span class="nav-ico" data-icon="house"></span>Home</a>
         <a href="#/notifications" data-nav="notifications"><span class="nav-ico" data-icon="bell"></span>Notifiche<span class="nav-badge" data-badge="notifications" hidden></span></a>
         <a href="#/" data-nav="me"><span class="nav-ico" data-icon="user"></span>Profilo</a>
         <button class="nav-create" id="create" type="button"><span class="nav-ico" data-icon="plus"></span>Crea un post</button>
-        <span class="nav-label">Planner</span>
+        <span class="nav-label">Persone</span>
+        <a href="#/direct" data-nav="direct"><span class="nav-ico" data-icon="message"></span>Chat<span class="nav-badge" data-badge="direct" hidden></span></a>
+        <a href="#/chat" data-nav="chat" id="nav-chat" hidden><span class="nav-ico" data-icon="message"></span>Chat interna<span class="nav-badge" data-badge="internal" hidden></span></a>
+        <a href="#/org" data-nav="org"><span class="nav-ico" data-icon="network"></span>Organigramma</a>
+      </nav>
+      <!-- menu di Alma Project: il planner (ticket, progetti, calendario, mezzi) -->
+      <nav class="nav" data-ws="project" hidden>
+        <span class="nav-label">Lavoro</span>
         <a href="#/mine" data-nav="mine"><span class="nav-ico" data-icon="square-check"></span>I miei ticket</a>
         <a href="#/tickets" data-nav="tickets"><span class="nav-ico" data-icon="list"></span>Tutti i ticket</a>
         <a href="#/rda" data-nav="rda"><span class="nav-ico" data-icon="arrows"></span>RDA interne<span class="nav-badge" data-badge="rda" hidden></span></a>
         <a href="#/mezzi" data-nav="mezzi"><span class="nav-ico" data-icon="car"></span>Mezzi<span class="nav-badge" data-badge="mezzi" hidden></span></a>
+        <span class="nav-label">Pianificazione</span>
         <a href="#/projects" data-nav="projects"><span class="nav-ico" data-icon="folder"></span>Progetti</a>
         <a href="#/gantt" data-nav="gantt"><span class="nav-ico" data-icon="gantt"></span>Gantt</a>
         <a href="#/calendar" data-nav="calendar"><span class="nav-ico" data-icon="calendar"></span>Calendario</a>
         <a href="#/drive" data-nav="drive"><span class="nav-ico" data-icon="cloud"></span>OneDrive</a>
-        <a href="#/direct" data-nav="direct"><span class="nav-ico" data-icon="message"></span>Chat<span class="nav-badge" data-badge="direct" hidden></span></a>
-        <a href="#/chat" data-nav="chat" id="nav-chat" hidden><span class="nav-ico" data-icon="message"></span>Chat interna<span class="nav-badge" data-badge="internal" hidden></span></a>
-        <a href="#/org" data-nav="org"><span class="nav-ico" data-icon="network"></span>Organigramma</a>
         <span class="nav-label" id="nav-admin-label" hidden>Amministrazione</span>
         <a href="#/software" data-nav="software" id="nav-software" hidden><span class="nav-ico" data-icon="package"></span>Software e licenze</a>
       </nav>
