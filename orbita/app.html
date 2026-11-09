@@ -25,6 +25,7 @@
   <link rel="stylesheet" href="/css/software.css">
   <link rel="stylesheet" href="/css/fleet.css">
   <link rel="stylesheet" href="/css/energy.css">
+  <link rel="stylesheet" href="/css/strategy.css">
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
   <link rel="stylesheet" href="/css/refresh.css">
   <script src="/vendor/fullcalendar/index.global.min.js"></script>
@@ -90,6 +91,18 @@
         <a href="#/energy/persone" data-nav="energy-persone"><span class="nav-ico" data-icon="users"></span>Persone</a>
         <span class="nav-label">Modulo</span>
         <a href="#/energy/membri" data-nav="energy-membri"><span class="nav-ico" data-icon="key-round"></span>Membri</a>
+      </nav>
+      <!-- menu di Alma Strategy: Hoshin Kanri e (dopo) performance management -->
+      <nav class="nav" data-ws="strategy" hidden>
+        <span class="nav-label">Strategia</span>
+        <a href="#/strategy/hoshin" data-nav="strategy-hoshin"><span class="nav-ico" data-icon="grid-3x3"></span>Hoshin Kanri</a>
+        <a href="#/strategy/gestione" data-nav="strategy-gestione"><span class="nav-ico" data-icon="table-2"></span>Gestione</a>
+        <a href="#/strategy/a3" data-nav="strategy-a3"><span class="nav-ico" data-icon="file-text"></span>A3 dei progetti</a>
+        <span class="nav-label">Performance management</span>
+        <a href="#/strategy/scheda" data-nav="strategy-scheda"><span class="nav-ico" data-icon="user"></span>La mia scheda</a>
+        <a href="#/strategy/obiettivi" data-nav="strategy-obiettivi"><span class="nav-ico" data-icon="target"></span>I miei obiettivi</a>
+        <a href="#/strategy/team" data-nav="strategy-team" id="nav-pm-team" hidden><span class="nav-ico" data-icon="users"></span>Dashboard team</a>
+        <a href="#/strategy/mansionario" data-nav="strategy-mansionario" id="nav-pm-mans" hidden><span class="nav-ico" data-icon="key-round"></span>Mansionario</a>
       </nav>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-sm rail-pin" id="rail-pin" type="button" aria-pressed="false"><span class="nav-ico" data-icon="pin"></span><span>Tieni aperta</span></button>

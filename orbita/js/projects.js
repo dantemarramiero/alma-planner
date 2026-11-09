@@ -206,6 +206,15 @@ export async function projectDetail(container, id, opts = {}) {
       return;
     }
   }
+  // il progetto di un A3 di Alma Strategy si apre nella pagina dell'A3
+  if (p.hk && !opts.base) {
+    const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2] || '';
+    const r = await get(`/api/strategy/by-project/${p.id}`, { quiet: true }).catch(() => null);
+    if (r) {
+      location.replace(`#/strategy/a3/${r.id}${t ? `/${t}` : ''}`);
+      return;
+    }
+  }
   const owner = userById(p.owner_id);
   const extra = opts.extraTabs || [];
   const tabs = [TABS[0], ...extra.map(([k, label]) => [k, label]), ...TABS.slice(1)];
