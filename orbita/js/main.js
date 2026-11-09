@@ -20,6 +20,7 @@ import { searchView, setupSearch } from './search.js';
 import { softwareView } from './software.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
+import { strategyView } from './strategy.js';
 import { icon } from './icons.js';
 
 const view = document.getElementById('view');
@@ -45,7 +46,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = section === 'home' || section === 'energy' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = section === 'home' || section === 'energy' || section === 'strategy' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -72,8 +73,9 @@ function setupRail() {
 const MODULES = [
   { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/', can: () => true },
   { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
+  { key: 'strategy', label: 'Alma Strategy', icon: 'target', home: '#/strategy/hoshin', can: () => true },
 ];
-const moduleOf = section => (section === 'energy' ? 'energy' : 'planet');
+const moduleOf = section => (section === 'energy' ? 'energy' : section === 'strategy' ? 'strategy' : 'planet');
 const MOD_KEY = 'alma.modulePages';
 const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
 const availableModules = () => MODULES.filter(m => m.can());
@@ -139,7 +141,8 @@ async function route() {
   closeOverlays();
   // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
-    : section === 'energy' ? `energy-${parts[1] || 'panoramica'}` : section;
+    : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
+    : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
@@ -219,6 +222,9 @@ async function route() {
     case 'energy':
       await energyView(view, parts);
       break;
+    case 'strategy':
+      await strategyView(view, parts);
+      break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
@@ -275,6 +281,8 @@ async function start() {
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.software;
+  // Alma Strategy: dashboard dei team e mansionario solo agli amministratori (il server lo rifiuta comunque agli altri)
+  for (const id of ['nav-pm-team', 'nav-pm-mans']) document.getElementById(id).hidden = !store.me.is_admin;
   refreshBadges();
 
   document.getElementById('back').addEventListener('click', goBack);

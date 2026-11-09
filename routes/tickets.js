@@ -6,6 +6,7 @@ const { createTicketMail } = require('../lib/ticket-mail');
 const { findFunction, orgOidOf, headUserSql } = require('../lib/functions');
 const schedule = require('../lib/schedule');
 const { isWorkday, addWorkdays, workdaysIn } = require('../lib/workdays');
+const { ticketToTask } = require('../lib/strategy-sync');
 
 const STATUSES = ['todo', 'doing', 'review', 'done'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -342,6 +343,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
       if (cols.length) {
         await q.query(`UPDATE tickets SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`,
           [id, ...Object.values(fields)]);
+        await ticketToTask(q, id, fields); // Alma Strategy: la contromisura dell'A3 segue stato, titolo e scadenza
       }
       if (assigneeIds) await setAssignees(q, id, assigneeIds);
       const projectId = fields.project_id !== undefined ? fields.project_id : before.project_id;
