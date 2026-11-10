@@ -126,12 +126,24 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
   }
   const json = val => (val === undefined ? undefined : JSON.stringify(val));
 
+  async function ensureOwnRole(userId) {
+    await db.tx(async q => {
+      const { rows: [p] } = await q.query('SELECT role_id FROM pm_profiles WHERE user_id = $1 FOR UPDATE', [userId]);
+      if (p?.role_id) return;
+      const { rows: [role] } = await q.query("INSERT INTO pm_roles (status) VALUES ('missing') RETURNING id");
+      await q.query(`INSERT INTO pm_profiles (user_id, role_id) VALUES ($1, $2)
+                     ON CONFLICT (user_id) DO UPDATE SET role_id = $2 WHERE pm_profiles.role_id IS NULL`, [userId, role.id]);
+    });
+  }
+
   // la scheda di una persona (la propria se non si dice chi)
   app.get('/api/pm/person', async (req, res) => {
     await seed(db);
     const userId = req.query.user ? v.int(req.query.user, 'persona', { min: 1 }) : req.user.id;
     const r = await rights(req, userId);
     if (!r.see) throw new HttpError(403, 'Puoi vedere solo la tua scheda e quella delle persone sotto di te');
+    // chi apre la propria scheda senza un ruolo riceve una scheda vuota tutta sua, da compilare e mandare in approvazione
+    if (r.self) await ensureOwnRole(userId);
     const [{ rows: [user] }, { rows: [profile] }, { rows: objectives }, { rows: [review] }, { rows: kpis }] = await Promise.all([
       db.query('SELECT id, name, email FROM users WHERE id = $1', [userId]),
       db.query(`SELECT pp.*, m.name AS manager_name FROM pm_profiles pp LEFT JOIN users m ON m.id = pp.manager_id WHERE pp.user_id = $1`, [userId]),
@@ -405,6 +417,8 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
     await seed(db);
     const { rows } = await db.query(`SELECT r.*, COALESCE(json_agg(json_build_object('id', u.id, 'name', u.name)) FILTER (WHERE u.id IS NOT NULL), '[]') AS holders
                                        FROM pm_roles r LEFT JOIN pm_profiles pp ON pp.role_id = r.id LEFT JOIN users u ON u.id = pp.user_id
+                                      -- le schede vuote ancora da compilare non sono voci del mansionario
+                                      WHERE NOT (r.status = 'missing' AND r.title = '' AND r.description = '' AND r.responsibilities = '[]'::jsonb)
                                       GROUP BY r.id ORDER BY (r.status = 'review') DESC, r.title`);
     res.json(rows);
   });

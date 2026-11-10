@@ -97,7 +97,7 @@ function registerStrategy(app, { db, isAdmin }) {
     const { rows: users } = await db.query("SELECT id, name FROM users WHERE name <> ''");
     for (const p of projects) {
       p.tasks = tasks.filter(t => t.project_id === p.id);
-      p.project_visible = Boolean(p.project_id) && (isAdmin || mine.has(p.project_id));
+      p.project_visible = Boolean(p.project_id); // ticket, Gantt e il resto li vedono tutti, in sola lettura se non ne fanno parte
       p.can_edit = isAdmin || (p.project_id ? mine.has(p.project_id) : matchUser(users, p.owner) === req.user.id);
     }
     res.json({ year, true_north: y.true_north, pillars, functions, areas, kpis, projects, can_admin: isAdmin, today: new Date().toISOString().slice(0, 10) });

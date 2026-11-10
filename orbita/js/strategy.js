@@ -154,8 +154,29 @@ function matrixPage(container) {
         h('button.hk-chip', { type: 'button', class: filter === k ? 'on' : '', 'aria-pressed': String(filter === k), on: { click: () => { filter = k; sel = null; draw(); } } }, l))));
   }
 
+  // sul telefono la matrice non si legge: elenco per funzione, con la matrice intera a richiesta
+  let showMatrix = false;
+  function phoneList() {
+    const colors = areaColors();
+    const keep = p => filter === 'all' || (filter === 'late' && !status.get(p.id).ok) || (filter === 'mine' && isMine(p));
+    const groups = [...D.functions].sort((a, b) => (a.kind === b.kind ? a.position - b.position : a.kind === 'staff' ? -1 : 1))
+      .map(f => ({ f, ps: D.projects.filter(p => areaById(p.area_id)?.function_id === f.id && keep(p)) })).filter(g => g.ps.length);
+    fill(body, h('div.hk-phone',
+      h('button.btn.hk-phone-m', { type: 'button', on: { click: () => { showMatrix = true; draw(); } } }, icon('grid-3x3'), 'Vedi la matrice intera'),
+      groups.length ? groups.map(({ f, ps }) => h('section.hk-card.hk-phone-g', { style: { borderTopColor: f.color } },
+        h('div.hk-phone-h', h('strong', f.name), h('span.muted', ps.length === 1 ? '1 progetto' : `${ps.length} progetti`)),
+        ps.map(p => {
+          const st = status.get(p.id), a = areaById(p.area_id);
+          return h('a.hk-phone-p', { href: `#/strategy/a3/${p.id}` },
+            h('span.hk-phone-t', h('span.hk-eyebrow', { style: { color: colors[a.id] } }, a.name), h('strong', p.name), h('small', p.owner)),
+            h('span.hk-phone-r', h('span.hk-status', { class: st.ok ? 'ok' : 'ko' }, st.ok ? 'in linea' : 'in ritardo'), h('span.hk-prog', progressBar(st.act, st.exp), `${st.act}%`)));
+        }))) : h('div.card.empty', 'Nessun progetto con questo filtro.'),
+      h('div.hk-card.hk-phone-tn', h('span.hk-eyebrow', 'True North'), h('p', D.true_north ? `“${D.true_north}”` : 'Ancora da scrivere.'))));
+  }
+
   function draw() {
     drawStrip();
+    if (window.matchMedia('(max-width: 760px)').matches && !showMatrix) return phoneList();
     const areas = orderedAreas();
     const staff = areas.filter(a => funcById(a.function_id).kind === 'staff');
     const bu = areas.filter(a => funcById(a.function_id).kind === 'bu');
@@ -719,7 +740,9 @@ async function a3Page(container, id) {
     crumb: { href: '#/strategy/hoshin', label: 'Hoshin Kanri' },
     defaultTab: 'a3',
     head: a3Strip(p, func),
-    actions: () => h('button.btn', { type: 'button', on: { click: () => window.print() } }, icon('file-text', { size: 16 }), 'Esporta A3 in PDF'),
+    actions: () => [
+      p.can_edit ? null : h('span.pill', { title: 'Per modificare l’A3, i ticket o il Gantt chiedi al responsabile di aggiungerti al progetto' }, 'Sola lettura'),
+      h('button.btn', { type: 'button', on: { click: () => window.print() } }, icon('file-text', { size: 16 }), 'Esporta A3 in PDF')],
     extraTabs: [['a3', 'A3', (box, reload) => a3Tab(box, p, reload)]],
   });
 }

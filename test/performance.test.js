@@ -219,3 +219,27 @@ test('HR vede le schede di tutti senza modificarle; il responsabile vede tutta l
   // chi sta sotto non vede chi sta sopra
   assert.equal((await M('GET', `/api/pm/person?user=${ids.dante}`)).status, 403);
 });
+
+test('chi non ha un ruolo trova la sua scheda vuota, la compila e la manda in approvazione', async () => {
+  const N = as(await login('nuova.persona@almacis.it'));
+  const nId = (await N('GET', '/api/me')).body.id;
+  const first = (await N('GET', '/api/pm/person')).body;
+  assert.ok(first.role, 'la scheda vuota c’è');
+  assert.equal(first.role.status, 'missing');
+  assert.equal(first.role.title, '');
+  // riaprirla non crea un’altra scheda
+  assert.equal((await N('GET', '/api/pm/person')).body.role.id, first.role.id);
+  // le schede vuote non compaiono nel mansionario
+  assert.ok(!(await X('GET', '/api/pm/admin/roles')).body.some(r => r.id === first.role.id));
+  const sent = await N('POST', '/api/pm/requests', { changes: [{ field: 'title', after: 'Project manager' }, { field: 'resp', index: 0, after: 'Consegnare le commesse in tempo' }] });
+  assert.equal(sent.status, 201);
+  // senza responsabile la decide un amministratore
+  const pending = (await X('GET', '/api/pm/requests')).body.find(r => r.user_id === nId);
+  assert.ok(pending);
+  assert.equal((await X('POST', `/api/pm/requests/${pending.id}/decide`, { decisions: [{ decision: 'ok' }, { decision: 'ok' }] })).status, 200);
+  const after = (await N('GET', '/api/pm/person')).body.role;
+  assert.equal(after.title, 'Project manager');
+  assert.deepEqual(after.responsibilities, ['Consegnare le commesse in tempo']);
+  assert.equal(after.status, 'confirmed');
+  assert.ok((await X('GET', '/api/pm/admin/roles')).body.some(r => r.id === first.role.id));
+});

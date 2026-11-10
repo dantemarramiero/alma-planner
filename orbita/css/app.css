@@ -90,7 +90,7 @@ h3 { font-size: var(--ap-fs-sm); font-weight: var(--ap-fw-medium); }
 .banner { background: var(--amber-soft); color: var(--ap-text-strong); border-radius: var(--radius); padding: var(--ap-space-3) var(--ap-space-4); margin-bottom: var(--ap-space-4); font-size: var(--ap-fs-sm); }
 
 @media (max-width: 860px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } /* la barra in alto resta alta quanto serve anche con pagine corte */
   .sidebar { position: sticky; z-index: 20; height: auto; flex-direction: row; align-items: center; padding: var(--ap-space-2) var(--ap-space-4); gap: var(--ap-space-3); overflow-x: auto; }
   .brand-side { padding: 0; }
   .nav { display: flex; gap: 1px; }

@@ -58,9 +58,9 @@ function registerProjects(app, { db, access, auth }) {
 
   app.get('/api/projects/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
-    await access.assertProject(req, id);
+    const role = await access.assertProject(req, id);
     const { rows } = await db.query(`${SELECT} WHERE p.id = $2 GROUP BY p.id, o.name`, [req.user.id, id]);
-    res.json(rows[0]);
+    res.json(role === 'viewer' ? { ...rows[0], my_role: 'viewer' } : rows[0]); // progetto di un A3, in sola lettura
   });
 
   app.post('/api/projects', async (req, res) => {

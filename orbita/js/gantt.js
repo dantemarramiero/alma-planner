@@ -45,6 +45,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
   let hideDone = false;
   let showLoose = false;
   let tickets = [];
+  let outside = null; // il progetto di un A3 che non è nel proprio elenco (si vede in sola lettura)
   let scrolledOnce = false;
   const project = onlyProject ? projectById(onlyProject) : null;
   const TODAY = dn(today());
@@ -114,7 +115,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
 
   // ── dati ──────────────────────────────────────────────────────────────────
   function visibleProjects() {
-    if (onlyProject) return store.projects.filter(p => p.id === onlyProject);
+    if (onlyProject) return outside ? [outside] : store.projects.filter(p => p.id === onlyProject);
     const areaOf = p => (areaById(p.area_id) ? p.area_id : null);
     const rank = p => { const i = store.areas.findIndex(a => a.id === areaOf(p)); return i < 0 ? store.areas.length : i; };
     return store.projects
@@ -485,6 +486,7 @@ export async function ganttView(container, params, { embedded = false, onChange 
 
   async function reload() {
     await loadProjects();
+    if (onlyProject && !projectById(onlyProject)) outside = await get(`/api/projects/${onlyProject}`, { quiet: true }).catch(() => null);
     tickets = await get(`/api/tickets${onlyProject ? `?project=${onlyProject}` : ''}`);
     draw();
   }

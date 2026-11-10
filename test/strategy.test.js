@@ -144,9 +144,34 @@ test('permessi: la struttura la cambiano gli amministratori, un A3 il suo team; 
   assert.equal(after.can_edit, true);
   assert.equal(after.project_visible, true);
   assert.equal((await R('PATCH', `/api/strategy/tasks/${after.tasks[0].id}`, { closed_date: '2026-11-09' })).status, 200);
-  assert.equal((await O('GET', '/api/strategy?year=2026')).body.projects.find(p => p.id === comm.id).project_visible, false);
+  assert.equal((await O('GET', '/api/strategy?year=2026')).body.projects.find(p => p.id === comm.id).project_visible, true); // lo vede in sola lettura
   // ma non la struttura, né eliminare l'A3
   assert.equal((await R('DELETE', `/api/strategy/projects/${comm.id}`)).status, 403);
   assert.equal((await R('PATCH', `/api/strategy/areas/${d.areas[0].id}`, { name: 'x' })).status, 403);
 });
 
+
+test('il progetto di un A3 lo vedono tutti in sola lettura: ticket e Gantt sì, modifiche no', async () => {
+  const comm = (await O('GET', '/api/strategy?year=2026')).body.projects.find(p => p.name === 'Gestione di commessa 2.0');
+  assert.ok(comm.project_id, 'collegato nel test di prima');
+  const pr = await O('GET', `/api/projects/${comm.project_id}`);
+  assert.equal(pr.status, 200);
+  assert.equal(pr.body.my_role, 'viewer');
+  const tickets = (await O('GET', `/api/tickets?project=${comm.project_id}`)).body;
+  assert.ok(tickets.length >= 1, 'i ticket delle contromisure si vedono');
+  assert.equal((await O('GET', `/api/tickets/${tickets[0].id}`)).status, 200);
+  assert.equal((await O('GET', `/api/projects/${comm.project_id}/members`)).status, 200);
+  // ma non si modificano
+  const no = await O('PATCH', `/api/tickets/${tickets[0].id}`, { title: 'x' });
+  assert.equal(no.status, 403);
+  assert.match(no.body.error, /solo vedere/);
+  assert.equal((await O('POST', '/api/tickets', { title: 'x', project_id: comm.project_id })).status, 403);
+  assert.equal((await O('PATCH', `/api/projects/${comm.project_id}`, { name: 'x' })).status, 403);
+  // non entrano nei suoi elenchi: né i progetti né i ticket senza filtro di progetto
+  assert.ok(!(await O('GET', '/api/projects')).body.some(p => p.id === comm.project_id));
+  assert.ok(!(await O('GET', '/api/tickets')).body.some(t => t.project_id === comm.project_id));
+  // un progetto normale di un altro resta invisibile
+  const { rows: [plain] } = await db.query("INSERT INTO projects (name, owner_id) SELECT 'Privato', id FROM users WHERE email = 'dante.marramiero@almacis.it' RETURNING id");
+  assert.equal((await O('GET', `/api/projects/${plain.id}`)).status, 404);
+  assert.equal((await O('GET', `/api/tickets?project=${plain.id}`)).body.length, 0);
+});

@@ -98,7 +98,9 @@ async function schedaPage(container, userId) {
   const valOf = key => (key in draft ? draft[key] : cur(key));
   const same = (a, b) => JSON.stringify(a ?? '') === JSON.stringify(b ?? '');
   const setDraft = (key, val) => { if (same(val, cur(key))) delete draft[key]; else draft[key] = val; keepDraft(); render(); };
-  const editing = new Set();
+  // scheda vuota: si apre già con tutti i riquadri da compilare
+  const blank = canEdit && role.status === 'missing' && !role.title && !role.description && !(role.responsibilities || []).length;
+  const editing = new Set(blank ? ['who', 'desc', 'resp', 'int', 'hard'] : []);
   // segno accanto a un valore: «da inviare» (bozza), «in approvazione» (inviata)
   const mark = key => (key in draft ? h('span.pm-mark.draft', 'da inviare') : pendingSet.has(key) ? h('span.pm-mark.wait', 'in approvazione') : null);
   const was = key => (key in draft && cur(key) ? h('span.pm-was-old', Array.isArray(cur(key)) ? cur(key).join(', ') : String(cur(key))) : null);
@@ -155,6 +157,7 @@ async function schedaPage(container, userId) {
     if (n) return h('div.pm-banner.draft', h('span', h('b', n === 1 ? '1 modifica' : `${n} modifiche`), n === 1 ? ' non ancora inviata' : ' non ancora inviate'),
       h('div.row', h('button.btn.btn-sm', { type: 'button', on: { click: () => { draft = {}; keepDraft(); render(); } } }, 'Annulla le modifiche'),
         h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: send } }, `Invia ${toApprover} per l’approvazione`)));
+    if (blank) return h('div.pm-banner.draft', h('span', h('b', 'La tua scheda è da compilare'), ` · scrivi ruolo, responsabilità e competenze, poi inviala ${toApprover}: dopo l’approvazione entra nel mansionario`));
     if (req?.status === 'decided' && mine) {
       const ok = req.changes.filter(c => c.decision === 'ok').length, no = req.changes.filter(c => c.decision === 'no');
       return h('div.pm-banner.done', h('span', h('b', `Decise da ${req.decided_by_name || 'il responsabile'}`), ` il ${itDate(req.decided_at)}: ${ok} ${ok === 1 ? 'accettata' : 'accettate'}, ${no.length} ${no.length === 1 ? 'rifiutata' : 'rifiutate'}`,

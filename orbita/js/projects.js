@@ -194,7 +194,9 @@ const canManage = p => p.my_role === 'owner' || p.my_role === 'admin';
 export async function projectDetail(container, id, opts = {}) {
   clear(container).append(loading());
   await Promise.all([loadProjects(), loadAreas()]);
-  const p = projectById(id);
+  // il progetto di un A3 lo vedono tutti (in sola lettura) anche se non è nel proprio elenco
+  const p = projectById(id) || (opts.base ? await get(`/api/projects/${id}`, { quiet: true }).catch(() => null) : null);
+  const viewer = p?.my_role === 'viewer';
   const area = areaById(p?.area_id);
   if (!p) return clear(container).append(h('div.card.empty', 'Progetto non trovato, oppure non sei tra i suoi membri. ', h('a', { href: '#/projects' }, 'Torna ai progetti')));
   // il progetto di un'opportunità di Alma Energy si apre nella pagina dell'opportunità
@@ -242,14 +244,12 @@ export async function projectDetail(container, id, opts = {}) {
         h('div.pj-name', h('span.pj-swatch'), h('h1', p.name),
           h('span.pill', { class: `pj-st-${p.status}` }, h('span.dot'), PROJECT_STATUS[p.status])),
         h('div.pj-meta', [owner ? `Responsabile ${owner.name}` : 'Senza responsabile',
-          p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : null].filter(Boolean).join('  ·  '))),
+          p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : viewer ? 'non sei nel progetto: lo vedi in sola lettura' : null].filter(Boolean).join('  ·  '))),
       h('div.pj-actions',
         opts.actions ? opts.actions() : canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, reload) } }, icon('pencil', { size: 16 }), 'Modifica') : null,
-        h('button.btn.btn-primary', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, icon('plus', { size: 16 }), 'Nuovo ticket'),
+        viewer ? null : h('button.btn.btn-primary', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, icon('plus', { size: 16 }), 'Nuovo ticket'),
         moreMenu(
-          h('span.pj-menu-label', 'La tua macro area'),
-          areaPicker(p, reload),
-          h('span.pj-menu-sep'),
+          viewer ? null : [h('span.pj-menu-label', 'La tua macro area'), areaPicker(p, reload), h('span.pj-menu-sep')],
           p.claude_url ? h('a.pj-menu-item', { href: p.claude_url, target: '_blank', rel: 'noopener', role: 'menuitem' }, icon('external', { size: 16 }), 'Apri in Claude') : null,
           h('a.pj-menu-item', { href: `#/gantt?project=${p.id}`, role: 'menuitem' }, icon('gantt', { size: 16 }), 'Apri il Gantt a tutta pagina')))),
     h('div.pj-facts',

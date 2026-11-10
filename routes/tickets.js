@@ -222,9 +222,13 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
     // solo i ticket dei progetti che si vedono (lib/access.js); per un amministratore il filtro non ha parametri
     // (toglie solo i progetti di Alma Energy se non è della BU Energy)
     where.push(LIVE_SQL);
-    const visible = access.ticketFilter(req, 't', `$${params.length + 1}`);
-    if (!access.isAdmin(req)) params.push(req.user.id);
-    where.push(visible);
+    // i ticket del progetto di un A3 li vede tutto chi apre l'A3 (sola lettura: lib/access.js)
+    const hkView = project && project !== 'none' && !access.isAdmin(req) && await access.projectRole(req, v.int(project, 'progetto', { min: 1 })) === 'viewer';
+    if (!hkView) {
+      const visible = access.ticketFilter(req, 't', `$${params.length + 1}`);
+      if (!access.isAdmin(req)) params.push(req.user.id);
+      where.push(visible);
+    }
     const { rows } = await db.query(
       `${SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
        ORDER BY t.position, t.id LIMIT 2000`, params);
