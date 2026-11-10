@@ -3,6 +3,7 @@
 // (scelto dagli amministratori in Impostazioni) apre la votazione, dà un voto da 1 a 5 e premia le migliori.
 // La classifica con le medie la vedono solo il comitato e gli amministratori; le idee premiate le vedono tutti.
 const { HttpError, v } = require('../lib/http');
+const settings = require('../lib/settings');
 
 const CATEGORIES = ['innovazione', 'miglioramento', 'processi', 'sicurezza', 'persone', 'sostenibilita'];
 const STATUSES = ['proposta', 'in_valutazione', 'premiata', 'realizzata', 'archiviata'];
@@ -20,14 +21,10 @@ const thisYear = () => new Date().getFullYear();
 
 function registerIdeas(app, { db, isAdmin }) {
   async function setting(key, fallback) {
-    const { rows } = await db.query('SELECT value FROM planet_settings WHERE key = $1', [key]);
-    return rows[0] ? rows[0].value : fallback;
+    return settings.getSetting(db, `planet.${key}`, fallback);
   }
   async function saveSetting(key, value, userId) {
-    await db.query(
-      `INSERT INTO planet_settings (key, value, updated_by) VALUES ($1, $2, $3)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [key, JSON.stringify(value), userId]);
+    await settings.saveSetting(db, `planet.${key}`, value, userId);
   }
   async function inCommittee(userId) {
     const { rows } = await db.query('SELECT 1 FROM idea_committee WHERE user_id = $1', [userId]);

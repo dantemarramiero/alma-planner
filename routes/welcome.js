@@ -7,6 +7,7 @@
 const express = require('express');
 const { HttpError, v } = require('../lib/http');
 const { toBuffer } = require('../lib/media');
+const settings = require('../lib/settings');
 
 const POLL_SQL = "SELECT id, question, options, to_char(closes_on, 'YYYY-MM-DD') AS closes_on, closed_at FROM polls";
 const PDF_MAX = 15 * 1024 * 1024;
@@ -26,14 +27,10 @@ function registerWelcome(app, { db, isAdmin, notifier, live }) {
   const admin = req => Boolean(isAdmin(req));
   const mustAdmin = req => { if (!admin(req)) throw new HttpError(403, 'Lo possono fare solo gli amministratori'); };
   async function setting(key, fallback) {
-    const { rows } = await db.query('SELECT value FROM planet_settings WHERE key = $1', [key]);
-    return rows[0] ? rows[0].value : fallback;
+    return settings.getSetting(db, `planet.${key}`, fallback);
   }
   async function saveSetting(key, value, userId) {
-    await db.query(
-      `INSERT INTO planet_settings (key, value, updated_by) VALUES ($1, $2, $3)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [key, JSON.stringify(value), userId]);
+    await settings.saveSetting(db, `planet.${key}`, value, userId);
   }
 
   async function pollView(poll, userId) {

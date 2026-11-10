@@ -17,7 +17,6 @@ const { registerProjectFiles } = require('./routes/project-files');
 const { registerProjectEmails } = require('./routes/project-emails');
 const { registerNotes } = require('./routes/notes');
 const { registerProjectMeetings } = require('./routes/project-meetings');
-const { registerDirect } = require('./routes/direct');
 const { registerMedia } = require('./routes/media');
 const { registerFeed } = require('./routes/feed');
 const { registerStories } = require('./routes/stories');
@@ -67,8 +66,6 @@ function readConfig(env = process.env) {
     devLogin: !production && env.DEV_LOGIN === '1',
     // Amministratori dell'intranet (post in evidenza, moderazione): email separate da virgole.
     adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
-    // Chat interna dell'intranet: nascosta (i messaggi passano da Teams), si riaccende con INTERNAL_CHAT=1.
-    internalChat: env.INTERNAL_CHAT === '1',
   };
 }
 
@@ -172,7 +169,7 @@ async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
 
   const live = createLive();
   const isAdmin = req => config.adminEmails.includes(req.user.email);
-  const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, internalChat: config.internalChat, notifier: createNotifier({ db, live }) };
+  const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, notifier: createNotifier({ db, live }) };
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
@@ -210,7 +207,6 @@ async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
   registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto
   registerWelcome(app, deps); // Alma Planet: dati della nuova pagina di benvenuto (sondaggi, eventi, organigramma, «Grazie a…»)
   registerAudit(app, deps);
-  if (config.internalChat) registerDirect(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
 

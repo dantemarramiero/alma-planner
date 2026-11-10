@@ -8,7 +8,6 @@ import { ganttView } from './gantt.js';
 import { calendarView } from './calendar.js';
 import { driveView } from './drive.js';
 import { orgView } from './org.js';
-import { directView } from './direct.js';
 import { homeView, openPost, openComposer } from './feed.js';
 import { profileView } from './profile.js';
 import { notificationsView } from './notifications.js';
@@ -157,7 +156,6 @@ async function route() {
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
-  document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
   const modLabel = MODULES.find(m => m.key === moduleOf(section))?.label || 'Alma Planet';
   document.title = section === 'direct' ? `Chat · ${modLabel}` : modLabel;
@@ -189,10 +187,6 @@ async function route() {
       }
       break;
     }
-    case 'chat':
-      if (!store.me.internal_chat) { clear(view).append(h('div.card.empty', 'Pagina non trovata.')); break; }
-      cleanup = directView(view, parts[1] ? Number(parts[1]) : null);
-      break;
     case 'rda':
       rdaView(view);
       break;
@@ -301,7 +295,6 @@ async function start() {
 
   startLive();
   for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
-  document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   // Alma IT: le voci del team IT solo per amministratori e team IT (il server lo rifiuta comunque agli altri)
   for (const el of document.querySelectorAll('[data-it-team]')) el.hidden = !store.me.software;
