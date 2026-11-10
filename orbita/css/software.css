@@ -135,3 +135,24 @@ table.list td.sw-wrap { max-width: 28rem; }
 .sw-count-badge.soft { background: var(--ap-grey-200, var(--ap-grey-100)); color: var(--ap-text-strong); }
 .sw-free-big { font-size: 1.6rem; color: var(--orange-fill, var(--orange)); font-variant-numeric: tabular-nums; }
 .sw-tile-actions { display: flex; justify-content: flex-end; align-items: center; min-height: 32px; }
+
+/* Alma IT · I miei strumenti e Richieste */
+.it-section { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-5); }
+.it-section h2, .it-block h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 6px; }
+.it-pad { padding: var(--ap-space-4); }
+.it-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--ap-space-3); }
+.it-card { padding: var(--ap-space-4); display: grid; gap: var(--ap-space-2); align-content: start; min-width: 0; }
+.it-card-head { display: flex; align-items: center; gap: var(--ap-space-3); min-width: 0; }
+.it-card-head .grow { display: grid; min-width: 0; }
+.it-card-note { margin: 0; color: var(--muted); line-height: 1.45; }
+.it-mono { flex: none; width: 40px; height: 40px; border-radius: var(--radius); display: grid; place-items: center; font-weight: var(--ap-fw-bold); font-size: var(--ap-fs-sm); background: var(--ap-orange-tint, #FFF1E5); color: var(--orange-fill, var(--orange)); }
+.it-reqs { display: grid; }
+.it-req { display: flex; align-items: center; gap: var(--ap-space-3); padding: var(--ap-space-3) 0; border-top: 1px solid var(--rule); flex-wrap: wrap; }
+.it-req:first-child { border-top: 0; }
+.it-req .grow { min-width: 0; }
+.pill.it-st-wait { background: var(--amber-soft); color: var(--ap-text-strong); }
+.pill.it-st-ok { background: var(--green-soft); color: var(--green); }
+.pill.it-st-no { background: var(--red-soft, var(--ap-grey-100)); color: var(--red, var(--ap-text)); }
+.pill.it-st-off { background: var(--ap-grey-100); color: var(--muted); }
+.it-block { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-6, 32px); }
+.it-block .spread { flex-wrap: wrap; }

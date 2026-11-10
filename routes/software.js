@@ -63,7 +63,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
 
   // ── cruscotto: tutti i software con piani, totali e cose da sistemare ─────────────────────────────
   app.get('/api/software', async (_req, res) => {
-    const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }, { rows: [pending] }] = await Promise.all([
+    const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }, { rows: [pending] }, { rows: [asked] }] = await Promise.all([
       db.query(`SELECT s.*, o.name AS owner_name FROM software s LEFT JOIN org_people o ON o.oid = s.owner_oid ORDER BY lower(s.name)`),
       plansFor(),
       db.query('SELECT s.source, s.synced_at, s.result, u.name AS synced_by_name FROM software_sync s LEFT JOIN users u ON u.id = s.synced_by'),
@@ -74,6 +74,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
           ORDER BY a.person_name, s.name`),
       db.query('SELECT COUNT(*)::int AS n FROM org_people'),
       db.query("SELECT COUNT(*)::int AS n FROM software_proposals WHERE status = 'da_accettare'"),
+      db.query("SELECT COUNT(*)::int AS n FROM it_requests WHERE status = 'da_rispondere'"),
     ]);
     const bySw = new Map(list.map(s => [s.id, { ...s, plans: [] }]));
     for (const p of plans) bySw.get(p.software_id)?.plans.push(p);
@@ -127,6 +128,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
         departed: departed.length,
         people: people[0].n,
         proposals: pending.n,
+        requests: asked.n,
       },
     });
   });
@@ -541,7 +543,74 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     res.status(201).json({ created: await proposeFor(db, notifier, [oid], { actorId: req.user.id }) });
   });
 
-  // scheda di un software (dopo /people, /packages e /proposals, che altrimenti finirebbero qui)
+  // ── richieste delle persone (Alma IT): un software, uno nuovo, o «non mi serve più» ─────────────
+  app.get('/api/software/requests', async (req, res) => {
+    const status = v.oneOf(req.query.status || 'da_rispondere', 'stato', ['da_rispondere', 'accettata', 'rifiutata', 'annullata']);
+    const { rows } = await db.query(
+      `SELECT r.*, u.name AS decided_by_name, o.job_title, o.department,
+              p.name AS plan_name, p.seats, p.external_id, s.id AS software_id, s.name AS plan_software, s.source,
+              (SELECT COUNT(*)::int FROM software_assignments a WHERE a.plan_id = r.plan_id) AS assigned
+         FROM it_requests r
+         LEFT JOIN users u ON u.id = r.decided_by
+         LEFT JOIN org_people o ON o.oid = r.person_oid
+         LEFT JOIN software_plans p ON p.id = r.plan_id
+         LEFT JOIN software s ON s.id = p.software_id
+        WHERE r.status = $1 ORDER BY r.created_at DESC LIMIT 200`, [status]);
+    res.json(rows.map(r => ({
+      ...r,
+      free: r.seats === null || r.seats === undefined ? null : Math.max(0, r.seats - r.assigned),
+      managed_by: r.external_id && r.external_id !== 'collegati' ? (SOURCES[r.source]?.label || r.source) : null,
+    })));
+  });
+
+  async function openRequest(id) {
+    const { rows: [r] } = await db.query(
+      `SELECT r.*, p.external_id, s.source, s.name AS plan_software FROM it_requests r
+         LEFT JOIN software_plans p ON p.id = r.plan_id LEFT JOIN software s ON s.id = p.software_id WHERE r.id = $1`, [id]);
+    if (!r) throw new HttpError(404, 'Richiesta non trovata');
+    if (r.status !== 'da_rispondere') throw new HttpError(400, 'Questa richiesta ha già una risposta');
+    return r;
+  }
+  const tellRequester = (r, actorId, body) => notifier?.notify({ userIds: [r.user_id], actorId, kind: 'it', body, link: '/it/strumenti' }).catch(() => {});
+
+  // Accetta: un software del censimento si assegna (quelli di un collegamento restano «da fare» là),
+  // «non mi serve più» toglie la licenza, un software nuovo si segna accettato (lo si aggiunge al censimento).
+  app.post('/api/software/requests/:id/accept', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const answer = v.text(req.body?.answer, 'risposta', { max: 1000 }) || '';
+    const r = await openRequest(id);
+    const managed = r.external_id && r.external_id !== 'collegati';
+    const where = SOURCES[r.source]?.label || r.source;
+    let added = 0, removed = 0, todo = null;
+    await db.tx(async q => {
+      if (r.kind === 'software' && r.plan_id) {
+        if (managed) todo = `Assegna «${r.software_name}» a ${r.person_name} in ${where}: arriva qui con «Aggiorna»`;
+        else if (r.person_oid) added = await assign(q, r.plan_id, [r.person_oid], { source: 'manuale', userId: req.user.id });
+        else throw new HttpError(400, `${r.person_name} non è nell'organigramma di Microsoft: assegnala dalla scheda del software`);
+      }
+      if (r.kind === 'rilascio' && r.assignment_id) {
+        const { rows: [a] } = await q.query('SELECT source FROM software_assignments WHERE id = $1', [r.assignment_id]);
+        if (a && SOURCES[a.source]) todo = `Togli «${r.software_name}» a ${r.person_name} in ${SOURCES[a.source].label}: sparisce qui con «Aggiorna»`;
+        else if (a) removed = (await q.query('DELETE FROM software_assignments WHERE id = $1', [r.assignment_id])).rowCount;
+      }
+      await q.query(`UPDATE it_requests SET status = 'accettata', answer = $2, decided_by = $3, decided_at = now() WHERE id = $1`, [id, answer, req.user.id]);
+    });
+    await tellRequester(r, req.user.id, r.kind === 'rilascio'
+      ? `Il team IT ha preso in carico «${r.software_name}» che non ti serve più${answer ? `: ${answer}` : ''}`
+      : `Il team IT ha accettato la tua richiesta di «${r.software_name}»${answer ? `: ${answer}` : ''}`);
+    res.json({ added, removed, todo });
+  });
+
+  app.post('/api/software/requests/:id/reject', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const answer = v.text(req.body?.answer, 'motivo', { max: 1000 }) || '';
+    const r = await openRequest(id);
+    await db.query(`UPDATE it_requests SET status = 'rifiutata', answer = $2, decided_by = $3, decided_at = now() WHERE id = $1`, [id, answer, req.user.id]);
+    await tellRequester(r, req.user.id, `Il team IT non ha accettato la richiesta di «${r.software_name}»${answer ? `: ${answer}` : ''}`);
+    res.json({ ok: true });
+  });
+
+  // scheda di un software (dopo /people, /packages /proposals e /requests, che altrimenti finirebbero qui)
   app.get('/api/software/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const s = await getSoftware(id);

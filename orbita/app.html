@@ -72,8 +72,18 @@
         <a href="#/gantt" data-nav="gantt"><span class="nav-ico" data-icon="gantt"></span>Gantt</a>
         <a href="#/calendar" data-nav="calendar"><span class="nav-ico" data-icon="calendar"></span>Calendario</a>
         <a href="#/drive" data-nav="drive"><span class="nav-ico" data-icon="cloud"></span>OneDrive</a>
-        <span class="nav-label" id="nav-admin-label" hidden>Amministrazione</span>
-        <a href="#/software" data-nav="software" id="nav-software" hidden><span class="nav-ico" data-icon="package"></span>Software e licenze</a>
+      </nav>
+      <!-- menu di Alma IT: «I miei strumenti» per tutti; il resto solo team IT e amministratori -->
+      <nav class="nav" data-ws="it" hidden>
+        <a href="#/it/strumenti" data-nav="it-strumenti"><span class="nav-ico" data-icon="monitor"></span>I miei strumenti</a>
+        <span class="nav-label" data-it-team hidden>Team IT</span>
+        <a href="#/it/panoramica" data-nav="it-panoramica" data-it-team hidden><span class="nav-ico" data-icon="layout-dashboard"></span>Panoramica</a>
+        <a href="#/it/richieste" data-nav="it-richieste" data-it-team hidden><span class="nav-ico" data-icon="inbox"></span>Richieste e proposte<span class="nav-badge" data-badge="it" hidden></span></a>
+        <a href="#/it/fornitori" data-nav="it-fornitori" data-it-team hidden><span class="nav-ico" data-icon="package"></span>Fornitori e software</a>
+        <a href="#/it/persone" data-nav="it-persone" data-it-team hidden><span class="nav-ico" data-icon="users"></span>Persone e licenze</a>
+        <a href="#/it/da-assegnare" data-nav="it-da-assegnare" data-it-team hidden><span class="nav-ico" data-icon="key-round"></span>Licenze da assegnare</a>
+        <a href="#/it/pacchetti" data-nav="it-pacchetti" data-it-team hidden><span class="nav-ico" data-icon="building"></span>Pacchetti per ruolo</a>
+        <a href="#/it/collegamenti" data-nav="it-collegamenti" data-it-team hidden><span class="nav-ico" data-icon="plug"></span>Collegamenti</a>
       </nav>
       <!-- menu di Alma Energy: le sezioni del modulo -->
       <nav class="nav" data-ws="energy" hidden>

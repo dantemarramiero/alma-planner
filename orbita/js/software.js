@@ -1,12 +1,31 @@
-// Censimento dei software (solo amministratori): cruscotto dei costi, catalogo con le tipologie di licenza,
-// chi ha cosa persona per persona, pacchetti per ruolo. Microsoft 365 e i software esterni di Entra si
-// aggiornano da soli con «Aggiorna»; tutto il resto si compila qui.
+// Alma IT. «I miei strumenti» (per tutti) sta in it-tools.js; qui le pagine del team IT e degli amministratori:
+// panoramica dei costi, richieste delle persone e proposte per ruolo, fornitori e software con le licenze, chi ha
+// cosa, licenze da assegnare, pacchetti per ruolo, collegamenti. Microsoft 365, Entra e Claude si aggiornano da
+// soli con «Aggiorna»; tutto il resto si compila qui.
 import { h, clear, fill, modal, confirmDialog, toast, fmtDate, fmtDateTime, loading, debounce } from './ui.js';
 import { get, post, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
+import { myToolsView } from './it-tools.js';
 
-const TABS = [['cruscotto', 'Cruscotto'], ['catalogo', 'Fornitori e software'], ['persone', 'Persone'], ['libere', 'Da assegnare'], ['pacchetti', 'Pacchetti per ruolo'], ['proposte', 'Proposte']];
+// pagine del team IT: indirizzo → titolo e sottotitolo
+const PAGES = {
+  panoramica: ['Panoramica', 'Quanto spendiamo in software, cosa c\'è da sistemare e cosa aspetta una risposta.'],
+  richieste: ['Richieste e proposte', 'Cosa chiedono le persone e cosa propone Alma per i nuovi arrivi: si accetta, in parte o tutto, o si rifiuta con un motivo.'],
+  fornitori: ['Fornitori e software', 'Per ogni fornitore le licenze, chi le usa e quanto costano.'],
+  persone: ['Persone e licenze', 'Chi ha cosa, persona per persona.'],
+  'da-assegnare': ['Licenze da assegnare', 'Licenze già pagate che nessuno ha: assegnale o riducile al prossimo rinnovo.'],
+  pacchetti: ['Pacchetti per ruolo', 'L\'insieme di licenze che spetta a un ruolo: di base e su richiesta.'],
+  collegamenti: ['Collegamenti', 'Leggono da soli software, licenze e assegnazioni.'],
+};
+// indirizzi di prima (#/software/…) → Alma IT
+const OLD = { cruscotto: 'panoramica', catalogo: 'fornitori', persone: 'persone', libere: 'da-assegnare', pacchetti: 'pacchetti', proposte: 'richieste' };
+export function oldSoftwareHash(parts) {
+  const p = parts[1];
+  if (p && /^\d+$/.test(p)) return `#/it/software/${p}`;
+  if (p === 'fornitore' && parts[2]) return `#/it/fornitore/${parts[2]}`;
+  return `#/it/${OLD[p] || 'panoramica'}`;
+}
 const STATUS = { attivo: 'In uso', da_verificare: 'Da verificare', archiviato: 'Archiviato' };
 const BILLING = { mese: 'al mese', anno: 'all\'anno', una_tantum: 'una tantum' };
 const SOURCE = { manuale: 'A mano', microsoft: 'Microsoft 365', entra: 'Entra', claude: 'Claude (Anthropic)', pacchetto: 'Pacchetto' };
@@ -24,28 +43,90 @@ async function orgPeople() {
   return peopleCache;
 }
 
-export async function softwareView(container, parts = []) {
-  if (!store.me.software) return fill(container, h('div.card.empty', 'Il censimento dei software è riservato agli amministratori e al team IT.'));
-  if (parts[1] && /^\d+$/.test(parts[1])) return softwareDetail(container, Number(parts[1]));
-  if (parts[1] === 'fornitore' && parts[2]) return vendorView(container, decodeURIComponent(parts[2]));
-  const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'cruscotto';
+export async function itView(container, parts = []) {
+  const page = parts[1] || 'strumenti';
+  if (page === 'strumenti') return myToolsView(container);
+  if (!store.me.software) {
+    return fill(container, h('div.card.empty', 'Questa parte di Alma IT è del team IT. ', h('a', { href: '#/it/strumenti' }, 'Vai ai tuoi strumenti')));
+  }
+  if (page === 'software' && /^\d+$/.test(parts[2] || '')) return softwareDetail(container, Number(parts[2]));
+  if (page === 'fornitore' && parts[2]) return vendorView(container, decodeURIComponent(parts[2]));
+  const [title, sub] = PAGES[page] || PAGES.panoramica;
   const body = h('div.sw-body', loading());
-  const tabs = h('div.seg.sw-tabs', TABS.map(([k, label]) => h('button', { type: 'button', 'data-k': k, class: k === tab ? 'on' : '', on: { click: () => { location.hash = `#/software/${k}`; } } }, label)));
-  clear(container).append(
-    h('div.page-head', h('div', h('h1', 'Software e licenze'),
-      h('div.sub', 'Quali software usa Almacis, quante licenze ci sono, a chi sono assegnate e quanto costano.'))),
-    tabs,
-    body);
+  fill(container, h('div.page-head', h('div', h('h1', title), h('div.sub', sub))), body);
   const data = await get('/api/software');
-  // quante proposte aspettano il team IT, accanto al tab
-  if (data.totals.proposals) tabs.querySelector('[data-k="proposte"]').append(h('span.sw-count-badge', num(data.totals.proposals)));
-  if (data.totals.free_seats) tabs.querySelector('[data-k="libere"]').append(h('span.sw-count-badge.soft', num(data.totals.free_seats)));
-  if (tab === 'cruscotto') dashboard(body, data);
-  else if (tab === 'libere') freeTab(body, data);
-  else if (tab === 'catalogo') catalog(body, data);
-  else if (tab === 'persone') await peopleTab(body);
-  else if (tab === 'pacchetti') await packagesTab(body);
-  else await proposalsTab(body);
+  // da rispondere (richieste + proposte), accanto alla voce del menu
+  const badge = document.querySelector('[data-badge="it"]');
+  const waiting = (data.totals.requests || 0) + (data.totals.proposals || 0);
+  if (badge) { badge.hidden = !waiting; badge.textContent = waiting ? String(waiting) : ''; }
+  if (page === 'richieste') return requestsPage(body, data);
+  if (page === 'da-assegnare') return freeTab(body, data);
+  if (page === 'fornitori') return catalog(body, data);
+  if (page === 'persone') return peopleTab(body);
+  if (page === 'pacchetti') return packagesTab(body);
+  if (page === 'collegamenti') {
+    const card = sourcesCard(data);
+    card.querySelector('h3')?.remove(); // il titolo è già quello della pagina
+    return fill(body, h('div.sw-grid', card));
+  }
+  return dashboard(body, data);
+}
+
+// ── richieste e proposte ──────────────────────────────────────────────────
+const REQ_KIND = { software: 'Richiede un software', nuovo: 'Software non in elenco', rilascio: 'Non gli serve più' };
+async function requestsPage(box, data) {
+  let status = 'da_rispondere';
+  const list = h('div.sw-props');
+  const seg = h('div.seg', [['da_rispondere', 'Da rispondere'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate']].map(([k, l]) =>
+    h('button', { type: 'button', 'data-k': k, on: { click: () => { status = k; draw(); } } }, l)));
+  const proposals = h('div');
+  fill(box,
+    h('section.it-block', h('div.spread', h('h2', 'Richieste delle persone', data.totals.requests ? h('span.sw-count-badge', num(data.totals.requests)) : null), seg), list),
+    h('section.it-block', h('h2', 'Proposte per ruolo', data.totals.proposals ? h('span.sw-count-badge', num(data.totals.proposals)) : null), proposals));
+  proposalsTab(proposals);
+  await draw();
+
+  async function draw() {
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.k === status));
+    fill(list, loading());
+    const rows = await get(`/api/software/requests?status=${status}`);
+    fill(list, rows.length ? rows.map(card) : h('div.card.empty', status === 'da_rispondere' ? 'Nessuna richiesta da rispondere.' : 'Nessuna richiesta qui.'));
+  }
+
+  function card(r) {
+    const open = r.status === 'da_rispondere';
+    const note = r.kind === 'software' && r.free === 0 ? 'Non ci sono licenze libere: accettando si supera il numero acquistato.'
+      : r.kind === 'software' && r.free ? `${num(r.free)} ${r.free === 1 ? 'licenza libera' : 'licenze libere'}.` : null;
+    return h('section.card.sw-card.sw-prop',
+      h('div.spread', h('div', h('h3', r.person_name), h('div.small.muted', [r.job_title, r.department, r.person_email].filter(Boolean).join(' · '))),
+        h('span.pill', REQ_KIND[r.kind])),
+      h('p', h('strong', r.software_name), r.due_date ? ` · entro il ${fmtDate(r.due_date, { year: true })}` : null, r.reason ? h('span', h('br'), `«${r.reason}»`) : null),
+      r.managed_by ? h('p.small.muted', `Si assegna in ${r.managed_by}.`) : note ? h('p.small.muted', note) : null,
+      open ? h('div.row',
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => decide(r, true) } }, icon('check', { size: 16 }), r.kind === 'rilascio' ? 'Togli la licenza' : 'Accetta'),
+        h('button.btn.btn-ghost', { type: 'button', on: { click: () => decide(r, false) } }, r.kind === 'rilascio' ? 'Lascia com\'è' : 'Rifiuta'))
+        : h('div.small.muted', `${r.status === 'accettata' ? 'Accettata' : r.status === 'rifiutata' ? 'Rifiutata' : 'Annullata'}${r.decided_by_name ? ` da ${r.decided_by_name}` : ''}${r.decided_at ? ` il ${fmtDateTime(r.decided_at)}` : ''}${r.answer ? ` · ${r.answer}` : ''}`));
+  }
+
+  function decide(r, ok) {
+    const answer = h('textarea.input', { rows: 2, maxlength: 1000, placeholder: ok ? 'Facoltativa: es. installato, entra con l\'account aziendale' : 'Il motivo, per chi l\'ha chiesto' });
+    const m = modal({
+      title: `${ok ? (r.kind === 'rilascio' ? 'Togliere' : 'Accettare') : 'Rifiutare'} «${r.software_name}» per ${r.person_name}?`,
+      body: [field(ok ? 'Risposta' : 'Motivo', answer, 'Arriva a chi ha chiesto, con una notifica.'),
+        r.kind === 'nuovo' && ok ? h('p.small.muted', 'Poi aggiungilo al censimento da «Fornitori e software», con le sue licenze.') : null],
+      actions: [
+        h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+        h(ok ? 'button.btn.btn-primary' : 'button.btn.btn-danger', { type: 'button', on: { click: async () => {
+          const res = await post(`/api/software/requests/${r.id}/${ok ? 'accept' : 'reject'}`, { answer: answer.value });
+          m.close();
+          toast(ok ? (res.added ? 'Licenza assegnata' : res.removed ? 'Licenza tolta' : 'Richiesta accettata') : 'Richiesta rifiutata');
+          if (res.todo) modal({ title: 'Da fare nel sistema di origine', body: h('div.sw-todo', h('p', res.todo),
+            h('a.btn', { href: 'https://admin.microsoft.com/#/users', target: '_blank', rel: 'noopener' }, 'Apri l\'interfaccia di amministrazione di Microsoft 365 ', icon('external', { size: 14 }))) });
+          draw();
+        } } }, ok ? 'Conferma' : 'Rifiuta'),
+      ],
+    });
+  }
 }
 
 // ── cruscotto ─────────────────────────────────────────────────────────────
@@ -69,8 +150,8 @@ function dashboard(box, data) {
   fill(box,
     h('div.sw-kpis',
       kpi('Spesa al mese', eur(t.monthly_cost), `circa ${eur(t.monthly_cost * 12)} all'anno`),
-      kpi('Software in uso', num(t.software), t.to_check ? `${num(t.to_check)} scoperti da verificare` : 'tutti verificati', t.to_check > 0, '#/software/catalogo'),
-      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `pagate e libere, ${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/software/libere' : null),
+      kpi('Software in uso', num(t.software), t.to_check ? `${num(t.to_check)} scoperti da verificare` : 'tutti verificati', t.to_check > 0, '#/it/fornitori'),
+      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `pagate e libere, ${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/it/da-assegnare' : null),
       kpi('Licenze da recuperare', num(t.departed), t.departed ? 'account disattivati o persone uscite' : 'nessuna', t.departed > 0),
       kpi('Prezzi da completare', num(t.missing_cost + t.estimated), t.estimated ? `${num(t.estimated)} software con prezzo di listino stimato` : 'tutti inseriti', t.missing_cost + t.estimated > 0)),
     h('div.sw-grid',
@@ -81,11 +162,11 @@ function dashboard(box, data) {
           h('span.sw-bar-val', eur(s.monthly_cost), s.estimated ? h('small', ' stimato') : null))))
           : h('p.muted', 'Nessun costo ancora: aggiorna Microsoft 365 o inserisci i prezzi dei software.')),
       h('section.card.sw-card', h('h3', 'Prossimi rinnovi'),
-        soon.length ? h('div.sw-list', soon.map(({ s, date }) => h('a.sw-line', { href: `#/software/${s.id}` }, h('span.grow', s.name), h('span.muted', fmtDate(date, { year: true })))))
+        soon.length ? h('div.sw-list', soon.map(({ s, date }) => h('a.sw-line', { href: `#/it/software/${s.id}` }, h('span.grow', s.name), h('span.muted', fmtDate(date, { year: true })))))
           : h('p.muted', 'Nessuna data di rinnovo inserita.')),
       data.departed.length ? h('section.card.sw-card', h('h3', 'Licenze da recuperare'),
         h('p.small.muted', 'Persone che non sono più nell\'organigramma di Microsoft ma hanno ancora licenze qui.'),
-        h('div.sw-list', data.departed.map(a => h('a.sw-line', { href: `#/software/${a.software_id}` },
+        h('div.sw-list', data.departed.map(a => h('a.sw-line', { href: `#/it/software/${a.software_id}` },
           h('span.grow', h('strong', a.person_name), ` · ${a.software_name} (${a.plan_name})`), h('span.muted.small', a.person_email))))) : null));
 }
 
@@ -119,7 +200,7 @@ function sourcesCard(data) {
 // ── fornitori ─────────────────────────────────────────────────────────────
 // Prima i fornitori (Microsoft, Autodesk, Zoho…) con licenze e costo per Almacis; dentro, i loro software e licenze.
 const vendorKey = s => (s.vendor || '').trim() || s.name;
-const vendorHref = v => `#/software/fornitore/${encodeURIComponent(v)}`;
+const vendorHref = v => `#/it/fornitore/${encodeURIComponent(v)}`;
 const STATUS_ORDER = { attivo: 0, da_verificare: 1, archiviato: 2 };
 
 // Totali di un gruppo di software: licenze acquistate (con un numero), assegnate, libere, persone collegate
@@ -228,12 +309,12 @@ async function vendorView(container, vendor) {
   const data = await get('/api/software');
   const list = data.software.filter(s => vendorKey(s) === vendor)
     .sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || a.name.localeCompare(b.name, 'it'));
-  if (!list.length) return fill(container, h('div.card.empty', 'Fornitore non trovato. ', h('a', { href: '#/software/catalogo' }, 'Torna ai fornitori')));
+  if (!list.length) return fill(container, h('div.card.empty', 'Fornitore non trovato. ', h('a', { href: '#/it/fornitori' }, 'Torna ai fornitori')));
   const t = totalsOf(list.filter(s => s.status !== 'archiviato'));
   const kpi = (label, value, sub) => h('div.sw-kpi', h('span.lab', label), h('strong.big', value), sub ? h('span.sub', sub) : null);
   fill(container,
     h('div.page-head',
-      h('div', h('a.pj-crumb', { href: '#/software/catalogo' }, '← Fornitori'), h('h1', vendor),
+      h('div', h('a.pj-crumb', { href: '#/it/fornitori' }, '← Fornitori'), h('h1', vendor),
         h('div.sub', `${num(list.length)} software`, t.renewal ? ` · primo rinnovo ${fmtDate(t.renewal, { year: true })}` : '')),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => editSoftware(null, null, { vendor }) } }, icon('plus', { size: 16 }), `Software di ${vendor}`)),
     h('div.sw-kpis',
@@ -244,12 +325,12 @@ async function vendorView(container, vendor) {
       t.linked ? kpi('Persone collegate', num(data.vendor_people?.[vendor] ?? t.linked),'entrano con l\'account Microsoft') : null),
     list.map(s => h('section.card.sw-vendor-sw',
       h('div.sw-plan-head',
-        h('div.grow', h('h3', h('a', { href: `#/software/${s.id}` }, s.name), ' ', s.status !== 'attivo' ? statusPill(s.status) : null),
+        h('div.grow', h('h3', h('a', { href: `#/it/software/${s.id}` }, s.name), ' ', s.status !== 'attivo' ? statusPill(s.status) : null),
           h('div.small.muted', [s.category, SOURCE[s.source] && s.source !== 'manuale' ? `da ${SOURCE[s.source]}` : null, s.monthly_cost !== null ? `${eur(s.monthly_cost)} al mese` : null].filter(Boolean).join(' · '))),
-        h('a.btn.btn-sm', { href: `#/software/${s.id}` }, 'Apri: persone e prezzi')),
+        h('a.btn.btn-sm', { href: `#/it/software/${s.id}` }, 'Apri: persone e prezzi')),
       s.plans.length ? h('div.table-wrap', h('table.list.sw-plan-table',
         h('thead', h('tr', ['Licenza', 'Acquistate', 'Assegnate', 'Libere', 'Prezzo', 'Al mese', 'Rinnovo', ''].map(x => h('th', x)))),
-        h('tbody', [...s.plans].sort((x, y) => ((y.monthly_cost || 0) - (x.monthly_cost || 0)) || x.name.localeCompare(y.name, 'it')).map(p => h('tr', { on: { click: () => { location.hash = `#/software/${s.id}`; } } },
+        h('tbody', [...s.plans].sort((x, y) => ((y.monthly_cost || 0) - (x.monthly_cost || 0)) || x.name.localeCompare(y.name, 'it')).map(p => h('tr', { on: { click: () => { location.hash = `#/it/software/${s.id}`; } } },
           h('td', h('strong', p.name)),
           h('td.num', p.seats === null ? h('span.muted', p.external_id === 'collegati' ? '—' : 'senza limite') : num(p.seats)),
           h('td.num', num(p.assigned)),
@@ -305,7 +386,7 @@ function freeTab(box, data) {
     if (!all.length) return fill(out);
     if (!rows.length) return fill(out, h('div.card.empty', 'Nessuna licenza trovata.'));
     if (view === 'riquadri') {
-      return fill(out, h('div.sw-tiles', rows.map(x => h('a.sw-tile', { href: `#/software/${x.sw.id}` },
+      return fill(out, h('div.sw-tiles', rows.map(x => h('a.sw-tile', { href: `#/it/software/${x.sw.id}` },
         h('div.sw-tile-head', h('span.sw-mono', { style: { '--c': monoColor(vendorKey(x.sw)) }, 'aria-hidden': 'true' }, monogram(vendorKey(x.sw))),
           h('div.grow', h('strong.sw-tile-name', x.label), h('div.small.muted.sw-tile-sub', x.sw.name !== x.label ? `${vendorKey(x.sw)} · ${x.sw.name}` : vendorKey(x.sw)))),
         h('div.sw-tile-cost', h('strong.sw-free-big', num(x.p.free)), h('span.muted', x.p.free === 1 ? ' libera' : ' libere')),
@@ -318,7 +399,7 @@ function freeTab(box, data) {
     }
     fill(out, h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', ['Licenza', 'Fornitore', 'Libere', 'Assegnate', 'Costo delle libere', 'Rinnovo', ''].map(t => h('th', t)))),
-      h('tbody', rows.map(x => h('tr', { on: { click: () => { location.hash = `#/software/${x.sw.id}`; } } },
+      h('tbody', rows.map(x => h('tr', { on: { click: () => { location.hash = `#/it/software/${x.sw.id}`; } } },
         h('td', h('strong', x.label), x.sw.name !== x.label ? h('div.small.muted', x.sw.name) : null),
         h('td', vendorKey(x.sw)),
         h('td.num', h('span.sw-free-n', num(x.p.free))),
@@ -391,7 +472,7 @@ async function softwareDetail(container, id) {
       if (!await confirmDialog(`Cancellare «${s.name}» con tutte le sue licenze e assegnazioni?`, { ok: 'Cancella', danger: true })) return;
       await del(`/api/software/${id}`);
       toast('Software cancellato');
-      location.hash = '#/software/catalogo';
+      location.hash = '#/it/fornitori';
     } } }, 'Cancella questo software')));
   }
 }
@@ -423,7 +504,7 @@ async function editSoftware(s, onSaved, defaults = {}) {
         const r = s ? null : await post('/api/software', body);
         m.close();
         toast(s ? 'Salvato' : 'Software aggiunto');
-        if (r) location.hash = `#/software/${r.id}`; else onSaved?.();
+        if (r) location.hash = `#/it/software/${r.id}`; else onSaved?.();
       } } }, s ? 'Salva' : 'Aggiungi'),
     ],
   });
@@ -609,7 +690,7 @@ async function personDrawer(oid) {
       d.person.departed ? null : h('div.row.sw-person-actions', h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => assignToPerson(oid, d.person.name, d.items.map(i => i.plan_id), draw) } }, icon('plus', { size: 14 }), 'Assegna licenza')),
       d.suggested_packages.length ? h('div.sw-suggest', h('span.small.muted', 'Pacchetti per il suo ruolo:'),
         d.suggested_packages.map(k => h('button.btn.btn-sm', { type: 'button', on: { click: () => applyPackage(k, [oid], draw) } }, icon('plus', { size: 14 }), k.name))) : null,
-      bySw.size ? h('div.sw-list', [...bySw.entries()].map(([swId, g]) => h('a.sw-line', { href: `#/software/${swId}`, on: { click: () => m.close() } },
+      bySw.size ? h('div.sw-list', [...bySw.entries()].map(([swId, g]) => h('a.sw-line', { href: `#/it/software/${swId}`, on: { click: () => m.close() } },
         h('span.grow', h('strong', g.name), h('span.small.muted', ` ${g.items.map(i => i.plan_name).join(', ')}`)),
         h('span.small.muted', g.items.map(i => SOURCE[i.source] || i.source).join(', ')),
         h('span.num', g.items.every(i => i.monthly_cost === null) ? h('span.muted', '—') : eur(g.items.reduce((a, i) => a + (i.monthly_cost || 0), 0))))))
