@@ -3,6 +3,7 @@
 // Tutto riservato agli amministratori: costi e licenze di ognuno non li vedono gli altri.
 const { HttpError, v } = require('../lib/http');
 const { SOURCES, applySource } = require('../lib/software-sources');
+const zoho = require('../lib/zoho');
 const { proposeFor, itDepartment } = require('../lib/software-proposals');
 
 const STATUS = ['attivo', 'da_verificare', 'archiviato'];
@@ -38,7 +39,7 @@ const round = n => Math.round(n * 100) / 100;
 // (Gli account senza casella, es. «edile@…onmicrosoft.com», non sono nell'organigramma ma esistono: non contano.)
 const DEPARTED = `(a.account_disabled OR (a.source IN ('manuale', 'pacchetto') AND NOT EXISTS (SELECT 1 FROM org_people o WHERE o.oid = a.person_oid)))`;
 
-function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
+function registerSoftware(app, { db, auth, notifier, softwareAccess, baseUrl }) {
   app.use('/api/software', (req, _res, next) => {
     softwareAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Il censimento dei software è riservato agli amministratori e al team IT')), next);
   });
@@ -63,6 +64,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
 
   // ── cruscotto: tutti i software con piani, totali e cose da sistemare ─────────────────────────────
   app.get('/api/software', async (_req, res) => {
+    const zohoState = await zoho.status(db);
     const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }, { rows: [pending] }, { rows: [asked] }] = await Promise.all([
       db.query(`SELECT s.*, o.name AS owner_name FROM software s LEFT JOIN org_people o ON o.oid = s.owner_oid ORDER BY lower(s.name)`),
       plansFor(),
@@ -115,7 +117,9 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
       software,
       vendor_people: Object.fromEntries([...vendorPeople].map(([v, set]) => [v, set.size])),
       sync: Object.fromEntries(syncs.map(s => [s.source, s])),
-      sources: Object.entries(SOURCES).map(([key, s]) => ({ key, label: s.label, needs: s.needs || null, configured: !s.needs || Boolean(process.env[s.needs]) })),
+      sources: Object.entries(SOURCES).map(([key, s]) => ({ key, label: s.label, needs: s.needs || null,
+        configured: s.oauth ? zohoState.configured : !s.needs || Boolean(process.env[s.needs]),
+        ...(s.oauth ? { oauth: s.oauth, connected: zohoState.connected } : {}) })),
       departed,
       totals: {
         software: active.filter(s => s.status === 'attivo').length,
@@ -610,6 +614,27 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     res.json({ ok: true });
   });
 
+  // Zoho: l'amministratore entra in Zoho e dà il consenso; il ritorno arriva qui (stesso indirizzo registrato nella console Zoho)
+  app.get('/api/software/zoho/connect', async (req, res) => {
+    try {
+      res.redirect(await zoho.authorizeUrl(db, baseUrl, req.user.id));
+    } catch (err) {
+      res.redirect(`/app#/it/collegamenti?zoho_errore=${encodeURIComponent(err.message)}`);
+    }
+  });
+  app.get('/api/software/zoho/callback', async (req, res) => {
+    try {
+      await zoho.finishConnect(db, auth, baseUrl, req.user.id, req.query);
+      res.redirect('/app#/it/collegamenti?zoho=ok');
+    } catch (err) {
+      res.redirect(`/app#/it/collegamenti?zoho_errore=${encodeURIComponent(err.message)}`);
+    }
+  });
+  app.post('/api/software/zoho/disconnect', async (_req, res) => {
+    await zoho.disconnect(db);
+    res.json({ ok: true });
+  });
+
   // scheda di un software (dopo /people, /packages /proposals e /requests, che altrimenti finirebbero qui)
   app.get('/api/software/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
@@ -632,7 +657,17 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
     const source = v.oneOf(req.params.source, 'collegamento', Object.keys(SOURCES));
     const src = SOURCES[source];
     let list;
-    if (src.needs) {
+    let warnings = [];
+    if (src.oauth === 'zoho') {
+      const { rows: people } = await db.query('SELECT oid, name, email FROM org_people');
+      try {
+        const { token, apiDomain } = await zoho.accessToken(db, auth);
+        list = await src.read({ token, apiDomain, people });
+        warnings = list.warnings || [];
+      } catch (err) {
+        throw new HttpError(err.status === 403 ? 403 : err.status === 400 ? 400 : 502, err.message);
+      }
+    } else if (src.needs) {
       // collegamento con una chiave del fornitore, salvata come variabile del servizio (mai nel database)
       const apiKey = process.env[src.needs]?.trim();
       if (!apiKey) throw new HttpError(400, `${src.label} non è ancora collegato: manca la variabile ${src.needs} su Railway`, 'not_configured');
@@ -651,7 +686,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess }) {
         throw err;
       }
     }
-    res.json(await applySource(db, source, list, req.user.id));
+    res.json({ ...(await applySource(db, source, list, req.user.id)), warnings });
   });
 }
 

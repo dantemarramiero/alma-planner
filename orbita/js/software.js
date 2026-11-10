@@ -67,7 +67,12 @@ export async function itView(container, parts = []) {
   if (page === 'collegamenti') {
     const card = sourcesCard(data);
     card.querySelector('h3')?.remove(); // il titolo è già quello della pagina
-    return fill(body, h('div.sw-grid', card));
+    // ritorno dal consenso di Zoho: esito una volta sola, poi l'indirizzo torna pulito
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    if (q.has('zoho')) toast('Zoho collegato: premi «Aggiorna» su Zoho One per leggere utenti e licenze');
+    const zohoErr = q.get('zoho_errore');
+    if (q.has('zoho') || zohoErr) history.replaceState(null, '', '#/it/collegamenti');
+    return fill(body, zohoErr ? h('div.banner', zohoErr) : null, h('div.sw-grid', card));
   }
   return dashboard(body, data);
 }
@@ -179,6 +184,12 @@ function sourcesCard(data) {
       try {
         const r = await post(`/api/software/sync/${src.key}`, {}, { quiet: true });
         toast(`${src.label}: ${num(r.software)} software, ${num(r.assignments)} licenze assegnate${r.created ? `, ${num(r.created)} nuovi` : ''}`);
+        if (r.warnings?.length) {
+          btn.disabled = false;
+          btn.replaceChildren(icon('refresh', { size: 15 }), 'Aggiorna');
+          note.replaceChildren(h('div.banner', r.warnings.join(' · ')));
+          return;
+        }
         location.reload();
       } catch (err) {
         btn.disabled = false;
@@ -188,12 +199,19 @@ function sourcesCard(data) {
     } } }, icon('refresh', { size: 15 }), 'Aggiorna');
     const note = h('div');
     if (!src.configured) btn.disabled = true;
-    return h('div.sw-source', h('div.grow', h('strong', src.label),
-      h('div.small.muted', !src.configured ? `Da collegare: manca la chiave del fornitore (variabile ${src.needs} su Railway)`
-        : s ? `Aggiornato ${fmtDateTime(s.synced_at)}${s.synced_by_name ? ` da ${s.synced_by_name}` : ''}` : 'Mai aggiornato'), note), btn);
+    // collegamento con accesso al fornitore (Zoho): prima «Collega», poi «Aggiorna»; «Ricollega» rifà il consenso
+    const connect = src.oauth && src.configured
+      ? h('a.btn.btn-sm', { href: `/api/software/${src.oauth}/connect`, class: src.connected ? '' : 'btn-primary' }, icon('plug', { size: 15 }), src.connected ? 'Ricollega' : `Collega ${src.label.split(' ')[0]}`)
+      : null;
+    const state = !src.configured
+      ? (src.oauth ? 'Da collegare: mancano le chiavi del client (variabili su Railway)' : `Da collegare: manca la chiave del fornitore (variabile ${src.needs} su Railway)`)
+      : src.oauth && !src.connected ? 'Da collegare: entra con l\'account amministratore e dai il consenso in sola lettura'
+      : s ? `Aggiornato ${fmtDateTime(s.synced_at)}${s.synced_by_name ? ` da ${s.synced_by_name}` : ''}` : 'Mai aggiornato';
+    return h('div.sw-source', h('div.grow', h('strong', src.label), h('div.small.muted', state), note),
+      h('div.row', connect, src.oauth && !src.connected ? null : btn));
   };
   return h('section.card.sw-card', h('h3', 'Collegamenti'),
-    h('p.small.muted', 'Leggono da soli software, licenze e assegnazioni. Gli altri software si inseriscono a mano; i prossimi collegamenti (Zoho, Adobe…) si aggiungeranno qui.'),
+    h('p.small.muted', 'Leggono da soli software, licenze e assegnazioni. Gli altri software si inseriscono a mano; i prossimi collegamenti (Adobe…) si aggiungeranno qui.'),
     data.sources.map(row));
 }
 
