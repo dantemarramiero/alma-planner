@@ -6,11 +6,12 @@ import { h, clear, fill, modal, confirmDialog, toast, fmtDate, fmtDateTime, load
 import { get, post, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
-import { myToolsView } from './it-tools.js';
+import { myToolsView, ticketState, PRIORITY } from './it-tools.js';
 
 // pagine del team IT: indirizzo → titolo e sottotitolo
 const PAGES = {
   panoramica: ['Panoramica', 'Quanto spendiamo in software, cosa c\'è da sistemare e cosa aspetta una risposta.'],
+  ticket: ['Ticket IT', 'Le segnalazioni delle persone arrivano qui: le cose veloci si chiudono qui, le altre diventano issue del team IT su Linear e il loro stato torna qui da solo.'],
   richieste: ['Richieste e proposte', 'Cosa chiedono le persone e cosa propone Alma per i nuovi arrivi: si accetta, in parte o tutto, o si rifiuta con un motivo.'],
   fornitori: ['Fornitori e software', 'Per ogni fornitore le licenze, chi le usa e quanto costano.'],
   persone: ['Persone e licenze', 'Chi ha cosa, persona per persona.'],
@@ -54,11 +55,13 @@ export async function itView(container, parts = []) {
   const [title, sub] = PAGES[page] || PAGES.panoramica;
   const body = h('div.sw-body', loading());
   fill(container, h('div.page-head', h('div', h('h1', title), h('div.sub', sub))), body);
+  if (page === 'ticket') return ticketsBoard(container, body);
   const data = await get('/api/software');
   // da rispondere (richieste + proposte), accanto alla voce del menu
   const badge = document.querySelector('[data-badge="it"]');
   const waiting = (data.totals.requests || 0) + (data.totals.proposals || 0);
   if (badge) { badge.hidden = !waiting; badge.textContent = waiting ? String(waiting) : ''; }
+  setTicketBadge(data.totals.tickets || 0);
   if (page === 'richieste') return requestsPage(body, data);
   if (page === 'da-assegnare') return freeTab(body, data);
   if (page === 'fornitori') return catalog(body, data);
@@ -75,6 +78,122 @@ export async function itView(container, parts = []) {
     return fill(body, zohoErr ? h('div.banner', zohoErr) : null, h('div.sw-grid', card));
   }
   return dashboard(body, data);
+}
+
+// ── ticket IT ─────────────────────────────────────────────────────────────
+function setTicketBadge(n) {
+  const b = document.querySelector('[data-badge="it-ticket"]');
+  if (b) { b.hidden = !n; b.textContent = n ? String(n) : ''; }
+}
+const ago = iso => {
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  return min < 60 ? `${Math.max(1, min)} min fa` : min < 1440 ? `${Math.round(min / 60)} ore fa` : fmtDate(iso.slice(0, 10));
+};
+const prioPill = p => h('span.pill', { class: `it-prio-${p}` }, PRIORITY[p] || p);
+
+async function ticketsBoard(container, body) {
+  const d = await get('/api/software/tickets');
+  const reload = () => ticketsBoard(container, body);
+  const fresh = d.tickets.filter(t => t.status === 'nuovo');
+  setTicketBadge(fresh.length);
+  const linearOn = d.linear.configured && !d.linear.error;
+
+  // stato del collegamento con Linear, accanto al titolo
+  const head = container.querySelector('.page-head');
+  head.querySelector('.it-linear')?.remove();
+  head.append(h('div.it-linear', d.linear.error ? h('span.pill.it-st-no', 'Linear non raggiungibile')
+    : d.linear.configured ? h('span.pill.it-st-ok', h('span.dot'), `Linear collegato · team ${d.linear.team?.key || ''}`)
+      : h('span.pill.it-st-off', 'Linear da collegare')));
+
+  const sendLinear = t => {
+    const prio = h('select.select', Object.entries(PRIORITY).map(([k, l]) => h('option', { value: k, selected: k === t.priority }, l)));
+    const cat = h('input.input', { value: t.category, maxlength: 60 });
+    const m = modal({
+      title: `Manda a Linear «${t.title}»`,
+      body: [h('label.field', h('span', 'Priorità'), prio), h('label.field', h('span', 'Tipo'), cat),
+        h('p.small.muted', 'Crea l\'issue nel team IT con il testo, chi l\'ha segnalato e il collegamento a questo ticket. Quando cambia stato su Linear, qui si aggiorna e chi l\'ha segnalato riceve una notifica.')],
+      actions: [
+        h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+          const r = await post(`/api/software/tickets/${t.id}/linear`, { priority: prio.value, category: cat.value });
+          m.close();
+          toast(`Creata ${r.identifier} su Linear`);
+          reload();
+        } } }, 'Manda a Linear'),
+      ],
+    });
+  };
+  const closeTicket = t => {
+    const answer = h('textarea.input', { rows: 3, maxlength: 2000, placeholder: 'Cosa hai fatto o cosa deve fare la persona (arriva a lei con la notifica)' });
+    const m = modal({
+      title: `Risolto «${t.title}»`,
+      body: [h('label.field', h('span', 'Risposta'), answer)],
+      actions: [
+        h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+          await post(`/api/software/tickets/${t.id}/close`, { answer: answer.value });
+          m.close();
+          toast('Ticket chiuso: la persona è stata avvisata');
+          reload();
+        } } }, 'Rispondi e chiudi'),
+      ],
+    });
+  };
+  const take = async t => {
+    await post(`/api/software/tickets/${t.id}/take`, {});
+    toast('Preso in carico');
+    reload();
+  };
+
+  const item = (t, actions) => h('article.card.it-tk',
+    h('div.small.muted', [t.person_name, t.department, ago(t.created_at)].filter(Boolean).join(' · ')),
+    h('strong', t.title),
+    t.body ? h('p.small.it-tk-body', t.body.length > 220 ? `${t.body.slice(0, 220)}…` : t.body) : null,
+    h('div.row.it-tk-meta', prioPill(t.priority), t.category ? h('span.small.muted', t.category) : null,
+      t.handled_by_name && t.status === 'in_corso' ? h('span.small.muted', `· ${t.handled_by_name}`) : null),
+    actions ? h('div.row', actions) : null);
+
+  const inbox = h('section.card.it-pad.it-inbox',
+    h('div.spread', h('h2', 'In arrivo'), h('span.pill', { class: fresh.length ? 'it-st-wait' : 'it-st-off' }, fresh.length ? `${fresh.length} da smistare` : 'niente da smistare')),
+    fresh.length ? fresh.map(t => item(t, [
+      linearOn ? h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => sendLinear(t) } }, 'Manda a Linear') : null,
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => take(t) } }, 'Prendo io'),
+      h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => closeTicket(t) } }, 'Rispondi e chiudi'),
+    ])) : h('p.muted', 'Nessuna segnalazione nuova.'));
+
+  // colonne: dalla bacheca di Linear se collegato, altrimenti dai ticket di Alma
+  const col = (name, list, render) => h('div.card.it-col', h('div.spread', h('h3', name), h('span.small.muted', String(list.length))),
+    list.length ? list.map(render) : h('p.small.muted', 'Vuoto.'));
+  const byLinear = new Map(d.tickets.filter(t => t.linear_id).map(t => [t.linear_id, t]));
+  let columns;
+  if (d.board) {
+    const issueCard = i => {
+      const t = byLinear.get(i.id);
+      return h('a.it-issue', { href: i.url, target: '_blank', rel: 'noopener' },
+        h('span.small.muted', `${i.identifier}${i.priority === 1 ? ' · urgente' : ''}`), h('strong', i.title),
+        h('span.small.muted', [i.assignee?.name || 'nessun responsabile', t ? `chiesto da ${t.person_name}` : null].filter(Boolean).join(' · ')));
+    };
+    const of = types => d.board.filter(i => types.includes(i.state?.type));
+    columns = [col('Backlog', of(['triage', 'backlog']), issueCard), col('Da fare', of(['unstarted']), issueCard),
+      col('In corso', of(['started']), issueCard), col('Fatto questa settimana', of(['completed']), issueCard)];
+  } else {
+    const mineCard = t => item(t, t.status === 'in_corso' ? [h('button.btn.btn-sm', { type: 'button', on: { click: () => closeTicket(t) } }, 'Rispondi e chiudi')] : null);
+    columns = [col('In carico', d.tickets.filter(t => t.status === 'in_corso'), mineCard),
+      col('Su Linear', d.tickets.filter(t => t.status === 'linear'), t => item(t, null)),
+      col('Chiusi questa settimana', d.tickets.filter(t => t.status === 'chiuso'), t => item(t, null))];
+  }
+  const taken = d.board ? d.tickets.filter(t => t.status === 'in_corso') : [];
+
+  fill(body,
+    d.linear.error ? h('div.banner', d.linear.error) : null,
+    h('div.it-tk-grid', inbox,
+      h('div.it-board-wrap',
+        d.board ? h('div.spread', h('h2', `Linear · team ${d.linear.team?.name || ''}`)) : null,
+        h('div.it-board', columns),
+        taken.length ? h('section.card.it-pad', h('h2', 'Presi in carico in Alma'), taken.map(t => item(t, [
+          linearOn ? h('button.btn.btn-sm', { type: 'button', on: { click: () => sendLinear(t) } }, 'Manda a Linear') : null,
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => closeTicket(t) } }, 'Rispondi e chiudi')]))) : null)),
+    d.linear.configured ? null : h('p.small.muted', 'Linear non è ancora collegato: i ticket si prendono in carico e si chiudono qui. Per collegarlo servono le variabili LINEAR_API_KEY e LINEAR_TEAM su Railway.'));
 }
 
 // ── richieste e proposte ──────────────────────────────────────────────────

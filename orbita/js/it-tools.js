@@ -1,11 +1,23 @@
 // Alma IT · I miei strumenti (per tutti): le licenze che ho, come entrarci, cosa posso chiedere al team IT
-// («Richiedi un software», anche uno che non è nel censimento), «Non mi serve più» e le mie richieste.
+// («Richiedi un software», anche uno che non è nel censimento), «Non mi serve più», le mie richieste e
+// «Segnala un problema» (ticket IT: il team IT lo risolve qui o su Linear, lo stato torna qui).
 import { h, fill, modal, toast, fmtDate, loading } from './ui.js';
 import { get, post } from './api.js';
 import { icon } from './icons.js';
 
 const STATE = { da_rispondere: ['In attesa del team IT', 'it-st-wait'], accettata: ['Accettata', 'it-st-ok'], rifiutata: ['Non accettata', 'it-st-no'], annullata: ['Annullata', 'it-st-off'] };
 const KIND = { software: 'Richiesta', nuovo: 'Software nuovo', rilascio: 'Non mi serve più' };
+// stato di un ticket IT come lo vede chi l'ha segnalato
+export function ticketState(t) {
+  if (t.status === 'nuovo') return ['Arrivato al team IT', 'it-st-wait'];
+  if (t.status === 'in_corso') return ['Preso in carico', 'it-st-wait'];
+  if (t.status === 'annullato') return ['Annullato', 'it-st-off'];
+  if (t.status === 'chiuso') return [t.linear_state_type === 'canceled' ? 'Chiuso' : 'Risolto', 'it-st-ok'];
+  if (t.linear_state_type === 'started') return [`In lavorazione${t.linear_assignee ? ` · ${t.linear_assignee}` : ''}`, 'it-st-wait'];
+  return ['Preso in carico', 'it-st-wait'];
+}
+export const PRIORITY = { urgente: 'Urgente', alta: 'Alta', media: 'Media', bassa: 'Bassa' };
+
 const vendorOf = l => (l.vendor || '').trim() || l.software_name;
 const monogram = v => { const w = String(v).match(/[A-Za-z0-9]+/g) || ['?']; return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
 // «Licenza» e «Utenti collegati» (app di Entra) non aggiungono niente al nome del software
@@ -40,10 +52,27 @@ export async function myToolsView(container) {
       } } }, 'Annulla') : null);
   })) : h('p.muted', 'Nessuna richiesta finora.');
 
+  const tickets = (d.tickets || []).length ? h('div.it-reqs', d.tickets.map(t => {
+    const [st, cls] = ticketState(t);
+    return h('div.it-req',
+      h('span.grow', h('strong', t.title), h('span.small.muted', ` ${t.category || 'Ticket'} · ${fmtDate(t.created_at.slice(0, 10), { year: true })}${t.linear_identifier ? ` · ${t.linear_identifier}` : ''}`),
+        t.answer ? h('div.small', `Risposta: ${t.answer}`) : null),
+      h('span.pill', { class: cls }, st),
+      t.status === 'nuovo' ? h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => {
+        await post(`/api/it/tickets/${t.id}/cancel`, {});
+        toast('Ticket annullato');
+        reload();
+      } } }, 'Annulla') : null);
+  })) : h('p.muted', 'Nessuna segnalazione negli ultimi 30 giorni.');
+
   fill(container,
     h('div.page-head',
       h('div', h('h1', 'I miei strumenti'), h('div.sub', 'I software che hai, come entrarci, e cosa puoi chiedere al team IT.')),
-      h('button.btn.btn-primary', { type: 'button', on: { click: () => requestSoftware(d.catalog, reload) } }, icon('plus', { size: 16 }), 'Richiedi un software')),
+      h('div.row',
+        h('button.btn', { type: 'button', on: { click: () => reportProblem(reload) } }, icon('life-buoy', { size: 16 }), 'Segnala un problema'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => requestSoftware(d.catalog, reload) } }, icon('plus', { size: 16 }), 'Richiedi un software'))),
+    h('section.card.it-section.it-pad', h('div.spread', h('h2', 'I miei ticket IT'),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => reportProblem(reload) } }, 'Segnala un problema')), tickets),
     h('section.it-section', h('h2', 'Le mie licenze'), cards),
     h('section.card.it-section.it-pad', h('div.spread', h('h2', 'Le mie richieste'),
       h('button.btn.btn-sm', { type: 'button', on: { click: () => requestSoftware(d.catalog, reload) } }, 'Nuova richiesta')), reqs));
@@ -90,6 +119,30 @@ function requestSoftware(catalog, onDone) {
       } } }, 'Invia al team IT'),
     ],
   });
+}
+
+// Segnala un problema al team IT (ticket IT): titolo, dettagli e se blocca il lavoro.
+export function reportProblem(onDone) {
+  const title = h('input.input', { maxlength: 160, placeholder: 'Es. il portatile non si collega alla VPN' });
+  const body = h('textarea.input', { rows: 4, maxlength: 4000, placeholder: 'Cosa succede, da quando, cosa hai già provato. Se c\'è un messaggio di errore, scrivilo.' });
+  const urgent = h('input', { type: 'checkbox' });
+  const m = modal({
+    title: 'Segnala un problema al team IT',
+    body: [field('Cosa succede', title), field('Dettagli', body),
+      h('label.row', urgent, h('span', 'Mi blocca: non riesco a lavorare')),
+      h('p.small.muted', 'Alma propone tipo e priorità; il team IT ti risponde qui e con una notifica, anche quando lo risolve su Linear.')],
+    actions: [
+      h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        if (!title.value.trim()) return toast('Scrivi in breve cosa succede', 'err');
+        await post('/api/it/tickets', { title: title.value, body: body.value, ...(urgent.checked ? { priority: 'urgente' } : {}) });
+        m.close();
+        toast('Segnalazione inviata al team IT');
+        onDone?.();
+      } } }, 'Invia al team IT'),
+    ],
+  });
+  setTimeout(() => title.focus(), 50);
 }
 
 function release(l, onDone) {

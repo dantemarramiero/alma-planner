@@ -2,6 +2,7 @@
 // e le mie richieste. Il censimento completo resta in /api/software (amministratori e team IT).
 const { HttpError, v } = require('../lib/http');
 const { itUserIds } = require('../lib/software-proposals');
+const { suggest, refreshLinear } = require('../lib/it-tickets');
 
 const monthly = p => (p.unit_cost === null || p.unit_cost === undefined ? null
   : p.billing === 'anno' ? Number(p.unit_cost) / 12 : p.billing === 'una_tantum' ? 0 : Number(p.unit_cost));
@@ -22,7 +23,7 @@ function registerIt(app, { db, notifier }) {
 
   app.get('/api/it/mine', async (req, res) => {
     const person = await myPerson(db, req);
-    const [{ rows: licences }, { rows: requests }, { rows: catalog }, { rows: packages }] = await Promise.all([
+    const [{ rows: licences }, { rows: requests }, { rows: catalog }, { rows: packages }, { rows: tickets }] = await Promise.all([
       person ? db.query(
         `SELECT a.id AS assignment_id, a.source, a.assigned_at, p.id AS plan_id, p.name AS plan_name, p.external_id, p.unit_cost, p.billing,
                 s.id AS software_id, s.name AS software_name, s.vendor, s.category, s.website, s.notes AS software_notes
@@ -42,6 +43,10 @@ function registerIt(app, { db, notifier }) {
           WHERE ($1::text IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(k.job_titles) t WHERE lower(t) = lower($1)))
              OR ($2::text IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(k.departments) d WHERE lower(d) = lower($2)))`,
         [person.job_title || null, person.department || null]) : { rows: [] },
+      db.query(
+        `SELECT id, title, body, category, priority, status, answer, linear_identifier, linear_state, linear_state_type, linear_assignee, created_at, closed_at
+           FROM it_tickets WHERE user_id = $1 AND (status NOT IN ('chiuso', 'annullato') OR closed_at > now() - interval '30 days')
+          ORDER BY created_at DESC LIMIT 50`, [req.user.id]),
     ]);
     const forMe = new Map(packages.map(p => [p.plan_id, p]));
     const have = new Set(licences.map(l => l.plan_id));
@@ -49,6 +54,7 @@ function registerIt(app, { db, notifier }) {
       person,
       licences: licences.map(l => ({ ...l, unit_cost: undefined, monthly_unit: undefined, package: forMe.get(l.plan_id) || null })),
       requests,
+      tickets,
       catalog: catalog.filter(c => !have.has(c.plan_id)).map(c => ({ ...c, package: forMe.get(c.plan_id) || null })),
     });
   });
@@ -104,6 +110,34 @@ function registerIt(app, { db, notifier }) {
     await tellIt(req.user.id, `${req.user.name} non usa più «${softwareName}»: la licenza si può liberare`, '/it/richieste');
     res.status(201).json({ ok: true });
   });
+
+  // Segnala un problema al team IT: Alma propone tipo e priorità (chi segnala può alzarla a «urgente»).
+  app.post('/api/it/tickets', async (req, res) => {
+    const b = req.body || {};
+    const title = v.text(b.title, 'cosa succede', { max: 160 });
+    if (!title) throw new HttpError(400, 'Scrivi in breve cosa succede');
+    const body = v.text(b.body, 'dettagli', { max: 4000 }) || '';
+    const s = suggest(title, body);
+    const priority = b.priority ? v.oneOf(b.priority, 'priorità', ['bassa', 'media', 'alta', 'urgente']) : s.priority;
+    const person = await myPerson(db, req);
+    const { rows: [t] } = await db.query(
+      `INSERT INTO it_tickets (user_id, person_name, person_email, department, title, body, category, priority)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, category, priority`,
+      [req.user.id, person?.name || req.user.name, req.user.email || '', person?.department || '', title, body, s.category, priority]);
+    await tellIt(req.user.id, `${req.user.name} segnala: «${title}»${priority === 'urgente' ? ' (urgente)' : ''}`, '/it/ticket');
+    res.status(201).json(t);
+  });
+
+  app.post('/api/it/tickets/:id/cancel', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const { rowCount } = await db.query(
+      "UPDATE it_tickets SET status = 'annullato', closed_at = now(), updated_at = now() WHERE id = $1 AND user_id = $2 AND status = 'nuovo'", [id, req.user.id]);
+    if (!rowCount) throw new HttpError(404, 'Ticket non trovato o già preso in carico dal team IT');
+    res.json({ ok: true });
+  });
+
+  // stato dei ticket mandati a Linear: ogni 10 minuti (se Linear è collegato)
+  setInterval(() => refreshLinear(db, notifier).catch(err => console.warn('[it] Linear non aggiornato', err.message)), 10 * 60 * 1000).unref();
 
   // Annulla una mia richiesta ancora senza risposta.
   app.post('/api/it/requests/:id/cancel', async (req, res) => {

@@ -156,3 +156,23 @@ table.list td.sw-wrap { max-width: 28rem; }
 .pill.it-st-off { background: var(--ap-grey-100); color: var(--muted); }
 .it-block { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-6, 32px); }
 .it-block .spread { flex-wrap: wrap; }
+
+/* Ticket IT (team IT): «In arrivo» a sinistra, colonne a destra (da Linear se collegato) */
+.it-tk-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: var(--ap-space-4); align-items: start; }
+.it-inbox { display: grid; gap: var(--ap-space-3); }
+.it-tk { padding: var(--ap-space-3); display: grid; gap: 6px; box-shadow: none; border: 1px solid var(--rule); min-width: 0; }
+.it-tk strong { overflow-wrap: anywhere; }
+.it-tk-body { margin: 0; color: var(--ap-text); overflow-wrap: anywhere; }
+.it-tk-meta { gap: var(--ap-space-2); flex-wrap: wrap; }
+.it-tk .row { flex-wrap: wrap; }
+.it-board-wrap { display: grid; gap: var(--ap-space-3); min-width: 0; }
+.it-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: var(--ap-space-3); }
+.it-col { padding: var(--ap-space-3); display: grid; gap: var(--ap-space-2); align-content: start; min-width: 0; }
+.it-col h3 { margin: 0; font-size: 15px; }
+.it-issue { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius); background: var(--ap-grey-100); color: var(--ap-text-strong); text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
+.it-issue:hover { background: var(--ap-orange-tint, #FFF1E5); }
+.it-linear { display: flex; align-items: center; }
+.pill.it-prio-urgente { background: var(--red-soft); color: var(--red); }
+.pill.it-prio-alta { background: var(--amber-soft); color: var(--ap-text-strong); }
+.pill.it-prio-media, .pill.it-prio-bassa { background: var(--ap-grey-100); color: var(--ap-text); }
+@media (max-width: 900px) { .it-tk-grid { grid-template-columns: 1fr; } }

@@ -4,6 +4,8 @@
 const { HttpError, v } = require('../lib/http');
 const { SOURCES, applySource } = require('../lib/software-sources');
 const zoho = require('../lib/zoho');
+const linear = require('../lib/linear');
+const { refreshLinear } = require('../lib/it-tickets');
 const { proposeFor, itDepartment } = require('../lib/software-proposals');
 
 const STATUS = ['attivo', 'da_verificare', 'archiviato'];
@@ -65,7 +67,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess, baseUrl }) 
   // ── cruscotto: tutti i software con piani, totali e cose da sistemare ─────────────────────────────
   app.get('/api/software', async (_req, res) => {
     const zohoState = await zoho.status(db);
-    const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }, { rows: [pending] }, { rows: [asked] }] = await Promise.all([
+    const [{ rows: list }, plans, { rows: syncs }, { rows: departed }, { rows: people }, { rows: [pending] }, { rows: [asked] }, { rows: [newTickets] }] = await Promise.all([
       db.query(`SELECT s.*, o.name AS owner_name FROM software s LEFT JOIN org_people o ON o.oid = s.owner_oid ORDER BY lower(s.name)`),
       plansFor(),
       db.query('SELECT s.source, s.synced_at, s.result, u.name AS synced_by_name FROM software_sync s LEFT JOIN users u ON u.id = s.synced_by'),
@@ -77,6 +79,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess, baseUrl }) 
       db.query('SELECT COUNT(*)::int AS n FROM org_people'),
       db.query("SELECT COUNT(*)::int AS n FROM software_proposals WHERE status = 'da_accettare'"),
       db.query("SELECT COUNT(*)::int AS n FROM it_requests WHERE status = 'da_rispondere'"),
+      db.query("SELECT COUNT(*)::int AS n FROM it_tickets WHERE status = 'nuovo'"),
     ]);
     const bySw = new Map(list.map(s => [s.id, { ...s, plans: [] }]));
     for (const p of plans) bySw.get(p.software_id)?.plans.push(p);
@@ -133,6 +136,7 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess, baseUrl }) 
         people: people[0].n,
         proposals: pending.n,
         requests: asked.n,
+        tickets: newTickets.n,
       },
     });
   });
@@ -611,6 +615,78 @@ function registerSoftware(app, { db, auth, notifier, softwareAccess, baseUrl }) 
     const r = await openRequest(id);
     await db.query(`UPDATE it_requests SET status = 'rifiutata', answer = $2, decided_by = $3, decided_at = now() WHERE id = $1`, [id, answer, req.user.id]);
     await tellRequester(r, req.user.id, `Il team IT non ha accettato la richiesta di «${r.software_name}»${answer ? `: ${answer}` : ''}`);
+    res.json({ ok: true });
+  });
+
+  // ── ticket IT ────────────────────────────────────────────────────────────
+  const ticketOf = async id => {
+    const { rows: [t] } = await db.query('SELECT * FROM it_tickets WHERE id = $1', [id]);
+    if (!t) throw new HttpError(404, 'Ticket non trovato');
+    return t;
+  };
+  const tellReporter = (t, actorId, body) => notifier?.notify({ userIds: [t.user_id], actorId, kind: 'it', body, link: '/it/strumenti' }).catch(() => {});
+
+  app.get('/api/software/tickets', async (_req, res) => {
+    let board = null, linearError = null;
+    if (linear.configured()) {
+      try {
+        await refreshLinear(db, notifier);
+        board = await linear.board();
+      } catch (err) {
+        linearError = err.message;
+      }
+    }
+    const { rows } = await db.query(
+      `SELECT t.*, u.name AS handled_by_name FROM it_tickets t LEFT JOIN users u ON u.id = t.handled_by
+        WHERE t.status IN ('nuovo', 'in_corso', 'linear') OR (t.status = 'chiuso' AND t.closed_at > now() - interval '7 days')
+        ORDER BY CASE t.priority WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END, t.created_at`);
+    res.json({
+      linear: { configured: linear.configured(), error: linearError, team: board?.team || null },
+      tickets: rows,
+      board: board ? board.issues : null,
+    });
+  });
+
+  app.post('/api/software/tickets/:id/take', async (req, res) => {
+    const t = await ticketOf(v.int(req.params.id, 'id', { min: 1 }));
+    if (t.status !== 'nuovo') throw new HttpError(400, 'Questo ticket è già stato smistato');
+    await db.query("UPDATE it_tickets SET status = 'in_corso', handled_by = $2, updated_at = now() WHERE id = $1", [t.id, req.user.id]);
+    await tellReporter(t, req.user.id, `${req.user.name} del team IT ha preso in carico «${t.title}»`);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/software/tickets/:id/linear', async (req, res) => {
+    const t = await ticketOf(v.int(req.params.id, 'id', { min: 1 }));
+    if (!['nuovo', 'in_corso'].includes(t.status)) throw new HttpError(400, 'Questo ticket è già su Linear o chiuso');
+    const priority = req.body?.priority ? v.oneOf(req.body.priority, 'priorità', ['bassa', 'media', 'alta', 'urgente']) : t.priority;
+    const category = v.text(req.body?.category, 'tipo', { max: 60 }) || t.category;
+    const description = [
+      t.body || '_Nessun dettaglio._', '',
+      `**Segnalato da** ${t.person_name}${t.department ? ` · ${t.department}` : ''}${t.person_email ? ` · ${t.person_email}` : ''}`,
+      `**Tipo** ${category}`,
+      `Aperto in Alma IT: ${baseUrl}/app#/it/ticket`,
+    ].join('\n');
+    let issue;
+    try {
+      issue = await linear.createIssue({ title: t.title, description, priority });
+    } catch (err) {
+      throw new HttpError(err.status === 400 ? 400 : err.status === 403 ? 403 : 502, err.message);
+    }
+    await db.query(
+      `UPDATE it_tickets SET status = 'linear', priority = $2, category = $3, handled_by = COALESCE(handled_by, $4), linear_id = $5, linear_identifier = $6,
+              linear_url = $7, linear_state = $8, linear_state_type = $9, linear_assignee = $10, updated_at = now() WHERE id = $1`,
+      [t.id, priority, category, req.user.id, issue.id, issue.identifier, issue.url, issue.state?.name || null, issue.state?.type || null, issue.assignee?.name || null]);
+    await tellReporter(t, req.user.id, `Il team IT ha preso in carico «${t.title}» (${issue.identifier})`);
+    res.json({ identifier: issue.identifier, url: issue.url });
+  });
+
+  app.post('/api/software/tickets/:id/close', async (req, res) => {
+    const t = await ticketOf(v.int(req.params.id, 'id', { min: 1 }));
+    if (!['nuovo', 'in_corso'].includes(t.status)) throw new HttpError(400, t.status === 'linear' ? 'Questo ticket si chiude su Linear' : 'Questo ticket è già chiuso');
+    const answer = v.text(req.body?.answer, 'risposta', { max: 2000 }) || '';
+    await db.query("UPDATE it_tickets SET status = 'chiuso', answer = $2, handled_by = COALESCE(handled_by, $3), closed_at = now(), updated_at = now() WHERE id = $1",
+      [t.id, answer, req.user.id]);
+    await tellReporter(t, req.user.id, `Il team IT ha risolto «${t.title}»${answer ? `: ${answer.slice(0, 160)}` : ''}`);
     res.json({ ok: true });
   });
 
