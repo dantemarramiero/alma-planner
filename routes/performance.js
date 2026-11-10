@@ -106,13 +106,23 @@ const ROLE_FIELDS = {
 const cleanRole = body => { const out = {}; for (const [k, fn] of Object.entries(ROLE_FIELDS)) if (body[k] !== undefined) out[k] = fn(body[k], k); return out; };
 const OBJ_FIELDS = ['responsibility', 'pillar', 'objective', 'kpi', 'formula', 'unit', 'source', 'frequency', 'target', 'notes', 'obstacles', 'last_value'];
 
-function registerPerformance(app, { db, isAdmin }) {
+function registerPerformance(app, { db, isAdmin, notifier }) {
   const admin = req => Boolean(isAdmin(req));
+  // il team HR (team «HR» nel profilo) vede le schede di tutti, senza modificarle
+  async function isHR(userId) {
+    const { rows: [r] } = await db.query("SELECT lower(trim(team)) = 'hr' AS hr FROM pm_profiles WHERE user_id = $1", [userId]);
+    return Boolean(r?.hr);
+  }
+  // le persone sotto a un responsabile, a ogni livello (collaboratori dei collaboratori compresi)
+  const below = n => `WITH RECURSIVE below(id) AS (SELECT user_id FROM pm_profiles WHERE manager_id = $${n}
+                   UNION SELECT pp.user_id FROM pm_profiles pp JOIN below b ON pp.manager_id = b.id) SELECT id FROM below`;
   async function rights(req, userId) {
     const self = req.user.id === userId;
     const { rows: [p] } = await db.query('SELECT manager_id FROM pm_profiles WHERE user_id = $1', [userId]);
-    const manager = p?.manager_id === req.user.id;
-    return { self, manager, admin: admin(req), see: self || manager || admin(req) };
+    const manager = p?.manager_id === req.user.id; // il responsabile diretto: valuta e approva
+    const under = !self && !manager && (await db.query(below(1), [req.user.id])).rows.some(r => r.id === userId);
+    const hr = !self && await isHR(req.user.id);
+    return { self, manager, below: under, hr, admin: admin(req), see: self || manager || under || hr || admin(req) };
   }
   const json = val => (val === undefined ? undefined : JSON.stringify(val));
 
@@ -121,7 +131,7 @@ function registerPerformance(app, { db, isAdmin }) {
     await seed(db);
     const userId = req.query.user ? v.int(req.query.user, 'persona', { min: 1 }) : req.user.id;
     const r = await rights(req, userId);
-    if (!r.see) throw new HttpError(403, 'Puoi vedere solo la tua scheda e quella delle persone di cui sei responsabile');
+    if (!r.see) throw new HttpError(403, 'Puoi vedere solo la tua scheda e quella delle persone sotto di te');
     const [{ rows: [user] }, { rows: [profile] }, { rows: objectives }, { rows: [review] }, { rows: kpis }] = await Promise.all([
       db.query('SELECT id, name, email FROM users WHERE id = $1', [userId]),
       db.query(`SELECT pp.*, m.name AS manager_name FROM pm_profiles pp LEFT JOIN users m ON m.id = pp.manager_id WHERE pp.user_id = $1`, [userId]),
@@ -131,8 +141,173 @@ function registerPerformance(app, { db, isAdmin }) {
     ]);
     if (!user) throw new HttpError(404, 'Persona non trovata');
     const role = profile?.role_id ? (await db.query('SELECT * FROM pm_roles WHERE id = $1', [profile.role_id])).rows[0] : null;
+    // ultima richiesta di modifica della scheda (in attesa, o l'ultima decisa)
+    const { rows: [request] } = await db.query(
+      `SELECT cr.*, a.name AS approver_name, d.name AS decided_by_name FROM pm_change_requests cr
+         LEFT JOIN users a ON a.id = cr.approver_id LEFT JOIN users d ON d.id = cr.decided_by
+        WHERE cr.user_id = $1 AND cr.status <> 'withdrawn' ORDER BY cr.created_at DESC LIMIT 1`, [userId]);
     res.json({ year: YEAR, user, profile: profile || null, role, objectives, review: review || { status: 'self', self_scores: {}, manager_scores: {} },
-      soft_skills: SOFT_SKILLS, hk_kpis: kpis, rights: r });
+      soft_skills: SOFT_SKILLS, hk_kpis: kpis, rights: r, request: request || null });
+  });
+
+  // ── modifiche della scheda, approvate dal responsabile ─────────────────────────────────────────
+  // Campi del ruolo che la persona può cambiare: «resp» è una delle 5 responsabilità (index 0..4).
+  const CHANGE_FIELDS = {
+    title: { label: 'Ruolo', clean: (x, f) => v.text(String(x ?? ''), f, { max: 120 }) ?? '' },
+    area: { label: 'Area', clean: (x, f) => v.text(String(x ?? ''), f, { max: 120 }) ?? '' },
+    reports_to: { label: 'A chi rispondo', clean: (x, f) => v.text(String(x ?? ''), f, { max: 120 }) ?? '' },
+    coordinates: { label: 'Persone che coordino', clean: (x, f) => v.int(x, f, { min: 0, max: 999 }) },
+    interfaces: { label: 'Con chi mi interfaccio', clean: (x, f) => textArr(x, f, { max: 20, len: 200 }) },
+    description: { label: 'Io sono responsabile di…', clean: (x, f) => v.text(String(x ?? ''), f, { max: 4000 }) ?? '' },
+    resp: { label: 'Responsabilità', clean: (x, f) => v.text(String(x ?? ''), f, { max: 400 }) ?? '' },
+    hard_skills: { label: 'Hard skills del ruolo', clean: (x, f) => textArr(x, f, { max: 12, len: 200 }) },
+  };
+  const currentValue = (role, c) => (c.field === 'resp' ? (role.responsibilities || [])[c.index] || '' : role[c.field] ?? '');
+  const notify = (userIds, actorId, body, link) => notifier?.notify({ userIds, actorId, kind: 'strategy', body, link }).catch(() => {});
+
+  // la persona invia le sue modifiche (sostituiscono una richiesta ancora in attesa)
+  app.post('/api/pm/requests', async (req, res) => {
+    const { rows: [p] } = await db.query('SELECT pp.role_id, pp.manager_id FROM pm_profiles pp WHERE pp.user_id = $1', [req.user.id]);
+    if (!p?.role_id) throw new HttpError(400, 'Non hai ancora un ruolo: lo assegna l’amministratore');
+    const { rows: [role] } = await db.query('SELECT * FROM pm_roles WHERE id = $1', [p.role_id]);
+    const list = Array.isArray(req.body?.changes) ? req.body.changes : [];
+    if (!list.length || list.length > 30) throw new HttpError(400, 'Nessuna modifica da inviare');
+    const changes = list.map(ch => {
+      const def = CHANGE_FIELDS[ch?.field];
+      if (!def) throw new HttpError(400, 'Campo non modificabile');
+      const c = { field: ch.field, label: def.label };
+      if (ch.field === 'resp') { c.index = v.int(ch.index, 'responsabilità', { min: 0, max: 4 }); c.label = `Responsabilità ${c.index + 1}`; }
+      c.after = def.clean(ch.after, def.label);
+      c.before = currentValue(role, c);
+      c.decision = null;
+      c.reason = '';
+      return c;
+    }).filter(c => JSON.stringify(c.after) !== JSON.stringify(c.before));
+    if (!changes.length) throw new HttpError(400, 'Le modifiche sono uguali alla versione in vigore');
+    await db.query("UPDATE pm_change_requests SET status = 'withdrawn' WHERE user_id = $1 AND status = 'pending'", [req.user.id]);
+    const { rows: [r] } = await db.query(
+      'INSERT INTO pm_change_requests (user_id, role_id, changes, approver_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [req.user.id, role.id, JSON.stringify(changes), p.manager_id || null]);
+    if (p.manager_id) await notify([p.manager_id], req.user.id, `ti chiede di approvare ${changes.length === 1 ? '1 modifica' : `${changes.length} modifiche`} alla sua scheda.`, `/strategy/scheda/${req.user.id}`);
+    res.status(201).json(r);
+  });
+
+  app.post('/api/pm/requests/:id/withdraw', async (req, res) => {
+    const id = v.int(req.params.id, 'richiesta', { min: 1 });
+    const { rowCount } = await db.query("UPDATE pm_change_requests SET status = 'withdrawn' WHERE id = $1 AND user_id = $2 AND status = 'pending'", [id, req.user.id]);
+    if (!rowCount) throw new HttpError(404, 'Richiesta non trovata o già decisa');
+    res.json({ ok: true });
+  });
+
+  // richieste da approvare: quelle dei propri collaboratori; gli amministratori anche quelle senza responsabile
+  app.get('/api/pm/requests', async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT cr.id, cr.user_id, cr.created_at, cr.changes, u.name FROM pm_change_requests cr JOIN users u ON u.id = cr.user_id
+        WHERE cr.status = 'pending' AND (cr.approver_id = $1 OR ($2 AND cr.approver_id IS NULL)) ORDER BY cr.created_at`, [req.user.id, admin(req)]);
+    res.json(rows);
+  });
+
+  // il responsabile (o l'amministratore) decide modifica per modifica; le accettate entrano nel ruolo del mansionario
+  app.post('/api/pm/requests/:id/decide', async (req, res) => {
+    const id = v.int(req.params.id, 'richiesta', { min: 1 });
+    const { rows: [cr] } = await db.query("SELECT * FROM pm_change_requests WHERE id = $1 AND status = 'pending'", [id]);
+    if (!cr) throw new HttpError(404, 'Richiesta non trovata o già decisa');
+    if (!(cr.approver_id === req.user.id || admin(req))) throw new HttpError(403, 'Le modifiche le approva il responsabile della persona');
+    const decisions = Array.isArray(req.body?.decisions) ? req.body.decisions : [];
+    if (decisions.length !== cr.changes.length) throw new HttpError(400, 'Decidi ogni modifica: accetta o rifiuta');
+    const changes = cr.changes.map((c, i) => {
+      const d = decisions[i] || {};
+      if (!['ok', 'no'].includes(d.decision)) throw new HttpError(400, 'Decidi ogni modifica: accetta o rifiuta');
+      return { ...c, decision: d.decision, reason: d.decision === 'no' ? (v.text(String(d.reason ?? ''), 'motivo', { max: 500 }) ?? '') : '' };
+    });
+    await db.tx(async q => {
+      const { rows: [role] } = await q.query('SELECT * FROM pm_roles WHERE id = $1 FOR UPDATE', [cr.role_id]);
+      if (role) {
+        const next = { responsibilities: [...(role.responsibilities || [])] };
+        for (const c of changes.filter(x => x.decision === 'ok')) {
+          if (c.field === 'resp') { while (next.responsibilities.length <= c.index) next.responsibilities.push(''); next.responsibilities[c.index] = c.after; }
+          else next[c.field] = c.after;
+        }
+        next.responsibilities = next.responsibilities.filter(Boolean).slice(0, 5);
+        const keys = Object.keys(next);
+        await q.query(`UPDATE pm_roles SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')}, status = 'confirmed', confirmed_by = $${keys.length + 2}, confirmed_at = now() WHERE id = $1`,
+          [role.id, ...keys.map(k => (Array.isArray(next[k]) ? JSON.stringify(next[k]) : next[k])), req.user.id]);
+      }
+      await q.query("UPDATE pm_change_requests SET status = 'decided', changes = $2, decided_by = $3, decided_at = now() WHERE id = $1", [id, JSON.stringify(changes), req.user.id]);
+    });
+    const ok = changes.filter(c => c.decision === 'ok').length;
+    await notify([cr.user_id], req.user.id, `ha deciso le modifiche alla tua scheda: ${ok} accettate, ${changes.length - ok} rifiutate.`, '/strategy/scheda');
+    res.json({ ok: true });
+  });
+
+  // ── revisione trimestrale degli obiettivi ────────────────────────────────────────────────────
+  app.get('/api/pm/flags', async (req, res) => {
+    const { rows: [r] } = await db.query('SELECT EXISTS (SELECT 1 FROM pm_profiles WHERE manager_id = $1) AS manager', [req.user.id]);
+    res.json({ manager: r.manager, hr: await isHR(req.user.id), admin: admin(req) });
+  });
+
+  // le persone che si vedono nella dashboard: tutte per l'amministratore e per HR, chi è sotto per il responsabile
+  app.get('/api/pm/team', async (req, res) => {
+    await seed(db);
+    const isAdm = admin(req);
+    const all = isAdm || await isHR(req.user.id);
+    const { rows: people } = await db.query(
+      `SELECT u.id, u.name, pp.team, pp.manager_id, r.title AS role, rv.status AS review_status, rv.manager_scores,
+              COALESCE((SELECT json_agg(json_build_object('id', o.id, 'objective', o.objective, 'target', o.target, 'weight', o.weight, 'achievement', o.achievement,
+                                                          'source', o.source, 'hk_kpi_id', o.hk_kpi_id, 'last_value', o.last_value) ORDER BY o.position, o.id)
+                          FROM pm_objectives o WHERE o.user_id = u.id AND o.year = $1), '[]') AS objectives,
+              COALESCE((SELECT json_agg(json_build_object('quarter', q.quarter, 'status', q.status, 'values', q."values", 'note', q.note, 'actions', q.actions, 'closed_at', q.closed_at))
+                          FROM pm_quarter_reviews q WHERE q.user_id = u.id AND q.year = $1), '[]') AS quarters
+         FROM users u LEFT JOIN pm_profiles pp ON pp.user_id = u.id LEFT JOIN pm_roles r ON r.id = pp.role_id
+         LEFT JOIN pm_reviews rv ON rv.user_id = u.id AND rv.year = $1
+        WHERE ($2 AND (pp.user_id IS NOT NULL OR EXISTS (SELECT 1 FROM pm_objectives o WHERE o.user_id = u.id AND o.year = $1)))
+           OR u.id IN (${below(3)})
+        ORDER BY pp.team NULLS LAST, u.name`, [YEAR, all, req.user.id]);
+    // la revisione la fa il responsabile diretto (o un amministratore); gli altri la vedono soltanto
+    for (const p of people) p.can_review = isAdm || p.manager_id === req.user.id;
+    res.json({ year: YEAR, people, soft_skills: SOFT_SKILLS, admin: isAdm });
+  });
+
+  async function quarterRights(req, userId) {
+    const r = await rights(req, userId);
+    if (!(r.manager || r.admin)) throw new HttpError(403, 'La revisione trimestrale la fa il responsabile');
+    return r;
+  }
+  const quarterOf = x => v.int(x, 'trimestre', { min: 1, max: 4 });
+  app.put('/api/pm/quarters/:userId/:q', async (req, res) => {
+    const userId = v.int(req.params.userId, 'persona', { min: 1 });
+    const quarter = quarterOf(req.params.q);
+    await quarterRights(req, userId);
+    const { rows: [cur] } = await db.query('SELECT status FROM pm_quarter_reviews WHERE user_id = $1 AND year = $2 AND quarter = $3', [userId, YEAR, quarter]);
+    if (cur?.status === 'closed') throw new HttpError(400, 'La revisione è chiusa: un amministratore può riaprirla');
+    const b = req.body || {};
+    const values = {};
+    for (const [oid, val] of Object.entries(b.values || {})) {
+      v.int(oid, 'obiettivo', { min: 1 });
+      values[oid] = { value: v.text(String(val?.value ?? ''), 'valore', { max: 100 }) ?? '',
+        achievement: val?.achievement === null || val?.achievement === '' || val?.achievement === undefined ? null : v.int(val.achievement, 'raggiungimento', { min: 0, max: 200 }) };
+    }
+    const note = v.text(String(b.note ?? ''), 'commento', { max: 4000 }) ?? '';
+    const actions = v.text(String(b.actions ?? ''), 'azioni', { max: 4000 }) ?? '';
+    await db.query(`INSERT INTO pm_quarter_reviews (user_id, year, quarter, "values", note, actions, updated_at) VALUES ($1,$2,$3,$4,$5,$6, now())
+                    ON CONFLICT (user_id, year, quarter) DO UPDATE SET "values" = $4, note = $5, actions = $6, updated_at = now()`,
+      [userId, YEAR, quarter, JSON.stringify(values), note, actions]);
+    res.json({ ok: true });
+  });
+  app.post('/api/pm/quarters/:userId/:q/close', async (req, res) => {
+    const userId = v.int(req.params.userId, 'persona', { min: 1 });
+    const quarter = quarterOf(req.params.q);
+    await quarterRights(req, userId);
+    await db.query(`INSERT INTO pm_quarter_reviews (user_id, year, quarter, status, closed_by, closed_at) VALUES ($1,$2,$3,'closed',$4, now())
+                    ON CONFLICT (user_id, year, quarter) DO UPDATE SET status = 'closed', closed_by = $4, closed_at = now()`, [userId, YEAR, quarter, req.user.id]);
+    await notify([userId], req.user.id, `ha chiuso la revisione del Q${quarter} dei tuoi obiettivi.`, '/strategy/obiettivi');
+    res.json({ ok: true });
+  });
+  app.post('/api/pm/quarters/:userId/:q/reopen', async (req, res) => {
+    if (!admin(req)) throw new HttpError(403, 'La riapre un amministratore');
+    await db.query("UPDATE pm_quarter_reviews SET status = 'draft', closed_by = NULL, closed_at = NULL WHERE user_id = $1 AND year = $2 AND quarter = $3",
+      [v.int(req.params.userId, 'persona', { min: 1 }), YEAR, quarterOf(req.params.q)]);
+    res.json({ ok: true });
   });
 
   // ── valutazione ─────────────────────────────────────────────────────────────────────────────

@@ -80,12 +80,13 @@ function flashSaved() {
 export async function strategyView(container, parts = []) {
   // performance management: pagine a parte (performance.js)
   if (['scheda', 'obiettivi', 'team', 'mansionario'].includes(parts[1])) return performanceView(container, parts[1], parts[2]);
-  const page = parts[1] === 'matrix' ? 'hoshin' : ['hoshin', 'gestione', 'a3'].includes(parts[1]) ? parts[1] : 'hoshin';
+  const page = parts[1] === 'matrix' ? 'hoshin' : ['hoshin', 'gestione', 'a3', 'dashboard'].includes(parts[1]) ? parts[1] : 'hoshin';
   fill(container, loading());
   await load();
   if (page === 'hoshin') return matrixPage(container);
   if (page === 'gestione') return gestionePage(container, parts[2]);
   if (page === 'a3') return Number(parts[2]) ? a3Page(container, Number(parts[2])) : a3List(container);
+  if (page === 'dashboard') return dashboardPage(container);
 }
 
 const head = (title, right) => h('div.page-head.hk-head', h('div', h('div.hk-eyebrow', `Alma Strategy · Hoshin Kanri ${YEAR}`), h('h1', title)), right || null);
@@ -133,7 +134,12 @@ function matrixPage(container) {
     icon('expand'), h('span', fit ? 'Dimensione normale' : 'Adatta allo schermo'));
   fill(container,
     head('Hoshin Kanri', h('div.row', h('span.hk-saved#hk-saved'), fitBtn, D.can_admin ? h('a.btn', { href: '#/strategy/gestione' }, icon('pencil'), 'Modifica in Gestione') : null)),
-    strip, body);
+    strip, body,
+    // legenda sempre visibile: le lettere dei KPI di livello 0 con il loro nome
+    h('div.kp-legend', h('span.kp-legend-t', 'KPI di livello 0'), D.kpis.map(k => {
+      const edge = pillarOf(k)?.color || '#BEBEBC';
+      return h('span.kp-legend-i', { title: `target ${k.target}` }, h('b', { style: { background: mix(edge, 0.78), borderColor: edge } }, k.letter), k.name);
+    })));
 
   function drawStrip() {
     const ids = D.projects.map(p => p.id);
@@ -218,7 +224,11 @@ function matrixPage(container) {
         col(COLS.prog, { class: 'hk-prog', title: st.ok ? 'In linea con il piano' : `Sotto l’atteso di ${st.exp - st.act} punti` },
           h('span.hk-bar', h('span', { class: st.ok ? 'ok' : 'ko', style: { width: `${st.act}%` } }), h('i', { style: { left: `${st.exp}%` } })),
           h('span', { class: st.ok ? 'ok' : 'ko' }, `${st.act}%`)),
-        col(COLS.kpi, { class: 'hk-refs' }, p.kpi_ids.map(kid => { const k = kpiById(kid); if (!k) return null; const pc = pillarOf(k)?.color || '#BEBEBC'; return h('span.hk-ref', { title: k.name, style: { background: mix(pc, 0.72), borderColor: pc } }, k.letter); })));
+        col(COLS.kpi, { class: 'hk-refs' }, p.kpi_ids.map(kid => {
+          const k = kpiById(kid); if (!k) return null; const pc = pillarOf(k)?.color || '#BEBEBC';
+          return h('span.hk-ref', { tabindex: 0, 'aria-label': `${k.letter} · ${k.name}`, style: { background: mix(pc, 0.72), borderColor: pc },
+            on: { mouseenter: e => showKpiTip(e.currentTarget, k), mouseleave: hideKpiTip, focus: e => showKpiTip(e.currentTarget, k), blur: hideKpiTip } }, k.letter);
+        })));
     };
 
     const layout = (list, x0, y0) => {
@@ -246,8 +256,7 @@ function matrixPage(container) {
     };
     fspan(staff, X0); fspan(bu, BUX);
 
-    els.push(abs(PX, labelY + 4, monthsX + 12 * COLS.month - PX, LABEL_H + 50, { class: 'hk-tn' },
-      h('div.hk-tn-k', h('span', 'Ambition'), h('strong', 'True North')), h('p', `“${D.true_north}”`)));
+    els.push(abs(PX, labelY + 4, monthsX + 12 * COLS.month - PX, LABEL_H + 50, { class: 'hk-tn' }, trueNorth()));
 
     const pillarBlocks = [];
     let y = pTop;
@@ -307,6 +316,35 @@ function matrixPage(container) {
     body.classList.toggle('fit', fit);
   }
 
+  // True North al centro: gli amministratori lo cambiano qui con la matita (Salva o Invio, Esc annulla)
+  function trueNorth() {
+    const box = h('div.hk-tn-box');
+    const show = () => fill(box,
+      h('div.hk-tn-k', h('span', 'Ambition'), h('strong', 'True North'),
+        D.can_admin ? h('button.hk-tn-edit', { type: 'button', title: 'Modifica il True North', 'aria-label': 'Modifica il True North', on: { click: edit } }, icon('pencil', { size: 14 }), 'Modifica') : null),
+      h('p', D.true_north ? `“${D.true_north}”` : 'Ancora da scrivere.'));
+    function edit() {
+      const ta = h('textarea.hk-tn-ta', { rows: 3, 'aria-label': 'True North' }, D.true_north || '');
+      const saveIt = async () => {
+        const val = ta.value.trim();
+        await patch('/api/strategy/year', { year: YEAR, true_north: val });
+        D.true_north = val;
+        flashSaved();
+        show();
+      };
+      ta.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.stopPropagation(); show(); }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveIt(); }
+      });
+      fill(box,
+        h('div.hk-tn-k', h('span', 'Ambition'), h('strong', 'True North')),
+        h('div.hk-tn-form', ta, h('div.row', h('button.btn.btn-primary', { type: 'button', on: { click: saveIt } }, 'Salva'), h('button.btn', { type: 'button', on: { click: show } }, 'Annulla'), h('span.muted.small', 'Invio salva · Maiusc+Invio va a capo · Esc annulla'))));
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
+    }
+    show();
+    return box;
+  }
+
   function openPanel(p) {
     const st = status.get(p.id);
     const area = areaById(p.area_id);
@@ -342,6 +380,78 @@ function matrixPage(container) {
   const ro = new ResizeObserver(() => { clearTimeout(timer); timer = setTimeout(() => { if (!body.isConnected) { ro.disconnect(); return; } if (Math.abs(body.clientWidth - lastW) > 8) { lastW = body.clientWidth; draw(); } }, 120); });
   ro.observe(body);
 }
+
+// ═══ KPI di livello 0 riconoscibili: etichetta con colore del pillar, lettera, nome e target ═════════
+const projectsOnKpi = k => D.projects.filter(p => p.kpi_ids.includes(k.id)).length;
+function kpiChip(k, { small = false, onRemove = null } = {}) {
+  if (!k) return null;
+  const p = pillarOf(k), edge = p?.color || '#8A8A8A';
+  return h('span.kp-chip', { class: small ? 'small' : '', style: { background: mix(edge, 0.8), borderColor: edge }, title: `${k.letter} · ${k.name} · target ${k.target}${p ? ` · ${p.name}` : ''}` },
+    h('b.kp-letter', { style: { background: edge, color: inkOn(edge) } }, k.letter),
+    h('span.kp-text', h('span.kp-name', k.name), small ? null : h('span.kp-target', `target ${k.target}`)),
+    onRemove ? h('button.kp-x', { type: 'button', 'aria-label': `Scollega ${k.name}`, on: { click: e => { e.stopPropagation(); onRemove(); } } }, '×') : null);
+}
+// Il campo «KPI collegati»: etichette (compatto = le prime due + «+N») e «Collega un KPI», che apre l'elenco.
+function kpiField(p, { compact = false, editable = false, onChange } = {}) {
+  const box = h('div.kp-field', { class: compact ? 'compact' : '' });
+  const setIds = async ids => { await save('projects', p, { kpi_ids: ids }); draw(); onChange?.(); };
+  function draw() {
+    const ks = p.kpi_ids.map(kpiById).filter(Boolean);
+    const shown = compact ? ks.slice(0, 2) : ks;
+    fill(box,
+      shown.map(k => kpiChip(k, { small: compact, onRemove: editable && !compact ? () => setIds(p.kpi_ids.filter(x => x !== k.id)) : null })),
+      compact && ks.length > 2 ? h('span.kp-more', { title: ks.slice(2).map(k => `${k.letter} · ${k.name}`).join('\n') }, `+${ks.length - 2}`) : null,
+      !ks.length && !editable ? h('span.muted.small', 'Nessun KPI collegato') : null,
+      editable ? h('button.kp-add', { type: 'button', on: { click: () => openKpiPicker(p, setIds) } }, icon('plus', { size: 14 }), compact ? 'collega' : 'Collega un KPI') : null);
+  }
+  draw();
+  return box;
+}
+// Elenco per scegliere: raggruppato per pillar, con ricerca per nome, lettera o owner.
+function openKpiPicker(p, setIds) {
+  let ids = [...p.kpi_ids];
+  const search = h('input.kp-search', { type: 'search', placeholder: 'Cerca per nome, lettera o owner', 'aria-label': 'Cerca un KPI' });
+  const list = h('div.kp-list');
+  const count = h('span.muted.small');
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    count.textContent = `${ids.length} ${ids.length === 1 ? 'scelto' : 'scelti'}`;
+    const groups = D.pillars.map(pl => ({ pl, ks: D.kpis.filter(k => k.pillar_id === pl.id && (!q || `${k.letter} ${k.name} ${k.owner}`.toLowerCase().includes(q))) }))
+      .concat([{ pl: null, ks: D.kpis.filter(k => !pillarOf(k) && (!q || `${k.letter} ${k.name} ${k.owner}`.toLowerCase().includes(q))) }]).filter(g => g.ks.length);
+    fill(list, groups.length ? groups.map(({ pl, ks }) => [
+      h('div.kp-group', h('i', { style: { background: pl?.color || '#BEBEBC' } }), pl?.name || 'Senza pillar'),
+      ks.map(k => {
+        const on = ids.includes(k.id), dep = projectsOnKpi(k), edge = pl?.color || '#BEBEBC';
+        return h('button.kp-row', { type: 'button', 'aria-pressed': String(on), class: on ? 'on' : '', on: { click: async () => { ids = on ? ids.filter(x => x !== k.id) : [...ids, k.id]; draw(); await setIds(ids); } } },
+          h('span.kp-box', on ? icon('check', { size: 12 }) : null),
+          h('b.kp-letter', { style: { background: mix(edge, 0.8), borderColor: edge, color: '#2C2C2C' } }, k.letter),
+          h('span.kp-rname', k.name), h('span.kp-rtarget', `target ${k.target}`), h('span.kp-rowner', k.owner || '—'),
+          h('span.kp-rdep', { class: dep ? '' : 'muted' }, dep ? `${dep} ${dep === 1 ? 'progetto' : 'progetti'}` : 'ordinaria'));
+      })]) : h('p.muted', { style: { padding: '16px' } }, `Nessun KPI con «${search.value}».`));
+  };
+  search.addEventListener('input', draw);
+  const m = modal({
+    title: 'Su quali KPI di livello 0 lavora questo progetto?', wide: true,
+    body: h('div.kp-picker', h('div.row.spread', search, count), list),
+    left: [h('span.muted.small', 'Il colore è quello del pillar. «ordinaria» = nessun progetto ci lavora ancora.')],
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => m.close() } }, 'Fatto')],
+  });
+  draw();
+  setTimeout(() => search.focus(), 0);
+}
+// Scheda del KPI al passaggio del mouse sulle letterine della vista Hoshin Kanri
+let kpiTip = null;
+function showKpiTip(el, k) {
+  hideKpiTip();
+  const pl = pillarOf(k), dep = projectsOnKpi(k), r = el.getBoundingClientRect();
+  kpiTip = h('div.kp-tip', { role: 'tooltip' }, h('span.kp-tip-p', { style: { color: pl ? mix(pl.color, 0.45) : '#DCDCDA' } }, pl?.name || 'Senza pillar'),
+    h('strong', `${k.letter} · ${k.name}`), h('span', `target ${k.target} · owner ${k.owner || '—'} · ${dep ? `${dep} ${dep === 1 ? 'progetto' : 'progetti'}` : 'gestione ordinaria'}`));
+  document.body.append(kpiTip);
+  const w = kpiTip.offsetWidth;
+  kpiTip.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+  kpiTip.style.top = `${r.bottom + 8 + window.scrollY}px`;
+}
+function hideKpiTip() { kpiTip?.remove(); kpiTip = null; }
 
 function spark(nums) {
   if (nums.length < 2) return h('span.muted', '—');
@@ -390,11 +500,7 @@ function gestionePage(container, tabKey) {
             h('td', { style: { minWidth: '260px' } }, cell('projects', p, 'name', { cls: 'strong' })),
             h('td', choose('projects', p, 'area_id', [['', '—'], ...areas.map(x => [x.id, `${funcById(x.function_id).name} · ${x.name}`])])),
             h('td', cell('projects', p, 'owner')),
-            h('td', h('div.hk-kchips', D.kpis.map(k => {
-              const on = p.kpi_ids.includes(k.id), pc = pillarOf(k)?.color || '#BEBEBC';
-              return h('button.hk-kchip', { type: 'button', title: k.name, 'aria-pressed': String(on), class: on ? 'on' : '', style: on ? { background: mix(pc, 0.7), borderColor: pc } : {},
-                on: { click: async () => { await save('projects', p, { kpi_ids: on ? p.kpi_ids.filter(x => x !== k.id) : [...p.kpi_ids, k.id] }); draw(); } } }, k.letter);
-            }))),
+            h('td', { style: { minWidth: '280px' } }, kpiField(p, { compact: true, editable: D.can_admin, onChange: draw })),
             h('td', { style: { minWidth: '200px' } }, cell('projects', p, 'target')),
             h('td', h('a.hk-link', { href: `#/strategy/a3/${p.id}` }, `${p.tasks.length} · pesi ${sum}%`)),
             h('td', h('span.hk-status', { class: st.ok ? 'ok' : 'ko' }, `${st.act}% / ${st.exp}%`)),
@@ -471,15 +577,117 @@ function nextLetter() {
 }
 
 // ═══ A3 ═════════════════════════════════════════════════════════════════════════════════════════
+// A3 dei progetti: prima le funzioni (staff e BU) con i loro numeri, poi con un clic gli A3 di quella funzione,
+// filtrabili per area. La scelta resta nell'indirizzo (#/strategy/a3?f=…&a=…), così «indietro» funziona.
+const progressBar = (act, exp) => h('span.hk-bar', h('span', { class: act >= exp ? 'ok' : 'ko', style: { width: `${act}%` } }), h('i', { style: { left: `${exp}%` } }));
+function funcStats(f) {
+  const ps = D.projects.filter(p => areaById(p.area_id)?.function_id === f.id);
+  const st = ps.map(p => progressAt(p, D.today));
+  const avg = key => (st.length ? Math.round(st.reduce((s, x) => s + x[key], 0) / st.length) : 0);
+  return { ps, n: ps.length, ok: st.filter(x => x.ok).length, act: avg('act'), exp: avg('exp') };
+}
 function a3List(container) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const sel = D.functions.find(f => f.id === Number(params.get('f')));
+  const areaSel = Number(params.get('a')) || null;
+  const go = (f, a) => { location.hash = `#/strategy/a3${f ? `?f=${f}${a ? `&a=${a}` : ''}` : ''}`; };
   const colors = areaColors();
-  fill(container, head('A3 dei progetti', D.can_admin ? h('a.btn', { href: '#/strategy/gestione' }, icon('plus'), 'Nuovo progetto') : null),
-    h('div.hk-a3grid', orderedAreas().flatMap(a => projectsOf(a.id).map(p => {
-      const st = progressAt(p, D.today);
+  const card = f => {
+    const s = funcStats(f);
+    return h('button.a3f-card', { type: 'button', class: s.n ? '' : 'empty', style: { borderTopColor: f.color }, on: { click: () => go(f.id) } },
+      h('span.a3f-top', h('strong', f.name), h('span.a3f-n', String(s.n))),
+      h('span.a3f-sub', `sponsor ${f.sponsor || '—'} · ${s.n === 1 ? '1 A3' : `${s.n} A3`}`),
+      h('span.a3f-pills', h('span.hk-status.ok', `${s.ok} in linea`), h('span.hk-status', { class: s.n - s.ok ? 'ko' : 'muted' }, `${s.n - s.ok} in ritardo`)),
+      h('span.hk-prog', progressBar(s.act, s.exp), s.n ? `${s.act}% / ${s.exp}%` : '—'));
+  };
+  const crumb = h('nav.a3f-crumb', { 'aria-label': 'Percorso' },
+    sel ? h('a', { href: '#/strategy/a3' }, 'Tutte le funzioni') : h('b', 'Tutte le funzioni'),
+    sel ? [h('span', '/'), h('b', sel.name)] : null);
+  if (!sel) {
+    const kind = k => D.functions.filter(f => f.kind === k).sort((a, b) => a.position - b.position);
+    return fill(container, head('A3 dei progetti', D.can_admin ? h('a.btn', { href: '#/strategy/gestione' }, icon('plus'), 'Nuovo progetto') : null), crumb,
+      h('div.a3f-label', 'Funzioni di staff'), h('div.a3f-grid', kind('staff').map(card)),
+      h('div.a3f-label', 'Business unit'), h('div.a3f-grid', kind('bu').map(card)),
+      h('p.muted.small', 'La barra è l’avanzamento medio degli A3 della funzione, la tacca l’atteso a oggi. Le funzioni senza A3 sono sbiadite.'));
+  }
+  const s = funcStats(sel);
+  const areas = orderedAreas().filter(a => a.function_id === sel.id);
+  const list = s.ps.filter(p => !areaSel || p.area_id === areaSel);
+  fill(container, head(`A3 · ${sel.name}`, D.can_admin ? h('a.btn', { href: '#/strategy/gestione' }, icon('plus'), 'Nuovo progetto') : null), crumb,
+    h('div.row.wrap.a3f-areas', [{ id: null, name: 'Tutte le aree' }, ...areas].map(a => {
+      const n = a.id ? s.ps.filter(p => p.area_id === a.id).length : s.n;
+      return h('button.hk-chip', { type: 'button', class: areaSel === a.id ? 'on' : '', 'aria-pressed': String(areaSel === a.id), on: { click: () => go(sel.id, a.id) } }, a.name, h('span.a3f-cn', ` ${n}`));
+    })),
+    list.length ? h('div.hk-a3grid', list.map(p => {
+      const st = progressAt(p, D.today), a = areaById(p.area_id);
       return h('a.hk-a3card', { href: `#/strategy/a3/${p.id}`, style: { borderTopColor: colors[a.id] } },
-        h('span.hk-eyebrow', `${funcById(a.function_id).name} · ${a.name}`), h('strong', p.name), h('span.muted', p.owner),
-        h('span.hk-prog', h('span.hk-bar', h('span', { class: st.ok ? 'ok' : 'ko', style: { width: `${st.act}%` } }), h('i', { style: { left: `${st.exp}%` } })), `${st.act}% / ${st.exp}%`));
-    }))));
+        h('span.hk-eyebrow', a.name), h('strong', p.name), h('span.muted', p.owner),
+        h('div.kp-chips', p.kpi_ids.map(kid => kpiChip(kpiById(kid), { small: true }))),
+        h('span.hk-prog', progressBar(st.act, st.exp), `${st.act}% / ${st.exp}%`));
+    })) : h('div.card.empty', 'Nessun A3 per questa funzione.'));
+}
+
+// ═══ Dashboard degli A3: tutto calcolato dalle contromisure ════════════════════════════════════════
+function dashboardPage(container) {
+  let fsel = null;
+  const today = D.today, todayD = new Date(`${today}T00:00:00Z`);
+  const in30 = new Date(todayD.getTime() + 30 * 86400000).toISOString().slice(0, 10);
+  const funcOfP = p => funcById(areaById(p.area_id)?.function_id);
+  const st = new Map(D.projects.map(p => [p.id, progressAt(p, today)]));
+  const body = h('div');
+  fill(container, head('Dashboard degli A3', h('span.muted.small', 'Calcolata dalle contromisure degli A3')), body);
+  function draw() {
+    const ps = D.projects.filter(p => !fsel || funcOfP(p)?.id === fsel);
+    const avg = key => (ps.length ? Math.round(ps.reduce((s, p) => s + st.get(p.id)[key], 0) / ps.length) : 0);
+    const ok = ps.filter(p => st.get(p.id).ok).length;
+    const tasks = ps.flatMap(p => p.tasks.map(t => ({ ...t, p })));
+    const overdue = tasks.filter(t => !t.closed_date && t.due_date && t.due_date < today);
+    const soon = tasks.filter(t => !t.closed_date && t.due_date && t.due_date >= today && t.due_date <= in30);
+    const lateClosed = tasks.filter(t => t.closed_date && t.due_date && t.closed_date > t.due_date).length;
+    const badWeights = ps.filter(p => p.tasks.reduce((s, t) => s + t.weight, 0) !== 100).length;
+    const covered = D.kpis.filter(k => ps.some(p => p.kpi_ids.includes(k.id))).length;
+    const stat = (label, value, cls) => h('div.hk-stat', h('span', label), h('strong', { class: cls || '' }, value));
+    // per funzione
+    const funcs = D.functions.map(f => ({ f, s: funcStats(f) })).filter(x => x.s.n);
+    // andamento dell'anno: media di reale e atteso a fine mese
+    const months = Array.from({ length: 12 }, (_, m) => monthEnd(YEAR, m));
+    const series = months.map(end => {
+      const at = end > today ? today : end;
+      return { act: ps.length ? ps.reduce((s, p) => s + progressAt(p, at).act, 0) / ps.length : 0, exp: ps.length ? ps.reduce((s, p) => s + progressAt(p, end).exp, 0) / ps.length : 0, past: end <= today || end.slice(0, 7) === today.slice(0, 7) };
+    });
+    const W = 720, H = 150, x = i => 30 + i * (W - 50) / 11, y = v => H - 18 - v / 100 * (H - 34);
+    const line = pts => pts.map((pt, i) => `${i ? 'L' : 'M'}${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' ');
+    const actPts = series.map((s2, i) => [x(i), y(s2.act), s2.past]).filter(pt => pt[2]);
+    const chart = svgEl('svg', { width: '100%', height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Avanzamento medio mese per mese, reale e atteso' },
+      ...[0, 50, 100].map(v => svgEl('path', { d: `M30,${y(v)} H${W - 20}`, stroke: v ? '#F1F0EC' : '#DCDCDA' })),
+      svgEl('path', { d: line(series.map((s2, i) => [x(i), y(s2.exp)])), fill: 'none', stroke: '#8A8A8A', 'stroke-width': 2, 'stroke-dasharray': '5 4' }),
+      actPts.length ? svgEl('path', { d: line(actPts), fill: 'none', stroke: '#FF8A26', 'stroke-width': 3 }) : svgEl('g'),
+      ...MONTHS.map((m, i) => svgEl('text', { x: x(i) - 8, y: H - 2, 'font-size': 10, fill: '#6B6B6B' }, m)));
+    const late = ps.map(p => ({ p, s: st.get(p.id) })).filter(x => !x.s.ok).sort((a, b) => (b.s.exp - b.s.act) - (a.s.exp - a.s.act)).slice(0, 6);
+    const due = [...overdue, ...soon].sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 8);
+    fill(body,
+      h('div.hk-stats.pm-tiles', stat('A3 attivi', String(ps.length)), stat('In linea con il piano', `${ok}${ps.length ? ` · ${Math.round(ok / ps.length * 100)}%` : ''}`, 'ok'),
+        stat('Avanzamento medio', `${avg('act')}% su ${avg('exp')}% atteso`), stat('Contromisure scadute e aperte', String(overdue.length), overdue.length ? 'ko' : ''),
+        stat('In scadenza nei prossimi 30 giorni', String(soon.length))),
+      h('div.a3d-grid',
+        h('section.hk-card',
+          h('div.row.spread', h('h2.pm-h', 'Avanzamento per funzione'), fsel ? h('button.btn.btn-ghost', { type: 'button', on: { click: () => { fsel = null; draw(); } } }, 'Tutte le funzioni') : h('span.muted.small', 'clicca una funzione per filtrare')),
+          funcs.map(({ f, s }) => h('button.a3d-func', { type: 'button', class: fsel === f.id ? 'on' : '', on: { click: () => { fsel = fsel === f.id ? null : f.id; draw(); } } },
+            h('span.a3d-fn', h('i', { style: { background: f.color } }), f.name), h('span.a3d-bar', progressBar(s.act, s.exp)),
+            h('b', { class: s.act >= s.exp ? 'ok' : 'ko' }, `${s.act}%`, h('small', ` / ${s.exp}`)), h('span.muted.small', `${s.n} A3`))),
+          h('h3.a3d-h3', 'Andamento dell’anno · media degli A3', fsel ? ` di ${funcById(fsel).name}` : ''),
+          chart,
+          h('div.a3d-legend', h('span', h('i.act'), 'reale'), h('span', h('i.exp'), 'atteso'))),
+        h('div.a3d-side',
+          h('section.hk-card', h('h2.pm-h', 'A3 più indietro'),
+            late.length ? late.map(x => h('a.a3d-line', { href: `#/strategy/a3/${x.p.id}` }, h('span', h('strong', x.p.name), h('small', `${funcOfP(x.p)?.name || ''} · ${x.p.owner}`)), h('span.hk-status.ko', `−${x.s.exp - x.s.act} punti`)))
+              : h('p.muted', 'Tutti gli A3 sono in linea.')),
+          h('section.hk-card', h('h2.pm-h', 'Contromisure in scadenza'),
+            due.length ? due.map(t => h('a.a3d-line.due', { href: `#/strategy/a3/${t.p.id}` }, h('span.a3d-date', { class: t.due_date < today ? 'ko' : '' }, t.due_date < today ? 'scaduta' : itDate(t.due_date).slice(0, 5)),
+              h('span', h('span', t.activity), h('small', t.p.name)))) : h('p.muted', 'Niente in scadenza nei prossimi 30 giorni.')),
+          h('section.hk-card.a3d-mini', h('div', h('span', 'KPI coperti da A3'), h('b', `${covered} su ${D.kpis.length}`)), h('div', h('span', 'Chiuse in ritardo'), h('b', String(lateClosed))), h('div', h('span', 'Pesi non a 100%'), h('b', { class: badWeights ? 'ko' : '' }, String(badWeights)))))));
+  }
+  draw();
 }
 
 // L'A3 è la scheda di un progetto di Alma Planner (come un'opportunità di Alma Energy): il tab «A3» con il format
@@ -530,7 +738,7 @@ function a3Strip(p, func) {
     h('div.hk-s3', h('span', 'Avanzamento A3 (pesi delle contromisure)'), h('strong', `${st.act}% su ${st.exp}% atteso`), h('span.hk-status', { class: st.ok ? 'ok' : 'ko' }, st.ok ? 'In linea con il piano' : `Sotto l’atteso di ${st.exp - st.act} punti`)),
     h('div.hk-s3', h('span', 'Contromisure chiuse'), h('strong', `${p.tasks.filter(t => t.closed_date).length} di ${p.tasks.length}`)),
     h('div.hk-s3', h('span', 'Prossima scadenza'), h('strong', open[0] ? itDate(open[0].due_date) : '—'), open[0] ? h('small', open[0].activity) : null),
-    h('div.hk-s3', h('span', 'KPI di livello 0'), h('div.hk-kchips', p.kpi_ids.map(kid => { const k = kpiById(kid); if (!k) return null; const pc = pillarOf(k)?.color || '#BEBEBC'; return h('span.hk-kchip.on', { title: k.name, style: { background: mix(pc, 0.7), borderColor: pc } }, k.letter); }))));
+    h('div.hk-s3.wide', h('span', 'KPI di livello 0'), h('div.kp-chips', p.kpi_ids.map(kid => kpiChip(kpiById(kid), { small: true })))));
 }
 
 function a3Tab(box, p, reload) {
@@ -596,11 +804,7 @@ function a3Tab(box, p, reload) {
           h('label.hk-fact', h('span', 'Stato'), h('select.hk-in', { on: { change: e => save('projects', p, { status: e.target.value }) } }, STATUSES.map(([k, l]) => h('option', { value: k, selected: p.status === k }, l)))),
           h('label.hk-fact', h('span', 'Anno di partenza'), h('input.hk-in', { value: p.start_year || '', inputmode: 'numeric', on: { change: e => save('projects', p, { start_year: e.target.value ? Number(e.target.value) : null }) } })),
           h('label.hk-fact', h('span', 'Tag'), h('input.hk-in', { value: p.tags || '', placeholder: 'Separati da virgola', on: { change: e => save('projects', p, { tags: e.target.value }) } })),
-          h('div.hk-fact.wide', h('span', 'KPI di livello 0 su cui lavora'), h('div.hk-kchips', D.kpis.map(k => {
-            const on = p.kpi_ids.includes(k.id), pc = pillarOf(k)?.color || '#BEBEBC';
-            return h('button.hk-kchip', { type: 'button', title: k.name, 'aria-pressed': String(on), class: on ? 'on' : '', style: on ? { background: mix(pc, 0.7), borderColor: pc } : {},
-              on: { click: async () => { await save('projects', p, { kpi_ids: on ? p.kpi_ids.filter(x => x !== k.id) : [...p.kpi_ids, k.id] }); refresh(); } } }, k.letter);
-          }))))),
+          h('div.hk-fact.wide4', h('span', 'KPI di livello 0 su cui lavora'), kpiField(p, { editable: p.can_edit, onChange: refresh })))),
       h('div.hk-row3',
         h('section.hk-card', step(1, 'Background'), h('span.hk-lbl', 'Descrizione del progetto'), text('background', { placeholder: 'Perché questo progetto' })),
         h('section.hk-card', step(2, 'Current conditions'), h('span.hk-lbl', 'Situazione di partenza'), text('current_conditions', { placeholder: 'Come stanno le cose oggi' })),

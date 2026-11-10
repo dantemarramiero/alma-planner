@@ -20,6 +20,7 @@ function sentence(n) {
     case 'pin': return 'ha messo in evidenza il tuo post.';
     case 'mezzi': return n.body || '';
     case 'energy': return n.body || ''; // scadenze di Alma Energy
+    case 'strategy': return n.body || ''; // Alma Strategy: modifiche della scheda da approvare, decisioni, revisioni
     case 'ticket_reminder': return `ti manda un promemoria su${quote(n.ticket_title)}:${quote(n.body)}`;
     case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
     case 'overdue_project': return `Ritardo nel tuo progetto:${quote(n.ticket_title)} è scaduto da almeno 2 giorni lavorativi.`;

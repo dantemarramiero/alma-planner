@@ -124,3 +124,98 @@ test('la dashboard dei team: chi ha un profilo o degli obiettivi', async () => {
   assert.ok(names.includes('Luca Bianchi'));
   assert.equal(body.people.find(p => p.name === 'Dante Marramiero').objectives.length, 12);
 });
+
+test('scheda modificabile: la persona invia, il responsabile decide modifica per modifica, le accettate vanno nel ruolo', async () => {
+  // a Luca serve un ruolo: lo crea e assegna l'amministratore (Dante resta il suo responsabile)
+  const role = (await X('POST', '/api/pm/admin/roles', { title: 'Sistemista', description: 'Gestisco i server.', responsibilities: ['Server', 'Backup'] })).body;
+  await X('PUT', `/api/pm/admin/profiles/${ids.luca}`, { role_id: role.id, manager_id: ids.dante, team: 'ICT' });
+  // senza modifiche vere niente richiesta
+  assert.equal((await L('POST', '/api/pm/requests', { changes: [{ field: 'title', after: 'Sistemista' }] })).status, 400);
+  assert.equal((await L('POST', '/api/pm/requests', { changes: [{ field: 'stipendio', after: 'x' }] })).status, 400);
+  const sent = await L('POST', '/api/pm/requests', { changes: [
+    { field: 'description', after: 'Gestisco server, rete e backup.' },
+    { field: 'resp', index: 1, after: 'Backup e ripristino' },
+    { field: 'title', after: 'Capo sistemista' },
+  ] });
+  assert.equal(sent.status, 201);
+  // la scheda mostra ancora la versione in vigore, con la richiesta in attesa
+  let luca = (await L('GET', '/api/pm/person')).body;
+  assert.equal(luca.role.description, 'Gestisco i server.');
+  assert.equal(luca.request.status, 'pending');
+  assert.equal(luca.request.approver_name, 'Dante Marramiero');
+  // Dante la trova da approvare (e ha la notifica); un estraneo no
+  assert.equal((await D('GET', '/api/pm/requests')).body.length, 1);
+  const stranger = as(await login('marco.neri@almacis.it'));
+  assert.equal((await stranger('POST', `/api/pm/requests/${sent.body.id}/decide`, { decisions: [] })).status, 403);
+  assert.equal((await D('POST', `/api/pm/requests/${sent.body.id}/decide`, { decisions: [{ decision: 'ok' }] })).status, 400); // vanno decise tutte
+  assert.equal((await D('POST', `/api/pm/requests/${sent.body.id}/decide`, { decisions: [{ decision: 'ok' }, { decision: 'ok' }, { decision: 'no', reason: 'Il titolo resta Sistemista' }] })).status, 200);
+  luca = (await L('GET', '/api/pm/person')).body;
+  assert.equal(luca.role.description, 'Gestisco server, rete e backup.');
+  assert.deepEqual(luca.role.responsibilities, ['Server', 'Backup e ripristino']);
+  assert.equal(luca.role.title, 'Sistemista');
+  assert.equal(luca.request.status, 'decided');
+  assert.equal(luca.request.changes[2].reason, 'Il titolo resta Sistemista');
+  const notes = (await L('GET', '/api/notifications')).body;
+  assert.ok(JSON.stringify(notes).includes('ha deciso le modifiche alla tua scheda'));
+  // una nuova richiesta si può ritirare
+  const again = await L('POST', '/api/pm/requests', { changes: [{ field: 'coordinates', after: 2 }] });
+  assert.equal((await L('POST', `/api/pm/requests/${again.body.id}/withdraw`)).status, 200);
+  assert.equal((await D('GET', '/api/pm/requests')).body.length, 0);
+});
+
+test('revisione trimestrale: la fa il responsabile, si chiude, la riapre un amministratore', async () => {
+  // Dante vede nella dashboard solo i suoi collaboratori; l'amministratore tutti
+  assert.equal((await D('GET', '/api/pm/flags')).body.manager, true);
+  assert.equal((await L('GET', '/api/pm/flags')).body.manager, false);
+  const mine = (await D('GET', '/api/pm/team')).body.people.map(p => p.name);
+  assert.deepEqual(mine, ['Luca Bianchi']);
+  assert.ok((await X('GET', '/api/pm/team')).body.people.length >= 2);
+  assert.equal((await L('GET', '/api/pm/team')).body.people.length, 0);
+  const obj = (await L('GET', '/api/pm/person')).body.objectives[0];
+  // la persona non si fa la revisione da sola
+  assert.equal((await L('PUT', `/api/pm/quarters/${ids.luca}/4`, { values: {} })).status, 403);
+  assert.equal((await D('PUT', `/api/pm/quarters/${ids.luca}/4`, { values: { [obj.id]: { value: '12', achievement: 80 } }, note: 'Buon trimestre', actions: 'Formazione sul backup' })).status, 200);
+  assert.equal((await D('POST', `/api/pm/quarters/${ids.luca}/4/close`)).status, 200);
+  // chiusa: non si cambia più, finché un amministratore non la riapre
+  assert.equal((await D('PUT', `/api/pm/quarters/${ids.luca}/4`, { values: {} })).status, 400);
+  assert.equal((await D('POST', `/api/pm/quarters/${ids.luca}/4/reopen`)).status, 403);
+  const q4 = (await X('GET', '/api/pm/team')).body.people.find(p => p.name === 'Luca Bianchi').quarters.find(q => q.quarter === 4);
+  assert.equal(q4.status, 'closed');
+  assert.equal(q4.values[obj.id].achievement, 80);
+  assert.equal(q4.note, 'Buon trimestre');
+  assert.equal((await X('POST', `/api/pm/quarters/${ids.luca}/4/reopen`)).status, 200);
+  assert.equal((await D('PUT', `/api/pm/quarters/${ids.luca}/4`, { values: {} })).status, 200);
+  assert.equal((await D('PUT', `/api/pm/quarters/${ids.luca}/5`, { values: {} })).status, 400);
+});
+
+test('HR vede le schede di tutti senza modificarle; il responsabile vede tutta la catena sotto di sé', async () => {
+  const H = as(await login('giulia.hr@almacis.it'));
+  const M = as(await login('marta.sotto@almacis.it'));
+  const hrId = (await H('GET', '/api/me')).body.id;
+  const mId = (await M('GET', '/api/me')).body.id;
+  // prima di entrare nel team HR non vede nulla
+  assert.equal((await H('GET', `/api/pm/person?user=${ids.dante}`)).status, 403);
+  assert.equal((await X('PUT', `/api/pm/admin/profiles/${hrId}`, { team: 'HR' })).status, 200);
+  assert.equal((await H('GET', '/api/pm/flags')).body.hr, true);
+  assert.equal((await H('GET', `/api/pm/person?user=${ids.dante}`)).status, 200);
+  assert.equal((await H('GET', `/api/pm/person?user=${ids.luca}`)).status, 200);
+  const all = (await H('GET', '/api/pm/team')).body.people;
+  assert.ok(all.length >= 2);
+  assert.ok(all.every(p => p.can_review === false), 'HR vede ma non fa le revisioni');
+  // HR non valuta, non approva obiettivi, non fa revisioni
+  assert.equal((await H('PUT', `/api/pm/quarters/${ids.luca}/4`, { values: {} })).status, 403);
+  const obj = (await L('GET', '/api/pm/person')).body.objectives[0];
+  assert.equal((await H('PATCH', `/api/pm/objectives/${obj.id}`, { approved: true })).status, 403);
+  // Marta risponde a Luca, che risponde a Dante: Dante vede anche Marta (solo lettura), Luca la valuta
+  assert.equal((await X('PUT', `/api/pm/admin/profiles/${mId}`, { manager_id: ids.luca, team: 'ICT' })).status, 200);
+  assert.equal((await L('GET', `/api/pm/person?user=${mId}`)).status, 200);
+  assert.equal((await D('GET', `/api/pm/person?user=${mId}`)).status, 200);
+  const team = (await D('GET', '/api/pm/team')).body.people;
+  assert.deepEqual(team.map(p => p.id).sort((a, b) => a - b), [ids.luca, mId].sort((a, b) => a - b));
+  assert.equal(team.find(p => p.id === mId).can_review, false);
+  assert.equal(team.find(p => p.id === ids.luca).can_review, true);
+  assert.equal((await D('PUT', `/api/pm/quarters/${mId}/4`, { values: {} })).status, 403);
+  assert.equal((await L('PUT', `/api/pm/quarters/${mId}/4`, { values: {} })).status, 200);
+  // chi sta sotto non vede chi sta sopra
+  assert.equal((await M('GET', `/api/pm/person?user=${ids.dante}`)).status, 403);
+});
