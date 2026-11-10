@@ -42,30 +42,51 @@ after(async () => {
 
 const year = async (y = 2026) => (await A('GET', `/api/strategy?year=${y}`)).body;
 
-test('invito all’A3: entra nel team e riceve una email allegra con l’A3 e la nota', async () => {
+test('invito all’A3: è una richiesta; si entra nel team solo accettando, e chi invita riceve la risposta', async () => {
   const p = (await year()).projects.find(x => x.name === 'Gestione di commessa 2.0');
   assert.equal((await O('POST', `/api/strategy/projects/${p.id}/invite`, { user_ids: [ids.luca] })).status, 403, 'solo chi lavora sull’A3 invita');
-  const prev = await A('POST', `/api/strategy/projects/${p.id}/invite/preview`, { note: 'Ci serve il tuo occhio sui costi', user_id: ids.luca });
+  const prev = await A('POST', `/api/strategy/projects/${p.id}/invite/preview`, { note: 'Ci serve il tuo occhio sui costi' });
+  assert.equal(prev.status, 200, 'anteprima anche senza aver scelto nessuno');
   assert.match(prev.body.html, /Ci serve il tuo occhio sui costi/);
   const before = fake.sentMail.length;
-  const r = await A('POST', `/api/strategy/projects/${p.id}/invite`, { user_ids: [ids.luca], note: 'Ci serve il tuo occhio sui costi' });
+  const r = await A('POST', `/api/strategy/projects/${p.id}/invite`, { user_ids: [ids.luca, ids.ospite], note: 'Ci serve il tuo occhio sui costi' });
   assert.equal(r.status, 200);
-  assert.deepEqual([r.body.invited, r.body.emailed], [1, 1]);
+  assert.deepEqual([r.body.invited, r.body.emailed], [2, 2]);
   const mail = fake.sentMail.slice(before).find(m => m.message.toRecipients[0].emailAddress.address === 'luca.bianchi@almacis.it');
-  assert.ok(mail, 'email partita dalla casella di chi invita');
-  assert.equal(mail.from, ids.dante);
-  assert.match(mail.message.subject, /ti invita nell’A3 «Gestione di commessa 2\.0»/);
+  assert.equal(mail.from, ids.dante, 'dalla casella di chi invita');
+  assert.match(mail.message.subject, /ti chiede di partecipare all’A3 «Gestione di commessa 2\.0»/);
   const html = mail.message.body.content;
-  assert.match(html, /benvenuto a bordo/);
+  assert.match(html, /ti va di entrare nel team/);
+  assert.match(html, /Sì, partecipo/);
+  assert.match(html, /No, grazie/);
   assert.match(html, /Ci serve il tuo occhio sui costi/);
   assert.match(html, /Countermeasures/);
-  assert.match(html, /#\/strategy\/a3\//);
-  // ora Luca è nel team: vede il progetto da membro e può lavorare sull'A3
+  const inviteId = html.match(/#\/strategy\/invito\/(\d+)\?r=si/)[1];
+  // non è ancora nel team
+  assert.equal((await L('GET', `/api/projects/${r.body.project_id}`)).body.my_role, 'viewer');
+  // una seconda richiesta mentre la prima è in attesa non parte
+  assert.equal((await A('POST', `/api/strategy/projects/${p.id}/invite`, { user_ids: [ids.luca] })).body.invited, 0);
+  // la richiesta la vede e la risponde solo l'invitato
+  const got = (await L('GET', `/api/strategy/invites/${inviteId}`)).body;
+  assert.equal(got.invite.mine, true);
+  assert.equal(got.a3.name, 'Gestione di commessa 2.0');
+  assert.equal((await O('GET', `/api/strategy/invites/${inviteId}`)).status, 404);
+  assert.equal((await A('POST', `/api/strategy/invites/${inviteId}/answer`, { accept: true })).status, 404);
+  assert.equal((await L('GET', '/api/strategy/invites')).body.length, 1);
+  const yes = await L('POST', `/api/strategy/invites/${inviteId}/answer`, { accept: true, reply: 'Volentieri!' });
+  assert.equal(yes.body.status, 'accepted');
   assert.equal((await L('GET', `/api/projects/${r.body.project_id}`)).body.my_role, 'member');
   assert.equal((await L('GET', '/api/strategy?year=2026')).body.projects.find(x => x.id === p.id).can_edit, true);
+  assert.equal((await L('POST', `/api/strategy/invites/${inviteId}/answer`, { accept: false })).status, 409, 'si risponde una volta');
+  // l'ospite dice di no: resta fuori dal team
+  const oid = (await O('GET', '/api/strategy/invites')).body[0].id;
+  assert.equal((await O('POST', `/api/strategy/invites/${oid}/answer`, { accept: false, reply: 'Sono già su troppi progetti' })).body.status, 'declined');
+  assert.equal((await O('GET', `/api/projects/${r.body.project_id}`)).body.my_role, 'viewer');
   const inv = (await A('GET', `/api/strategy/projects/${p.id}/invites`)).body;
-  assert.equal(inv[0].name, 'Luca Bianchi');
-  assert.equal(inv[0].emailed, true);
+  assert.equal(inv.find(x => x.user_id === ids.luca).status, 'accepted');
+  const no = inv.find(x => x.user_id === ids.ospite);
+  assert.equal(no.status, 'declined');
+  assert.equal(no.reply, 'Sono già su troppi progetti');
 });
 
 test('un solo Gantt: l’inizio della contromisura e quello del ticket sono la stessa data, nei due versi', async () => {

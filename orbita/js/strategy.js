@@ -113,6 +113,7 @@ export async function strategyView(container, parts = []) {
   // performance management: pagine a parte (performance.js)
   if (['scheda', 'obiettivi', 'team', 'mansionario'].includes(parts[1])) return performanceView(container, parts[1], parts[2]);
   const page = parts[1] === 'matrix' ? 'hoshin' : ['hoshin', 'gestione', 'a3', 'dashboard'].includes(parts[1]) ? parts[1] : 'hoshin';
+  if (parts[1] === 'invito') return invitePage(container, Number(parts[2]));
   fill(container, loading());
   const qy = Number(new URLSearchParams(location.hash.split('?')[1] || '').get('y'));
   if (qy) YEAR = qy; // un link a un A3 di un altro anno
@@ -780,11 +781,54 @@ async function a3Page(container, id) {
     defaultTab: 'a3',
     head: [carryBox(p, () => a3Page(container, id)), a3Strip(p, func)],
     actions: () => [
-      p.can_edit ? h('button.btn.btn-primary', { type: 'button', on: { click: () => openInvite(p) } }, icon('users', { size: 16 }), 'Invita nel team') : null,
+      p.can_edit ? h('button.btn.btn-primary', { type: 'button', on: { click: () => openInvite(p) } }, icon('users', { size: 16 }), 'Chiedi di partecipare') : null,
       p.can_edit ? null : h('span.pill', { title: 'Per modificare l’A3, i ticket o il Gantt chiedi al responsabile di aggiungerti al progetto' }, 'Sola lettura'),
       h('button.btn', { type: 'button', on: { click: () => window.print() } }, icon('file-text', { size: 16 }), 'Esporta A3 in PDF')],
     extraTabs: [['a3', 'A3', (box, reload) => a3Tab(box, p, reload)], ['calendario', 'Calendario', box => a3Calendar(box, { id: p.project_id, name: p.name, my_role: p.can_edit ? 'member' : 'viewer' }, { color: func?.color || '#FF8A26' })]],
   });
+}
+
+// La richiesta di partecipare a un A3, dalla email o dalla notifica: si legge l'A3 e si risponde sì o no.
+async function invitePage(container, id) {
+  fill(container, loading());
+  let d;
+  try { d = await get(`/api/strategy/invites/${id}`); } catch { return fill(container, h('div.card.empty', 'Richiesta non trovata.')); }
+  const { invite: i, a3, func } = d;
+  const color = func?.color || '#FF8A26';
+  const pre = new URLSearchParams(location.hash.split('?')[1] || '').get('r');
+  const reply = h('textarea.input', { rows: 3, maxlength: 1000, placeholder: pre === 'no' ? 'Se vuoi, spiega perché (lo legge chi ti ha invitato)' : 'Due righe per chi ti ha invitato (facoltative)' });
+  const answer = accept => async () => {
+    const r = await post(`/api/strategy/invites/${id}/answer`, { accept, reply: reply.value.trim() });
+    toast(accept ? 'Benvenuto nel team!' : 'Risposta mandata');
+    if (r.status === 'accepted') location.hash = `#/strategy/a3/${r.a3_id}`; else invitePage(container, id);
+  };
+  const done = i.done = i.status !== 'pending';
+  const tasks = a3.tasks || [];
+  fill(container, h('div.a3r',
+    h('section.a3r-card',
+      h('div.a3r-band', { style: { background: color } },
+        h('span.a3r-k', 'Alma Strategy · richiesta di partecipare'),
+        h('h1', i.mine ? (done ? (i.status === 'accepted' ? 'Sei nel team di questo A3' : 'Hai risposto di no') : `${i.invited_by_name || 'Un collega'} ti chiede di entrare nel team`) : `Richiesta a ${i.user_name}`)),
+      h('div.a3r-body',
+        h('span.a3r-func', [func?.name, d.area].filter(Boolean).join(' · ')),
+        h('h2', a3.name),
+        h('span.muted.small', `Proprietario ${a3.owner || '—'} · team ${a3.team || '—'}`),
+        i.note ? h('div.a3r-note', h('span.a3r-av', avatar(userById(i.invited_by) || { name: i.invited_by_name || '?' }, 40)), h('div', h('p', i.note), h('small', `— ${i.invited_by_name || ''}`))) : null,
+        a3.target_conditions ? h('div.a3r-target', h('span.hk-lbl', 'Dove vogliamo arrivare'), h('p', a3.target_conditions)) : null,
+        tasks.length ? h('div.a3r-tasks', h('span.hk-lbl', `Contromisure · ${tasks.filter(t => t.closed_date).length} chiuse su ${tasks.length}`),
+          tasks.slice(0, 6).map((t, n) => h('div.a3r-task', h('b', { style: { color } }, String(n + 1)), h('span', t.activity), h('small.muted', t.due_date ? itDate(t.due_date) : '')))) : null,
+        i.mine && !done ? h('div.a3r-answer',
+          h('label.field', h('span', 'La tua risposta'), reply),
+          h('div.a3r-btns',
+            h('button.btn.a3r-yes', { type: 'button', on: { click: answer(true) } }, icon('check', { size: 16 }), 'Sì, partecipo'),
+            h('button.btn', { type: 'button', on: { click: answer(false) } }, 'No, grazie')),
+          h('small.muted', 'Se accetti entri nel team del progetto: ticket, Gantt, incontri e note dell’A3.')) : null,
+        done ? h('div.a3r-done', { class: i.status },
+          i.status === 'accepted' ? [icon('check', { size: 16 }), ` Accettata il ${itDate(String(i.answered_at).slice(0, 10))}`] : `Rifiutata il ${itDate(String(i.answered_at).slice(0, 10))}`,
+          i.reply ? h('span', ` · «${i.reply}»`) : null) : null,
+        !i.mine && !done ? h('div.a3r-done', 'In attesa di risposta') : null,
+        h('a.small', { href: `#/strategy/a3/${a3.id}?y=${a3.year}` }, 'Apri l’A3 →')))));
+  if (pre === 'si' && i.mine && !done) reply.focus();
 }
 
 // Invitare colleghi nell'A3: entrano nel team e ricevono una email allegra con l'A3 e la nota di chi invita.
@@ -806,7 +850,8 @@ async function openInvite(p) {
   search.addEventListener('input', drawList);
   drawList(); drawChips();
   get(`/api/strategy/projects/${p.id}/invites`, { quiet: true }).then(rows => {
-    if (rows?.length) fill(past, h('div.hk-lbl', 'Già invitati'), rows.slice(0, 8).map(r => h('div.small.muted', `${r.name} · da ${r.invited_by_name || '—'} il ${itDate(String(r.created_at).slice(0, 10))}${r.emailed ? '' : ' · senza email'}`)));
+    if (rows?.length) fill(past, h('div.hk-lbl', 'Richieste già mandate'), rows.slice(0, 8).map(r => h('div.a3i-pastrow', h('span', `${r.name} · da ${r.invited_by_name || '—'} il ${itDate(String(r.created_at).slice(0, 10))}`),
+      h('span.pill', { class: `a3i-${r.status}`, title: r.reply || '' }, r.status === 'accepted' ? 'ha accettato' : r.status === 'declined' ? 'ha detto di no' : 'in attesa'))));
   }).catch(() => {});
   const preview = async () => {
     const r = await post(`/api/strategy/projects/${p.id}/invite/preview`, { note: note.value, user_id: [...chosen][0] || null });
@@ -815,21 +860,21 @@ async function openInvite(p) {
     const pm = modal({ title: r.subject, wide: true, body: frame, actions: [h('button.btn', { type: 'button', on: { click: () => pm.close() } }, 'Chiudi')] });
   };
   const m = modal({
-    title: `Invita nel team dell’A3 «${p.name}»`,
+    title: `Chiedi di partecipare all’A3 «${p.name}»`,
     wide: true,
     body: [h('div.a3i-grid',
       h('div', h('div.hk-lbl', 'Chi vuoi nel team'), search, list),
-      h('div', h('div.hk-lbl', 'Invitati'), chips, h('label.field', h('span', 'La tua nota (facoltativa)'), note),
-        h('p.muted.small', 'Entrano nel team del progetto (ticket, Gantt, incontri) e ricevono dalla tua casella una email con l’A3 e la tua nota.'), past))],
+      h('div', h('div.hk-lbl', 'Invitati'), chips, h('label.field', h('span', 'La tua nota per convincerli (facoltativa)'), note),
+        h('p.muted.small', 'Ricevono dalla tua casella una richiesta con l’A3 e la tua nota: entrano nel team (ticket, Gantt, incontri) solo se accettano. Ti arriva una notifica con la risposta.'), past))],
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn', { type: 'button', on: { click: preview } }, 'Anteprima email'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
         if (!chosen.size) { toast('Scegli almeno una persona', 'err'); return; }
         const r = await post(`/api/strategy/projects/${p.id}/invite`, { user_ids: [...chosen], note: note.value.trim() });
         m.close();
-        toast(r.emailed === r.invited ? `Invito mandato a ${r.invited === 1 ? '1 persona' : `${r.invited} persone`}` : `${r.invited} nel team · email mandate: ${r.emailed}`);
+        toast(r.invited ? `Richiesta mandata a ${r.invited === 1 ? '1 persona' : `${r.invited} persone`}${r.already ? ` · ${r.already} già nel team o in attesa` : ''}` : 'Sono già tutti nel team o hanno già una richiesta in attesa');
         await load();
-      } } }, icon('mail', { size: 16 }), 'Invita')],
+      } } }, icon('mail', { size: 16 }), 'Chiedi di partecipare')],
   });
 }
 

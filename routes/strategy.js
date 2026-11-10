@@ -256,35 +256,92 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
     if (!projectId) throw new HttpError(404, 'A3 non trovato');
     const { rows: people } = await db.query('SELECT id, name, email FROM users WHERE id = ANY($1::int[])', [ids]);
     if (people.length !== ids.length) throw new HttpError(400, 'Una delle persone non esiste');
-    const { rows: [proj] } = await db.query('SELECT owner_id FROM projects WHERE id = $1', [projectId]);
-    for (const u of people) {
-      if (u.id !== proj.owner_id) await db.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [projectId, u.id, req.user.id]);
-    }
-    const { a3, area, func, kpis, inviter, link, today } = await inviteContext(id, req.user.id);
+    // chi è già nel team, o ha già una richiesta in attesa, non riceve un'altra richiesta
+    const { rows: inside } = await db.query(
+      `SELECT u.id FROM users u WHERE u.id = ANY($1::int[]) AND (u.id = (SELECT owner_id FROM projects WHERE id = $2)
+          OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = $2 AND m.user_id = u.id)
+          OR EXISTS (SELECT 1 FROM hk_invites i WHERE i.hk_project_id = $3 AND i.user_id = u.id AND i.status = 'pending'))`, [ids, projectId, id]);
+    const skip = new Set(inside.map(r => r.id));
+    const asked = people.filter(u => !skip.has(u.id) && u.id !== req.user.id);
+    const { a3, area, func, kpis, inviter, today } = await inviteContext(id, req.user.id);
     let token = null;
     try { token = auth ? await auth.graphToken(req.user.id) : null; } catch { token = null; }
     let emailed = 0;
-    for (const u of people) {
+    for (const u of asked) {
       let sent = false;
-      if (token && u.email && u.id !== req.user.id) {
-        const { subject, html } = buildInviteEmail(a3, { inviter, invitee: u, note, link, func, area, kpis, today });
+      const { rows: [inv] } = await db.query('INSERT INTO hk_invites (hk_project_id, user_id, invited_by, note) VALUES ($1, $2, $3, $4) RETURNING id', [id, u.id, req.user.id, note]);
+      const answer = `${baseUrl || ''}/app#/strategy/invito/${inv.id}`;
+      if (token && u.email) {
+        const { subject, html } = buildInviteEmail(a3, { inviter, invitee: u, note, link: answer, func, area, kpis, today });
         try {
           await graph(token, 'POST', '/me/sendMail', { body: { message: { subject, body: { contentType: 'HTML', content: html }, toRecipients: [{ emailAddress: { address: u.email, name: u.name } }] }, saveToSentItems: true } });
           sent = true; emailed++;
         } catch (err) { console.warn(`[invito A3 ${id}] → ${u.email}: email non inviata (${err.message})`); }
       }
-      await db.query('INSERT INTO hk_invites (hk_project_id, user_id, invited_by, note, emailed) VALUES ($1, $2, $3, $4, $5)', [id, u.id, req.user.id, note, sent]);
+      if (sent) await db.query('UPDATE hk_invites SET emailed = true WHERE id = $1', [inv.id]);
+      await notifier?.notify({ userIds: [u.id], actorId: req.user.id, kind: 'strategy',
+        body: `ti chiede di partecipare all'A3 «${a3.name}»: accetti?`, link: `/strategy/invito/${inv.id}` }).catch(() => {});
     }
-    await notifier?.notify({ userIds: people.map(u => u.id).filter(x => x !== req.user.id), actorId: req.user.id, kind: 'strategy',
-      body: `ti ha invitato nell'A3 «${a3.name}»`, link: `/strategy/a3/${id}` }).catch(() => {});
-    res.json({ invited: people.length, emailed, project_id: projectId });
+    res.json({ invited: asked.length, already: people.length - asked.length, emailed, project_id: projectId });
   });
   app.get('/api/strategy/projects/:id/invites', async (req, res) => {
     const id = v.int(req.params.id, 'A3', { min: 1 });
     const { rows } = await db.query(
-      `SELECT i.id, i.user_id, u.name, i.invited_by, b.name AS invited_by_name, i.note, i.emailed, i.created_at
+      `SELECT i.id, i.user_id, u.name, i.invited_by, b.name AS invited_by_name, i.note, i.emailed, i.created_at, i.status, i.reply, i.answered_at
          FROM hk_invites i JOIN users u ON u.id = i.user_id LEFT JOIN users b ON b.id = i.invited_by
         WHERE i.hk_project_id = $1 ORDER BY i.created_at DESC LIMIT 50`, [id]);
+    res.json(rows);
+  });
+
+  // la richiesta di partecipare: la persona invitata la apre dalla email o dalla notifica e risponde
+  async function getInvite(req, inviteId) {
+    const { rows: [i] } = await db.query(
+      `SELECT i.*, u.name AS user_name, b.name AS invited_by_name FROM hk_invites i JOIN users u ON u.id = i.user_id
+         LEFT JOIN users b ON b.id = i.invited_by WHERE i.id = $1`, [inviteId]);
+    if (!i) throw new HttpError(404, 'Invito non trovato');
+    if (i.user_id !== req.user.id && i.invited_by !== req.user.id && !admin(req)) throw new HttpError(404, 'Invito non trovato');
+    return i;
+  }
+  app.get('/api/strategy/invites/:id', async (req, res) => {
+    const i = await getInvite(req, v.int(req.params.id, 'invito', { min: 1 }));
+    const { a3, area, func, kpis } = await inviteContext(i.hk_project_id, req.user.id);
+    res.json({ invite: { id: i.id, status: i.status, note: i.note, reply: i.reply, created_at: i.created_at, answered_at: i.answered_at,
+      user_id: i.user_id, user_name: i.user_name, invited_by: i.invited_by, invited_by_name: i.invited_by_name, mine: i.user_id === req.user.id },
+    a3: { id: a3.id, year: a3.year, name: a3.name, owner: a3.owner, team: a3.team, background: a3.background, target_conditions: a3.target_conditions,
+      tasks: a3.tasks.map(t => ({ activity: t.activity, owner: t.owner, due_date: t.due_date, closed_date: t.closed_date, weight: t.weight })) },
+    area: area?.name || '', func: func ? { name: func.name, color: func.color } : null, kpis });
+  });
+  app.post('/api/strategy/invites/:id/answer', async (req, res) => {
+    const id = v.int(req.params.id, 'invito', { min: 1 });
+    const accept = req.body?.accept === true;
+    if (req.body?.accept !== true && req.body?.accept !== false) throw new HttpError(400, 'Rispondi sì o no');
+    const reply = v.text(req.body?.reply, 'risposta', { max: 1000 }) || '';
+    const out = await db.tx(async q => {
+      const { rows: [i] } = await q.query('SELECT * FROM hk_invites WHERE id = $1 FOR UPDATE', [id]);
+      if (!i || i.user_id !== req.user.id) throw new HttpError(404, 'Invito non trovato');
+      if (i.status !== 'pending') throw new HttpError(409, i.status === 'accepted' ? 'Hai già accettato' : 'Hai già risposto di no');
+      await q.query('UPDATE hk_invites SET status = $2, reply = $3, answered_at = now() WHERE id = $1', [id, accept ? 'accepted' : 'declined', reply]);
+      const { rows: [a] } = await q.query('SELECT id, name, project_id FROM hk_projects WHERE id = $1', [i.hk_project_id]);
+      if (accept && a.project_id) {
+        const { rows: [proj] } = await q.query('SELECT owner_id FROM projects WHERE id = $1', [a.project_id]);
+        if (proj && proj.owner_id !== req.user.id) {
+          await q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [a.project_id, req.user.id, i.invited_by]);
+        }
+      }
+      return { i, a };
+    });
+    if (out.i.invited_by) {
+      await notifier?.notify({ userIds: [out.i.invited_by], actorId: req.user.id, kind: 'strategy',
+        body: accept ? `ha accettato di partecipare all'A3 «${out.a.name}»${reply ? `: «${reply}»` : ''}` : `non parteciperà all'A3 «${out.a.name}»${reply ? `: «${reply}»` : ''}`,
+        link: `/strategy/a3/${out.a.id}` }).catch(() => {});
+    }
+    res.json({ status: accept ? 'accepted' : 'declined', a3_id: out.a.id });
+  });
+  // le mie richieste in attesa (per la pagina di benvenuto)
+  app.get('/api/strategy/invites', async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT i.id, i.created_at, a.name AS a3_name, b.name AS invited_by_name FROM hk_invites i JOIN hk_projects a ON a.id = i.hk_project_id
+         LEFT JOIN users b ON b.id = i.invited_by WHERE i.user_id = $1 AND i.status = 'pending' ORDER BY i.created_at DESC`, [req.user.id]);
     res.json(rows);
   });
 

@@ -30,3 +30,8 @@ CREATE UNIQUE INDEX hk_projects_project_year ON hk_projects(project_id, year) WH
 -- le contromisure dello stesso A3 nei due anni hanno lo stesso ticket
 DROP INDEX IF EXISTS hk_tasks_ticket;
 CREATE INDEX hk_tasks_ticket ON hk_tasks(ticket_id) WHERE ticket_id IS NOT NULL;
+
+-- l invito e una richiesta: la persona accetta (ed entra nel team) o rifiuta, con una risposta facoltativa
+ALTER TABLE hk_invites ADD COLUMN status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined'));
+ALTER TABLE hk_invites ADD COLUMN reply TEXT NOT NULL DEFAULT '';
+ALTER TABLE hk_invites ADD COLUMN answered_at TIMESTAMPTZ;
