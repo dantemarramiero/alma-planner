@@ -22,18 +22,26 @@ const itDate = iso => (iso ? new Date(iso).toLocaleDateString('it-IT') : '');
 const notAdmin = c => fill(c, head('Riservato'), h('div.card.empty', 'Questa pagina è riservata agli amministratori.'));
 
 // selettore della persona (amministratori: tutti; responsabili: chi riportano a loro)
+// scegliere di chi vedere la scheda: tutti per amministratori e HR, chi è sotto per i responsabili
 function personPicker(currentId, path) {
-  if (!store.me.is_admin) return null;
-  const sel = h('select.hk-in.pm-picker', { 'aria-label': 'Persona', on: { change: e => { location.hash = `${path}/${e.target.value}`; } } },
-    store.users.filter(u => u.active !== false).map(u => h('option', { value: u.id, selected: u.id === currentId }, u.name)));
-  return h('label.pm-pick', h('span', 'Scheda di'), sel);
+  const wrap = h('span');
+  const show = list => {
+    if (!list.length) return;
+    const me = list.some(u => u.id === store.me.id) ? [] : [{ id: store.me.id, name: `${store.me.name} (io)` }];
+    const sel = h('select.hk-in.pm-picker', { 'aria-label': 'Persona', on: { change: e => { location.hash = `${path}/${e.target.value}`; } } },
+      [...me, ...list].map(u => h('option', { value: u.id, selected: u.id === currentId }, u.name)));
+    fill(wrap, h('label.pm-pick', h('span', 'Scheda di'), sel));
+  };
+  if (store.me.is_admin) show(store.users.filter(u => u.active !== false));
+  else get('/api/pm/team', { quiet: true }).then(d => show(d?.people || [])).catch(() => {});
+  return wrap;
 }
 
 export async function performanceView(container, page, arg) {
   fill(container, loading());
   if (page === 'scheda') return schedaPage(container, Number(arg) || store.me.id);
   if (page === 'obiettivi') return obiettiviPage(container, Number(arg) || store.me.id);
-  if (page === 'team') return store.me.is_admin ? teamPage(container) : notAdmin(container);
+  if (page === 'team') return teamPage(container); // amministratori: tutti; responsabili: i loro collaboratori
   if (page === 'mansionario') return store.me.is_admin ? mansionarioPage(container, Number(arg) || null) : notAdmin(container);
 }
 
@@ -76,62 +84,142 @@ async function schedaPage(container, userId) {
         actions.length ? h('div.row.pm-actions', actions) : null));
   }
 
-  function proposeRole() {
-    const src = role.proposal || role;
-    const f = {
-      title: h('input.input', { value: src.title || '' }), area: h('input.input', { value: src.area || '' }), reports_to: h('input.input', { value: src.reports_to || '' }),
-      coordinates: h('input.input', { type: 'number', min: 0, value: src.coordinates || 0 }), interfaces: h('input.input', { value: (src.interfaces || []).join(', ') }),
-      description: h('textarea.input', { rows: 6 }, src.description || ''),
-      resp: [0, 1, 2, 3, 4].map(i => h('input.input', { value: (src.responsibilities || [])[i] || '', placeholder: `Responsabilità ${i + 1}` })),
-      hard: h('textarea.input', { rows: 4, placeholder: 'Una per riga' }, (src.hard_skills || []).join('\n')),
-    };
-    const field = (label, el) => h('label.field', h('span', label), el);
-    const m = modal({
-      title: 'Proponi modifiche al mio ruolo', wide: true,
-      body: h('div.pm-form',
-        h('p.muted', 'La proposta va all’amministratore, che la conferma o la modifica. Finché non è confermata, nella scheda resta la versione in vigore.'),
-        h('div.pm-grid2', field('Ruolo', f.title), field('Area', f.area), field('A chi rispondo', f.reports_to), field('Persone che coordino', f.coordinates)),
-        field('Con chi mi interfaccio (separati da virgola)', f.interfaces),
-        field('Io sono responsabile di…', f.description),
-        h('div.field', h('span', 'Le mie 5 responsabilità principali'), f.resp),
-        field('Hard skills del ruolo', f.hard)),
-      actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
-        h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-          await post(`/api/pm/roles/${role.id}/proposal`, {
-            title: f.title.value, area: f.area.value, reports_to: f.reports_to.value, coordinates: Number(f.coordinates.value || 0),
-            interfaces: f.interfaces.value.split(',').map(s => s.trim()).filter(Boolean), description: f.description.value,
-            responsibilities: f.resp.map(i => i.value.trim()).filter(Boolean), hard_skills: f.hard.value.split('\n').map(s => s.trim()).filter(Boolean),
-          });
-          m.close(); toast('Proposta inviata all’amministratore'); reload();
-        } } }, 'Invia la proposta')],
-    });
+  // ── modifiche della scheda: la persona le prepara (bozza su questo computer) e le invia al responsabile ──
+  const DRAFT_KEY = `alma.pmDraft.${userId}`;
+  let draft = {};
+  try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY)) || {}; } catch { draft = {}; }
+  const keepDraft = () => { try { if (Object.keys(draft).length) localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); else localStorage.removeItem(DRAFT_KEY); } catch { /* niente */ } };
+  const req = d.request;
+  const pending = req?.status === 'pending' ? req : null;
+  const canEdit = mine && role && !pending;
+  const pendingKey = c => (c.field === 'resp' ? `resp:${c.index}` : c.field);
+  const pendingSet = new Set((pending?.changes || []).map(pendingKey));
+  const cur = key => (key.startsWith('resp:') ? (role.responsibilities || [])[Number(key.slice(5))] || '' : role[key] ?? '');
+  const valOf = key => (key in draft ? draft[key] : cur(key));
+  const same = (a, b) => JSON.stringify(a ?? '') === JSON.stringify(b ?? '');
+  const setDraft = (key, val) => { if (same(val, cur(key))) delete draft[key]; else draft[key] = val; keepDraft(); render(); };
+  const editing = new Set();
+  // segno accanto a un valore: «da inviare» (bozza), «in approvazione» (inviata)
+  const mark = key => (key in draft ? h('span.pm-mark.draft', 'da inviare') : pendingSet.has(key) ? h('span.pm-mark.wait', 'in approvazione') : null);
+  const was = key => (key in draft && cur(key) ? h('span.pm-was-old', Array.isArray(cur(key)) ? cur(key).join(', ') : String(cur(key))) : null);
+  const editBtn = sec => (canEdit ? h('button.btn.btn-sm', { type: 'button', on: { click: () => { editing.has(sec) ? editing.delete(sec) : editing.add(sec); render(); } } }, icon('pencil', { size: 14 }), editing.has(sec) ? 'Fatto' : 'Modifica') : null);
+  const toApprover = d.profile?.manager_name ? `a ${d.profile.manager_name}` : 'all’amministratore';
+
+  async function send() {
+    const changes = Object.entries(draft).map(([key, after]) => (key.startsWith('resp:') ? { field: 'resp', index: Number(key.slice(5)), after } : { field: key, after }));
+    if (!await confirmDialog(`Inviare ${changes.length === 1 ? '1 modifica' : `${changes.length} modifiche`} ${toApprover} per l’approvazione? Finché non decide resta in vigore la versione di oggi.`, { ok: 'Invia' })) return;
+    await post('/api/pm/requests', { changes });
+    draft = {}; keepDraft(); toast('Inviate per l’approvazione'); reload();
   }
 
+  // il responsabile decide qui le modifiche della persona
+  function reviewBox() {
+    // sulla propria scheda decide solo un amministratore senza responsabile (altrimenti nessuno potrebbe)
+    if (!pending || !(rights.manager || rights.admin) || (mine && !(rights.admin && !d.profile?.manager_name))) return null;
+    const dec = pending.changes.map(() => ({ decision: null, reason: '' }));
+    const box = h('section.hk-card.pm-review');
+    const drawReview = () => {
+      const n = dec.filter(x => x.decision).length;
+      fill(box,
+        h('div.row.spread', h('div', h('h2.pm-h', 'Modifiche da approvare'), h('span.muted.small', `inviate il ${itDate(pending.created_at)}`)),
+          h('button.btn', { type: 'button', on: { click: () => { dec.forEach(x => { x.decision = 'ok'; }); drawReview(); } } }, 'Accetta tutto')),
+        pending.changes.map((c, i) => h('div.pm-change', { class: dec[i].decision || '' },
+          h('span.pm-lbl', c.label),
+          h('span.pm-before', Array.isArray(c.before) ? c.before.join(', ') || '—' : String(c.before ?? '') || '—'),
+          h('span.pm-after', Array.isArray(c.after) ? c.after.join(', ') : String(c.after)),
+          h('div.row', h('button.btn.btn-sm', { type: 'button', class: dec[i].decision === 'ok' ? 'pm-ok' : '', 'aria-pressed': String(dec[i].decision === 'ok'), on: { click: () => { dec[i].decision = 'ok'; drawReview(); } } }, 'Accetta'),
+            h('button.btn.btn-sm', { type: 'button', class: dec[i].decision === 'no' ? 'pm-no' : '', 'aria-pressed': String(dec[i].decision === 'no'), on: { click: () => { dec[i].decision = 'no'; drawReview(); } } }, 'Rifiuta'),
+            dec[i].decision === 'no' ? h('input.hk-in.pm-reason', { value: dec[i].reason, placeholder: 'Perché? (lo legge la persona)', on: { input: e => { dec[i].reason = e.target.value; } } }) : null))),
+        h('div.row.spread', h('span.muted.small', `${n} di ${dec.length} decise · le accettate entrano nel mansionario e valgono per chi ha lo stesso ruolo`),
+          h('button.btn.btn-primary', { type: 'button', disabled: n < dec.length, on: { click: async () => { await post(`/api/pm/requests/${pending.id}/decide`, { decisions: dec }); toast('Decisioni salvate'); reload(); } } }, 'Conferma le decisioni')));
+    };
+    drawReview();
+    return box;
+  }
+
+  // sulla propria scheda: le richieste dei collaboratori da approvare
+  const inbox = h('div');
+  if (mine) {
+    get('/api/pm/requests', { quiet: true }).then(list => {
+      if (!list?.length) return;
+      fill(inbox, h('section.hk-card.pm-inbox', h('h2.pm-h', 'Da approvare'),
+        list.map(r => h('a.pm-inbox-line', { href: `#/strategy/scheda/${r.user_id}` }, avatar(userById(r.user_id) || { name: r.name }, 28),
+          h('span', h('strong', r.name), h('small', `${r.changes.length === 1 ? '1 modifica' : `${r.changes.length} modifiche`} alla scheda · ${itDate(r.created_at)}`)), icon('chevron-left', { size: 16 })))));
+    }).catch(() => {});
+  }
+
+  const banner = () => {
+    const n = Object.keys(draft).length;
+    if (pending) return h('div.pm-banner.wait', h('span', h('b', mine ? `In attesa di ${pending.approver_name || 'un amministratore'}` : 'Modifiche in attesa di approvazione'), ` · inviate il ${itDate(pending.created_at)} · qui sotto resta la versione in vigore`),
+      mine ? h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/pm/requests/${pending.id}/withdraw`); reload(); } } }, 'Ritira la richiesta') : null);
+    if (n) return h('div.pm-banner.draft', h('span', h('b', n === 1 ? '1 modifica' : `${n} modifiche`), n === 1 ? ' non ancora inviata' : ' non ancora inviate'),
+      h('div.row', h('button.btn.btn-sm', { type: 'button', on: { click: () => { draft = {}; keepDraft(); render(); } } }, 'Annulla le modifiche'),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: send } }, `Invia ${toApprover} per l’approvazione`)));
+    if (req?.status === 'decided' && mine) {
+      const ok = req.changes.filter(c => c.decision === 'ok').length, no = req.changes.filter(c => c.decision === 'no');
+      return h('div.pm-banner.done', h('span', h('b', `Decise da ${req.decided_by_name || 'il responsabile'}`), ` il ${itDate(req.decided_at)}: ${ok} ${ok === 1 ? 'accettata' : 'accettate'}, ${no.length} ${no.length === 1 ? 'rifiutata' : 'rifiutate'}`,
+        no.filter(c => c.reason).map(c => h('span.pm-why', ` · ${c.label}: «${c.reason}»`))));
+    }
+    return null;
+  };
+
   const tabs = h('div.row.pm-subnav', h('a.hk-chip.on', { href: `#/strategy/scheda/${userId}` }, 'Ruolo e valutazione'), h('a.hk-chip', { href: `#/strategy/obiettivi/${userId}` }, 'Obiettivi'));
+  const page = h('div');
   fill(container,
     head(mine ? 'La mia scheda' : `Scheda di ${user.name}`, h('div.row', h('span.hk-saved#hk-saved'), personPicker(userId, '#/strategy/scheda'),
       h('span.hk-status', { class: rv[1] }, rv[0]))),
-    tabs,
-    h('section.hk-card.pm-hero',
-      avatar(userById(user.id) || user, 56),
-      h('div.pm-who', h('strong', user.name), h('span', [role?.title, role?.area].filter(Boolean).join(' · ') || 'Nessun ruolo assegnato')),
-      h('div.pm-facts',
-        h('div', h('span', 'A chi rispondo'), h('b', role?.reports_to || '—')),
-        h('div', h('span', 'Responsabile in Alma Planet'), h('b', d.profile?.manager_name || '—')),
-        h('div', h('span', 'Coordino persone'), h('b', role?.coordinates ? `Sì · ${role.coordinates}` : 'No')),
-        h('div', h('span', 'Ruolo nel mansionario'), h('b', { class: rst[1] }, role?.status === 'confirmed' && role.confirmed_at ? `Confermato il ${itDate(role.confirmed_at)}` : rst[0])))),
-    h('div.pm-cols',
-      h('div.pm-col',
-        role ? [
-          h('section.hk-card',
-            h('div.row.spread', h('h2.pm-h', 'Io sono responsabile di…'), mine ? h('button.btn', { type: 'button', on: { click: proposeRole } }, icon('pencil', { size: 16 }), 'Proponi modifiche al mio ruolo') : null),
-            role.status === 'review' ? h('p.pm-note', 'C’è una proposta in revisione: qui resta la versione in vigore finché l’amministratore non la conferma.') : null,
-            h('p.pm-desc', role.description || 'Ancora da scrivere.')),
-          h('section.hk-card', h('h2.pm-h', 'Le mie 5 responsabilità principali'),
-            (role.responsibilities || []).length ? role.responsibilities.map((r, i) => h('div.pm-resp', h('span.hk-num', String(i + 1)), h('span', r))) : h('p.muted', 'Ancora da definire.')),
-          h('section.hk-card', h('h2.pm-h', 'Con chi mi interfaccio'), h('div.pm-chips', (role.interfaces || []).map(x => h('span.pm-chip', x)))),
-        ] : h('section.hk-card', h('h2.pm-h', 'Nessun ruolo assegnato'), h('p.muted', 'L’amministratore assegna il ruolo dal mansionario o dalla dashboard del team.'))),
-      h('div.pm-col', skillsBox)));
+    tabs, inbox, page);
+  const reviewCard = reviewBox();
+
+  function render() {
+    const textIn = (key, { rows = 0, placeholder = '' } = {}) => (rows
+      ? h('textarea.hk-in.pm-edit', { rows, placeholder, on: { change: e => setDraft(key, e.target.value) } }, valOf(key))
+      : h('input.hk-in.pm-edit', { value: valOf(key), placeholder, on: { change: e => setDraft(key, key === 'coordinates' ? Number(e.target.value || 0) : e.target.value) } }));
+    const fact = (label, key, show) => h('div', h('span', label, ' ', mark(key)),
+      editing.has('who') ? textIn(key) : h('b', show(valOf(key))), editing.has('who') ? null : was(key));
+    fill(page,
+      banner(),
+      reviewCard,
+      h('section.hk-card.pm-hero',
+        avatar(userById(user.id) || user, 56),
+        h('div.pm-who', h('strong', user.name), h('span', [valOf('title'), valOf('area')].filter(Boolean).join(' · ') || 'Nessun ruolo assegnato')),
+        role ? h('div.pm-facts',
+          fact('Ruolo', 'title', v => v || '—'), fact('Area', 'area', v => v || '—'),
+          fact('A chi rispondo', 'reports_to', v => v || '—'), fact('Persone che coordino', 'coordinates', v => (v ? `Sì · ${v}` : 'No')),
+          h('div', h('span', 'Responsabile in Alma Planet'), h('b', d.profile?.manager_name || '—')),
+          h('div', h('span', 'Ruolo nel mansionario'), h('b', { class: rst[1] }, role.status === 'confirmed' && role.confirmed_at ? `Confermato il ${itDate(role.confirmed_at)}` : rst[0]))) : null,
+        role ? editBtn('who') : null),
+      h('div.pm-cols',
+        h('div.pm-col',
+          role ? [
+            h('section.hk-card',
+              h('div.row.spread', h('h2.pm-h', 'Io sono responsabile di… ', mark('description')), editBtn('desc')),
+              editing.has('desc') ? textIn('description', { rows: 7 }) : h('p.pm-desc', { class: 'description' in draft ? 'pm-changed' : '' }, valOf('description') || 'Ancora da scrivere.'),
+              editing.has('desc') ? null : was('description')),
+            h('section.hk-card',
+              h('div.row.spread', h('h2.pm-h', 'Le mie 5 responsabilità principali'), editBtn('resp')),
+              [0, 1, 2, 3, 4].map(i => {
+                const key = `resp:${i}`, val = valOf(key);
+                if (!editing.has('resp') && !val && !(key in draft)) return null;
+                return h('div.pm-resp', { class: key in draft ? 'pm-changed' : pendingSet.has(key) ? 'pm-waiting' : '' }, h('span.hk-num', String(i + 1)),
+                  editing.has('resp') ? textIn(key, { placeholder: `Responsabilità ${i + 1}` }) : h('span.pm-resp-t', h('span', val), was(key)), mark(key));
+              })),
+            h('section.hk-card',
+              h('div.row.spread', h('h2.pm-h', 'Con chi mi interfaccio ', mark('interfaces')), editBtn('int')),
+              editing.has('int')
+                ? h('input.hk-in.pm-edit', { value: (valOf('interfaces') || []).join(', '), placeholder: 'Separati da virgola', on: { change: e => setDraft('interfaces', e.target.value.split(',').map(x => x.trim()).filter(Boolean)) } })
+                : h('div.pm-chips', (valOf('interfaces') || []).map(x => h('span.pm-chip', x)))),
+            h('section.hk-card',
+              h('div.row.spread', h('h2.pm-h', 'Hard skills del ruolo ', mark('hard_skills')), editBtn('hard')),
+              editing.has('hard')
+                ? h('textarea.hk-in.pm-edit', { rows: 5, placeholder: 'Una per riga', on: { change: e => setDraft('hard_skills', e.target.value.split('\n').map(x => x.trim()).filter(Boolean)) } }, (valOf('hard_skills') || []).join('\n'))
+                : h('div.pm-chips', (valOf('hard_skills') || []).map(x => h('span.pm-chip', x))),
+              h('span.muted.small', 'I voti delle hard skills sono nel riquadro a destra.')),
+            canEdit ? h('p.muted.small', `Ogni riquadro ha «Modifica». Quello che cambi resta segnato «da inviare» finché non lo invii ${toApprover}.`) : null,
+          ] : h('section.hk-card', h('h2.pm-h', 'Nessun ruolo assegnato'), h('p.muted', 'L’amministratore assegna il ruolo dalla dashboard del team o dal mansionario.'))),
+        h('div.pm-col', skillsBox)));
+  }
+  render();
   drawSkills();
 }
 
@@ -221,18 +309,35 @@ async function obiettiviPage(container, userId) {
   draw();
 }
 
-// ═══ Dashboard team ════════════════════════════════════════════════════════════════════════════
+// ═══ Obiettivi di team con revisione trimestrale ═══════════════════════════════════════════════════
+// Amministratori: tutte le persone; responsabili: i loro collaboratori. Ogni trimestre il responsabile rivede con la
+// persona i suoi obiettivi (valore del trimestre, raggiungimento, commento, azioni) e chiude la revisione.
+const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
+const DEADLINES = ['15/04', '15/07', '15/10', '15/01'];
+const qColor = v => (v === null || v === undefined ? 'muted' : v >= 90 ? 'ok' : v >= 70 ? 'warn' : 'ko');
 async function teamPage(container) {
-  const [d, hk] = await Promise.all([get('/api/pm/admin/team'), get('/api/strategy?year=2026').catch(() => null)]);
-  let team = null;
-  const people = d.people.map(p => {
-    const score = weighted(p.objectives, hk);
-    const soft = d.soft_skills.map(s => p.manager_scores?.[s]).filter(Boolean);
-    return { ...p, score, softAvg: soft.length ? (soft.reduce((a, b) => a + b, 0) / soft.length).toFixed(1).replace('.', ',') : '—', nObj: p.objectives.length, nOk: p.objectives.filter(o => (achOf(o, hk) ?? -1) >= 100).length };
-  });
-  const col = v => (v === null ? 'muted' : v >= 80 ? 'ok' : v >= 70 ? 'warn' : 'ko');
+  const [d, hk] = await Promise.all([get('/api/pm/team'), get('/api/strategy?year=2026').catch(() => null)]);
+  const today = hk?.today || new Date().toISOString().slice(0, 10);
+  const curQ = Number(today.slice(0, 4)) === d.year ? Math.floor((Number(today.slice(5, 7)) - 1) / 3) : 3;
+  let q = curQ, sel = d.people[0]?.id || null, team = null;
+  const reload = () => teamPage(container);
+  // raggiungimento di una persona in un trimestre: dalla revisione (chiusa o in bozza) o, nel trimestre in corso, dal valore di oggi
+  const reviewOf = (p, i) => p.quarters.find(x => x.quarter === i + 1);
+  function scoreOf(p, i) {
+    const rv = reviewOf(p, i);
+    if (rv && Object.keys(rv.values || {}).length) {
+      let w = 0, s = 0;
+      for (const o of p.objectives) { const a = rv.values[o.id]?.achievement; if (a === null || a === undefined) continue; w += o.weight; s += o.weight * Math.min(100, a); }
+      return { v: w ? Math.round(s / w) : null, closed: rv.status === 'closed' };
+    }
+    if (i === curQ) return { v: weighted(p.objectives, hk), closed: false, live: true };
+    return { v: null, closed: rv?.status === 'closed' };
+  }
   const body = h('div');
-  fill(container, head('Obiettivi per team', h('div.row', h('button.btn', { type: 'button', on: { click: () => assign(null) } }, icon('plus', { size: 16 }), 'Aggiungi persona'), h('a.btn', { href: '#/strategy/mansionario' }, 'Mansionario'))), body);
+  fill(container, head('Obiettivi di team', h('div.row',
+    h('div.pm-quarters', QUARTERS.map((l, i) => h('button', { type: 'button', class: q === i ? 'on' : '', disabled: i > curQ, 'aria-pressed': String(q === i), on: { click: () => { q = i; draw(); } } }, l, i === curQ ? ' · in corso' : ''))),
+    d.admin ? h('button.btn', { type: 'button', on: { click: () => assign(null) } }, icon('plus', { size: 16 }), 'Aggiungi persona') : null)), body);
+  if (!d.people.length) return fill(body, h('div.card.empty', d.admin ? 'Nessuna persona con un profilo: aggiungila con «Aggiungi persona».' : 'Qui compaiono le persone sotto di te. Al momento non ce ne sono.'));
 
   function assign(person) {
     const users = store.users.filter(u => u.active !== false);
@@ -243,40 +348,83 @@ async function teamPage(container) {
     get('/api/pm/admin/roles').then(roles => fill(roleSel, h('option', { value: '' }, '—'), roles.map(r => h('option', { value: r.id, selected: r.title === person?.role }, r.title))));
     const m = modal({
       title: person ? `Ruolo di ${person.name}` : 'Aggiungi una persona',
-      body: h('div.pm-form', h('label.field', h('span', 'Persona'), who), h('label.field', h('span', 'Ruolo nel mansionario'), roleSel), h('label.field', h('span', 'Responsabile (fa la valutazione)'), mgr), h('label.field', h('span', 'Team'), teamIn)),
+      body: h('div.pm-form', h('label.field', h('span', 'Persona'), who), h('label.field', h('span', 'Ruolo nel mansionario'), roleSel), h('label.field', h('span', 'Responsabile (approva la scheda, fa le revisioni)'), mgr), h('label.field', h('span', 'Team'), teamIn)),
       actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
         await put(`/api/pm/admin/profiles/${person?.id || who.value}`, { role_id: roleSel.value || null, manager_id: mgr.value || null, team: teamIn.value });
-        m.close(); teamPage(container);
+        m.close(); reload();
       } } }, 'Salva')],
     });
   }
 
+  function reviewPanel(p) {
+    const rv = reviewOf(p, q);
+    const closed = rv?.status === 'closed';
+    const lock = closed || !p.can_review; // HR e i responsabili più in alto la vedono soltanto
+    const vals = {};
+    for (const o of p.objectives) {
+      const saved = rv?.values?.[o.id];
+      vals[o.id] = { value: saved?.value ?? (q === curQ ? o.last_value || '' : ''), achievement: saved?.achievement ?? (q === curQ ? achOf(o, hk) ?? null : null) };
+    }
+    const note = h('textarea.hk-in.pm-note-in', { rows: 3, disabled: lock, placeholder: 'Com’è andato il trimestre' }, rv?.note || '');
+    const actions = h('textarea.hk-in.pm-note-in', { rows: 2, disabled: lock, placeholder: 'Cosa cambia nel trimestre dopo, chi fa cosa' }, rv?.actions || '');
+    const payload = () => ({ values: vals, note: note.value, actions: actions.value });
+    const sc = scoreOf(p, q);
+    return h('section.hk-card.pm-qreview',
+      h('div.row.spread', h('div', h('span.pm-lbl', `Revisione ${QUARTERS[q]} · ${p.team || 'senza team'}`), h('h2', { style: { margin: '2px 0' } }, p.name),
+        h('span.muted.small', closed ? `chiusa il ${itDate(rv.closed_at)}` : `da chiudere entro il ${DEADLINES[q]}`, p.can_review ? '' : ' · la fa il responsabile diretto')),
+        h('span.pm-qbig', { class: qColor(sc.v) }, sc.v === null ? '—' : `${sc.v}%`)),
+      p.objectives.length ? h('div.pm-qobjs',
+        h('div.pm-qrow.head', h('span', 'Obiettivo'), h('span', 'Target'), h('span', `Valore ${QUARTERS[q]}`), h('span', '%')),
+        p.objectives.map(o => h('div.pm-qrow',
+          h('span', o.objective, h('small', ` · peso ${o.weight}%`)), h('span.muted', o.target || '—'),
+          h('input.hk-in', { value: vals[o.id].value, disabled: lock, 'aria-label': `Valore del trimestre: ${o.objective}`, on: { change: e => { vals[o.id].value = e.target.value; } } }),
+          h('input.hk-in.center', { type: 'number', min: 0, max: 200, value: vals[o.id].achievement ?? '', disabled: lock, 'aria-label': `Raggiungimento: ${o.objective}`, on: { change: e => { vals[o.id].achievement = e.target.value === '' ? null : Number(e.target.value); } } })))) : h('p.muted', 'Nessun obiettivo per il 2026.'),
+      h('label.pm-lbl2', 'Commento del responsabile', note),
+      h('label.pm-lbl2', 'Azioni per il trimestre dopo', actions),
+      h('div.row.pm-qactions',
+        !p.can_review ? null : closed ? (d.admin ? h('button.btn', { type: 'button', on: { click: async () => { await post(`/api/pm/quarters/${p.id}/${q + 1}/reopen`); reload(); } } }, 'Riapri') : null) : [
+          h('button.btn', { type: 'button', on: { click: async () => { await put(`/api/pm/quarters/${p.id}/${q + 1}`, payload()); toast('Bozza salvata'); reload(); } } }, 'Salva bozza'),
+          h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+            if (!await confirmDialog(`Chiudere la revisione ${QUARTERS[q]} di ${p.name}? Dopo la può riaprire solo un amministratore.`, { ok: 'Chiudi la revisione' })) return;
+            await put(`/api/pm/quarters/${p.id}/${q + 1}`, payload()); await post(`/api/pm/quarters/${p.id}/${q + 1}/close`); toast('Revisione chiusa'); reload();
+          } } }, `Chiudi la revisione ${QUARTERS[q]}`)]));
+  }
+
   function draw() {
+    const people = d.people.filter(p => !team || (p.team || 'Senza team') === team);
+    const scores = d.people.map(p => scoreOf(p, q).v).filter(x => x !== null);
+    const closedN = d.people.filter(p => reviewOf(p, q)?.status === 'closed').length;
+    const down = q ? d.people.filter(p => { const a = scoreOf(p, q).v, b = scoreOf(p, q - 1).v; return a !== null && b !== null && a < b; }).length : 0;
     const byTeam = {};
-    for (const p of people) (byTeam[p.team || 'Senza team'] ||= []).push(p);
-    const teams = Object.entries(byTeam).map(([n, list]) => { const sc = list.map(p => p.score).filter(x => x !== null); return { n, v: sc.length ? Math.round(sc.reduce((a, b) => a + b, 0) / sc.length) : null, k: list.length }; }).sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
-    const list = people.filter(p => !team || (p.team || 'Senza team') === team);
-    const scored = people.map(p => p.score).filter(x => x !== null);
+    for (const p of d.people) (byTeam[p.team || 'Senza team'] ||= []).push(p);
     const stat = (label, value, cls) => h('div.hk-stat', h('span', label), h('strong', { class: cls || '' }, value));
+    const cell = (p, i) => {
+      if (i > curQ) return h('span.pm-qcell.future', '—');
+      const s = scoreOf(p, i);
+      return h('span.pm-qcell', { class: `${qColor(s.v)} ${s.closed ? '' : 'open'}`, title: s.closed ? 'revisione chiusa' : s.live ? 'in corso, dai valori di oggi' : 'revisione non chiusa' }, s.v === null ? '—' : `${s.v}%`);
+    };
+    const selP = d.people.find(p => p.id === sel) || d.people[0];
     fill(body,
-      h('div.hk-stats.pm-tiles', stat('Raggiungimento medio', scored.length ? `${Math.round(scored.reduce((a, b) => a + b, 0) / scored.length)}%` : '—'),
-        stat('Persone con obiettivi', `${people.filter(p => p.nObj).length} su ${people.length}`), stat('Valutazioni chiuse', `${people.filter(p => p.review_status === 'closed').length} su ${people.length}`),
-        stat('Sotto il 70%', String(people.filter(p => p.score !== null && p.score < 70).length), 'ko')),
-      h('div.pm-team',
-        h('section.hk-card', h('h2.pm-h', 'Raggiungimento per team'),
-          teams.map(t => h('button.pm-teambar', { type: 'button', class: team === t.n ? 'on' : '', on: { click: () => { team = team === t.n ? null : t.n; draw(); } } },
-            h('span.n', t.n, h('small', ` · ${t.k}`)), h('span.pm-bar', h('i', { class: col(t.v), style: { width: `${t.v ?? 0}%` } })), h('b', t.v === null ? '—' : `${t.v}%`))),
-          h('p.muted.small', 'Media pesata degli obiettivi delle persone del team. Clicca un team per filtrare.')),
-        h('section.hk-card', h('h2.pm-h', team ? `Persone · ${team}` : 'Tutte le persone'),
-          h('table.hk-grid', h('thead', h('tr', ['Persona', 'Team', 'Obiettivi', 'Raggiungimento', 'Valutazione', 'Soft skills', ''].map(t => h('th', t)))),
-            h('tbody', list.map(p => h('tr',
-              h('td', h('a.pm-person', { href: `#/strategy/scheda/${p.id}` }, avatar(userById(p.id) || p, 30), h('span', h('strong', p.name), h('small', p.role || 'senza ruolo')))),
-              h('td', p.team || '—'),
-              h('td', h('a', { href: `#/strategy/obiettivi/${p.id}` }, `${p.nOk} / ${p.nObj}`)),
-              h('td', h('div.pm-achin', h('span.pm-bar', h('i', { class: col(p.score), style: { width: `${p.score ?? 0}%` } })), h('b', { class: col(p.score) }, p.score === null ? '—' : `${p.score}%`))),
-              h('td', h('span.hk-status', { class: REVIEW[p.review_status || 'self'][1] }, REVIEW[p.review_status || 'self'][0])),
-              h('td.center', p.softAvg),
-              h('td.hk-actions', h('button.hk-icon', { type: 'button', title: 'Ruolo, responsabile e team', 'aria-label': 'Modifica ruolo e responsabile', on: { click: () => assign(p) } }, icon('pencil', { size: 16 }))))))))));
+      h('div.hk-stats.pm-tiles', stat(`Raggiungimento medio · ${QUARTERS[q]}`, scores.length ? `${Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)}%` : '—'),
+        stat(`Revisioni chiuse · ${QUARTERS[q]}`, `${closedN} su ${d.people.length}`), stat('Scadenza della revisione', DEADLINES[q]),
+        stat('In calo rispetto al trimestre prima', String(down), down ? 'ko' : '')),
+      h('div.pm-qgrid',
+        h('section.hk-card',
+          h('div.pm-qhead', h('span', 'Team e persone'), QUARTERS.map(l => h('span.c', l)), h('span', `Revisione ${QUARTERS[q]}`), d.admin ? h('span') : null),
+          Object.entries(byTeam).map(([t, list]) => [
+            h('button.pm-qteam', { type: 'button', class: team === t ? 'on' : '', on: { click: () => { team = team === t ? null : t; draw(); } } }, h('span', t),
+              QUARTERS.map((_, i) => { if (i > curQ) return h('span.c.muted', '—'); const vs = list.map(p => scoreOf(p, i).v).filter(x => x !== null); const v = vs.length ? Math.round(vs.reduce((a, b) => a + b, 0) / vs.length) : null; return h('span.c', { class: qColor(v) }, v === null ? '—' : `${v}%`); }),
+              h('span'), d.admin ? h('span') : null),
+            (team && team !== t ? [] : list).map(p => {
+              const rv = reviewOf(p, q), st = rv?.status === 'closed' ? ['Chiusa', 'ok'] : rv ? ['In bozza', 'warn'] : ['Da fare', 'muted'];
+              return h('div.pm-qperson', { class: sel === p.id ? 'on' : '' },
+                h('button.pm-qname', { type: 'button', on: { click: () => { sel = p.id; draw(); } } }, avatar(userById(p.id) || p, 26), h('span', h('strong', p.name), h('small', p.role || 'senza ruolo'))),
+                QUARTERS.map((_, i) => h('span.c', cell(p, i))),
+                h('span', h('span.hk-status', { class: st[1] }, st[0])),
+                d.admin ? h('button.hk-icon', { type: 'button', title: 'Ruolo, responsabile e team', 'aria-label': 'Modifica ruolo e responsabile', on: { click: () => assign(p) } }, icon('pencil', { size: 14 })) : null);
+            })]),
+          h('p.muted.small', { style: { marginTop: '10px' } }, 'Verde ≥ 90%, giallo 70–89%, rosso sotto il 70%. Tratteggiato = revisione non ancora chiusa (nel trimestre in corso i valori sono quelli di oggi).')),
+        selP ? reviewPanel(selP) : null));
   }
   draw();
 }

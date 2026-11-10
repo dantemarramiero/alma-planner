@@ -299,7 +299,10 @@ async function start() {
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.software;
   // Alma Strategy: dashboard dei team e mansionario solo agli amministratori (il server lo rifiuta comunque agli altri)
-  for (const id of ['nav-pm-team', 'nav-pm-mans']) document.getElementById(id).hidden = !store.me.is_admin;
+  document.getElementById('nav-pm-mans').hidden = !store.me.is_admin;
+  // la dashboard dei team la vedono gli amministratori, il team HR e chi è responsabile di qualcuno
+  document.getElementById('nav-pm-team').hidden = !store.me.is_admin;
+  if (!store.me.is_admin) get('/api/pm/flags', { quiet: true }).then(f => { document.getElementById('nav-pm-team').hidden = !(f?.manager || f?.hr); }).catch(() => {});
   refreshBadges();
 
   document.getElementById('back').addEventListener('click', goBack);
