@@ -4,6 +4,8 @@
 const { HttpError, v } = require('../lib/http');
 const { seedStrategy } = require('../lib/strategy-seed');
 const { ensureProject, ticketForNewTask, taskToTicket, matchUser } = require('../lib/strategy-sync');
+const { graph } = require('../lib/graph');
+const { buildInviteEmail } = require('../lib/a3-mail');
 
 const MAX_TEXT = 4000;
 const text = max => (val, field) => v.text(val ?? '', field, { max }) ?? '';
@@ -31,7 +33,7 @@ const ENTITIES = {
     },
     defaults: { name: 'Nuovo progetto' },
   },
-  tasks: { table: 'hk_tasks', fields: { area: text(200), activity: text(1000), weight: int({ min: 0, max: 100 }), owner: text(120), due_date: date, closed_date: date, position: int({ min: 0 }) }, defaults: { activity: 'Nuova contromisura' }, needs: ['project_id'], noYear: true },
+  tasks: { table: 'hk_tasks', fields: { area: text(200), activity: text(1000), weight: int({ min: 0, max: 100 }), owner: text(120), start_date: date, due_date: date, closed_date: date, position: int({ min: 0 }) }, defaults: { activity: 'Nuova contromisura' }, needs: ['project_id'], noYear: true },
 };
 
 function entity(name) {
@@ -45,7 +47,7 @@ function clean(e, body) {
   return out;
 }
 
-function registerStrategy(app, { db, isAdmin }) {
+function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
   // Permessi (ALM2-37): gli amministratori modificano tutto; un A3 lo modifica chi è nel suo progetto di Alma Planner
   // (responsabile o membro) o, se non è ancora collegato, il suo proprietario; tutti gli altri vedono in sola lettura.
   const admin = req => Boolean(isAdmin?.(req));
@@ -79,9 +81,112 @@ function registerStrategy(app, { db, isAdmin }) {
 
   const yearOf = req => v.int(req.query.year ?? req.body?.year ?? 2026, 'anno', { min: 2000, max: 2100 });
 
+  const FIRST_YEAR = 2026; // l'anno caricato dal file Excel; gli altri si creano partendo dall'anno prima
+
+  // gli anni dell'Hoshin Kanri, per scorrerli
+  app.get('/api/strategy/years', async (req, res) => {
+    await seedStrategy(db, FIRST_YEAR);
+    const { rows } = await db.query(
+      `SELECT y.year, (SELECT COUNT(*)::int FROM hk_projects p WHERE p.year = y.year) AS projects,
+              (SELECT COUNT(*)::int FROM hk_projects p WHERE p.year = y.year AND p.carry IS NULL AND p.status <> 'concluso') AS undecided
+         FROM hk_years y ORDER BY y.year`);
+    res.json({ years: rows, can_admin: admin(req) });
+  });
+
+  // nuovo anno: True North, pillar, BU e funzioni con le aree, KPI (senza i valori mensili) copiati dall'anno prima.
+  // Gli A3 non si copiano: ognuno, a fine anno, decide se chiudersi, proseguire fuori o entrare nel nuovo anno.
+  app.post('/api/strategy/years', async (req, res) => {
+    mustAdmin(req);
+    const year = v.int(req.body?.year, 'anno', { min: 2000, max: 2100 });
+    const from = v.int(req.body?.from ?? year - 1, 'anno di partenza', { min: 2000, max: 2100 });
+    await db.tx(async q => {
+      const { rows: [exists] } = await q.query('SELECT 1 FROM hk_years WHERE year = $1', [year]);
+      if (exists) throw new HttpError(409, `L'Hoshin Kanri ${year} c'è già`);
+      const { rows: [src] } = await q.query('SELECT * FROM hk_years WHERE year = $1', [from]);
+      if (!src) throw new HttpError(404, `Non c'è l'Hoshin Kanri ${from} da cui partire`);
+      await q.query('INSERT INTO hk_years (year, true_north) VALUES ($1, $2)', [year, src.true_north]);
+      const pmap = {}, fmap = {};
+      for (const r of (await q.query('SELECT * FROM hk_pillars WHERE year = $1 ORDER BY position, id', [from])).rows) {
+        pmap[r.id] = (await q.query('INSERT INTO hk_pillars (year, position, name, description, color) VALUES ($1,$2,$3,$4,$5) RETURNING id', [year, r.position, r.name, r.description, r.color])).rows[0].id;
+      }
+      for (const r of (await q.query('SELECT * FROM hk_functions WHERE year = $1 ORDER BY position, id', [from])).rows) {
+        fmap[r.id] = (await q.query('INSERT INTO hk_functions (year, position, name, sponsor, color, kind) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', [year, r.position, r.name, r.sponsor, r.color, r.kind])).rows[0].id;
+      }
+      for (const r of (await q.query('SELECT * FROM hk_areas WHERE year = $1 ORDER BY position, id', [from])).rows) {
+        await q.query('INSERT INTO hk_areas (year, position, name, sponsor, function_id) VALUES ($1,$2,$3,$4,$5)', [year, r.position, r.name, r.sponsor, fmap[r.function_id] || null]);
+      }
+      const { rows: kcols } = await q.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'hk_kpis'");
+      const skip = new Set(['id', 'year', 'pillar_id', 'monthly']);
+      const cols = kcols.map(c => c.column_name).filter(c => !skip.has(c));
+      for (const r of (await q.query('SELECT * FROM hk_kpis WHERE year = $1 ORDER BY position, id', [from])).rows) {
+        const names = ['year', 'pillar_id', ...cols];
+        const vals = [year, pmap[r.pillar_id] || null, ...cols.map(c => (r[c] !== null && typeof r[c] === 'object' ? JSON.stringify(r[c]) : r[c]))];
+        await q.query(`INSERT INTO hk_kpis (${names.join(', ')}) VALUES (${names.map((_, i) => `$${i + 1}`).join(', ')})`, vals);
+      }
+    });
+    res.status(201).json({ year });
+  });
+
+  // fine anno: l'A3 si chiude, prosegue fuori dall'Hoshin Kanri dell'anno dopo, oppure entra nell'anno dopo
+  // (copia collegata: stesso progetto, contromisure con gli stessi ticket, quindi tutto resta allineato)
+  app.post('/api/strategy/projects/:id/carry', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    await mustEditA3(req, id);
+    const decision = req.body?.decision;
+    if (!['chiuso', 'fuori', 'inserito', 'annulla'].includes(decision)) throw new HttpError(400, 'Scegli: chiudere, proseguire fuori o inserire nell’anno dopo');
+    const out = await db.tx(async q => {
+      const { rows: [a] } = await q.query('SELECT * FROM hk_projects WHERE id = $1 FOR UPDATE', [id]);
+      if (!a) throw new HttpError(404, 'A3 non trovato');
+      if (a.carry === 'inserito' && decision !== 'inserito') throw new HttpError(409, 'Questo A3 è già nell’Hoshin Kanri dell’anno dopo: lo si gestisce da lì');
+      if (decision === 'annulla') {
+        await q.query('UPDATE hk_projects SET carry = NULL, carry_decided_by = NULL, carry_decided_at = NULL, status = CASE WHEN carry = \'chiuso\' THEN \'attivo\' ELSE status END WHERE id = $1', [id]);
+        return { carry: null };
+      }
+      if (decision === 'chiuso') {
+        await q.query("UPDATE hk_projects SET carry = 'chiuso', status = 'concluso', carry_decided_by = $2, carry_decided_at = now() WHERE id = $1", [id, req.user.id]);
+        return { carry: 'chiuso' };
+      }
+      if (decision === 'fuori') {
+        await q.query("UPDATE hk_projects SET carry = 'fuori', carry_decided_by = $2, carry_decided_at = now() WHERE id = $1", [id, req.user.id]);
+        return { carry: 'fuori' };
+      }
+      if (a.carry === 'inserito') {
+        const { rows: [c] } = await q.query('SELECT id FROM hk_projects WHERE carried_from = $1', [id]);
+        return { carry: 'inserito', next_id: c?.id || null };
+      }
+      const next = a.year + 1;
+      const { rows: [ny] } = await q.query('SELECT 1 FROM hk_years WHERE year = $1', [next]);
+      if (!ny) throw new HttpError(409, `L'Hoshin Kanri ${next} non c'è ancora: lo crea un amministratore, poi lo inserisci`);
+      // stessa funzione e stessa area per nome; i KPI per lettera
+      const { rows: [old] } = await q.query('SELECT a.name AS area, f.name AS func FROM hk_areas a LEFT JOIN hk_functions f ON f.id = a.function_id WHERE a.id = $1', [a.area_id]);
+      const { rows: [area] } = await q.query(
+        `SELECT a.id FROM hk_areas a JOIN hk_functions f ON f.id = a.function_id WHERE a.year = $1 AND f.name = $2
+          ORDER BY (a.name = $3) DESC, a.position LIMIT 1`, [next, old?.func || '', old?.area || '']);
+      const oldKpis = Array.isArray(a.kpi_ids) && a.kpi_ids.length ? (await q.query('SELECT letter FROM hk_kpis WHERE id = ANY($1::int[])', [a.kpi_ids])).rows.map(r => r.letter) : [];
+      const kpiIds = oldKpis.length ? (await q.query('SELECT id FROM hk_kpis WHERE year = $1 AND letter = ANY($2::text[]) ORDER BY position', [next, oldKpis])).rows.map(r => r.id) : [];
+      const { rows: pcols } = await q.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'hk_projects'");
+      const skip = new Set(['id', 'year', 'area_id', 'kpi_ids', 'carry', 'carried_from', 'carry_decided_by', 'carry_decided_at', 'position']);
+      const cols = pcols.map(c => c.column_name).filter(c => !skip.has(c));
+      const names = ['year', 'area_id', 'kpi_ids', 'carried_from', 'position', ...cols];
+      const { rows: [pos] } = await q.query('SELECT COALESCE(MAX(position), -1) + 1 AS n FROM hk_projects WHERE year = $1', [next]);
+      const vals = [next, area?.id || null, JSON.stringify(kpiIds), id, pos.n, ...cols.map(c => (a[c] !== null && typeof a[c] === 'object' && !(a[c] instanceof Date) ? JSON.stringify(a[c]) : a[c]))];
+      const { rows: [copy] } = await q.query(`INSERT INTO hk_projects (${names.join(', ')}) VALUES (${names.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`, vals);
+      const { rows: tcols } = await q.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'hk_tasks'");
+      const tc = tcols.map(c => c.column_name).filter(c => c !== 'id' && c !== 'project_id');
+      for (const t of (await q.query('SELECT * FROM hk_tasks WHERE project_id = $1 ORDER BY position, id', [id])).rows) {
+        await q.query(`INSERT INTO hk_tasks (project_id, ${tc.join(', ')}) VALUES ($1, ${tc.map((_, i) => `$${i + 2}`).join(', ')})`, [copy.id, ...tc.map(c => t[c])]);
+      }
+      await q.query("UPDATE hk_projects SET carry = 'inserito', carry_decided_by = $2, carry_decided_at = now() WHERE id = $1", [id, req.user.id]);
+      return { carry: 'inserito', next_id: copy.id, area_found: Boolean(area) };
+    });
+    res.json(out);
+  });
+
   app.get('/api/strategy', async (req, res) => {
     const year = yearOf(req);
-    await seedStrategy(db, year);
+    if (year === FIRST_YEAR) await seedStrategy(db, FIRST_YEAR);
+    const { rows: [has] } = await db.query('SELECT 1 FROM hk_years WHERE year = $1', [year]);
+    if (!has) throw new HttpError(404, `L'Hoshin Kanri ${year} non c'è ancora`);
     const q = (sql, params = [year]) => db.query(sql, params).then(r => r.rows);
     const [[y], pillars, functions, areas, kpis, projects, tasks] = await Promise.all([
       q('SELECT year, true_north FROM hk_years WHERE year = $1'),
@@ -89,7 +194,7 @@ function registerStrategy(app, { db, isAdmin }) {
       q('SELECT * FROM hk_functions WHERE year = $1 ORDER BY position, id'),
       q('SELECT * FROM hk_areas WHERE year = $1 ORDER BY position, id'),
       q('SELECT * FROM hk_kpis WHERE year = $1 ORDER BY position, id'),
-      q('SELECT * FROM hk_projects WHERE year = $1 ORDER BY position, id'),
+      q('SELECT p.*, (SELECT c.id FROM hk_projects c WHERE c.carried_from = p.id LIMIT 1) AS next_id, (SELECT o.year FROM hk_projects o WHERE o.id = p.carried_from) AS from_year FROM hk_projects p WHERE p.year = $1 ORDER BY p.position, p.id'),
       q('SELECT t.* FROM hk_tasks t JOIN hk_projects p ON p.id = t.project_id WHERE p.year = $1 ORDER BY t.position, t.id'),
     ]);
     const isAdmin = admin(req);
@@ -100,7 +205,11 @@ function registerStrategy(app, { db, isAdmin }) {
       p.project_visible = Boolean(p.project_id); // ticket, Gantt e il resto li vedono tutti, in sola lettura se non ne fanno parte
       p.can_edit = isAdmin || (p.project_id ? mine.has(p.project_id) : matchUser(users, p.owner) === req.user.id);
     }
-    res.json({ year, true_north: y.true_north, pillars, functions, areas, kpis, projects, can_admin: isAdmin, today: new Date().toISOString().slice(0, 10) });
+    const { rows: outside } = await db.query(
+      "SELECT p.id, p.name, p.owner, p.year, p.project_id, p.status FROM hk_projects p WHERE p.year = $1 AND p.carry = 'fuori' ORDER BY p.position, p.id", [year - 1]);
+    const { rows: [nextYear] } = await db.query('SELECT 1 FROM hk_years WHERE year = $1', [year + 1]);
+    res.json({ year, true_north: y.true_north, pillars, functions, areas, kpis, projects, outside, next_year_exists: Boolean(nextYear),
+      can_admin: isAdmin, today: new Date().toISOString().slice(0, 10) });
   });
 
   // collega l'A3 al suo progetto di Alma Planner (lo crea la prima volta, con un ticket per contromisura)
@@ -112,10 +221,134 @@ function registerStrategy(app, { db, isAdmin }) {
     res.json({ project_id: projectId });
   });
 
+  // ── inviti all'A3 ──
+  // Chi lavora sull'A3 invita colleghi: entrano nel team del progetto e ricevono (dalla casella di chi invita) una email
+  // allegra con la «stampa» dell'A3 e la nota di chi invita. Senza Microsoft l'invito vale lo stesso, senza email.
+  // l'A3 com'è adesso, con funzione, area e KPI: serve alla email di invito
+  async function inviteContext(id, inviterId) {
+    const { rows: [a3] } = await db.query('SELECT * FROM hk_projects WHERE id = $1', [id]);
+    if (!a3) throw new HttpError(404, 'A3 non trovato');
+    a3.tasks = (await db.query('SELECT * FROM hk_tasks WHERE project_id = $1 ORDER BY position, id', [id])).rows;
+    const { rows: [area] } = await db.query('SELECT * FROM hk_areas WHERE id = $1', [a3.area_id]);
+    const func = area ? (await db.query('SELECT * FROM hk_functions WHERE id = $1', [area.function_id])).rows[0] : null;
+    const kpiIds = Array.isArray(a3.kpi_ids) ? a3.kpi_ids : [];
+    const kpis = kpiIds.length ? (await db.query('SELECT letter, name FROM hk_kpis WHERE id = ANY($1::int[]) ORDER BY position', [kpiIds])).rows : [];
+    const { rows: [inviter] } = await db.query('SELECT id, name, email FROM users WHERE id = $1', [inviterId]);
+    return { a3, area, func, kpis, inviter, link: `${baseUrl || ''}/app#/strategy/a3/${id}`, today: new Date().toISOString().slice(0, 10) };
+  }
+  // anteprima della email, per vederla prima di mandarla
+  app.post('/api/strategy/projects/:id/invite/preview', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    await mustEditA3(req, id);
+    const ctx = await inviteContext(id, req.user.id);
+    const uid = req.body?.user_id ? v.int(req.body.user_id, 'persona', { min: 1 }) : null; // anteprima anche senza aver scelto nessuno
+    const invitee = uid ? (await db.query('SELECT id, name FROM users WHERE id = $1', [uid])).rows[0] : null;
+    const { subject, html } = buildInviteEmail(ctx.a3, { ...ctx, invitee: invitee || { name: 'collega' }, note: v.text(req.body?.note, 'nota', { max: 2000 }) || '' });
+    res.json({ subject, html });
+  });
+  app.post('/api/strategy/projects/:id/invite', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    await mustEditA3(req, id);
+    const ids = [...new Set((Array.isArray(req.body?.user_ids) ? req.body.user_ids : []).map(x => v.int(x, 'persona', { min: 1 })))];
+    if (!ids.length || ids.length > 20) throw new HttpError(400, 'Scegli da 1 a 20 persone da invitare');
+    const note = v.text(req.body?.note, 'nota', { max: 2000 }) || '';
+    const projectId = await ensureProject(db, id, req.user.id);
+    if (!projectId) throw new HttpError(404, 'A3 non trovato');
+    const { rows: people } = await db.query('SELECT id, name, email FROM users WHERE id = ANY($1::int[])', [ids]);
+    if (people.length !== ids.length) throw new HttpError(400, 'Una delle persone non esiste');
+    // chi è già nel team, o ha già una richiesta in attesa, non riceve un'altra richiesta
+    const { rows: inside } = await db.query(
+      `SELECT u.id FROM users u WHERE u.id = ANY($1::int[]) AND (u.id = (SELECT owner_id FROM projects WHERE id = $2)
+          OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = $2 AND m.user_id = u.id)
+          OR EXISTS (SELECT 1 FROM hk_invites i WHERE i.hk_project_id = $3 AND i.user_id = u.id AND i.status = 'pending'))`, [ids, projectId, id]);
+    const skip = new Set(inside.map(r => r.id));
+    const asked = people.filter(u => !skip.has(u.id) && u.id !== req.user.id);
+    const { a3, area, func, kpis, inviter, today } = await inviteContext(id, req.user.id);
+    let token = null;
+    try { token = auth ? await auth.graphToken(req.user.id) : null; } catch { token = null; }
+    let emailed = 0;
+    for (const u of asked) {
+      let sent = false;
+      const { rows: [inv] } = await db.query('INSERT INTO hk_invites (hk_project_id, user_id, invited_by, note) VALUES ($1, $2, $3, $4) RETURNING id', [id, u.id, req.user.id, note]);
+      const answer = `${baseUrl || ''}/app#/strategy/invito/${inv.id}`;
+      if (token && u.email) {
+        const { subject, html } = buildInviteEmail(a3, { inviter, invitee: u, note, link: answer, func, area, kpis, today });
+        try {
+          await graph(token, 'POST', '/me/sendMail', { body: { message: { subject, body: { contentType: 'HTML', content: html }, toRecipients: [{ emailAddress: { address: u.email, name: u.name } }] }, saveToSentItems: true } });
+          sent = true; emailed++;
+        } catch (err) { console.warn(`[invito A3 ${id}] → ${u.email}: email non inviata (${err.message})`); }
+      }
+      if (sent) await db.query('UPDATE hk_invites SET emailed = true WHERE id = $1', [inv.id]);
+      await notifier?.notify({ userIds: [u.id], actorId: req.user.id, kind: 'strategy',
+        body: `ti chiede di partecipare all'A3 «${a3.name}»: accetti?`, link: `/strategy/invito/${inv.id}` }).catch(() => {});
+    }
+    res.json({ invited: asked.length, already: people.length - asked.length, emailed, project_id: projectId });
+  });
+  app.get('/api/strategy/projects/:id/invites', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    const { rows } = await db.query(
+      `SELECT i.id, i.user_id, u.name, i.invited_by, b.name AS invited_by_name, i.note, i.emailed, i.created_at, i.status, i.reply, i.answered_at
+         FROM hk_invites i JOIN users u ON u.id = i.user_id LEFT JOIN users b ON b.id = i.invited_by
+        WHERE i.hk_project_id = $1 ORDER BY i.created_at DESC LIMIT 50`, [id]);
+    res.json(rows);
+  });
+
+  // la richiesta di partecipare: la persona invitata la apre dalla email o dalla notifica e risponde
+  async function getInvite(req, inviteId) {
+    const { rows: [i] } = await db.query(
+      `SELECT i.*, u.name AS user_name, b.name AS invited_by_name FROM hk_invites i JOIN users u ON u.id = i.user_id
+         LEFT JOIN users b ON b.id = i.invited_by WHERE i.id = $1`, [inviteId]);
+    if (!i) throw new HttpError(404, 'Invito non trovato');
+    if (i.user_id !== req.user.id && i.invited_by !== req.user.id && !admin(req)) throw new HttpError(404, 'Invito non trovato');
+    return i;
+  }
+  app.get('/api/strategy/invites/:id', async (req, res) => {
+    const i = await getInvite(req, v.int(req.params.id, 'invito', { min: 1 }));
+    const { a3, area, func, kpis } = await inviteContext(i.hk_project_id, req.user.id);
+    res.json({ invite: { id: i.id, status: i.status, note: i.note, reply: i.reply, created_at: i.created_at, answered_at: i.answered_at,
+      user_id: i.user_id, user_name: i.user_name, invited_by: i.invited_by, invited_by_name: i.invited_by_name, mine: i.user_id === req.user.id },
+    a3: { id: a3.id, year: a3.year, name: a3.name, owner: a3.owner, team: a3.team, background: a3.background, target_conditions: a3.target_conditions,
+      tasks: a3.tasks.map(t => ({ activity: t.activity, owner: t.owner, due_date: t.due_date, closed_date: t.closed_date, weight: t.weight })) },
+    area: area?.name || '', func: func ? { name: func.name, color: func.color } : null, kpis });
+  });
+  app.post('/api/strategy/invites/:id/answer', async (req, res) => {
+    const id = v.int(req.params.id, 'invito', { min: 1 });
+    const accept = req.body?.accept === true;
+    if (req.body?.accept !== true && req.body?.accept !== false) throw new HttpError(400, 'Rispondi sì o no');
+    const reply = v.text(req.body?.reply, 'risposta', { max: 1000 }) || '';
+    const out = await db.tx(async q => {
+      const { rows: [i] } = await q.query('SELECT * FROM hk_invites WHERE id = $1 FOR UPDATE', [id]);
+      if (!i || i.user_id !== req.user.id) throw new HttpError(404, 'Invito non trovato');
+      if (i.status !== 'pending') throw new HttpError(409, i.status === 'accepted' ? 'Hai già accettato' : 'Hai già risposto di no');
+      await q.query('UPDATE hk_invites SET status = $2, reply = $3, answered_at = now() WHERE id = $1', [id, accept ? 'accepted' : 'declined', reply]);
+      const { rows: [a] } = await q.query('SELECT id, name, project_id FROM hk_projects WHERE id = $1', [i.hk_project_id]);
+      if (accept && a.project_id) {
+        const { rows: [proj] } = await q.query('SELECT owner_id FROM projects WHERE id = $1', [a.project_id]);
+        if (proj && proj.owner_id !== req.user.id) {
+          await q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [a.project_id, req.user.id, i.invited_by]);
+        }
+      }
+      return { i, a };
+    });
+    if (out.i.invited_by) {
+      await notifier?.notify({ userIds: [out.i.invited_by], actorId: req.user.id, kind: 'strategy',
+        body: accept ? `ha accettato di partecipare all'A3 «${out.a.name}»${reply ? `: «${reply}»` : ''}` : `non parteciperà all'A3 «${out.a.name}»${reply ? `: «${reply}»` : ''}`,
+        link: `/strategy/a3/${out.a.id}` }).catch(() => {});
+    }
+    res.json({ status: accept ? 'accepted' : 'declined', a3_id: out.a.id });
+  });
+  // le mie richieste in attesa (per la pagina di benvenuto)
+  app.get('/api/strategy/invites', async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT i.id, i.created_at, a.name AS a3_name, b.name AS invited_by_name FROM hk_invites i JOIN hk_projects a ON a.id = i.hk_project_id
+         LEFT JOIN users b ON b.id = i.invited_by WHERE i.user_id = $1 AND i.status = 'pending' ORDER BY i.created_at DESC`, [req.user.id]);
+    res.json(rows);
+  });
+
   // dal progetto all'A3 (per aprire la pagina giusta da «Progetti»)
   app.get('/api/strategy/by-project/:pid', async (req, res) => {
     const pid = v.int(req.params.pid, 'progetto', { min: 1 });
-    const { rows: [r] } = await db.query('SELECT id FROM hk_projects WHERE project_id = $1', [pid]);
+    const { rows: [r] } = await db.query('SELECT id FROM hk_projects WHERE project_id = $1 ORDER BY year DESC LIMIT 1', [pid]); // l'anno più recente
     if (!r) throw new HttpError(404, 'Nessun A3 per questo progetto');
     res.json(r);
   });

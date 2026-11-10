@@ -279,12 +279,16 @@ export async function projectDetail(container, id, opts = {}) {
   get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
     if (list?.length) nav.querySelector('[data-k="email"]')?.append(h('span.pj-count', String(list.length)));
   }).catch(() => {});
-  function setMeetingsCount(n) {
+  // il numero di incontri, con un pallino rosso se uno già fatto non ha ancora le note
+  function setMeetingsCount(n, missing = 0) {
     const tabBtn = nav.querySelector('[data-k="incontri"]');
     tabBtn?.querySelector('.pj-count')?.remove();
+    tabBtn?.querySelector('.pj-nonotes')?.remove();
     if (n) tabBtn?.append(h('span.pj-count', String(n)));
+    if (missing) tabBtn?.append(h('span.pj-nonotes', { title: missing === 1 ? 'Un incontro fatto non ha le note' : `${missing} incontri fatti non hanno le note`, 'aria-label': 'note mancanti' }));
   }
-  get(`/api/projects/${p.id}/meetings`, { quiet: true }).then(list => setMeetingsCount(list?.length || 0)).catch(() => {});
+  get(`/api/projects/${p.id}/meetings`, { quiet: true }).then(list => setMeetingsCount(list?.length || 0,
+    (list || []).filter(m => String(m.start_at).slice(0, 10) <= today() && !m.note_count).length)).catch(() => {});
   // lo stesso per le note (del progetto e dei suoi ticket); si aggiorna quando se ne aggiungono o tolgono
   function setNotesCount(n) {
     const tabBtn = nav.querySelector('[data-k="note"]');

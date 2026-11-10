@@ -23,7 +23,7 @@ const MEETING_COLS = `m.id, m.project_id, m.ical_uid, m.subject, ${ts('m.start_a
 
 function readWhen(value, field) {
   if (typeof value !== 'string' || !ISO_RE.test(value)) throw new HttpError(400, `Data «${field}» non valida`);
-  return value.length === 10 ? `${value}T00:00:00` : value.slice(0, 19);
+  return value.length === 10 ? `${value}T00:00:00` : value.length === 16 ? `${value}:00` : value.slice(0, 19);
 }
 
 // Graph risponde 403 se manca il consenso al calendario: lo si dice chiaro.
@@ -87,6 +87,27 @@ function registerProjectMeetings(app, { db, auth, access }) {
     })));
   });
 
+  // Un evento del calendario di chi collega → incontro del progetto (se c'è già, lo ritrova). Ritorna { id, added }.
+  async function linkEvent(token, projectId, eid, userId) {
+    const e = await calGraph(token, 'GET', `/me/events/${encodeURIComponent(eid)}?$select=${EVENT_SELECT},body`,
+      { headers: { ...tz, Prefer: `${tz.Prefer}, outlook.body-content-type="text"` } });
+    if (isAlma(e)) throw new HttpError(400, `«${e.subject}» è già un ticket di Alma Planet`);
+    const uid = e.iCalUId || `outlook:${eid}`;
+    const { rows } = await db.query(
+      `INSERT INTO project_meetings (project_id, ical_uid, subject, start_at, end_at, all_day, location, organizer_name, organizer_address,
+                                     attendees, online_url, body_text, linked_by, outlook_id, web_link)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       ON CONFLICT (project_id, ical_uid, start_at) DO NOTHING RETURNING id`,
+      [projectId, uid, (e.subject || '(senza titolo)').slice(0, 1000), local(e.start?.dateTime), local(e.end?.dateTime) || null, Boolean(e.isAllDay),
+        (e.location?.displayName || '').slice(0, 500) || null, person(e.organizer).name || null, person(e.organizer).address || null,
+        JSON.stringify((e.attendees || []).map(person)), e.onlineMeeting?.joinUrl || null, (e.body?.content || '').trim().slice(0, 100000),
+        userId, eid, e.webLink || null]);
+    if (rows[0]) return { id: rows[0].id, added: true };
+    // collegato prima da un collega (o da me)
+    const { rows: [old] } = await db.query('SELECT id FROM project_meetings WHERE project_id = $1 AND ical_uid = $2 AND start_at = $3', [projectId, uid, local(e.start?.dateTime)]);
+    return { id: old?.id || null, added: false };
+  }
+
   // ── incontri del progetto ──────────────────────────────────────────────────
   app.get('/api/projects/:id/meetings', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });
@@ -111,25 +132,38 @@ function registerProjectMeetings(app, { db, auth, access }) {
     let added = 0, already = 0;
     const meetingIds = [];
     for (const eid of eventIds) {
-      const e = await calGraph(token, 'GET', `/me/events/${encodeURIComponent(eid)}?$select=${EVENT_SELECT},body`,
-        { headers: { ...tz, Prefer: `${tz.Prefer}, outlook.body-content-type="text"` } });
-      if (isAlma(e)) throw new HttpError(400, `«${e.subject}» è già un ticket di Alma Planet`);
-      const uid = e.iCalUId || `outlook:${eid}`;
-      const { rows } = await db.query(
-        `INSERT INTO project_meetings (project_id, ical_uid, subject, start_at, end_at, all_day, location, organizer_name, organizer_address,
-                                       attendees, online_url, body_text, linked_by, outlook_id, web_link)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         ON CONFLICT (project_id, ical_uid, start_at) DO NOTHING RETURNING id`,
-        [projectId, uid, (e.subject || '(senza titolo)').slice(0, 1000), local(e.start?.dateTime), local(e.end?.dateTime) || null, Boolean(e.isAllDay),
-          (e.location?.displayName || '').slice(0, 500) || null, person(e.organizer).name || null, person(e.organizer).address || null,
-          JSON.stringify((e.attendees || []).map(person)), e.onlineMeeting?.joinUrl || null, (e.body?.content || '').trim().slice(0, 100000),
-          req.user.id, eid, e.webLink || null]);
-      if (rows[0]) { added++; meetingIds.push(rows[0].id); continue; }
-      already++; // collegato prima da un collega (o da me)
-      const { rows: [old] } = await db.query('SELECT id FROM project_meetings WHERE project_id = $1 AND ical_uid = $2 AND start_at = $3', [projectId, uid, local(e.start?.dateTime)]);
-      if (old) meetingIds.push(old.id);
+      const r = await linkEvent(token, projectId, eid, req.user.id);
+      if (r.added) added++; else already++;
+      if (r.id) meetingIds.push(r.id);
     }
     res.status(201).json({ added, already, ids: meetingIds });
+  });
+
+  // Fissare un incontro da qui, come in Outlook: si crea nel calendario di chi lo fissa (con gli invitati) ed è già
+  // collegato al progetto. Gli invitati di default sono i membri del progetto (li sceglie il frontend).
+  app.post('/api/projects/:id/meetings/new', async (req, res) => {
+    const projectId = v.int(req.params.id, 'progetto', { min: 1 });
+    const role = await access.assertProject(req, projectId);
+    if (role === 'viewer') throw new HttpError(403, 'Questo progetto lo puoi solo vedere');
+    const b = req.body || {};
+    const subject = v.text(b.title, 'titolo', { max: 255, required: true });
+    const startAt = readWhen(b.start, 'inizio'), endAt = readWhen(b.end, 'fine');
+    if (endAt <= startAt) throw new HttpError(400, 'La fine è prima dell\'inizio');
+    const attendees = (Array.isArray(b.attendees) ? b.attendees : []).slice(0, 50)
+      .map(a => v.text(a, 'invitato', { max: 300 })).filter(a => a && /^[^@\s]+@[^@\s]+$/.test(a));
+    const event = {
+      subject,
+      start: { dateTime: startAt, timeZone: TIMEZONE },
+      end: { dateTime: endAt, timeZone: TIMEZONE },
+      location: { displayName: v.text(b.location, 'luogo', { max: 255 }) || '' },
+      body: { contentType: 'text', content: v.text(b.body, 'descrizione', { max: 10000 }) || '' },
+      attendees: attendees.map(address => ({ type: 'required', emailAddress: { address } })),
+    };
+    if (b.online) { event.isOnlineMeeting = true; event.onlineMeetingProvider = 'teamsForBusiness'; }
+    const token = await auth.graphToken(req.user.id);
+    const created = await calGraph(token, 'POST', '/me/events', { body: event, headers: tz });
+    const r = await linkEvent(token, projectId, created.id, req.user.id);
+    res.status(201).json({ id: r.id, event_id: created.id });
   });
 
   // Un incontro con le sue note (e i loro file).

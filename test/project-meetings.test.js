@@ -170,3 +170,23 @@ test('permessi: chi non vede il progetto non vede, non collega e non scrive', as
   await api('anna', 'DELETE', `/api/projects/${p.id}`);
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM project_meetings WHERE project_id = $1', [p.id])).rows[0].n, 0);
 });
+
+test('fissare un incontro dal progetto: nasce nel calendario con gli invitati ed è già collegato, senza note', async () => {
+  const p = (await api('anna', 'POST', '/api/projects', { name: 'Fiera di novembre' })).body;
+  const r = await api('anna', 'POST', `/api/projects/${p.id}/meetings/new`,
+    { title: 'Kick-off A3', start: `${day(3)}T10:00`, end: `${day(3)}T11:00`, attendees: ['luca@almacis.it', 'non-una-email'], online: true, body: 'Ordine del giorno' });
+  assert.equal(r.status, 201);
+  const ev = fake.calendar(users.anna.id).find(e => e.id === r.body.event_id);
+  assert.equal(ev.subject, 'Kick-off A3');
+  assert.deepEqual(ev.attendees.map(a => a.emailAddress.address), ['luca@almacis.it']);
+  const list = (await api('anna', 'GET', `/api/projects/${p.id}/meetings`)).body;
+  const m = list.find(x => x.id === r.body.id);
+  assert.equal(m.subject, 'Kick-off A3');
+  assert.equal(m.note_count, 0, 'senza note: il frontend lo segnala');
+  assert.ok(m.online_url);
+  // nel calendario risulta già collegato a questo progetto
+  assert.ok((await calendar('anna', p.id)).body.find(e => e.id === r.body.event_id).linked);
+  // chi non vede il progetto non fissa incontri
+  assert.equal((await api('luca', 'POST', `/api/projects/${p.id}/meetings/new`, { title: 'x', start: `${day(3)}T10:00`, end: `${day(3)}T11:00` })).status, 404);
+  assert.equal((await api('anna', 'POST', `/api/projects/${p.id}/meetings/new`, { title: 'x', start: `${day(3)}T11:00`, end: `${day(3)}T10:00` })).status, 400);
+});
