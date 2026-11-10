@@ -276,7 +276,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
       await q.query('UPDATE vehicle_bookings SET start_at = $2, end_at = $3, vehicle_id = $4 WHERE id = $1', [id, start, end, b0.status === 'richiesta' ? null : vehicleId]);
     });
     // i promemoria della riconsegna ripartono dalla nuova data
-    await db.query("DELETE FROM fleet_reminder_log WHERE key IN ($1, $2)", [`soon:${id}`, `tomorrow:${id}`]);
+    await db.query('DELETE FROM send_log WHERE key IN ($1, $2)', [`fleet:soon:${id}`, `fleet:tomorrow:${id}`]);
     const b = await getBooking(id);
     if (b.requester_id !== req.user.id) {
       await fleet.notify([b.requester_id], { actorId: req.user.id, body: `ha cambiato la tua prenotazione: ${b.vehicle_id ? `${vehicleName(b)}, ` : ''}${itDateTime(b.start_at)} → ${itDateTime(b.end_at)}.`, link: bookingLink(id) });

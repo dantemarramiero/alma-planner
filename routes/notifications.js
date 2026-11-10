@@ -1,8 +1,7 @@
 // Notifiche dell'intranet e contatori per il menu. Le chat di Teams hanno il loro (/api/teams/unread);
-// «internal» = chat interna con messaggi non letti, solo se è accesa (INTERNAL_CHAT=1).
 const { loadFunctions, orgOidOf } = require('../lib/functions');
 
-function registerNotifications(app, { db, live, internalChat, fleet }) {
+function registerNotifications(app, { db, live, fleet }) {
   app.get('/api/notifications', async (req, res) => {
     const { rows } = await db.query(
       `SELECT n.id, n.actor_id, n.kind, n.post_id, n.comment_id, n.note_id, n.ticket_id, n.read_at, n.created_at, n.body, n.link,
@@ -32,11 +31,7 @@ function registerNotifications(app, { db, live, internalChat, fleet }) {
   app.get('/api/badges', async (req, res) => {
     const { rows } = await db.query(
       `SELECT (SELECT COUNT(*)::int FROM notifications n LEFT JOIN notes nt ON nt.id = n.note_id
-                WHERE n.user_id = $1 AND n.read_at IS NULL AND (n.note_id IS NULL OR nt.deleted_at IS NULL)) AS notifications
-              ${internalChat ? `, (SELECT COUNT(*)::int FROM conversation_members cm
-                WHERE cm.user_id = $1 AND EXISTS (
-                  SELECT 1 FROM messages m WHERE m.conversation_id = cm.conversation_id
-                     AND m.id > cm.last_read_id AND m.user_id IS DISTINCT FROM $1)) AS internal` : ''}`, [req.user.id]);
+                WHERE n.user_id = $1 AND n.read_at IS NULL AND (n.note_id IS NULL OR nt.deleted_at IS NULL)) AS notifications`, [req.user.id]);
     // RDA interne da accettare, per chi guida una funzione
     const oid = await orgOidOf(db, req.user.id);
     const led = oid ? (await loadFunctions(db)).filter(f => f.head?.oid === oid).map(f => f.name) : [];

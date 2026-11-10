@@ -8,7 +8,6 @@ import { ganttView } from './gantt.js';
 import { calendarView } from './calendar.js';
 import { driveView } from './drive.js';
 import { orgView } from './org.js';
-import { directView } from './direct.js';
 import { homeView, openPost, openComposer } from './feed.js';
 import { profileView } from './profile.js';
 import { notificationsView } from './notifications.js';
@@ -18,6 +17,8 @@ import { fillIcons } from './icons.js';
 import { rdaView } from './rda.js';
 import { searchView, setupSearch } from './search.js';
 import { itView, oldSoftwareHash } from './software.js';
+import { settimanaView, ticketsPage } from './settimana.js';
+import { personeView } from './persone.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
 import { strategyView } from './strategy.js';
@@ -75,14 +76,14 @@ function setupRail() {
 // suo menu laterale e ricorda l'ultima pagina aperta: tornandoci si riparte da lì. Il selettore lo vedono tutti.
 const MODULES = [
   { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/benvenuto', can: () => true },
-  { key: 'project', label: 'Alma Project', icon: 'folder-kanban', home: '#/mine', can: () => true },
+  { key: 'project', label: 'Alma Project', icon: 'folder-kanban', home: '#/settimana', can: () => true },
   { key: 'strategy', label: 'Alma Strategy', icon: 'target', home: '#/strategy/hoshin', can: () => true },
   // Alma IT: «I miei strumenti» per tutti, censimento e richieste per il team IT
   { key: 'it', label: 'Alma IT', icon: 'monitor', home: '#/it/strumenti', can: () => true },
   { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
 ];
 // sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
-const PROJECT_SECTIONS = new Set(['mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar', 'drive']);
+const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar']); // OneDrive è in Planet
 let lastModule = 'planet';
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
@@ -155,9 +156,9 @@ async function route() {
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
+    : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'
     : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
-  document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
   const modLabel = MODULES.find(m => m.key === moduleOf(section))?.label || 'Alma Planet';
   document.title = section === 'direct' ? `Chat · ${modLabel}` : modLabel;
@@ -189,22 +190,24 @@ async function route() {
       }
       break;
     }
-    case 'chat':
-      if (!store.me.internal_chat) { clear(view).append(h('div.card.empty', 'Pagina non trovata.')); break; }
-      cleanup = directView(view, parts[1] ? Number(parts[1]) : null);
-      break;
     case 'rda':
       rdaView(view);
       break;
     case 'notifications':
       cleanup = notificationsView(view);
       break;
-    case 'mine':
-      ticketsView(view, { title: 'I miei ticket', subtitle: 'Ticket e attività di progetto assegnati a te.', fixed: { assignee: 'me' } });
-      break;
+    case 'mine': // pagina unica dei Ticket: «I miei» è la vista di partenza
+      location.replace('#/tickets');
+      return;
     case 'tickets':
-      ticketsView(view, { title: 'Tutti i ticket', subtitle: 'Filtra per progetto, persona o stato.' });
+      ticketsPage(view, params);
       if (parts[1]) openTicket(Number(parts[1]), {});
+      break;
+    case 'settimana':
+      await settimanaView(view, params);
+      break;
+    case 'persone':
+      await personeView(view, params);
       break;
     case 'projects':
       if (parts[1]) await projectDetail(view, Number(parts[1]));
@@ -230,9 +233,9 @@ async function route() {
     case 'idee':
       await ideasView(view, parts, params);
       break;
-    case 'org':
-      await orgView(view, params);
-      break;
+    case 'org': // l'organigramma è una vista di Persone
+      location.replace('#/persone?vista=organigramma');
+      return;
     case 'it':
       await itView(view, parts);
       break;
@@ -301,7 +304,6 @@ async function start() {
 
   startLive();
   for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
-  document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   // Alma IT: le voci del team IT solo per amministratori e team IT (il server lo rifiuta comunque agli altri)
   for (const el of document.querySelectorAll('[data-it-team]')) el.hidden = !store.me.software;
