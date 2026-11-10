@@ -26,7 +26,7 @@ export async function profileView(view, id) {
       h('div.profile-name-row', h('h1', p.name),
         own
           ? h('button.btn', { type: 'button', on: { click: () => editProfile(() => profileView(view, id)) } }, 'Modifica profilo')
-          : messageButton(p)),
+          : [messageButton(p), store.me.is_admin ? h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Compleanno e data di assunzione (per la pagina di benvenuto)', on: { click: () => editDates(p) } }, lucide('cake', { size: 16 }), 'Date') : null]),
       h('div.profile-stats', stat(p.post_count, p.post_count === 1 ? 'post' : 'post'), stat(p.likes_received, 'mi piace ricevuti'), stat(p.open_tickets, 'ticket aperti')),
       h('div.profile-handle', `@${p.handle}`, p.job_title ? h('span', ` · ${p.job_title}`) : null),
       p.bio ? h('p.profile-bio', richText(p.bio)) : own ? h('p.profile-bio.muted', 'Aggiungi una presentazione: cosa fai, su cosa lavori.') : null,
@@ -103,8 +103,28 @@ async function saveDigest() {
   await patch('/api/me/digest', digestState);
 }
 
+// Compleanno e data di assunzione di un collega (amministratori): servono alla pagina di benvenuto.
+async function editDates(p) {
+  const d = await get(`/api/users/${p.id}/dates`);
+  const birthday = h('input.input', { type: 'date', value: d.birthday || '' });
+  const hired = h('input.input', { type: 'date', value: d.hired_on || '' });
+  const m = modal({
+    title: `Date di ${p.name}`,
+    body: [h('p.muted.small', 'Nella pagina di benvenuto: nuovi arrivi (assunti negli ultimi 30 giorni), compleanni e anniversari della settimana. Del compleanno si mostrano solo giorno e mese.'),
+      h('label.field', h('span', 'Data di assunzione'), hired), h('label.field', h('span', 'Compleanno'), birthday)],
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        await patch(`/api/users/${p.id}/dates`, { birthday: birthday.value || null, hired_on: hired.value || null });
+        m.close(); toast('Date salvate');
+      } } }, 'Salva')],
+  });
+}
+
 function editProfile(onSaved) {
   let avatarId;
+  const birthday = h('input.input', { type: 'date', style: { maxWidth: '200px' } });
+  let birthdayWas = '';
+  get(`/api/users/${store.me.id}/dates`, { quiet: true }).then(d => { birthdayWas = d?.birthday || ''; birthday.value = birthdayWas; }).catch(() => {});
   const preview = h('span', avatar(store.me, 88));
   const bio = h('textarea.input', { maxLength: 300, placeholder: 'Due righe su di te: ruolo, progetti, competenze…' });
   bio.value = store.me.bio || '';
@@ -125,11 +145,13 @@ function editProfile(onSaved) {
         } } }, 'Cambia foto'),
         store.me.avatar_id ? h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => { avatarId = null; fill(preview, avatar({ ...store.me, avatar_id: null }, 88)); } } }, 'Togli foto') : null))),
       h('label.field', h('span', 'Presentazione'), bio, count),
+      h('label.field', h('span', 'Compleanno'), birthday, h('small.muted', 'Nella pagina di benvenuto i colleghi vedono solo giorno e mese.')),
       digestBox(),
     ],
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
         await saveDigest(); // riepilogo del mattino: solo se cambiato
+        if (birthday.value !== birthdayWas) await patch(`/api/users/${store.me.id}/dates`, { birthday: birthday.value || null });
         const body = { bio: bio.value };
         if (avatarId !== undefined) body.avatar_id = avatarId;
         Object.assign(store.me, await patch('/api/me', body));

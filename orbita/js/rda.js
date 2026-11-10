@@ -46,7 +46,7 @@ export async function openRdaForm({ onDone, defaults = {} } = {}) {
     return;
   }
   const others = list.filter(f => !f.mine);
-  const title = h('input.input', { placeholder: 'Es. Brochure per la fiera di novembre', autofocus: true, maxlength: 300 });
+  const title = h('input.input', { placeholder: 'Es. Brochure per la fiera di novembre', autofocus: true, maxlength: 300, value: defaults.title || '' });
   const fn = h('select.select', { required: true },
     h('option', { value: '' }, 'Scegli la funzione…'),
     (others.length ? others : list).map(f => h('option', { value: f.name, selected: f.name === defaults.function, disabled: !f.head }, f.head ? f.name : `${f.name} (senza responsabile)`)));
