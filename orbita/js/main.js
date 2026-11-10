@@ -21,6 +21,8 @@ import { softwareView } from './software.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
 import { strategyView } from './strategy.js';
+import { ideasView } from './ideas.js';
+import { welcomeView } from './welcome.js';
 import { icon } from './icons.js';
 
 const view = document.getElementById('view');
@@ -46,7 +48,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = section === 'home' || section === 'energy' || section === 'strategy' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -72,7 +74,7 @@ function setupRail() {
 // Alma Strategy (Hoshin Kanri e performance management), Alma Energy solo per chi ce l'ha. Ogni modulo ha il
 // suo menu laterale e ricorda l'ultima pagina aperta: tornandoci si riparte da lì. Il selettore lo vedono tutti.
 const MODULES = [
-  { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/', can: () => true },
+  { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/benvenuto', can: () => true },
   { key: 'project', label: 'Alma Project', icon: 'folder-kanban', home: '#/mine', can: () => true },
   { key: 'strategy', label: 'Alma Strategy', icon: 'target', home: '#/strategy/hoshin', can: () => true },
   { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
@@ -219,6 +221,12 @@ async function route() {
     case 'search':
       searchView(view, params);
       break;
+    case 'benvenuto':
+      await welcomeView(view);
+      break;
+    case 'idee':
+      await ideasView(view, parts, params);
+      break;
     case 'org':
       await orgView(view, params);
       break;
@@ -296,6 +304,8 @@ async function start() {
 
   document.getElementById('back').addEventListener('click', goBack);
   window.addEventListener('hashchange', route);
+  // aprendo l'app senza un indirizzo preciso si parte dalla pagina di benvenuto (la bacheca resta su #/)
+  if (!location.hash || location.hash === '#') history.replaceState(null, '', '#/benvenuto');
   route();
 }
 

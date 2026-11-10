@@ -39,6 +39,7 @@ const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { registerStrategy } = require('./routes/strategy');
 const { registerPerformance } = require('./routes/performance');
+const { registerIdeas } = require('./routes/ideas');
 const { createEnergyAccess } = require('./lib/energy');
 const { createEnergyReminders } = require('./lib/energy-reminders');
 const { createScreeningRunner } = require('./lib/energy-screening');
@@ -203,6 +204,7 @@ async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
   registerEnergy(app, deps);
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)
   registerPerformance(app, deps); // Alma Strategy: performance management (scheda, obiettivi, team, mansionario)
+  registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto
   registerAudit(app, deps);
   if (config.internalChat) registerDirect(app, deps);
 
