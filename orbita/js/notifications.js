@@ -20,7 +20,8 @@ function sentence(n) {
     case 'pin': return 'ha messo in evidenza il tuo post.';
     case 'mezzi': return n.body || '';
     case 'energy': return n.body || ''; // scadenze di Alma Energy
-    case 'strategy': return n.body || ''; // Alma Strategy: modifiche della scheda da approvare, decisioni, revisioni
+    case 'strategy': return n.body || '';
+    case 'it': return n.body || ''; // Alma IT: richieste al team IT e risposte // Alma Strategy: modifiche della scheda da approvare, decisioni, revisioni
     case 'ticket_reminder': return `ti manda un promemoria su${quote(n.ticket_title)}:${quote(n.body)}`;
     case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
     case 'overdue_project': return `Ritardo nel tuo progetto:${quote(n.ticket_title)} è scaduto da almeno 2 giorni lavorativi.`;
@@ -40,7 +41,7 @@ async function open(n) {
   if (n.post_id) return openPost(n.post_id, { focus: !!n.comment_id });
   if (n.link) { location.hash = `#${n.link}`; return; } // parco mezzi: link già pronto
   if (n.kind === 'rda_new' || n.kind === 'rda_rejected') { location.hash = '#/rda'; return; }
-  if (n.kind === 'software_proposal') { location.hash = '#/software/proposte'; return; }
+  if (n.kind === 'software_proposal') { location.hash = '#/it/richieste'; return; }
   if (n.ticket_id) return (await import('./tickets.js')).openTicket(n.ticket_id, {});
   if (n.note_project_id) location.hash = `#/projects/${n.note_project_id}/note`;
   else if (n.note_ticket_id) (await import('./tickets.js')).openTicket(n.note_ticket_id, {});

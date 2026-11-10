@@ -26,6 +26,7 @@ const { registerRda } = require('./routes/rda');
 const { registerDigest } = require('./routes/digest');
 const { registerSearch } = require('./routes/search');
 const { registerSoftware } = require('./routes/software');
+const { registerIt } = require('./routes/it');
 const { createSoftwareAccess } = require('./lib/software-proposals');
 const { createDigest } = require('./lib/digest');
 const { createLive } = require('./lib/live');
@@ -201,6 +202,7 @@ async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
   registerDigest(app, deps);
   registerSearch(app, deps);
   registerSoftware(app, deps);
+  registerIt(app, deps);
   registerFleet(app, deps);
   registerEnergy(app, deps);
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)

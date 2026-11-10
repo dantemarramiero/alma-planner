@@ -17,7 +17,7 @@ import { setupMobile } from './mobile.js';
 import { fillIcons } from './icons.js';
 import { rdaView } from './rda.js';
 import { searchView, setupSearch } from './search.js';
-import { softwareView } from './software.js';
+import { itView, oldSoftwareHash } from './software.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
 import { strategyView } from './strategy.js';
@@ -77,14 +77,16 @@ const MODULES = [
   { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/benvenuto', can: () => true },
   { key: 'project', label: 'Alma Project', icon: 'folder-kanban', home: '#/mine', can: () => true },
   { key: 'strategy', label: 'Alma Strategy', icon: 'target', home: '#/strategy/hoshin', can: () => true },
+  // Alma IT: «I miei strumenti» per tutti, censimento e richieste per il team IT
+  { key: 'it', label: 'Alma IT', icon: 'monitor', home: '#/it/strumenti', can: () => true },
   { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
 ];
 // sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
-const PROJECT_SECTIONS = new Set(['mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar', 'drive', 'software']);
+const PROJECT_SECTIONS = new Set(['mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar', 'drive']);
 let lastModule = 'planet';
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
-  : section === 'energy' || section === 'strategy' ? section : 'planet');
+  : section === 'energy' || section === 'strategy' || section === 'it' ? section : 'planet');
 const MOD_KEY = 'alma.modulePages';
 const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
 const availableModules = () => MODULES.filter(m => m.can());
@@ -152,7 +154,8 @@ async function route() {
   // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
-    : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}` : section;
+    : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
+    : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-chat', section === 'chat');
   document.body.classList.toggle('on-direct', section === 'direct');
@@ -230,9 +233,12 @@ async function route() {
     case 'org':
       await orgView(view, params);
       break;
-    case 'software':
-      await softwareView(view, parts);
+    case 'it':
+      await itView(view, parts);
       break;
+    case 'software': // indirizzi di prima del modulo Alma IT
+      location.replace(oldSoftwareHash(parts));
+      return;
     case 'mezzi':
       await fleetView(view, parts);
       break;
@@ -297,7 +303,8 @@ async function start() {
   for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
   document.getElementById('nav-chat').hidden = !store.me.internal_chat;
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
-  for (const id of ['nav-admin-label', 'nav-software']) document.getElementById(id).hidden = !store.me.software;
+  // Alma IT: le voci del team IT solo per amministratori e team IT (il server lo rifiuta comunque agli altri)
+  for (const el of document.querySelectorAll('[data-it-team]')) el.hidden = !store.me.software;
   // Alma Strategy: dashboard dei team e mansionario solo agli amministratori (il server lo rifiuta comunque agli altri)
   document.getElementById('nav-pm-mans').hidden = !store.me.is_admin;
   // la dashboard dei team la vedono gli amministratori, il team HR e chi è responsabile di qualcuno
