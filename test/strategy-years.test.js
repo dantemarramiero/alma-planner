@@ -155,3 +155,15 @@ test('fine anno: chiudere, proseguire fuori o entrare nel 2027 (stesse contromis
   const und = (await A('GET', '/api/strategy/years')).body.years.find(x => x.year === 2026).undecided;
   assert.ok(und < y26.projects.length);
 });
+
+test('aggiungere al team dell’A3 senza richiesta: chi lavora sull’A3 lo fa, la persona entra subito', async () => {
+  const p = (await year()).projects.find(x => x.name === 'Gestione di commessa 2.0');
+  const fresh = as(await login('nuova.collega@almacis.it'));
+  const nid = (await fresh('GET', '/api/me')).body.id;
+  assert.equal((await O('POST', `/api/strategy/projects/${p.id}/members`, { user_ids: [nid] })).status, 403);
+  const r = await L('POST', `/api/strategy/projects/${p.id}/members`, { user_ids: [nid] }); // Luca è nel team (ha accettato prima)
+  assert.equal(r.status, 200);
+  assert.equal(r.body.added, 1);
+  assert.equal((await fresh('GET', `/api/projects/${r.body.project_id}`)).body.my_role, 'member');
+  assert.equal((await L('POST', `/api/strategy/projects/${p.id}/members`, { user_ids: [nid] })).body.added, 0, 'già dentro');
+});

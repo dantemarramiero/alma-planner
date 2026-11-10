@@ -781,9 +781,11 @@ async function a3Page(container, id) {
     defaultTab: 'a3',
     head: [carryBox(p, () => a3Page(container, id)), a3Strip(p, func)],
     actions: () => [
-      p.can_edit ? h('button.btn.btn-primary', { type: 'button', on: { click: () => openInvite(p) } }, icon('users', { size: 16 }), 'Chiedi di partecipare') : null,
       p.can_edit ? null : h('span.pill', { title: 'Per modificare l’A3, i ticket o il Gantt chiedi al responsabile di aggiungerti al progetto' }, 'Sola lettura'),
       h('button.btn', { type: 'button', on: { click: () => window.print() } }, icon('file-text', { size: 16 }), 'Esporta A3 in PDF')],
+    membersActions: p.can_edit ? reload => [
+      h('button.btn', { type: 'button', on: { click: () => addMembers(p, reload) } }, icon('plus', { size: 16 }), 'Aggiungi un membro'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: () => openInvite(p, reload) } }, icon('mail', { size: 16 }), 'Chiedi di partecipare')] : null,
     extraTabs: [['a3', 'A3', (box, reload) => a3Tab(box, p, reload)], ['calendario', 'Calendario', box => a3Calendar(box, { id: p.project_id, name: p.name, my_role: p.can_edit ? 'member' : 'viewer' }, { color: func?.color || '#FF8A26' })]],
   });
 }
@@ -831,8 +833,36 @@ async function invitePage(container, id) {
   if (pre === 'si' && i.mine && !done) reply.focus();
 }
 
+// Aggiungere colleghi al team dell'A3 subito, senza chiedere (ricevono solo una notifica).
+function addMembers(p, onDone) {
+  const chosen = new Set();
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca un collega', 'aria-label': 'Cerca un collega' });
+  const list = h('div.a3i-list');
+  const others = store.users.filter(u => u.active !== false && u.id !== store.me.id);
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    fill(list, others.filter(u => !q || u.name.toLowerCase().includes(q)).slice(0, 40).map(u => h('label.a3i-person', { class: chosen.has(u.id) ? 'on' : '' },
+      h('input', { type: 'checkbox', checked: chosen.has(u.id), on: { change: e => { e.target.checked ? chosen.add(u.id) : chosen.delete(u.id); draw(); } } }),
+      avatar(u, 28), h('span', h('strong', u.name), u.job_title ? h('small', u.job_title) : null))));
+  };
+  search.addEventListener('input', draw);
+  draw();
+  const m = modal({
+    title: `Aggiungi al team dell’A3 «${p.name}»`,
+    body: [h('p.muted.small', 'Entrano subito nel team (ticket, Gantt, incontri) e ricevono una notifica. Per chiedere prima se vogliono partecipare usa «Chiedi di partecipare».'), search, list],
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        if (!chosen.size) { toast('Scegli almeno una persona', 'err'); return; }
+        const r = await post(`/api/strategy/projects/${p.id}/members`, { user_ids: [...chosen] });
+        m.close();
+        toast(r.added === 1 ? '1 persona aggiunta al team' : `${r.added} persone aggiunte al team`);
+        await load(); onDone?.();
+      } } }, 'Aggiungi')],
+  });
+}
+
 // Invitare colleghi nell'A3: entrano nel team e ricevono una email allegra con l'A3 e la nota di chi invita.
-async function openInvite(p) {
+async function openInvite(p, onDone) {
   const chosen = new Set();
   const others = store.users.filter(u => u.active !== false && u.id !== store.me.id);
   const search = h('input.input', { type: 'search', placeholder: 'Cerca un collega', 'aria-label': 'Cerca un collega' });
@@ -873,7 +903,7 @@ async function openInvite(p) {
         const r = await post(`/api/strategy/projects/${p.id}/invite`, { user_ids: [...chosen], note: note.value.trim() });
         m.close();
         toast(r.invited ? `Richiesta mandata a ${r.invited === 1 ? '1 persona' : `${r.invited} persone`}${r.already ? ` · ${r.already} già nel team o in attesa` : ''}` : 'Sono già tutti nel team o hanno già una richiesta in attesa');
-        await load();
+        await load(); onDone?.();
       } } }, icon('mail', { size: 16 }), 'Chiedi di partecipare')],
   });
 }

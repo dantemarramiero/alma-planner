@@ -386,7 +386,7 @@ export async function projectDetail(container, id, opts = {}) {
     box.append(
       h('div.spread', h('div', h('h3', 'Membri'), h('p.muted.small', { style: { margin: '2px 0 0' } },
         'Il progetto e i suoi ticket li vedono solo queste persone (e gli amministratori). Chi viene assegnato a un ticket del progetto entra da solo.')),
-      canManage(p) ? h('button.btn.btn-primary', { type: 'button', on: { click: addPeople } }, '＋ Aggiungi persone') : null),
+      opts.membersActions ? h('div.row.pj-members-actions', opts.membersActions(reload)) : canManage(p) ? h('button.btn.btn-primary', { type: 'button', on: { click: addPeople } }, '＋ Aggiungi persone') : null),
       list);
     await draw();
 

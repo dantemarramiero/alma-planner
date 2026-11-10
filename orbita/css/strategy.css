@@ -682,8 +682,11 @@ td.center { text-align: center; }
 .a3r-task { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; padding: 8px 0; border-top: 1px solid var(--rule); font-size: 14px; }
 .a3r-answer { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 16px; background: var(--bg); }
 .a3r-btns { display: flex; flex-wrap: wrap; gap: 10px; }
-.a3r-yes { background: #2E8B57; border-color: #2E8B57; color: #FFFFFF; font-weight: var(--ap-fw-bold); }
-.a3r-yes:hover { background: #256F46; color: #FFFFFF; }
+.a3r .btn.a3r-yes, .a3r .btn.a3r-yes:visited { background: #2E8B57; border-color: #2E8B57; color: #FFFFFF; font-weight: var(--ap-fw-bold); min-height: 44px; padding: 0 22px; }
+.a3r .btn.a3r-yes:hover { background: #256F46; border-color: #256F46; color: #FFFFFF; }
+.a3r .btn.a3r-yes svg { color: #FFFFFF; }
+.a3r-btns .btn { min-height: 44px; }
+.pj-members-actions { gap: 8px; flex-wrap: wrap; }
 .a3r-done { padding: 12px 16px; border-radius: 12px; background: var(--bg); color: var(--mid); font-size: 14px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .a3r-done.accepted { background: var(--green-soft); color: var(--green); }
 .a3r-done.declined { background: var(--rf-soft, #F1EFEB); }

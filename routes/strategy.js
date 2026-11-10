@@ -293,6 +293,28 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
     res.json(rows);
   });
 
+  app.post('/api/strategy/projects/:id/members', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    await mustEditA3(req, id);
+    const ids = [...new Set((Array.isArray(req.body?.user_ids) ? req.body.user_ids : []).map(x => v.int(x, 'persona', { min: 1 })))];
+    if (!ids.length || ids.length > 30) throw new HttpError(400, 'Scegli da 1 a 30 persone');
+    const projectId = await ensureProject(db, id, req.user.id);
+    if (!projectId) throw new HttpError(404, 'A3 non trovato');
+    const { rows: people } = await db.query('SELECT id FROM users WHERE id = ANY($1::int[])', [ids]);
+    if (people.length !== ids.length) throw new HttpError(400, 'Una delle persone non esiste');
+    const { rows: [proj] } = await db.query('SELECT owner_id FROM projects WHERE id = $1', [projectId]);
+    let added = 0;
+    for (const u of people) {
+      if (u.id === proj.owner_id) continue;
+      const { rowCount } = await db.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [projectId, u.id, req.user.id]);
+      added += rowCount;
+    }
+    const { rows: [a3] } = await db.query('SELECT name FROM hk_projects WHERE id = $1', [id]);
+    await notifier?.notify({ userIds: people.map(u => u.id).filter(x => x !== req.user.id), actorId: req.user.id, kind: 'strategy',
+      body: `ti ha aggiunto al team dell'A3 «${a3.name}»`, link: `/strategy/a3/${id}` }).catch(() => {});
+    res.json({ added, project_id: projectId });
+  });
+
   // la richiesta di partecipare: la persona invitata la apre dalla email o dalla notifica e risponde
   async function getInvite(req, inviteId) {
     const { rows: [i] } = await db.query(
