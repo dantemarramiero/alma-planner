@@ -183,7 +183,7 @@
 .hk-x { border: 0; background: transparent; cursor: pointer; color: var(--muted); }
 
 /* contromisure con Gantt */
-.hk-cm { display: grid; grid-template-columns: 34px minmax(220px, 1fr) 70px 130px 140px 170px auto 34px; gap: 0 10px; align-items: center; min-height: 54px; border-bottom: 1px solid var(--rule); }
+.hk-cm { display: grid; grid-template-columns: 34px minmax(220px, 1fr) 70px 130px 140px 140px 170px auto 34px; gap: 0 10px; align-items: center; min-height: 54px; border-bottom: 1px solid var(--rule); }
 .hk-cm.head { min-height: 32px; font-size: 11px; font-weight: var(--ap-fw-medium); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .hk-cm .hk-num { width: 26px; height: 26px; background: var(--card); color: var(--ink); border: 1.5px solid var(--ink); }
 .hk-cm .hk-num.done { background: var(--ink); color: var(--ap-white); }
@@ -225,7 +225,7 @@
 .row.spread { justify-content: space-between; }
 
 .hk-card.cmcard { overflow-x: auto; }
-.hk-card.cmcard > .hk-cm, .hk-card.cmcard > .hk-legend { min-width: 1380px; }
+.hk-card.cmcard > .hk-cm, .hk-card.cmcard > .hk-legend { min-width: 1530px; }
 @media (max-width: 1100px) {
   .hk-row3, .hk-row2, .hk-gcols, .hk-cols2 { grid-template-columns: 1fr; }
   .hk-hero { flex-direction: column; align-items: stretch; gap: 20px; padding: 20px; }
@@ -582,3 +582,84 @@ td.center { text-align: center; }
   .hk-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hk-stat strong { font-size: 18px; line-height: 1.25; }
 }
+
+/* Calendario dell'A3: la settimana di Outlook con gli incontri dell'A3 (11/11/2026) */
+.a3c-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.a3c-title { font-size: 15px; font-weight: var(--ap-fw-medium); margin-left: 6px; }
+.a3c-we { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mid); }
+.a3c-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--mid); margin: 6px 0 10px; }
+.a3c-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.a3c-legend i { width: 14px; height: 10px; border-radius: 3px; }
+.a3c-legend i.other { background: var(--card); border: 1px solid var(--rule-strong); }
+.a3c-legend i.nonotes { background: var(--card); border: 2px dashed var(--red); }
+.a3c-scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); }
+.a3c-grid { display: grid; min-width: 680px; }
+.a3c-corner { border-bottom: 1px solid var(--rule); }
+.a3c-day { padding: 10px 8px; font-size: 13px; font-weight: var(--ap-fw-medium); text-align: center; border-bottom: 1px solid var(--rule); border-left: 1px solid var(--rule); }
+.a3c-day.now { color: var(--orange-dark); }
+.a3c-hours { display: flex; flex-direction: column; }
+.a3c-hours span { box-sizing: border-box; padding: 2px 6px 0 0; text-align: right; font-size: 11px; color: var(--muted); border-top: 1px solid var(--rule); }
+.a3c-col { position: relative; border-left: 1px solid var(--rule); }
+.a3c-slot { position: absolute; left: 0; right: 0; border: 0; border-top: 1px solid var(--rule); background: transparent; cursor: pointer; padding: 0; }
+.a3c-slot:hover { background: var(--orange-soft); }
+.a3c-ev { position: absolute; left: 3px; right: 3px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; padding: 4px 7px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--bg); text-align: left; font: inherit; cursor: pointer; color: var(--ink); z-index: 1; }
+.a3c-ev strong { font-size: 12px; font-weight: var(--ap-fw-medium); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a3c-ev small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a3c-ev.linked { color: #FFFFFF; }
+.a3c-ev.linked small { color: rgba(255,255,255,.85); }
+.a3c-ev.other:hover { border-color: var(--orange); }
+.a3c-ev.nonotes { outline: 2px dashed var(--red); outline-offset: 1px; }
+.a3c-flag { display: inline-flex; align-items: center; gap: 3px; align-self: flex-start; margin-top: 2px; font-size: 10px; font-weight: var(--ap-fw-bold); padding: 1px 6px; border-radius: 8px; background: #FFFFFF; color: var(--red); }
+.a3c-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--red); z-index: 2; }
+.a3c-allday { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.a3c-when { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; }
+.a3c-online { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; margin: 4px 0 10px; }
+.a3c-people { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 8px; }
+.a3c-person { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+
+/* Invito nel team dell A3 (11/11/2026) */
+.a3i-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.a3i-list { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; margin-top: 8px; border: 1px solid var(--rule); border-radius: 12px; }
+.a3i-person { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--rule); cursor: pointer; }
+.a3i-person:first-child { border-top: 0; }
+.a3i-person.on { background: var(--orange-soft); }
+.a3i-person > span { display: flex; flex-direction: column; }
+.a3i-person small { color: var(--muted); font-size: 12px; }
+.a3i-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+.a3i-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--orange-soft); color: var(--orange-dark); }
+.a3i-chip button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+.a3i-past { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.a3i-frame { width: 100%; height: 70vh; border: 0; border-radius: 12px; background: #F7F6F3; }
+@media (max-width: 760px) { .a3i-grid { grid-template-columns: 1fr; } }
+
+/* Anni dell Hoshin Kanri e fine anno degli A3 (11/11/2026) */
+.hk-year { font: inherit; font-size: inherit; font-weight: var(--ap-fw-bold); letter-spacing: inherit; color: inherit; background: var(--orange-soft); border: 1px solid #FFD2AB; border-radius: 8px; padding: 1px 6px; margin-left: 2px; cursor: pointer; }
+.hk-carry { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; margin: 10px 0; border-radius: 14px; background: #FFF7EF; border: 2px solid #FFD2AB; }
+.hk-carry > div:first-child { display: flex; flex-direction: column; gap: 3px; max-width: 560px; }
+.hk-carry small { color: var(--mid); font-size: 12px; }
+.hk-carry-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.hk-carry.done { justify-content: flex-start; gap: 8px; border-width: 1px; background: var(--green-soft); border-color: #9CCBAE; color: var(--green); font-size: 14px; }
+.hk-carry.done a { font-weight: var(--ap-fw-medium); }
+.hk-carry-from { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mid); }
+.hk-carry-list { display: flex; flex-direction: column; gap: 8px; margin-top: var(--ap-space-4); border: 2px solid #FFD2AB; background: #FFF7EF; }
+.hk-carry-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.hk-carry-links .pill { text-decoration: none; background: var(--card); border: 1px solid var(--rule-strong); color: var(--ink); }
+
+/* fine anno: tre schede con le conseguenze (bozza approvata 11/11/2026) */
+.hk-carry.big { flex-direction: column; align-items: stretch; gap: 16px; padding: 22px; border-radius: 20px; }
+.hk-carry-top { display: flex; align-items: flex-start; gap: 14px; }
+.hk-carry-top h2 { margin: 0 0 4px; font-size: 19px; font-weight: var(--ap-fw-medium); }
+.hk-carry-top > div { display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--mid); line-height: 1.45; }
+.hk-carry-cal { width: 40px; height: 40px; border-radius: 12px; background: var(--orange); color: #FFFFFF; display: grid; place-items: center; flex: none; }
+.hk-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hk-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; border-radius: 16px; border: 2px solid var(--rule-strong); background: var(--card); text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.hk-choice:hover { border-color: var(--orange); }
+.hk-choice strong { font-size: 16px; font-weight: var(--ap-fw-medium); }
+.hk-choice > span:last-child { font-size: 13px; line-height: 1.45; color: var(--mid); }
+.hk-choice-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; }
+.hk-choice.ok .hk-choice-ico { background: var(--green-soft); color: var(--green); }
+.hk-choice.out .hk-choice-ico { background: var(--blue-soft); color: var(--blue); }
+.hk-choice.in { border-color: var(--orange-fill); background: var(--orange-soft); }
+.hk-choice.in .hk-choice-ico { background: var(--orange-fill); color: #FFFFFF; }
+@media (max-width: 900px) { .hk-choices { grid-template-columns: 1fr; } }
+.a3c-slot:hover::after { content: attr(data-label); position: absolute; inset: 3px; display: grid; place-items: center; border: 2px dashed #FFB370; border-radius: 9px; background: #FFF7EF; color: var(--orange-dark); font-size: 12px; font-weight: 500; }

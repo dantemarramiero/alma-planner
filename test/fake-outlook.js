@@ -126,6 +126,17 @@ function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {
       const list = calendar(uid).filter(e => e.end.dateTime.slice(0, 19) > from && e.start.dateTime.slice(0, 19) < to).map(({ body, ...x }) => x);
       return json(200, { value: list });
     }
+    // un incontro nuovo fissato da Alma (es. dall'A3): finisce nel calendario di chi lo fissa
+    if (path === '/me/events' && opts.method === 'POST') {
+      const b = JSON.parse(opts.body);
+      const id = `new-${uid}-${calendar(uid).length + 1}`;
+      const ev = { id, iCalUId: `ical-${id}`, subject: b.subject, start: b.start, end: b.end, isAllDay: false, location: b.location || { displayName: '' },
+        organizer: { emailAddress: { name: `Utente ${uid}`, address: `u${uid}@almacis.it` } }, attendees: b.attendees || [],
+        webLink: `https://outlook.office.com/${id}`, onlineMeeting: b.isOnlineMeeting ? { joinUrl: `https://teams.microsoft.com/${id}` } : null,
+        categories: [], isCancelled: false, body: { content: b.body?.content || '' }, bodyPreview: '' };
+      calendar(uid).push(ev);
+      return json(201, ev);
+    }
     if ((m = path.match(/^\/me\/events\/([^/]+)$/))) {
       const x = calendar(uid).find(y => y.id === decodeURIComponent(m[1]));
       return x ? json(200, x) : json(404, { error: { message: 'Not found' } });

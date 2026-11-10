@@ -78,3 +78,8 @@
 .mt-range { min-width: 150px; text-align: center; }
 .nt-meeting { display: inline-flex; align-items: center; gap: 3px; }
 .nt-card .mt-files { margin-top: 6px; }
+
+/* incontri fatti senza note: si segnalano (11/11/2026) */
+.mt-warn { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px 14px; margin-bottom: 10px; border-radius: 10px; background: var(--red-soft); color: var(--red); font-size: 13px; }
+.mt-warn .link-btn { color: var(--red); font-weight: var(--ap-fw-medium); text-decoration: underline; }
+.mt-nonotes { display: inline-flex; align-items: center; gap: 4px; color: var(--red); font-weight: var(--ap-fw-medium); }

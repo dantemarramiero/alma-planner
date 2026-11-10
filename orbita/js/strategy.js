@@ -2,22 +2,54 @@
 // - Hoshin Kanri (la vista d'insieme, a forma di X-Matrix): solo da guardare (fasce a L per area, pillar a L verso i KPI di livello 0, mesi calcolati dalle contromisure);
 // - Gestione: tabelle da scrivere come in Excel (progetti, KPI, pillar e BU, aree), si salva cella per cella;
 // - A3: la scheda del progetto con il format Almacis e le contromisure che fanno l'avanzamento.
-import { h, fill, toast, confirmDialog, modal, loading } from './ui.js';
+import { a3Calendar } from './a3-calendar.js';
+import { h, fill, toast, confirmDialog, modal, loading, avatar } from './ui.js';
 import { get, post, patch, del } from './api.js';
-import { store } from './store.js';
+import { store, userById } from './store.js';
 import { icon } from './icons.js';
 import { projectDetail } from './projects.js';
 import { openTicket } from './tickets.js';
 import { performanceView } from './performance.js';
 
-const YEAR = 2026;
+// l'anno dell'Hoshin Kanri che si guarda: si sceglie in testata e resta ricordato su questo computer
+const YEAR_KEY = 'alma.hkYear';
+let YEAR = (() => { try { return Number(localStorage.getItem(YEAR_KEY)) || new Date().getFullYear(); } catch { return new Date().getFullYear(); } })();
+let YEARS = null;
 let D = null; // tutto l'anno, da GET /api/strategy
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const CATEGORIES = [['macchine', 'Macchine / Strumenti'], ['persone', 'Persone'], ['ambiente', 'Ambiente'], ['materiali', 'Materiali'], ['metodo', 'Metodo'], ['misurazioni', 'Misurazioni']];
 const STATUSES = [['attivo', 'Attivo'], ['in pausa', 'In pausa'], ['concluso', 'Concluso']];
 
-async function load() { D = await get(`/api/strategy?year=${YEAR}`); }
+async function load() {
+  if (!YEARS) YEARS = await get('/api/strategy/years', { quiet: true }).then(r => r.years).catch(() => [{ year: 2026 }]);
+  if (!YEARS.some(y => y.year === YEAR)) YEAR = (YEARS.filter(y => y.year <= new Date().getFullYear()).pop() || YEARS[YEARS.length - 1]).year;
+  D = await get(`/api/strategy?year=${YEAR}`);
+}
+const rerender = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
+function yearPicker() {
+  const list = YEARS || [{ year: YEAR }];
+  const max = Math.max(...list.map(y => y.year));
+  return h('select.hk-year', { 'aria-label': 'Anno dell’Hoshin Kanri', on: { change: async e => {
+    if (e.target.value === 'new') { e.target.value = String(YEAR); return newYear(max + 1); }
+    YEAR = Number(e.target.value);
+    try { localStorage.setItem(YEAR_KEY, String(YEAR)); } catch { /* niente */ }
+    rerender();
+  } } },
+  list.map(y => h('option', { value: String(y.year), selected: y.year === YEAR }, y.undecided && (y.year < new Date().getFullYear() || new Date().getMonth() === 11 || list.some(z => z.year === y.year + 1)) ? `${y.year} · ${y.undecided} da decidere` : String(y.year))),
+  D?.can_admin ? h('option', { value: 'new' }, `+ Crea il ${max + 1}`) : null);
+}
+async function newYear(next) {
+  if (!await confirmDialog(`Creare l’Hoshin Kanri ${next}? Si copiano dal ${next - 1} True North, pillar, BU e funzioni con le aree e i KPI (senza i valori mensili). Gli A3 entrano solo con la decisione di fine anno di ognuno.`, { ok: `Crea il ${next}` })) return;
+  await post('/api/strategy/years', { year: next, from: next - 1 });
+  YEARS = null; YEAR = next;
+  try { localStorage.setItem(YEAR_KEY, String(YEAR)); } catch { /* niente */ }
+  toast(`Hoshin Kanri ${next} creato`);
+  rerender();
+}
+// fine anno: da dicembre, o quando l'anno dopo c'è già, ogni A3 aperto decide come prosegue
+const yearEnding = () => D.next_year_exists || D.today >= `${YEAR}-12-01` || Number(D.today.slice(0, 4)) > YEAR;
+const undecided = p => !p.carry && p.status !== 'concluso';
 const svgEl = (tag, attrs = {}, ...kids) => {
   const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [k, val] of Object.entries(attrs)) el.setAttribute(k, val);
@@ -82,6 +114,8 @@ export async function strategyView(container, parts = []) {
   if (['scheda', 'obiettivi', 'team', 'mansionario'].includes(parts[1])) return performanceView(container, parts[1], parts[2]);
   const page = parts[1] === 'matrix' ? 'hoshin' : ['hoshin', 'gestione', 'a3', 'dashboard'].includes(parts[1]) ? parts[1] : 'hoshin';
   fill(container, loading());
+  const qy = Number(new URLSearchParams(location.hash.split('?')[1] || '').get('y'));
+  if (qy) YEAR = qy; // un link a un A3 di un altro anno
   await load();
   if (page === 'hoshin') return matrixPage(container);
   if (page === 'gestione') return gestionePage(container, parts[2]);
@@ -89,7 +123,7 @@ export async function strategyView(container, parts = []) {
   if (page === 'dashboard') return dashboardPage(container);
 }
 
-const head = (title, right) => h('div.page-head.hk-head', h('div', h('div.hk-eyebrow', `Alma Strategy · Hoshin Kanri ${YEAR}`), h('h1', title)), right || null);
+const head = (title, right) => h('div.page-head.hk-head', h('div', h('div.hk-eyebrow', 'Alma Strategy · Hoshin Kanri ', yearPicker()), h('h1', title)), right || null);
 
 // ═══ Hoshin Kanri: la vista d'insieme ════════════════════════════════════════════════════════════
 // Le misure si calcolano sulla larghezza disponibile, così la vista sta sullo schermo senza scorrere di lato.
@@ -629,6 +663,11 @@ function a3List(container) {
     return fill(container, head('A3 dei progetti', D.can_admin ? h('a.btn', { href: '#/strategy/gestione' }, icon('plus'), 'Nuovo progetto') : null), crumb,
       h('div.a3f-label', 'Funzioni di staff'), h('div.a3f-grid', kind('staff').map(card)),
       h('div.a3f-label', 'Business unit'), h('div.a3f-grid', kind('bu').map(card)),
+      yearEnding() && D.projects.some(undecided) ? h('section.hk-card.hk-carry-list',
+        h('strong', `Fine ${YEAR}: ${D.projects.filter(undecided).length} A3 da decidere`), h('span.muted.small', 'Per ognuno: si chiude, prosegue fuori dall’Hoshin Kanri o entra nel nuovo anno. Si decide dalla pagina dell’A3.'),
+        h('div.hk-carry-links', D.projects.filter(undecided).map(p => h('a.pill', { href: `#/strategy/a3/${p.id}` }, p.name)))) : null,
+      D.outside?.length ? [h('div.a3f-label', `Proseguono nel ${YEAR} fuori dall’Hoshin Kanri`),
+        h('div.hk-carry-links', D.outside.map(p => h('a.pill', { href: `#/strategy/a3/${p.id}?y=${p.year}` }, `${p.name} · ${p.owner || ''}`)))] : null,
       h('p.muted.small', 'La barra è l’avanzamento medio degli A3 della funzione, la tacca l’atteso a oggi. Le funzioni senza A3 sono sbiadite.'));
   }
   const s = funcStats(sel);
@@ -739,12 +778,85 @@ async function a3Page(container, id) {
     base: `#/strategy/a3/${p.id}`,
     crumb: { href: '#/strategy/hoshin', label: 'Hoshin Kanri' },
     defaultTab: 'a3',
-    head: a3Strip(p, func),
+    head: [carryBox(p, () => a3Page(container, id)), a3Strip(p, func)],
     actions: () => [
+      p.can_edit ? h('button.btn.btn-primary', { type: 'button', on: { click: () => openInvite(p) } }, icon('users', { size: 16 }), 'Invita nel team') : null,
       p.can_edit ? null : h('span.pill', { title: 'Per modificare l’A3, i ticket o il Gantt chiedi al responsabile di aggiungerti al progetto' }, 'Sola lettura'),
       h('button.btn', { type: 'button', on: { click: () => window.print() } }, icon('file-text', { size: 16 }), 'Esporta A3 in PDF')],
-    extraTabs: [['a3', 'A3', (box, reload) => a3Tab(box, p, reload)]],
+    extraTabs: [['a3', 'A3', (box, reload) => a3Tab(box, p, reload)], ['calendario', 'Calendario', box => a3Calendar(box, { id: p.project_id, name: p.name, my_role: p.can_edit ? 'member' : 'viewer' }, { color: func?.color || '#FF8A26' })]],
   });
+}
+
+// Invitare colleghi nell'A3: entrano nel team e ricevono una email allegra con l'A3 e la nota di chi invita.
+async function openInvite(p) {
+  const chosen = new Set();
+  const others = store.users.filter(u => u.active !== false && u.id !== store.me.id);
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca un collega', 'aria-label': 'Cerca un collega' });
+  const list = h('div.a3i-list');
+  const chips = h('div.a3i-chips');
+  const note = h('textarea.input', { rows: 4, maxlength: 2000, placeholder: 'Perché vorresti proprio questa persona nel team? Due righe per convincerla: finiscono nella email.' });
+  const past = h('div.a3i-past');
+  const drawList = () => {
+    const q = search.value.trim().toLowerCase();
+    fill(list, others.filter(u => !q || u.name.toLowerCase().includes(q)).slice(0, 40).map(u => h('label.a3i-person', { class: chosen.has(u.id) ? 'on' : '' },
+      h('input', { type: 'checkbox', checked: chosen.has(u.id), on: { change: e => { e.target.checked ? chosen.add(u.id) : chosen.delete(u.id); drawList(); drawChips(); } } }),
+      avatar(u, 28), h('span', h('strong', u.name), u.job_title ? h('small', u.job_title) : null))));
+  };
+  const drawChips = () => fill(chips, chosen.size ? [...chosen].map(id => h('span.pill.a3i-chip', userById(id)?.name || '', h('button', { type: 'button', 'aria-label': 'Togli', on: { click: () => { chosen.delete(id); drawList(); drawChips(); } } }, '×'))) : h('span.muted.small', 'Nessuno scelto'));
+  search.addEventListener('input', drawList);
+  drawList(); drawChips();
+  get(`/api/strategy/projects/${p.id}/invites`, { quiet: true }).then(rows => {
+    if (rows?.length) fill(past, h('div.hk-lbl', 'Già invitati'), rows.slice(0, 8).map(r => h('div.small.muted', `${r.name} · da ${r.invited_by_name || '—'} il ${itDate(String(r.created_at).slice(0, 10))}${r.emailed ? '' : ' · senza email'}`)));
+  }).catch(() => {});
+  const preview = async () => {
+    const r = await post(`/api/strategy/projects/${p.id}/invite/preview`, { note: note.value, user_id: [...chosen][0] || null });
+    const frame = h('iframe.a3i-frame', { title: 'Anteprima della email', sandbox: 'allow-same-origin' }); // niente script nella email
+    frame.srcdoc = r.html;
+    const pm = modal({ title: r.subject, wide: true, body: frame, actions: [h('button.btn', { type: 'button', on: { click: () => pm.close() } }, 'Chiudi')] });
+  };
+  const m = modal({
+    title: `Invita nel team dell’A3 «${p.name}»`,
+    wide: true,
+    body: [h('div.a3i-grid',
+      h('div', h('div.hk-lbl', 'Chi vuoi nel team'), search, list),
+      h('div', h('div.hk-lbl', 'Invitati'), chips, h('label.field', h('span', 'La tua nota (facoltativa)'), note),
+        h('p.muted.small', 'Entrano nel team del progetto (ticket, Gantt, incontri) e ricevono dalla tua casella una email con l’A3 e la tua nota.'), past))],
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn', { type: 'button', on: { click: preview } }, 'Anteprima email'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        if (!chosen.size) { toast('Scegli almeno una persona', 'err'); return; }
+        const r = await post(`/api/strategy/projects/${p.id}/invite`, { user_ids: [...chosen], note: note.value.trim() });
+        m.close();
+        toast(r.emailed === r.invited ? `Invito mandato a ${r.invited === 1 ? '1 persona' : `${r.invited} persone`}` : `${r.invited} nel team · email mandate: ${r.emailed}`);
+        await load();
+      } } }, icon('mail', { size: 16 }), 'Invita')],
+  });
+}
+
+// Fine anno: chiudere l'A3, farlo proseguire fuori dall'Hoshin Kanri dell'anno dopo, o farlo entrare nell'anno dopo.
+function carryBox(p, reload) {
+  const decide = decision => async () => {
+    const r = await post(`/api/strategy/projects/${p.id}/carry`, { decision });
+    toast(decision === 'inserito' ? `L’A3 è nell’Hoshin Kanri ${YEAR + 1}${r.area_found === false ? ': scegli la sua area' : ''}` : decision === 'annulla' ? 'Decisione annullata' : 'Decisione salvata');
+    await load(); reload();
+  };
+  const undo = p.can_edit ? h('button.link-btn.small', { type: 'button', on: { click: decide('annulla') } }, 'annulla') : null;
+  const from = p.from_year ? h('span.hk-carry-from', icon('arrows', { size: 14 }), `Arriva dall’Hoshin Kanri ${p.from_year}`) : null;
+  if (p.carry === 'inserito') return h('div.hk-carry.done', icon('check', { size: 16 }), h('span', `Prosegue nell’Hoshin Kanri ${YEAR + 1}`), p.next_id ? h('a', { href: `#/strategy/a3/${p.next_id}?y=${YEAR + 1}` }, 'Aprilo →') : null);
+  if (p.carry === 'fuori') return h('div.hk-carry.done', icon('arrows', { size: 16 }), h('span', `Prosegue nel ${YEAR + 1} fuori dall’Hoshin Kanri`), undo);
+  if (p.carry === 'chiuso') return h('div.hk-carry.done', icon('check', { size: 16 }), h('span', `Chiuso a fine ${YEAR}`), undo);
+  if (!p.can_edit || !undecided(p) || !yearEnding()) return from;
+  const open = p.tasks.filter(t => !t.closed_date).length;
+  const choice = (cls, ic, title, text, decision, extra = {}) => h('button.hk-choice', { type: 'button', class: cls, on: { click: decide(decision) }, ...extra },
+    h('span.hk-choice-ico', icon(ic, { size: 20 })), h('strong', title), h('span', text));
+  return h('section.hk-carry.big',
+    h('div.hk-carry-top', h('span.hk-carry-cal', icon('calendar', { size: 22 })),
+      h('div', h('h2', `Fine ${YEAR}: come prosegue questo A3?`),
+        h('span', `Un A3 può durare più anni.${p.tasks.length ? ` Restano aperte ${open} contromisure su ${p.tasks.length}:` : ''} scegli tu cosa succede dal 1° gennaio.`), from)),
+    h('div.hk-choices',
+      choice('ok', 'check', 'Chiudilo', `L’A3 si conclude nel ${YEAR}. Le contromisure aperte restano come sono, il progetto resta consultabile.`, 'chiuso'),
+      choice('out', 'arrows', `Prosegue nel ${YEAR + 1}, fuori dall’Hoshin`, `Si continua a lavorarci, ma non entra nella X-Matrix ${YEAR + 1}. Lo trovi tra gli A3 che proseguono per conto loro.`, 'fuori'),
+      choice('in', 'plus', `Entra nell’Hoshin Kanri ${YEAR + 1}`, D.next_year_exists ? `Lo stesso A3 passa nel ${YEAR + 1}, nella stessa funzione, con le stesse contromisure e gli stessi ticket.` : `Serve prima l’Hoshin Kanri ${YEAR + 1}: lo crea un amministratore dal selettore dell’anno.`, 'inserito')));
 }
 
 // Riga dell'A3 nell'intestazione del progetto: avanzamento pesato sulle contromisure, stato, KPI, prossima scadenza.
@@ -773,7 +885,7 @@ function a3Tab(box, p, reload) {
     const sum = p.tasks.reduce((s, t) => s + t.weight, 0);
     const causes = p.causes || {};
     const step = (n, title, dark) => h('div.hk-step', h('span.hk-num', { class: dark ? 'acc' : '' }, String(n)), h('h2', title));
-    const dues = p.tasks.map(t => t.due_date).filter(Boolean).sort();
+    const dues = p.tasks.flatMap(t => [t.start_date, t.due_date]).filter(Boolean).sort();
     const startIso = [`${p.start_year || YEAR}-01-01`, dues[0] ? `${dues[0].slice(0, 7)}-01` : null].filter(Boolean).sort()[0];
     const sy = Number(startIso.slice(0, 4)), sm = Number(startIso.slice(5, 7)) - 1;
     const lastIso = [dues[dues.length - 1] || '', `${YEAR}-12-31`].sort().pop();
@@ -783,11 +895,11 @@ function a3Tab(box, p, reload) {
     const months = Array.from({ length: nM }, (_, i) => { const m = (sm + i) % 12, y = sy + Math.floor((sm + i) / 12); return { l: MONTHS[m] + (m === 0 || i === 0 ? ` ${String(y).slice(2)}` : ''), now: D.today.slice(0, 7) === `${y}-${String(m + 1).padStart(2, '0')}` }; });
 
     const taskRow = (t, i) => {
-      const prev = i === 0 ? startIso : (p.tasks[i - 1].due_date || startIso);
+      const prev = t.start_date || (i === 0 ? startIso : (p.tasks[i - 1].due_date || startIso));
       const late = !t.closed_date && t.due_date && t.due_date < D.today;
       const lateClose = t.closed_date && t.due_date && t.closed_date > t.due_date;
       const x0 = Math.max(0, pos(prev)), x1 = t.due_date ? pos(t.due_date) + colW / 30 : x0 + colW;
-      const field = (f, attrs = {}) => h('input.hk-in', { value: t[f] ?? '', ...attrs, on: { change: async e => { await save('tasks', t, { [f]: attrs.type === 'number' ? Number(e.target.value || 0) : e.target.value || (attrs.type === 'date' ? null : '') }); f === 'weight' || f === 'due_date' || f === 'closed_date' ? refresh() : draw(); } } });
+      const field = (f, attrs = {}) => h('input.hk-in', { value: t[f] ?? '', ...attrs, on: { change: async e => { await save('tasks', t, { [f]: attrs.type === 'number' ? Number(e.target.value || 0) : e.target.value || (attrs.type === 'date' ? null : '') }); f === 'weight' || f === 'due_date' || f === 'start_date' || f === 'closed_date' ? refresh() : draw(); } } });
       return h('div.hk-cm',
         h('span.hk-num', { class: t.closed_date ? 'done' : '' }, String(i + 1)),
         h('div', h('textarea.hk-in.hk-act', { rows: 2, 'aria-label': 'Attività di dettaglio', on: { change: e => save('tasks', t, { activity: e.target.value }) } }, t.activity),
@@ -795,7 +907,8 @@ function a3Tab(box, p, reload) {
             t.ticket_id ? h('button.hk-ticketlink', { type: 'button', title: 'Apri il ticket di questa contromisura', on: { click: () => openTicket(t.ticket_id, { onSaved: refresh }) } }, icon('square-check', { size: 14 }), `Ticket #${t.ticket_id}`) : null)),
         field('weight', { type: 'number', min: 0, max: 100, class: 'center' }),
         field('owner'),
-        field('due_date', { type: 'date' }),
+        field('start_date', { type: 'date', 'aria-label': 'Inizio' }),
+        field('due_date', { type: 'date', 'aria-label': 'Scadenza' }),
         h('div.hk-close',
           t.closed_date ? field('closed_date', { type: 'date' }) : null,
           h('button.hk-closebtn', { type: 'button', class: t.closed_date ? (lateClose ? 'late' : 'done') : late ? 'over' : '',
@@ -849,8 +962,8 @@ function a3Tab(box, p, reload) {
               input);
           }))),
       h('section.hk-card.cmcard',
-        h('div.row.spread', h('div.row', step(5, 'Countermeasures', true), h('span.muted', 'ogni contromisura è un ticket del progetto: chiudere l’uno chiude l’altra')), h('span', { class: sum === 100 ? 'ok' : 'ko' }, `Pesi ${sum}% su 100%`)),
-        h('div.hk-cm.head', h('span', 'Rif.'), h('span', 'Attività di dettaglio · area di intervento'), h('span', 'Peso %'), h('span', 'Owner'), h('span', 'Scadenza'), h('span', 'Chiusura reale'),
+        h('div.row.spread', h('div.row', step(5, 'Countermeasures', true), h('span.muted', 'ogni contromisura è un ticket del progetto: date e chiusura sono le stesse nel Gantt e nei ticket')), h('div.row', p.project_visible ? h('a.small', { href: `#/strategy/a3/${p.id}/gantt` }, 'Lo stesso Gantt nel tab Gantt →') : null, h('span', { class: sum === 100 ? 'ok' : 'ko' }, `Pesi ${sum}% su 100%`))),
+        h('div.hk-cm.head', h('span', 'Rif.'), h('span', 'Attività di dettaglio · area di intervento'), h('span', 'Peso %'), h('span', 'Owner'), h('span', 'Inizio'), h('span', 'Scadenza'), h('span', 'Chiusura reale'),
           h('div.hk-gantt.head', { style: { width: `${GW}px` } }, months.map((m, j) => h('span', { class: m.now ? 'now' : '', style: { left: `${j * colW}px`, width: `${colW}px` } }, m.l))), h('span')),
         p.tasks.map(taskRow),
         h('button.hk-addrow', { type: 'button', on: { click: async () => {

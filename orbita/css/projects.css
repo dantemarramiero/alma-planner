@@ -139,3 +139,6 @@ a.pj-crumb:hover { color: var(--ink); }
 }
 
 /* «Apri in Claude»: progetto collegato su claude.ai */
+
+/* incontri fatti senza note: pallino rosso sul tab (11/11/2026) */
+.pj-nonotes { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-left: 6px; vertical-align: middle; }

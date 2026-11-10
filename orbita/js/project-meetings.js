@@ -69,7 +69,9 @@ export function projectMeetings(box, p, { onCount } = {}) {
     }
     const upcoming = meetings.filter(m => !isPast(m)).reverse(); // dal più vicino
     const past = meetings.filter(isPast);
+    const missing = past.filter(m => !m.note_count).length;
     fill(listBox, [
+      missing ? h('div.mt-warn', icon('alarm-clock', { size: 16 }), ` ${missing === 1 ? '1 incontro fatto non ha' : `${missing} incontri fatti non hanno`} ancora le note: aprilo e scrivi com'è andato.`) : null,
       upcoming.length ? [h('div.mt-group', 'In programma'), upcoming.map(row)] : null,
       past.length ? [h('div.mt-group', 'Fatti'), past.map(row)] : null,
     ]);
@@ -83,7 +85,7 @@ export function projectMeetings(box, p, { onCount } = {}) {
         h('div.pe-subject', m.subject),
         h('div.pe-preview', meetingWhen(m), m.location ? ` · ${m.location}` : ''),
         h('div.mt-counts',
-          m.note_count ? h('span', icon('file', { size: 13 }), ` ${m.note_count} ${m.note_count === 1 ? 'nota' : 'note'}`) : h('span.muted', isPast(m) ? 'Nessuna nota' : ''),
+          m.note_count ? h('span', icon('file', { size: 13 }), ` ${m.note_count} ${m.note_count === 1 ? 'nota' : 'note'}`) : isPast(m) ? h('span.mt-nonotes', icon('alarm-clock', { size: 13 }), ' Note mancanti: aggiungile') : null,
           m.file_count ? h('span', icon('paperclip', { size: 13 }), ` ${m.file_count} file`) : null)),
       by ? h('span.pe-by', { title: `Collegato da ${by.name}` }, avatar(by, 22)) : null);
   }
