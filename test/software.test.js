@@ -340,3 +340,82 @@ test('Claude: membri dall\'Admin API (a pagine), abbinati a Microsoft per email;
     delete process.env.ANTHROPIC_ADMIN_KEY;
   }
 });
+
+test('Zoho: consenso dell\'amministratore, utenti di Zoho One (completi e Lite) e licenze CRM nel «Zoho CRM» già censito', async () => {
+  delete process.env.ZOHO_CLIENT_ID;
+  delete process.env.ZOHO_CLIENT_SECRET;
+  let src = (await A('GET', '/api/software')).body.sources.find(s => s.key === 'zoho');
+  assert.deepEqual([src.configured, src.connected], [false, false]);
+
+  process.env.ZOHO_CLIENT_ID = '1000.PROVA';
+  process.env.ZOHO_CLIENT_SECRET = 'segreto-prova';
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!/^https:\/\/(accounts\.zoho|(www\.)?zohoapis)\.eu\//.test(u)) return realFetch(url, opts);
+    calls.push({ url: u, auth: opts.headers?.Authorization, body: opts.body ? String(opts.body) : '' });
+    const json = b => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (u === 'https://accounts.zoho.eu/oauth/v2/token') {
+      return String(opts.body).includes('grant_type=authorization_code')
+        ? json({ access_token: 'a1', refresh_token: 'r1', api_domain: 'https://www.zohoapis.eu', expires_in: 3600 })
+        : json({ access_token: 'a2', api_domain: 'https://www.zohoapis.eu', expires_in: 3600 });
+    }
+    if (u === 'https://zohoapis.eu/one/api/v2/orgs') return json({ orgs: [{ org_id: '777' }] });
+    if (u.startsWith('https://zohoapis.eu/one/api/v2/orgs/777/users')) return json({ users: [
+      { user_id: '1', primary_email: 'Anna@almacis.it', full_name: 'Anna Z', user_status: 1, is_light_user: false },
+      { user_id: '2', primary_email: 'esterno@studio.it', full_name: 'Studio Esterno', user_status: 1, is_light_user: true },
+      { user_id: '3', primary_email: 'ex@almacis.it', full_name: 'Ex', user_status: 0, is_light_user: false },
+    ] });
+    if (u === 'https://www.zohoapis.eu/crm/v8/__features/user_licenses') return json({ __features: [{ details: { limits: { total: 10 }, used_count: { total: 1 } } }] });
+    if (u.startsWith('https://www.zohoapis.eu/crm/v8/users')) return json({ users: [{ id: 'c1', email: 'anna@almacis.it', full_name: 'Anna Z', status: 'active' }], info: { more_records: false } });
+    return new Response('{}', { status: 404 });
+  };
+  try {
+    // «Collega Zoho»: si va da Zoho con uno stato; il ritorno con uno stato diverso non vale
+    const go = await fetch(`${base}/api/software/zoho/connect`, { headers: { cookie: admin }, redirect: 'manual' });
+    const to = new URL(go.headers.get('location'));
+    assert.equal(to.origin + to.pathname, 'https://accounts.zoho.eu/oauth/v2/auth');
+    assert.match(to.searchParams.get('scope'), /ZohoOne\.Users\.READ/);
+    assert.equal(to.searchParams.get('access_type'), 'offline');
+    const state = to.searchParams.get('state');
+    const bad = await fetch(`${base}/api/software/zoho/callback?code=x&state=altro`, { headers: { cookie: admin }, redirect: 'manual' });
+    assert.match(bad.headers.get('location'), /zoho_errore=/);
+    // lo stato si usa una volta sola: si rifà «Collega»
+    const go2 = await fetch(`${base}/api/software/zoho/connect`, { headers: { cookie: admin }, redirect: 'manual' });
+    const state2 = new URL(go2.headers.get('location')).searchParams.get('state');
+    assert.notEqual(state2, state);
+    const ok = await fetch(`${base}/api/software/zoho/callback?code=c0de&state=${state2}&accounts-server=${encodeURIComponent('https://accounts.zoho.eu')}`, { headers: { cookie: admin }, redirect: 'manual' });
+    assert.equal(ok.headers.get('location'), '/app#/it/collegamenti?zoho=ok');
+    // il refresh token è salvato cifrato, mai in chiaro
+    const { rows: [saved] } = await db.query("SELECT value::text AS v FROM settings WHERE key = 'software.zoho'");
+    assert.ok(!saved.v.includes('"r1"'));
+    src = (await A('GET', '/api/software')).body.sources.find(s => s.key === 'zoho');
+    assert.deepEqual([src.configured, src.connected, src.oauth], [true, true, 'zoho']);
+
+    const r = (await A('POST', '/api/software/sync/zoho')).body;
+    assert.deepEqual([r.software, r.warnings], [2, []]);
+    assert.ok(calls.some(c => c.body.includes('grant_type=refresh_token')));
+    assert.ok(calls.filter(c => c.url.includes('zohoapis')).every(c => c.auth === 'Zoho-oauthtoken a2'));
+
+    const all = (await A('GET', '/api/software')).body;
+    assert.equal(all.software.filter(s => s.name.toLowerCase() === 'zoho crm').length, 1); // nessun doppione di quello scoperto da Entra
+    const one = (await A('GET', `/api/software/${all.software.find(s => s.name === 'Zoho One').id}`)).body;
+    assert.deepEqual(one.plans.map(p => p.name).sort(), ['Licenza Zoho One', 'Zoho One Lite']);
+    assert.deepEqual(one.assignments.map(a => [a.person_oid, Boolean(a.account_disabled)]).sort(),
+      [['o-anna', false], ['zoho:esterno@studio.it', false], ['zoho:ex@almacis.it', true]]);
+    const crm = (await A('GET', `/api/software/${all.software.find(s => s.name.toLowerCase() === 'zoho crm').id}`)).body;
+    const lic = crm.plans.find(p => p.name === 'Licenze CRM');
+    assert.deepEqual([lic.seats, lic.assigned], [10, 1]);
+    assert.ok(crm.plans.some(p => p.name === 'Utenti collegati')); // quello di Entra resta
+
+    // scollega: torna «da collegare»
+    assert.equal((await A('POST', '/api/software/zoho/disconnect')).status, 200);
+    assert.equal((await A('GET', '/api/software')).body.sources.find(s => s.key === 'zoho').connected, false);
+    assert.equal((await A('POST', '/api/software/sync/zoho')).status, 400);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.ZOHO_CLIENT_ID;
+    delete process.env.ZOHO_CLIENT_SECRET;
+  }
+});
