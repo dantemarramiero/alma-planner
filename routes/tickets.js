@@ -208,9 +208,10 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
   app.get('/api/tickets', async (req, res) => {
     const where = [], params = [];
     const add = (sql, val) => { params.push(val); where.push(sql.replace('?', `$${params.length}`)); };
-    const { project, assignee, status, q, from, to } = req.query;
+    const { project, assignee, status, q, from, to, creator } = req.query;
     if (project === 'none') where.push('t.project_id IS NULL');
     else if (project) add('t.project_id = ?', v.int(project, 'progetto', { min: 1 }));
+    if (creator === 'me') add('t.created_by = ?', req.user.id); // «Creati da me» nella pagina Ticket
     if (assignee === 'me') add('EXISTS (SELECT 1 FROM ticket_assignees a WHERE a.ticket_id = t.id AND a.user_id = ?)', req.user.id);
     else if (assignee === 'none') where.push('NOT EXISTS (SELECT 1 FROM ticket_assignees a WHERE a.ticket_id = t.id)');
     else if (assignee) add('EXISTS (SELECT 1 FROM ticket_assignees a WHERE a.ticket_id = t.id AND a.user_id = ?)', v.int(assignee, 'assegnatario', { min: 1 }));

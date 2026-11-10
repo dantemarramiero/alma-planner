@@ -1,0 +1,64 @@
+/* Nuova struttura (10/11/2026): Home con «La mia giornata», Bacheca con i filtri, Persone, La mia settimana,
+   Ticket unico, campanella in fondo alla barra. Solo token del brand; refresh.css resta l'ultimo foglio. */
+
+/* campanella in fondo alla barra laterale (Notifiche esce dal menu) */
+.foot-bell { position: relative; display: flex; align-items: center; gap: var(--ap-space-2); padding: 8px 10px; border-radius: var(--radius); color: var(--ap-text); text-decoration: none; }
+.foot-bell:hover, .foot-bell.active { background: var(--ap-orange-tint, #FFF1E5); color: var(--orange-fill, var(--orange)); }
+.foot-bell .nav-badge { margin-left: auto; }
+
+/* Home: La mia giornata */
+.wl-agenda { display: grid; gap: 6px; }
+.wl-meet { display: flex; align-items: center; gap: var(--ap-space-2); color: inherit; text-decoration: none; padding: 4px 0; }
+.wl-meet-h { flex: none; width: 44px; font-weight: var(--ap-fw-bold); color: var(--ap-info, #2F6FA3); font-variant-numeric: tabular-nums; }
+.wl-daylist { display: grid; gap: 2px; border-top: 1px solid var(--rule); padding-top: var(--ap-space-2); }
+.wl-daylist .wl-kv { color: inherit; text-decoration: none; }
+.wl-daylist .wl-kv:hover span { color: var(--orange-fill, var(--orange)); }
+.wl-daylist strong.ko { color: var(--red); }
+
+/* Bacheca */
+.feed-head { margin-bottom: var(--ap-space-3); }
+.feed-filters a { text-decoration: none; color: var(--ap-text); padding: 6px 12px; border-radius: var(--radius-pill); }
+.feed-filters a.on { background: var(--ap-bg); color: var(--ap-text-strong); box-shadow: 0 1px 2px rgba(28, 24, 20, .08); }
+.feed-filters { flex-wrap: wrap; }
+
+/* Persone */
+.page-head .seg a { text-decoration: none; color: var(--ap-text); padding: 6px 14px; border-radius: var(--radius-pill); }
+.page-head .seg a.on { background: var(--ap-bg); color: var(--ap-text-strong); box-shadow: 0 1px 2px rgba(28, 24, 20, .08); }
+.ps-body { display: grid; gap: var(--ap-space-4); }
+.ps-week { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: var(--ap-space-3); }
+.ps-tile { padding: var(--ap-space-4); display: grid; gap: 4px; align-content: start; color: inherit; text-decoration: none; }
+.ps-tile small { color: var(--muted); }
+.ps-lab { display: inline-flex; align-items: center; gap: 6px; font-size: var(--ap-fs-xs); color: var(--muted); }
+.ps-grazie { background: var(--green-soft); border-color: transparent; }
+.ps-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ap-space-2); }
+.ps-tools .input { flex: 1 1 260px; }
+.ps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--ap-space-3); }
+.ps-card { padding: var(--ap-space-4); display: grid; justify-items: center; gap: 6px; text-align: center; min-width: 0; }
+.ps-card .row { justify-content: center; }
+.ps-pdf:empty { display: none; }
+.ps-pdf .wl-box { max-width: 420px; }
+
+/* La mia settimana */
+.wk-body { display: grid; gap: var(--ap-space-4); }
+.wk-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--ap-space-3); }
+.wk-kpi { padding: var(--ap-space-4); display: grid; gap: 2px; color: inherit; text-decoration: none; }
+.wk-kpi strong { font-size: 1.6rem; color: var(--ap-text-strong); font-variant-numeric: tabular-nums; }
+.wk-kpi strong.ko { color: var(--red); }
+.wk-days { display: grid; grid-template-columns: repeat(5, minmax(170px, 1fr)); gap: var(--ap-space-3); overflow-x: auto; padding-bottom: 4px; }
+.wk-day { padding: var(--ap-space-3); display: flex; flex-direction: column; gap: var(--ap-space-2); min-height: 260px; }
+.wk-day.today { border: 2px solid var(--orange); }
+.wk-day h2 { margin: 0; font-size: 15px; }
+.wk-now { color: var(--orange-fill, var(--orange)); font-weight: var(--ap-fw-medium); }
+.wk-item { display: grid; gap: 2px; text-align: left; border: 0; border-radius: var(--radius); padding: 8px 10px; font: inherit; color: var(--ap-text-strong); text-decoration: none; cursor: pointer; background: var(--ap-grey-100); }
+.wk-item small { color: var(--muted); }
+.wk-tag { font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-bold); }
+.wk-meet { background: color-mix(in srgb, var(--ap-info, #2F6FA3) 10%, var(--ap-white)); }
+.wk-meet .wk-tag { color: var(--ap-info, #2F6FA3); }
+.wk-ticket { background: var(--ap-orange-tint, #FFF1E5); }
+.wk-ticket .wk-tag { color: var(--orange-fill, var(--orange)); }
+.wk-ticket.now, .wk-ticket.late { background: var(--red-soft); }
+.wk-ticket.now .wk-tag, .wk-ticket.late .wk-tag { color: var(--red); }
+.wk-rda { background: var(--amber-soft); }
+.wk-car { background: var(--green-soft); }
+.wk-car .wk-tag { color: var(--green); }
+@media (max-width: 760px) { .wk-days { grid-template-columns: 1fr; } .wk-day { min-height: 0; } }
