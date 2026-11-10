@@ -1,5 +1,5 @@
-// Home dell'intranet: storie, nuovo post, bacheca (in evidenza + cronologica a scorrimento infinito),
-// e a lato il proprio profilo, i ticket da fare e i colleghi.
+// Bacheca dell'intranet (prima era la Home): storie, nuovo post, post in evidenza + cronologici a scorrimento
+// infinito, filtri (News aziendali, Grazie a…, Del mio reparto) e a lato i colleghi. Profilo e ticket stanno nella Home.
 import { h, clear, fill, avatar, modal, toast, timeAgo, fmtDate, confirmDialog, today, loading, isMobile } from './ui.js';
 import { get, post, del } from './api.js';
 import { store, userById, firstName } from './store.js';
@@ -15,6 +15,8 @@ const CAPTION_CUT = 220;
 
 export function homeView(view, params) {
   const tag = params.get('tag');
+  const FILTERS = [['', 'Tutto'], ['news', 'News aziendali'], ['grazie', 'Grazie a…'], ['reparto', 'Del mio reparto']];
+  const filter = FILTERS.some(([k]) => k && k === params.get('filtro')) ? params.get('filtro') : '';
   const offs = [];
   let next = null, busy = false, observer = null;
 
@@ -28,7 +30,9 @@ export function homeView(view, params) {
     newPill,
     tag
       ? h('div.tag-head', h('h1', `#${tag}`), h('a.btn.btn-sm', { href: '#/' }, '← Tutta la bacheca'))
-      : [stories.el, isMobile() ? todayCard() : null, composerCard(() => reload())],
+      : [h('div.page-head.feed-head', h('div', h('h1', 'Bacheca'), h('div.sub', 'Tutti i post dei colleghi, le news e le storie di 24 ore.')),
+        h('nav.seg.feed-filters', { 'aria-label': 'Filtro' }, FILTERS.map(([k, l]) => h('a', { href: k ? `#/?filtro=${k}` : '#/', class: k === filter ? 'on' : '', 'aria-current': k === filter ? 'page' : null }, l)))),
+        stories.el, isMobile() ? todayCard() : null, composerCard(() => reload())],
     pinnedBox, list, sentinel);
 
   fill(view, h('div.home', feedCol, sideColumn()));
@@ -50,13 +54,15 @@ export function homeView(view, params) {
     try {
       const q = new URLSearchParams();
       if (tag) q.set('tag', tag);
+      if (filter === 'grazie' || filter === 'reparto') q.set('filter', filter);
       if (next) q.set('before', next);
       const data = await get(`/api/feed?${q}`);
       if (!next && data.pinned?.length) pinnedBox.append(...data.pinned.map(p => postCard(p, cardOpts)));
-      list.append(...data.posts.map(p => postCard(p, cardOpts)));
-      next = data.next || false;
+      // «News aziendali» = solo i post messi in evidenza
+      if (filter !== 'news') list.append(...data.posts.map(p => postCard(p, cardOpts)));
+      next = filter === 'news' ? false : data.next || false;
       if (!list.childElementCount && !pinnedBox.childElementCount) {
-        list.append(h('div.card.empty', tag ? `Nessun post con #${tag}.` : 'Ancora nessun post: scrivi il primo!'));
+        list.append(h('div.card.empty', tag ? `Nessun post con #${tag}.` : filter ? 'Nessun post per questo filtro.' : 'Ancora nessun post: scrivi il primo!'));
       }
     } finally {
       busy = false;
@@ -440,16 +446,7 @@ function todayCard() {
 }
 
 function sideColumn() {
-  const tickets = h('div.side-list', loading());
   const people = h('div.side-list');
-  get('/api/tickets?assignee=me&status=open', { quiet: true }).then(list => {
-    list.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
-    fill(tickets, list.length
-      ? list.slice(0, 5).map(t => h('a.side-ticket', { href: `#/tickets/${t.id}` },
-        h('span.side-ticket-title', t.title),
-        t.due_date ? h('small', { class: t.due_date < today() ? 'due-late' : 'muted' }, fmtDate(t.due_date)) : null))
-      : h('div.muted.small', 'Niente in sospeso.'));
-  }).catch(() => clear(tickets));
   const colleagues = store.users.filter(u => u.id !== store.me.id && u.active);
   people.append(...colleagues.slice(0, 8).map(u => h('div.side-person',
     h('a', { href: `#/u/${u.id}` }, avatar(u, 34)),
@@ -458,8 +455,6 @@ function sideColumn() {
   if (!colleagues.length) people.append(h('div.muted.small', 'I colleghi compaiono qui dopo il loro primo accesso.'));
 
   return h('aside.home-side',
-    h('a.side-me', { href: `#/u/${store.me.id}` }, avatar(store.me, 52), h('div', h('strong', store.me.name), h('small', `@${store.me.handle}`))),
-    h('section', h('div.side-title', h('span', 'Da fare per te'), h('a', { href: '#/mine' }, 'Tutti')), tickets),
-    h('section', h('div.side-title', h('span', 'Colleghi')), people),
+    h('section', h('div.side-title', h('span', 'Colleghi'), h('a', { href: '#/persone' }, 'Tutti')), people),
     h('div.side-foot', 'Intranet Almacis · Alma Planet'));
 }

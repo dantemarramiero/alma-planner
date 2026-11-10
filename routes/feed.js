@@ -43,9 +43,17 @@ function registerFeed(app, { db, live, notifier, isAdmin }) {
     const before = v.int(req.query.before, 'cursore', { min: 1 });
     const tag = req.query.tag === undefined ? undefined : String(req.query.tag);
     if (tag !== undefined && !TAG_RE.test(tag)) throw new HttpError(400, 'Hashtag non valido');
+    // filtri della Bacheca: solo i «Grazie a…», o solo i colleghi del mio reparto (organigramma di Microsoft)
+    const filter = v.oneOf(req.query.filter, 'filtro', ['grazie', 'reparto']);
+    if (filter === 'grazie') where.push("p.kind = 'grazie'");
+    if (filter === 'reparto') {
+      add(`EXISTS (SELECT 1 FROM users au JOIN org_people ao ON ao.oid = au.oid OR lower(ao.email) = lower(au.email),
+                     users mu JOIN org_people mo ON mo.oid = mu.oid OR lower(mo.email) = lower(mu.email)
+              WHERE au.id = p.author_id AND mu.id = ? AND ao.department IS NOT NULL AND ao.department = mo.department)`, req.user.id);
+    }
     if (author) add('p.author_id = ?', author);
     if (tag) add("p.body ~* ?", `(^|[^[:alnum:]_])#${tag}([^[:alnum:]_]|$)`);
-    const home = !author && !tag;
+    const home = !author && !tag && !filter;
     if (home) where.push('p.pinned_at IS NULL');
     if (before) add('p.id < ?', before);
     const { rows } = await db.query(

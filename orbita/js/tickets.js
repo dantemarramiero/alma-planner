@@ -33,6 +33,7 @@ export function ticketsView(container, opts = {}) {
     q: '',
     project: fixed.project ?? '',
     assignee: fixed.assignee ?? '',
+    creator: fixed.creator ?? '',
     status: opts.defaultStatus ?? 'open',
   };
   let tickets = [];
@@ -87,7 +88,7 @@ export function ticketsView(container, opts = {}) {
 
   async function load() {
     body.replaceChildren(loading());
-    tickets = await get(`/api/tickets${qs({ q: state.q, project: state.project, assignee: state.assignee, status: state.view === 'board' ? '' : state.status })}`);
+    tickets = await get(`/api/tickets${qs({ q: state.q, project: state.project, assignee: state.assignee, creator: state.creator, status: state.view === 'board' ? '' : state.status })}`);
     render();
     opts.onLoaded?.(tickets);
   }

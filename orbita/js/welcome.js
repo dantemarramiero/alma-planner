@@ -137,7 +137,7 @@ export async function welcomeView(view) {
   // ── intestazione e azioni rapide ──
   const approvals = my.approvals.scheda + my.approvals.rda;
   const quick = h('div.wl-quick',
-    h('a.wl-qbtn', { href: '#/mine' }, my.due ? `${plural(my.due, 'ticket', 'ticket')} da chiudere oggi` : 'I miei ticket', my.late ? h('span.wl-qlate', `${my.late} in ritardo`) : null),
+    h('a.wl-qbtn', { href: '#/tickets' }, my.due ? `${plural(my.due, 'ticket', 'ticket')} da chiudere oggi` : 'I miei ticket', my.late ? h('span.wl-qlate', `${my.late} in ritardo`) : null),
     approvals ? h('a.wl-qbtn', { href: my.approvals.scheda ? '#/strategy/scheda' : '#/rda' }, `${approvals} da approvare`) : null,
     my.scheda === 'missing' ? h('a.wl-qbtn.wl-qmain', { href: '#/strategy/scheda' }, 'Compila la tua scheda') : null);
 
@@ -270,24 +270,35 @@ export async function welcomeView(view) {
       : my.scheda === 'pending' ? h('div.wl-kv', h('span', 'La mia scheda'), h('span.pill.wl-wait', 'in approvazione'))
         : h('a.small', { href: '#/strategy/scheda' }, 'Apri la mia scheda →'));
 
-  const ticketsBox = h('section.card.wl-box',
-    h('div.spread', h('h2', 'I miei ticket'), h('a.small', { href: '#/mine' }, 'Tutti')),
+  // «La mia giornata»: incontri di oggi (Outlook), i miei ticket, cosa aspetta me; il dettaglio è in Alma Project
+  const agenda = h('div.wl-agenda', h('p.muted.small', 'Carico gli incontri di oggi…'));
+  get(`/api/calendar?start=${today}T00:00:00&end=${today}T23:59:59`, { quiet: true }).then(cal => {
+    const events = (cal?.events || []).filter(e => !e.allDay).sort((x, y) => String(x.start).localeCompare(String(y.start))).slice(0, 4);
+    fill(agenda, events.length ? events.map(e => h('a.wl-meet', { href: '#/calendar' },
+      h('span.wl-meet-h', String(e.start).slice(11, 16)), h('span.wl-ticket-t', h('strong', e.title || 'Incontro'), e.location ? h('small', e.location) : null)))
+      : h('p.muted.small', cal?.outlookError ? 'Calendario Outlook non raggiungibile.' : 'Nessun incontro oggi.'));
+  }).catch(() => fill(agenda, h('p.muted.small', 'Calendario Outlook non raggiungibile.')));
+  const itWaiting = h('strong', '…');
+  get('/api/it/mine', { quiet: true }).then(it => { itWaiting.textContent = String((it?.requests || []).filter(r => r.status === 'da_rispondere').length); }).catch(() => { itWaiting.textContent = '–'; });
+  const dayBox = h('section.card.wl-box',
+    h('div.spread', h('h2', 'La mia giornata'), h('a.small', { href: '#/settimana' }, 'La settimana →')),
+    agenda,
     my.tickets.length ? my.tickets.slice(0, 3).map(t => {
       const late = t.due_date && t.due_date < today, now = t.due_date === today;
       return h('a.wl-ticket', { href: `#/tickets/${t.id}` }, h('span.wl-tdot', { style: { background: t.color || '#C9C4BE' } }),
         h('span.wl-ticket-t', h('strong', t.title), h('small', t.project || 'Senza progetto')),
         t.due_date ? h('span.pill', { class: late ? 'wl-late' : now ? 'wl-today' : '' }, late ? 'in ritardo' : now ? 'oggi' : itDate(t.due_date).slice(0, 5)) : null);
-    }) : h('p.muted.small', 'Nessun ticket aperto: bel lavoro.'));
+    }) : h('p.muted.small', 'Nessun ticket aperto: bel lavoro.'),
+    h('div.wl-daylist',
+      h('a.wl-kv', { href: '#/tickets' }, h('span', 'Ticket in scadenza oggi'), h('strong', { class: my.due ? 'ko' : '' }, String(my.due || 0))),
+      h('a.wl-kv', { href: '#/rda' }, h('span', 'RDA da accettare'), h('strong', String(my.approvals.rda || 0))),
+      h('a.wl-kv', { href: '#/it/strumenti' }, h('span', 'Richieste IT in corso'), itWaiting)),
+    h('div.wl-two', h('button.btn.btn-sm', { type: 'button', on: { click: () => openRdaForm({ onDone: reload }) } }, 'Nuova RDA'), h('a.btn.btn-sm', { href: '#/it/strumenti' }, 'Richiedi un software')));
 
-  const rdaWhat = h('input.input', { maxlength: 300, placeholder: 'Es. brochure per la fiera di novembre', 'aria-label': 'Cosa ti serve' });
-  const rdaFn = h('select.select', { 'aria-label': 'A quale funzione' }, h('option', { value: '' }, 'Funzione…'));
-  const rdaDue = h('input.input', { type: 'date', 'aria-label': 'Entro il' });
-  get('/api/rda/functions', { quiet: true }).then(list => (list || []).filter(f => !f.mine && f.head).forEach(f => rdaFn.append(h('option', { value: f.name }, f.name)))).catch(() => {});
-  const rdaBox = h('section.card.wl-box',
-    h('div.spread', h('h2', 'Nuova RDA interna'), h('a.small', { href: '#/rda' }, 'Le mie RDA')),
-    h('label.wl-field', h('span', 'Cosa ti serve'), rdaWhat),
-    h('div.wl-two', h('label.wl-field', h('span', 'A quale funzione'), rdaFn), h('label.wl-field', h('span', 'Entro il'), rdaDue)),
-    h('button.btn.btn-primary.wl-full', { type: 'button', on: { click: () => openRdaForm({ defaults: { title: rdaWhat.value, function: rdaFn.value, due_date: rdaDue.value }, onDone: reload }) } }, 'Continua la richiesta'));
+  const eventsBox = home.events.length ? h('section.card.wl-box',
+    h('div.spread', h('h2', 'Prossimi eventi'), h('button.link-btn.small', { type: 'button', on: { click: () => storyModal('Prossimi eventi', eventsList(),
+      home.can_admin ? h('button.btn.btn-sm', { type: 'button', on: { click: addEvent } }, icon('plus', { size: 14 }), 'Aggiungi evento') : null) } }, 'Tutti')),
+    eventsList().slice(0, 3)) : null;
 
   const pollBox = h('section.card.wl-box');
   const drawPoll = poll => {
@@ -307,24 +318,7 @@ export async function welcomeView(view) {
   };
   drawPoll(home.poll);
 
-  const oc = home.orgchart;
-  const upload = h('input', { type: 'file', accept: 'application/pdf', hidden: true, on: { change: async e => {
-    const f = e.target.files[0];
-    if (!f) return;
-    if (f.size > 15 * 1024 * 1024) { toast('PDF troppo grande (massimo 15 MB)', 'err'); return; }
-    const res = await fetch(`/api/welcome/orgchart?name=${encodeURIComponent(f.name)}`, { method: 'PUT', headers: { 'X-Alma': '1', 'Content-Type': 'application/pdf' }, body: f });
-    if (!res.ok) { toast((await res.json().catch(() => ({}))).error || 'Caricamento non riuscito', 'err'); return; }
-    toast('Organigramma aggiornato'); reload();
-  } } });
-  const orgBox = h('section.card.wl-box',
-    h('div.spread', h('h2', 'Organigramma'), oc ? h('span.small.muted', `aggiornato al ${itDate(oc.updated_at.slice(0, 10))}`) : null),
-    oc ? [h('a.wl-org-prev', { href: '/api/welcome/orgchart', target: '_blank', rel: 'noopener', 'aria-label': 'Apri l’organigramma in PDF' }, orgPreview()),
-      h('div.wl-org-file', h('span.wl-pdf', 'PDF'), h('span', oc.name), h('small.muted', kb(oc.size))),
-      h('div.wl-two', h('a.btn.btn-sm.wl-dark', { href: '/api/welcome/orgchart', target: '_blank', rel: 'noopener' }, 'Apri'), h('a.btn.btn-sm', { href: '/api/welcome/orgchart?download=1' }, 'Scarica'))]
-      : h('p.muted.small', home.can_admin ? 'Carica il PDF dell’organigramma: lo vedranno tutti qui.' : 'L’organigramma non è ancora stato caricato.'),
-    home.can_admin ? [upload, h('button.link-btn.small', { type: 'button', on: { click: () => upload.click() } }, oc ? 'Carica una nuova versione' : 'Carica il PDF')] : null);
-
-  const side = h('aside.wl-side2', contrib, ticketsBox, rdaBox, pollBox, orgBox);
+  const side = h('aside.wl-side2', dayBox, contrib, pollBox, eventsBox);
 
   fill(view, h('div.wl2',
     h('div.page-head.wl-head',
@@ -346,4 +340,25 @@ function orgPreview() {
     + '<path d="M40 66v10M30 76h20M30 76v8M50 76v8M100 66v18M160 66v10M150 76h20M150 76v8M170 76v8M220 66v18" stroke="#C9C4BE" stroke-width="1.5" fill="none"/>'
     + [20, 42, 90, 140, 162, 210].map(x => `<rect x="${x}" y="84" width="20" height="12" rx="3" fill="#F1EFEB"/>`).join('');
   return svg;
+}
+
+// Organigramma in PDF (lo carica un amministratore, lo vedono tutti): nella pagina Persone.
+export function orgChartBox(home, reload) {
+  const oc = home.orgchart;
+  const upload = h('input', { type: 'file', accept: 'application/pdf', hidden: true, on: { change: async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (f.size > 15 * 1024 * 1024) { toast('PDF troppo grande (massimo 15 MB)', 'err'); return; }
+    const res = await fetch(`/api/welcome/orgchart?name=${encodeURIComponent(f.name)}`, { method: 'PUT', headers: { 'X-Alma': '1', 'Content-Type': 'application/pdf' }, body: f });
+    if (!res.ok) { toast((await res.json().catch(() => ({}))).error || 'Caricamento non riuscito', 'err'); return; }
+    toast('Organigramma aggiornato'); reload();
+  } } });
+  return h('section.card.wl-box',
+    h('div.spread', h('h2', 'Organigramma'), oc ? h('span.small.muted', `aggiornato al ${itDate(oc.updated_at.slice(0, 10))}`) : null),
+    oc ? [h('a.wl-org-prev', { href: '/api/welcome/orgchart', target: '_blank', rel: 'noopener', 'aria-label': 'Apri l’organigramma in PDF' }, orgPreview()),
+      h('div.wl-org-file', h('span.wl-pdf', 'PDF'), h('span', oc.name), h('small.muted', kb(oc.size))),
+      h('div.wl-two', h('a.btn.btn-sm.wl-dark', { href: '/api/welcome/orgchart', target: '_blank', rel: 'noopener' }, 'Apri'), h('a.btn.btn-sm', { href: '/api/welcome/orgchart?download=1' }, 'Scarica'))]
+      : h('p.muted.small', home.can_admin ? 'Carica il PDF dell’organigramma: lo vedranno tutti qui.' : 'L’organigramma non è ancora stato caricato.'),
+    home.can_admin ? [upload, h('button.link-btn.small', { type: 'button', on: { click: () => upload.click() } }, oc ? 'Carica una nuova versione' : 'Carica il PDF')] : null);
+
 }
