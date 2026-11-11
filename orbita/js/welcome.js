@@ -264,7 +264,7 @@ export async function welcomeView(view) {
   get(`/api/calendar?start=${today}T00:00:00&end=${today}T23:59:59`, { quiet: true }).then(cal => {
     const events = (cal?.events || []).filter(e => !e.allDay).sort((x, y) => String(x.start).localeCompare(String(y.start))).slice(0, 4);
     fill(agenda, events.length ? events.map(e => h('a.wl-meet', { href: '#/calendar' },
-      h('span.wl-meet-h', String(e.start).slice(11, 16)), h('span.wl-ticket-t', h('strong', e.title || 'Incontro'), e.location ? h('small', e.location) : null)))
+      h('span.wl-meet-h', String(e.start).slice(11, 16)), h('span.wl-meet-t', h('strong', { title: e.title || '' }, e.title || 'Incontro'), e.location ? h('small', { title: e.location }, /^https?:\/\//i.test(e.location) ? 'Collegamento alla riunione' : e.location) : null)))
       : h('p.muted.small', cal?.outlookError ? 'Calendario Outlook non raggiungibile.' : 'Nessun incontro oggi.'));
   }).catch(() => fill(agenda, h('p.muted.small', 'Calendario Outlook non raggiungibile.')));
   const itWaiting = h('strong', '…');
@@ -301,8 +301,7 @@ export async function welcomeView(view) {
   };
   drawPoll(home.poll);
 
-  void contrib; // nel layout 11/11 la colonna di destra è La mia giornata, Sondaggio, Prossimi eventi
-  const side = h('aside.wl-side2', dayBox, pollBox, eventsBox);
+  const side = h('aside.wl-side2', dayBox, contrib, pollBox, eventsBox); // «Il mio contributo» rimesso da Dante l'11/11
 
   fill(view, h('div.wl2',
     h('div.page-head.wl-head',
