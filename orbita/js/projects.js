@@ -8,7 +8,7 @@ import { store, loadProjects, loadAreas, projectById, userById, areaById } from 
 import { ticketsView, openTicket } from './tickets.js';
 import { peoplePicker, avatarsFor } from './people.js';
 import { openChatWithEmails } from './teams.js';
-import { ganttView } from './gantt.js';
+import { ganttView, ganttPhone } from './gantt.js';
 import { projectDocuments } from './activities.js';
 import { projectEmails } from './project-emails.js';
 import { projectMeetings, openMeeting, meetingWhen } from './project-meetings.js';
@@ -318,7 +318,7 @@ export async function projectDetail(container, id, opts = {}) {
     if (ex) ex[2](box, reload);
     else if (k === 'panoramica') overview(box);
     else if (k === 'gantt') {
-      if (isMobile()) timeline(box, p, () => {});
+      if (isMobile()) ganttPhone(box, { project: p.id });
       else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
     } else if (k === 'ticket') ticketsView(box, { fixed: { project: String(p.id) }, view: isMobile() ? 'list' : 'board' });
     else if (k === 'documenti') projectDocuments(box, p.id, { canManage: canManage(p), onFolderChanged: reload });

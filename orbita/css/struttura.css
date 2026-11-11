@@ -277,3 +277,24 @@
 .ps-dept .select { min-width: 0; width: 100%; }
 @media (max-width: 760px) { .ps-card > .avatar { width: 40px !important; height: 40px !important; min-width: 40px; font-size: 14px !important; grid-column: 1; } .ps-card > strong { align-self: end; } .ps-card > span { align-self: start; } }
 @media (max-width: 760px) { #view .seg { flex-wrap: wrap; max-width: 100%; height: auto; } #view .seg > * { flex: 0 1 auto; white-space: nowrap; } }
+
+/* Gantt sul telefono: elenco per data con la barra di ogni attività */
+.gp-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.gp-tools .select { flex: 1 1 200px; min-width: 0; }
+.gp-body { display: grid; gap: 12px; }
+.gp-group { padding: 12px 14px; display: grid; gap: 4px; }
+.gp-head { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); margin-bottom: 4px; }
+.gp-row { display: grid; gap: 6px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 0; font: inherit; color: inherit; cursor: pointer; border-bottom: 1px solid var(--rule); }
+.gp-row:last-child { border-bottom: 0; }
+.gp-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.gp-top strong { min-width: 0; overflow-wrap: anywhere; color: var(--ap-text-strong, #2C2C2C); }
+.gp-when { flex: none; font-size: 12px; color: var(--muted); }
+.gp-when.ko { color: var(--red, #C0392B); font-weight: var(--ap-fw-medium, 500); }
+.gp-when.ok { color: var(--green, #1F6A41); }
+.gp-track { position: relative; height: 8px; border-radius: 4px; background: var(--ap-grey-100, #F1EFEB); }
+.gp-bar { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--c, #FF8A26); }
+.gp-row.late .gp-bar { background: var(--red, #C0392B); }
+.gp-row.done .gp-bar { background: var(--green, #2E8B57); opacity: .6; }
+.gp-row.done strong { text-decoration: line-through; color: var(--muted); }
+.gp-today { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--orange, #FF8A26); border-radius: 1px; z-index: 1; }
+.gp-full { margin-top: 12px; justify-self: start; }

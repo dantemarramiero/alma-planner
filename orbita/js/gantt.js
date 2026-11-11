@@ -8,7 +8,7 @@
 // Collegamenti come in Microsoft Project (fine-inizio, inizio-inizio, fine-fine, inizio-fine, con scarto): si creano
 // trascinando il pallino alla fine di una barra su un'altra attività, e quando un'attività si sposta le collegate la
 // seguono (lo calcola il server, lib/schedule.js). Durante il trascinamento le collegate si muovono insieme.
-import { h, clear, toast, loading, fmtDate, today, STATUS, initials } from './ui.js';
+import { h, clear, fill, toast, loading, fmtDate, today, STATUS, initials, isMobile } from './ui.js';
 import { get, patch } from './api.js';
 import { store, loadProjects, loadAreas, userById, projectById, areaById } from './store.js';
 import { openTicket, movedText } from './tickets.js';
@@ -34,8 +34,73 @@ const iso = n => new Date(n * DAY).toISOString().slice(0, 10);
 const dow = n => (new Date(n * DAY).getUTCDay() + 6) % 7; // 0 = lunedì
 const short = n => { const d = new Date(n * DAY); return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()].slice(0, 3)}`; };
 
+// ── Gantt sul telefono (canvas 11/11): elenco per data, ogni attività con la sua barra sulla linea del tempo ──
+// del progetto (o di tutti), «in ritardo» e «fatta»; un tocco apre il ticket. Il Gantt completo resta sul computer
+// (e si può aprire anche qui con «Apri il Gantt completo»).
+export async function ganttPhone(container, { project = null, onChange } = {}) {
+  const dayMs = iso => new Date(`${iso}T12:00:00`).getTime();
+  const TODAY = today();
+  let hideDone = true;
+  const body = h('div.gp-body', loading());
+  const doneChip = h('button.hk-chip', { type: 'button', class: 'on', 'aria-pressed': 'true', on: { click: () => {
+    hideDone = !hideDone; doneChip.classList.toggle('on', hideDone); doneChip.setAttribute('aria-pressed', String(hideDone)); draw();
+  } } }, 'Nascondi le fatte');
+  const projectSelect = project ? null : h('select.select', { 'aria-label': 'Progetto', on: { change: e => { sel = e.target.value ? Number(e.target.value) : null; load(); } } },
+    h('option', { value: '' }, 'Tutti i progetti'),
+    store.projects.filter(p => p.status !== 'archived').map(p => h('option', { value: String(p.id) }, p.name)));
+  let sel = project;
+  let list = [];
+  fill(container,
+    project ? null : h('div.page-head', h('div', h('h1', 'Gantt'), h('div.sub', 'Le attività per data. La linea del tempo intera è sul computer.'))),
+    h('div.gp-tools', projectSelect, doneChip),
+    body,
+    h('a.btn.gp-full', { href: `#/gantt?${sel ? `project=${sel}&` : ''}intera=1` }, 'Apri il Gantt completo (meglio sul computer)'));
+
+  async function load() {
+    fill(body, loading());
+    list = (await get(`/api/tickets${sel ? `?project=${sel}` : ''}`)).filter(t => t.start_date || t.due_date);
+    for (const t of list) { t._s = t.start_date || t.due_date; t._e = t.due_date || t.start_date; }
+    draw();
+  }
+  function draw() {
+    const rows = list.filter(t => !hideDone || t.status !== 'done');
+    if (!rows.length) return fill(body, h('div.card.empty', list.length ? 'Tutte fatte: bel lavoro.' : 'Nessuna attività con date. Le attività sono i ticket con inizio e scadenza.'));
+    // un gruppo per progetto (o uno solo), con la sua scala di date
+    const groups = new Map();
+    for (const t of rows.sort((a, b) => a._s.localeCompare(b._s) || a._e.localeCompare(b._e))) {
+      const k = t.project_id || 0;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(t);
+    }
+    fill(body, [...groups.entries()].map(([pid, ts]) => {
+      const p = pid ? projectById(pid) : null;
+      const min = dayMs(ts.reduce((m, t) => (t._s < m ? t._s : m), ts[0]._s));
+      const max = dayMs(ts.reduce((m, t) => (t._e > m ? t._e : m), ts[0]._e)) + 86400000;
+      const span = Math.max(max - min, 86400000);
+      const pos = ms => Math.min(100, Math.max(0, ((ms - min) / span) * 100));
+      const now = dayMs(TODAY);
+      return h('section.card.gp-group', { style: { '--c': p?.color || 'var(--orange, #FF8A26)' } },
+        !sel || !project ? h('div.gp-head', h('strong', p?.name || t0name(ts[0])), h('span.small.muted', `${fmtDate(ts[0]._s)} – ${fmtDate(new Date(max - 86400000).toISOString().slice(0, 10))}`)) : null,
+        ts.map(t => {
+          const late = t.status !== 'done' && t._e < TODAY;
+          const done = t.status === 'done';
+          const left = pos(dayMs(t._s)), right = pos(dayMs(t._e) + 86400000);
+          return h('button.gp-row', { type: 'button', class: done ? 'done' : late ? 'late' : '', on: { click: () => openTicket(t.id, { onSaved: () => { load(); onChange?.(); } }) } },
+            h('span.gp-top', h('strong', t.title), h('span.gp-when', { class: late ? 'ko' : done ? 'ok' : '' }, late ? 'in ritardo' : done ? 'fatta' : t._s === t._e ? fmtDate(t._s) : `${fmtDate(t._s)} – ${fmtDate(t._e)}`)),
+            h('span.gp-track',
+              now >= min && now <= max ? h('i.gp-today', { style: { left: `${pos(now)}%` } }) : null,
+              h('span.gp-bar', { style: { left: `${left}%`, width: `${Math.max(2, right - left)}%` } })));
+        }));
+    }));
+  }
+  const t0name = () => 'Senza progetto';
+  load();
+}
+
 export async function ganttView(container, params, { embedded = false, onChange } = {}) {
   const onlyProject = params.get('project') ? Number(params.get('project')) : null;
+  // sul telefono: l'elenco (il Gantt completo con ?intera=1)
+  if (isMobile() && !params.get('intera')) return ganttPhone(container, { project: embedded ? onlyProject : null, onChange });
   let open = new Set(readStore(OPEN_KEY, []));
   let zoom = readStore(MODE_KEY, 'w');
   if (!PPD[zoom]) zoom = 'w';
