@@ -203,3 +203,77 @@
 .hk-aname .row { flex-wrap: nowrap; align-items: center; }
 .hk-aname .row .hk-in { flex: 1; min-width: 0; }
 .hk-mbar { font-size: 10px; }
+
+/* ── Telefono (canvas 11/11): barra in alto con logo Almacis e modulo, barra in basso del modulo, «+» tondo ── */
+.m-fab { display: none; }
+@media (max-width: 760px) {
+  body .m-top { justify-content: flex-start; gap: 8px; padding-left: 12px; }
+  .m-logo { display: flex; align-items: center; }
+  .m-logo img { width: 32px; height: 32px; border-radius: 8px; display: block; }
+  .m-module { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; height: 38px; padding: 0 14px; border: 1px solid var(--rf-line, #ECEAE6); border-radius: 999px; background: var(--ap-white, #fff); font: inherit; font-weight: var(--ap-fw-medium, 500); color: var(--ap-text-strong, #2C2C2C); cursor: pointer; }
+  .m-module-caret { font-size: 11px; color: var(--muted); }
+  body .m-tabs#m-tabs { grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); height: 66px; }
+  body .m-tabs .m-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; line-height: 1.1; color: var(--ap-grey-500, #6B6B6B); min-width: 0; }
+  body .m-tabs .m-tab svg { width: 22px; height: 22px; }
+  body .m-tabs .m-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body .m-tabs .m-tab.active { color: var(--ap-accent-hover, #B54E0A); font-weight: var(--ap-fw-bold, 700); }
+  body .m-tabs .m-tab.active::after { display: none; }
+  .m-fab { display: grid; place-items: center; position: fixed; right: 18px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 31; width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--orange-fill, #B54E0A); color: #fff; box-shadow: 0 10px 24px -8px rgba(181, 78, 10, .6); cursor: pointer; }
+  .m-fab[hidden] { display: none; }
+  .menu-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0 12px; }
+  .menu-grid a { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px 12px; border-radius: 12px; background: var(--ap-bg, #F7F6F3); color: var(--ap-text-strong, #2C2C2C); text-decoration: none; font-weight: var(--ap-fw-medium, 500); }
+  .menu-shortcuts:empty { display: none; }
+  .menu-others, .menu-shortcuts { margin-top: 10px; }
+  .menu-foot { border-top: 1px solid var(--rule); margin-top: 6px; padding-top: 4px; }
+}
+
+@media (max-width: 760px) {
+  /* regola 3: le tabelle diventano schede */
+  table.m-cards, table.m-cards tbody { display: block; width: 100%; min-width: 0 !important; }
+  table.m-cards thead { display: none; }
+  table.m-cards tr { display: grid; gap: 4px; background: var(--card, #fff); border: 1px solid var(--rule); border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; }
+  table.m-cards td { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 2px 0 !important; border: 0 !important; min-width: 0 !important; width: auto !important; max-width: none !important; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+  table.m-cards td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: var(--ap-fw-medium, 500); text-align: left; flex: none; max-width: 45%; }
+  table.m-cards td:first-child { display: block; text-align: left; font-size: 15px; }
+  table.m-cards td:first-child::before { display: none; }
+  table.m-cards td:empty { display: none; }
+  table.m-cards td .hk-in, table.m-cards td input, table.m-cards td select { max-width: 60%; }
+  table.m-cards td:first-child .hk-in, table.m-cards td:first-child input { max-width: 100%; }
+  .table-wrap:has(> table.m-cards), .hk-gcard:has(table.m-cards) { background: none; border: 0; box-shadow: none; padding: 0; overflow: visible; }
+
+  /* Home: prima la mia giornata; le scorciatoie BOSS stanno nel Menu */
+  .wl2 .wl-cols2 .wl-side2 { order: -1; }
+  .wl2 .wl-sc { display: none; }
+  /* Bacheca: si scrive con il «+» */
+  .bacheca .composer.composer-v2 { display: none; }
+  /* Persone: elenco come la rubrica */
+  .ps-week { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .ps-grid { grid-template-columns: 1fr; gap: 0; background: var(--card, #fff); border: 1px solid var(--rule); border-radius: 16px; overflow: hidden; }
+  .ps-card { grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 0; justify-items: start; align-items: center; text-align: left; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; box-shadow: none; padding: 10px 12px; }
+  .ps-card > .avatar { grid-row: 1 / 3; width: 40px; height: 40px; font-size: 14px; }
+  .ps-card > strong, .ps-card > span { grid-column: 2; }
+  .ps-card > .row { grid-column: 3; grid-row: 1 / 3; }
+  .ps-card > .row .btn + .btn { display: none; }
+  /* La mia settimana: numeri a due a due, un giorno alla volta */
+  .wk-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .wk-kpi { padding: 12px; }
+  .wk-phone { display: grid; gap: 10px; }
+  .wk-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .wk-pick button { display: grid; gap: 2px; justify-items: center; border: 0; border-radius: 12px; padding: 8px 0; background: var(--card, #fff); font: inherit; font-size: 12px; color: var(--ap-text); cursor: pointer; }
+  .wk-pick button strong { font-size: 16px; }
+  .wk-pick button.today { box-shadow: inset 0 0 0 2px var(--orange, #FF8A26); }
+  .wk-pick button.on { background: var(--orange-fill, #B54E0A); color: #fff; box-shadow: none; }
+  .wk-phone-list { display: grid; gap: 8px; }
+  /* Ticket: «Nuovo ticket» è il «+»; filtri compatti */
+  .tk-head-actions .btn-primary { display: none; }
+  .tk-page-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tk-page-tools .tk-search { grid-column: 1 / -1; }
+  .tk-lab { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  .tk-lab .select { width: 100%; }
+}
+/* un menu a tendina con voci lunghe (reparti) non allarga più la pagina */
+#view select { max-width: 100%; }
+.ps-dept { min-width: 0; flex: 1 1 200px; }
+.ps-dept .select { min-width: 0; width: 100%; }
+@media (max-width: 760px) { .ps-card > .avatar { width: 40px !important; height: 40px !important; min-width: 40px; font-size: 14px !important; grid-column: 1; } .ps-card > strong { align-self: end; } .ps-card > span { align-self: start; } }
+@media (max-width: 760px) { #view .seg { flex-wrap: wrap; max-width: 100%; height: auto; } #view .seg > * { flex: 0 1 auto; white-space: nowrap; } }

@@ -78,6 +78,13 @@ export async function myToolsView(container) {
     h('section.card.it-section.it-pad', h('h2', 'Le mie richieste'), reqs),
     h('section.card.it-section.it-pad', h('div.spread', h('h2', 'I miei ticket IT'),
       h('button.it-link', { type: 'button', on: { click: () => reportProblem(reload) } }, 'Segnala un problema')), tickets));
+  // dalla barra del telefono: «Segnala» e «Richiedi»
+  const az = new URLSearchParams(location.hash.split('?')[1] || '').get('azione');
+  if (az) {
+    history.replaceState(null, '', '#/it/strumenti');
+    if (az === 'segnala') reportProblem(reload);
+    if (az === 'richiedi') setTimeout(() => { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); form.querySelector('select')?.focus(); }, 50);
+  }
 }
 
 function field(lab, input, hint) {

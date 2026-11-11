@@ -291,17 +291,17 @@ async function obiettiviPage(container, userId) {
           const auto = isHoshin(o) && o.hk_kpi_id ? hoshinAchievement(hk, o.hk_kpi_id) : null;
           const a = achOf(o, hk);
           return h('tr',
-            h('td', { style: { minWidth: '260px' } }, cell(o, 'objective', { cls: 'strong', rows: 2 }), cell(o, 'kpi', { cls: 'small', placeholder: 'KPI' }),
+            h('td', { style: { minWidth: '220px' } }, cell(o, 'objective', { cls: 'strong', rows: 2 }), cell(o, 'kpi', { cls: 'small', placeholder: 'KPI' }),
               h('details.pm-more', h('summary', 'responsabilità, note e ostacoli'), cell(o, 'responsibility', { cls: 'small', placeholder: 'Responsabilità principale' }), cell(o, 'pillar', { cls: 'small', placeholder: 'Pilastro' }), cell(o, 'notes', { cls: 'small', rows: 2, placeholder: 'Note' }), cell(o, 'obstacles', { cls: 'small', rows: 2, placeholder: 'Ostacoli principali' }))),
-            h('td', { style: { minWidth: '200px' } }, cell(o, 'formula', { cls: 'small', rows: 2 })),
-            h('td', { style: { minWidth: '170px' } }, cell(o, 'source', { cls: 'small' }),
+            h('td', { style: { minWidth: '150px' } }, cell(o, 'formula', { cls: 'small', rows: 2 })),
+            h('td', { style: { minWidth: '130px' } }, cell(o, 'source', { cls: 'small' }),
               isHoshin(o) ? h('select.hk-in.small', { disabled: !can, 'aria-label': 'KPI di livello 0', on: { change: async e => { const up = await patch(`/api/pm/objectives/${o.id}`, { hk_kpi_id: e.target.value ? Number(e.target.value) : null }); Object.assign(o, up); flash(); draw(); } } },
                 h('option', { value: '' }, 'KPI di livello 0…'), d.hk_kpis.map(k => h('option', { value: k.id, selected: k.id === o.hk_kpi_id }, `${k.letter} · ${k.name}`))) : null),
-            h('td', { style: { width: '110px' } }, cell(o, 'frequency', { cls: 'small' })),
-            h('td', { style: { width: '120px' } }, cell(o, 'target')),
+            h('td', { style: { width: '90px' } }, cell(o, 'frequency', { cls: 'small' })),
+            h('td', { style: { width: '100px' } }, cell(o, 'target')),
             h('td', { style: { width: '64px' } }, cell(o, 'weight', { type: 'number', cls: 'center' })),
-            h('td', { style: { width: '110px' } }, cell(o, 'last_value', { placeholder: '—' })),
-            h('td', { style: { width: '140px' } }, auto !== null
+            h('td', { style: { width: '90px' } }, cell(o, 'last_value', { placeholder: '—' })),
+            h('td', { style: { width: '120px' } }, auto !== null
               ? h('div.pm-auto', h('span.pm-ach', { class: a >= 100 ? 'ok' : a >= 80 ? 'warn' : 'ko' }, `${a}%`), h('small', 'dai progetti Hoshin'))
               : h('div.pm-achin', cell(o, 'achievement', { type: 'number', cls: 'center', placeholder: '%' }), a !== null && a !== undefined ? h('span.pm-bar', h('i', { style: { width: `${Math.min(100, a)}%` }, class: a >= 100 ? 'ok' : a >= 80 ? 'warn' : 'ko' })) : null)),
             h('td.center', h('input', { type: 'checkbox', checked: o.approved, disabled: !(rights.manager || rights.admin), 'aria-label': 'Approvato', on: { change: async e => { const up = await patch(`/api/pm/objectives/${o.id}`, { approved: e.target.checked }); Object.assign(o, up); flash(); drawTiles(); } } })),

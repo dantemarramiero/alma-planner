@@ -207,8 +207,8 @@ function matrixPage(container) {
   function phoneList() {
     const colors = areaColors();
     const keep = p => filter === 'all' || (filter === 'late' && !status.get(p.id).ok) || (filter === 'mine' && isMine(p));
-    const groups = [...D.functions].sort((a, b) => (a.kind === b.kind ? a.position - b.position : a.kind === 'staff' ? -1 : 1))
-      .map(f => ({ f, ps: D.projects.filter(p => areaById(p.area_id)?.function_id === f.id && keep(p)) })).filter(g => g.ps.length);
+    // per macro area (canvas 11/11): dentro, i progetti con la loro sotto area
+    const groups = orderedMacros().map(m => ({ f: { name: m.name, color: funcById(m.function_id)?.color || '#8A8A8A' }, ps: D.projects.filter(p => inArea(p, m.id) && keep(p)) })).filter(g => g.ps.length);
     fill(body, h('div.hk-phone',
       h('button.btn.hk-phone-m', { type: 'button', on: { click: () => { showMatrix = true; draw(); } } }, icon('grid-3x3'), 'Vedi la matrice intera'),
       groups.length ? groups.map(({ f, ps }) => h('section.hk-card.hk-phone-g', { style: { borderTopColor: f.color } },
@@ -216,7 +216,7 @@ function matrixPage(container) {
         ps.map(p => {
           const st = status.get(p.id), a = areaById(p.area_id);
           return h('a.hk-phone-p', { href: `#/strategy/a3/${p.id}` },
-            h('span.hk-phone-t', h('span.hk-eyebrow', { style: { color: colors[a?.id] } }, areaLabel(a)), h('strong', p.name), h('small', p.owner)),
+            h('span.hk-phone-t', a?.parent_id ? h('span.hk-eyebrow', { style: { color: colors[a.id] } }, a.name) : null, h('strong', p.name), h('small', p.owner)),
             h('span.hk-phone-r', h('span.hk-status', { class: st.ok ? 'ok' : 'ko' }, st.ok ? 'in linea' : 'in ritardo'), h('span.hk-prog', progressBar(st.act, st.exp), `${st.act}%`)));
         }))) : h('div.card.empty', 'Nessun progetto con questo filtro.'),
       h('div.hk-card.hk-phone-tn', h('span.hk-eyebrow', 'True North'), h('p', D.true_north ? `“${D.true_north}”` : 'Ancora da scrivere.'))));

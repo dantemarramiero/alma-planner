@@ -1,7 +1,7 @@
 // Alma Planet sul telefono: tasto «+» (ticket, post, storia, evento), menu con le altre pagine e avatar nella barra in basso.
-import { h, avatar, mobileQuery } from './ui.js';
+import { h, mobileQuery } from './ui.js';
 import { icon } from './icons.js';
-import { post } from './api.js';
+import { get, post } from './api.js';
 import { store } from './store.js';
 import { openTicket } from './tickets.js';
 import { openComposer } from './feed.js';
@@ -72,42 +72,120 @@ function openCreate() {
     opt('idea', 'var(--green)', 'Idea', 'Per il Laboratorio delle idee', () => go('#/idee?new=1'))));
 }
 
-// Moduli (Alma Planet, Alma Project, Alma Energy…) presi dal selettore della barra laterale: in cima al menu,
-// e sotto le voci del modulo in cui si è, cioè quelle del suo menu laterale.
-function moduleChoice(close) {
-  const items = [...document.querySelectorAll('#ws-menu a')];
-  if (document.getElementById('ws-switch').hidden || !items.length) return null;
-  return h('div.menu-modules', h('span.menu-modules-label', 'Modulo'), h('div.seg.menu-modules-seg', items.map(a =>
-    h('a', { href: a.getAttribute('href'), class: a.classList.contains('active') ? 'on' : '', on: { click: () => close() } }, a.textContent))));
+// ── barre del telefono (canvas 11/11) ─────────────────────────────────────────────────────────────
+// In basso le 4 pagine più usate del modulo + Menu; il Menu ha tutte le pagine, gli altri moduli, le scorciatoie,
+// profilo e notifiche. In alto: logo Almacis, il modulo (tocca per cambiarlo), cerca e campanella.
+const TABS = {
+  planet: [['#/benvenuto', 'benvenuto', 'house', 'Home'], ['#/', 'home', 'layout-dashboard', 'Bacheca'], ['#/persone', 'persone', 'users', 'Persone'], ['#/idee', 'idee', 'lightbulb', 'Idee']],
+  project: [['#/settimana', 'settimana', 'calendar', 'Settimana'], ['#/tickets', 'tickets', 'square-check', 'Ticket'], ['#/rda', 'rda', 'arrows', 'RDA'], ['#/projects', 'projects', 'folder', 'Progetti']],
+  strategy: [['#/strategy/hoshin', 'strategy-hoshin', 'grid-3x3', 'Hoshin'], ['#/strategy/a3', 'strategy-a3', 'file-text', 'A3'], ['#/strategy/dashboard', 'strategy-dashboard', 'layout-dashboard', 'Dashboard'], ['#/strategy/obiettivi', 'strategy-obiettivi', 'target', 'Obiettivi']],
+  itTeam: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/ticket', 'it-ticket', 'life-buoy', 'Ticket IT'], ['#/it/richieste', 'it-richieste', 'inbox', 'Richieste'], ['#/it/panoramica', 'it-panoramica', 'layout-dashboard', 'Panoramica']],
+  it: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/strumenti?azione=segnala', '', 'life-buoy', 'Segnala'], ['#/it/strumenti?azione=richiedi', '', 'plus', 'Richiedi']],
+  energy: [['#/energy/panoramica', 'energy-panoramica', 'layout-dashboard', 'Panoramica'], ['#/energy/opportunita', 'energy-opportunita', 'sun', 'Pipeline'], ['#/energy/aziende', 'energy-aziende', 'building', 'Aziende'], ['#/energy/screening', 'energy-screening', 'map', 'Mappa']],
+};
+let current = { key: 'planet', label: 'Alma Planet', modules: [] };
+
+function drawTabs() {
+  const bar = document.getElementById('m-tabs');
+  if (!bar) return;
+  const key = current.key === 'it' && store.me?.software ? 'itTeam' : current.key;
+  const tabs = TABS[key] || TABS.planet;
+  bar.style.setProperty('--n', String(tabs.length + 1));
+  bar.replaceChildren(...tabs.map(([href, nav, ico, label]) => h('a.m-tab', { href, 'data-tab': nav || '', on: { click: e => { if (href === location.hash) { e.preventDefault(); rerender(); } } } },
+    icon(ico, { size: 22 }), h('span', label))),
+  h('button.m-tab', { type: 'button', id: 'm-menu', on: { click: openMenu } }, icon('menu', { size: 22 }), h('span', 'Menu')));
+  markActive();
+}
+// la pagina attiva: la stessa voce accesa nel menu laterale
+function markActive() {
+  const on = document.querySelector('.sidebar nav[data-ws]:not([hidden]) a.active')?.dataset.nav;
+  for (const a of document.querySelectorAll('#m-tabs [data-tab]')) a.classList.toggle('active', Boolean(on) && a.dataset.tab === on);
 }
 
-// Le voci del modulo corrente, prese dal suo menu laterale: senza quelle nascoste (es. Chat interna a chi non ce
-// l'ha) e senza quelle che sul telefono sono già nelle barre in alto e in basso (Home, Notifiche, Chat, Profilo…).
+// «+» tondo: crea la cosa della pagina in cui si è
+function fabAction() {
+  const path = location.hash.replace(/^#\/?/, '').split('?')[0];
+  const sec = path.split('/')[0];
+  if (path === '' ) return () => openComposer({ onCreated: () => go('#/') });
+  if (sec === 'tickets' || sec === 'settimana') return () => openTicket(null, { defaults: { assignee_ids: [store.me.id] }, onSaved: rerender });
+  if (sec === 'idee') return () => go('#/idee?new=1');
+  if (sec === 'rda') return () => openRdaForm({ onDone: rerender });
+  if (sec === 'mezzi') return () => go('#/mezzi/prenota');
+  if (path === 'benvenuto') return () => openCreate();
+  return null;
+}
+function drawFab() {
+  const fab = document.getElementById('m-fab');
+  if (!fab) return;
+  const act = fabAction();
+  fab.hidden = !act;
+  fab.onclick = act;
+}
+
+// Le voci del modulo corrente (dal suo menu laterale), gli altri moduli, le scorciatoie, profilo e notifiche.
 function openMenu() {
   const nav = document.querySelector('.sidebar nav[data-ws]:not([hidden])');
-  const onBars = new Set([...document.querySelectorAll('.m-top [data-nav], .m-tabs [data-nav]')].map(a => a.dataset.nav));
   const items = [...(nav?.querySelectorAll('a[data-nav]') || [])]
-    .filter(a => !a.hidden && !onBars.has(a.dataset.nav))
+    .filter(a => !a.hidden)
     .map(a => h('a', {
       href: a.getAttribute('href'), class: a.classList.contains('active') ? 'active' : '', on: { click: () => close() },
     }, h('span.nav-ico', icon(a.querySelector('[data-icon]')?.dataset.icon || 'file')),
     [...a.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join('').trim()));
-  const close = sheet(document.getElementById('ws-name').textContent || 'Menu', h('div', moduleChoice(() => close()), h('nav.menu-list',
-    items,
-    h('button.danger', { type: 'button', on: { click: async () => { await post('/auth/logout'); location.href = '/'; } } }, h('span.nav-ico', icon('log-out')), 'Esci'))));
+  const others = (current.modules || []).filter(m => m.key !== current.key);
+  const shortcuts = h('div.menu-shortcuts');
+  if (current.key === 'planet') {
+    get('/api/welcome', { quiet: true }).then(d => {
+      const list = (d?.shortcuts || []).filter(x => x.url);
+      if (list.length) shortcuts.replaceChildren(h('span.menu-modules-label', 'Scorciatoie'), h('div.menu-grid', list.map(x =>
+        h('a', { href: x.url, ...(/^https?:/i.test(x.url) ? { target: '_blank', rel: 'noopener' } : {}), on: { click: () => close() } }, x.label))));
+    }).catch(() => {});
+  }
+  const close = sheet(current.label || 'Menu', h('div',
+    h('nav.menu-list', items),
+    shortcuts,
+    others.length ? h('div.menu-others', h('span.menu-modules-label', 'Altri moduli'), h('div.menu-grid', others.map(m =>
+      h('a', { href: m.home, on: { click: () => close() } }, icon(m.icon, { size: 18 }), m.label)))) : null,
+    h('nav.menu-list.menu-foot',
+      h('a', { href: `#/u/${store.me.id}`, on: { click: () => close() } }, h('span.nav-ico', icon('user')), 'Il mio profilo'),
+      h('a', { href: '#/notifiche/impostazioni', on: { click: () => close() } }, h('span.nav-ico', icon('settings')), 'Notifiche: campanella, telefono, email'),
+      h('button.danger', { type: 'button', on: { click: async () => { await post('/auth/logout'); location.href = '/'; } } }, h('span.nav-ico', icon('log-out')), 'Esci'))));
 }
 
-function drawMe() {
-  const me = document.getElementById('m-me');
-  me.href = `#/u/${store.me.id}`;
-  me.replaceChildren(avatar(store.me, 28));
+// tocca il nome del modulo: scegli un altro modulo
+function openModules() {
+  const mods = current.modules || [];
+  const close = sheet('Moduli', h('nav.menu-list', mods.map(m => h('a', { href: m.home, class: m.key === current.key ? 'active' : '', on: { click: () => close() } },
+    h('span.nav-ico', icon(m.icon)), m.label))));
 }
+
+// Sul telefono ogni tabella con intestazione diventa un elenco di schede (canvas 11/11, regola 3): le celle
+// prendono il nome della colonna, il CSS (.m-cards) fa il resto. Non le tabelle del calendario e del Gantt.
+function cardifyTables() {
+  if (!MQ.matches) return;
+  for (const t of document.querySelectorAll('#view table')) {
+    if (t.closest('.fc, .gx, .no-cards') || !t.tHead) continue;
+    const heads = [...t.tHead.rows[0]?.cells || []].map(th => th.textContent.trim());
+    if (!heads.length) continue;
+    t.classList.add('m-cards');
+    for (const tr of [...t.tBodies].flatMap(b => [...b.rows])) {
+      [...tr.cells].forEach((td, i) => { if (heads[i] && !td.dataset.label) td.dataset.label = heads[i]; });
+    }
+  }
+}
+let cardTimer = null;
 
 export function setupMobile() {
-  drawMe();
-  document.addEventListener('me-changed', drawMe);
-  document.getElementById('m-create').addEventListener('click', openCreate);
-  document.getElementById('m-menu').addEventListener('click', openMenu);
+  new MutationObserver(() => { clearTimeout(cardTimer); cardTimer = setTimeout(cardifyTables, 60); }).observe(document.getElementById('view'), { childList: true, subtree: true });
+  document.getElementById('m-module')?.addEventListener('click', openModules);
+  document.addEventListener('module-changed', e => {
+    current = e.detail;
+    const name = document.getElementById('m-module-name');
+    if (name) name.textContent = current.label;
+    drawTabs();
+  });
+  window.addEventListener('hashchange', () => setTimeout(() => { markActive(); drawFab(); }, 0));
+  drawTabs();
+  setTimeout(() => { markActive(); drawFab(); }, 0);
   // passando da telefono a schermo largo (o ruotando un tablet) le pagine si ridisegnano nella forma giusta
   MQ.addEventListener('change', rerender);
 }

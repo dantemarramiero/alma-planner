@@ -110,6 +110,7 @@ function drawModule(section) {
   const mod = MODULES.find(m => m.key === current);
   // menu laterale del modulo
   for (const nav of document.querySelectorAll('.sidebar [data-ws]')) nav.hidden = nav.dataset.ws !== current;
+  document.dispatchEvent(new CustomEvent('module-changed', { detail: { key: current, label: mod.label, modules: mods } })); // barre del telefono
   const sw = document.getElementById('ws-switch');
   sw.hidden = mods.length < 2;
   if (sw.hidden) return;
@@ -285,7 +286,7 @@ function refreshBadges() {
 function drawMe() {
   const me = document.getElementById('me');
   clear(me).append(avatar(store.me, 30), h('div', { style: { minWidth: 0 } }, h('div.me-name', store.me.name), h('div.me-mail', store.me.email)));
-  document.querySelector('[data-nav="me"]').href = `#/u/${store.me.id}`;
+  for (const a of document.querySelectorAll('[data-nav="me"]')) a.href = `#/u/${store.me.id}`;
 }
 
 async function start() {

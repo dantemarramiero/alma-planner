@@ -1,7 +1,7 @@
 // Alma Project: «La mia settimana» (la pagina di partenza del modulo) e la pagina unica dei Ticket.
 // La settimana mette insieme, giorno per giorno, incontri di Outlook, ticket in scadenza, RDA e mezzi prenotati;
 // ogni riquadro apre il suo dettaglio. La Home di Alma Planet ne mostra solo oggi.
-import { h, fill, loading, today, addDays, fmtDate } from './ui.js';
+import { h, fill, loading, today, addDays, fmtDate, isMobile } from './ui.js';
 import { get } from './api.js';
 import { ticketsView, openTicket } from './tickets.js';
 
@@ -52,13 +52,32 @@ export async function settimanaView(container, params) {
         h('small', b.status === 'richiesta' ? 'da approvare' : String(b.start_at).slice(0, 10) === day ? `ritiro ${String(b.start_at).slice(11, 16)}` : 'in uso')) })),
   ].sort((a, b) => a.at.localeCompare(b.at)).map(x => x.el);
 
+  // telefono: i cinque giorni in una fila di pulsanti, sotto il giorno scelto (oggi, se è in questa settimana)
+  function phoneDays() {
+    let pick = Math.max(0, DAYS.findIndex((_, i) => addDays(start, i) === todayIso));
+    const box = h('section.wk-phone');
+    const draw = () => {
+      const day = addDays(start, pick);
+      const list = items(day);
+      fill(box,
+        h('div.wk-pick', { role: 'tablist', 'aria-label': 'Giorno' }, DAYS.map((name, i) => {
+          const d = addDays(start, i);
+          return h('button', { type: 'button', role: 'tab', 'aria-selected': String(i === pick), class: [i === pick ? 'on' : '', d === todayIso ? 'today' : ''].join(' '),
+            on: { click: () => { pick = i; draw(); } } }, h('span', name.slice(0, 3)), h('strong', String(Number(d.slice(8, 10)))));
+        })),
+        h('div.wk-phone-list', list.length ? list : h('p.small.muted', 'Niente in agenda.')));
+    };
+    draw();
+    return box;
+  }
+
   fill(body,
     h('section.wk-kpis',
       kpi('Ticket in scadenza', tickets.length, dueToday ? `${dueToday} oggi` : 'nessuno oggi', '#/tickets', dueToday > 0),
       kpi('Incontri', events.length, cal.outlookError ? 'Outlook non raggiungibile' : 'da Outlook', '#/calendar'),
       kpi('RDA da accettare', (rda.inbox || []).length, 'alla mia funzione', '#/rda'),
       kpi('Mezzi prenotati', bookings.length, 'questa settimana', '#/mezzi')),
-    h('section.wk-days', DAYS.map((name, i) => {
+    isMobile() ? phoneDays() : h('section.wk-days', DAYS.map((name, i) => {
       const day = addDays(start, i);
       const list = items(day);
       return h('div.card.wk-day', { class: day === todayIso ? 'today' : '' },
