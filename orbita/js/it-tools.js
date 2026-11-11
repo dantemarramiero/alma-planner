@@ -35,7 +35,7 @@ export async function myToolsView(container) {
         l.package ? (l.package.on_request ? 'su richiesta' : `di base per «${l.package.package_name}»`) : null].filter(Boolean).join(' · ')))),
     l.software_notes ? h('p.small.it-card-note', l.software_notes.length > 180 ? `${l.software_notes.slice(0, 180)}…` : l.software_notes) : null,
     h('div.row',
-      l.website ? h('a.btn.btn-sm', { href: l.website, target: '_blank', rel: 'noopener' }, `Apri ${l.software_name}`, icon('external', { size: 14 })) : null,
+      (l.website || vendorOf(l) === 'Microsoft') ? h('a.btn.btn-sm', { href: l.website || 'https://www.microsoft365.com', target: '_blank', rel: 'noopener' }, `Apri ${l.website ? l.software_name : 'Microsoft 365'}`, icon('external', { size: 14 })) : null,
       h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => release(l, reload) } }, 'Non mi serve più')))))
     : h('div.card.empty', d.person ? 'Nel censimento non risultano licenze a tuo nome.' : 'Non ti trovo nell\'organigramma di Microsoft: chiedi al team IT di controllare il tuo account.');
 
@@ -43,6 +43,7 @@ export async function myToolsView(container) {
     const [st, cls] = STATE[r.status] || [r.status, ''];
     return h('div.it-req',
       h('span.grow', h('strong', r.software_name), h('span.small.muted', ` ${KIND[r.kind]} · ${fmtDate(r.created_at.slice(0, 10), { year: true })}`),
+        r.decided_at && r.status !== 'annullata' ? h('div.small.muted', `Risposta del team IT il ${fmtDate(String(r.decided_at).slice(0, 10), { year: true })}`) : null,
         r.answer ? h('div.small', `Risposta: ${r.answer}`) : null),
       h('span.pill', { class: cls }, st),
       r.status === 'da_rispondere' ? h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => {
