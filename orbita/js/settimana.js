@@ -7,6 +7,8 @@ import { ticketsView, openTicket } from './tickets.js';
 
 const DAYS = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì'];
 const num = n => Number(n || 0).toLocaleString('it-IT');
+// luogo dell'incontro leggibile: i link delle riunioni diventano «Collegamento alla riunione», via la «\» iniziale di Outlook
+export const placeOf = loc => { const l = String(loc || '').replace(/^[\\\s]+/, '').trim(); return /^https?:\/\//i.test(l) ? 'Collegamento alla riunione' : l; };
 
 // lunedì della settimana di una data (yyyy-mm-dd)
 function monday(iso) {
@@ -41,7 +43,7 @@ export async function settimanaView(container, params) {
   const dueToday = tickets.filter(t => t.due_date === todayIso).length;
   const items = day => [
     ...events.filter(e => String(e.start).slice(0, 10) === day).map(e => ({ at: String(e.start).slice(11, 16), kind: 'meet', el: h('a.wk-item.wk-meet', { href: e.webLink || '#/calendar', target: e.webLink ? '_blank' : null, rel: e.webLink ? 'noopener' : null },
-      h('span.wk-tag', String(e.start).slice(11, 16)), h('strong', e.title), e.location ? h('small', e.location) : null) })),
+      h('span.wk-tag', String(e.start).slice(11, 16)), h('strong', { title: e.title || '' }, e.title || 'Incontro'), placeOf(e.location) ? h('small', { title: e.location }, placeOf(e.location)) : null) })),
     ...tickets.filter(t => t.due_date === day).map(t => ({ at: '99', kind: 'ticket', el: h('button.wk-item.wk-ticket', { type: 'button', class: day < todayIso ? 'late' : day === todayIso ? 'now' : '', on: { click: () => openTicket(t.id, {}) } },
       h('span.wk-tag', 'Scade'), h('strong', t.title), t.project_name ? h('small', t.project_name) : null) })),
     ...rdaDue.filter(t => t.due_date === day).map(t => ({ at: '98', kind: 'rda', el: h('a.wk-item.wk-rda', { href: '#/rda' }, h('span.wk-tag', 'RDA'), h('strong', t.title), h('small', t.rda_function || '')) })),
