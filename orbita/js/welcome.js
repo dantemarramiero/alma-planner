@@ -20,7 +20,10 @@ function greeting() {
   return hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
 }
 
+// «Ticket sistema azienda» (assistenza IT): ora porta ad Alma IT, dove si segnala un problema
+const IT_SHORTCUT = /ticket.*sistem|assistenza\s*it|help\s*desk/i;
 function shortcutCard(s, canEdit, edit) {
+  if (IT_SHORTCUT.test(s.label || '')) s = { ...s, url: '#/it/strumenti', hint: 'Assistenza IT: ora porta ad Alma IT', icon: s.icon || 'life-buoy' };
   const inner = [h('span.wl-ico', icon(s.icon || 'external', { size: 22 })),
     h('span.wl-text', h('strong', s.label), h('span.small.muted', s.url ? s.hint : (canEdit ? 'Indirizzo da impostare' : 'In arrivo')))];
   if (!s.url) return h(canEdit ? 'button.card.wl-shortcut.is-off' : 'div.card.wl-shortcut.is-off', canEdit ? { type: 'button', on: { click: edit } } : {}, inner);
@@ -261,7 +264,7 @@ export async function welcomeView(view) {
       : h('p.muted.small', cal?.outlookError ? 'Calendario Outlook non raggiungibile.' : 'Nessun incontro oggi.'));
   }).catch(() => fill(agenda, h('p.muted.small', 'Calendario Outlook non raggiungibile.')));
   const itWaiting = h('strong', '…');
-  get('/api/it/mine', { quiet: true }).then(it => { itWaiting.textContent = String((it?.requests || []).filter(r => r.status === 'da_rispondere').length); }).catch(() => { itWaiting.textContent = '–'; });
+  get('/api/it/mine', { quiet: true }).then(it => { itWaiting.textContent = String((it?.requests || []).filter(r => r.status === 'da_rispondere').length + (it?.tickets || []).filter(t => ['nuovo', 'in_corso', 'linear'].includes(t.status)).length); }).catch(() => { itWaiting.textContent = '–'; });
   const dayBox = h('section.card.wl-box',
     h('div.spread', h('h2', 'La mia giornata'), h('a.small', { href: '#/settimana' }, 'La settimana →')),
     agenda,
@@ -273,6 +276,7 @@ export async function welcomeView(view) {
     }) : h('p.muted.small', 'Nessun ticket aperto: bel lavoro.'),
     h('div.wl-daylist',
       h('a.wl-kv', { href: '#/tickets' }, h('span', 'Ticket in scadenza oggi'), h('strong', { class: my.due ? 'ko' : '' }, String(my.due || 0))),
+      h('a.wl-kv', { href: '#/tickets' }, h('span', 'Ticket aperti'), h('strong', String(my.open ?? my.tickets.length))),
       h('a.wl-kv', { href: '#/rda' }, h('span', 'RDA da accettare'), h('strong', String(my.approvals.rda || 0))),
       h('a.wl-kv', { href: '#/it/strumenti' }, h('span', 'Richieste IT in corso'), itWaiting)),
     h('div.wl-two', h('button.btn.btn-sm', { type: 'button', on: { click: () => openRdaForm({ onDone: reload }) } }, 'Nuova RDA'), h('a.btn.btn-sm', { href: '#/it/strumenti' }, 'Richiedi un software')));

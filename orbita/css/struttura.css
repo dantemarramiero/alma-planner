@@ -78,3 +78,9 @@
 .side-tag { padding: 4px 10px; border-radius: var(--radius-pill); background: var(--ap-grey-100); color: var(--ap-text); text-decoration: none; font-size: var(--ap-fs-xs, 13px); }
 .side-tag:hover { background: var(--ap-orange-tint, #FFF1E5); color: var(--orange-fill, var(--orange)); }
 @media (max-width: 600px) { .composer-acts { padding-left: 0; } }
+
+/* Persone: vista «Per reparto» e pulsante nel riquadro dei grazie */
+.ps-groups { display: grid; gap: var(--ap-space-5, 24px); }
+.ps-group { display: grid; gap: var(--ap-space-3); }
+.ps-group h2 { margin: 0; font-size: 17px; }
+.ps-thank { justify-self: start; margin-top: 4px; }

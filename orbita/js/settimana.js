@@ -77,4 +77,8 @@ export function ticketsPage(container, params) {
       h('nav.seg', { 'aria-label': 'Di chi' }, WHO.map(([k, l]) => h('a', { href: k === 'miei' ? '#/tickets' : `#/tickets?di=${k}`, class: k === who[0] ? 'on' : '', 'aria-current': k === who[0] ? 'page' : null }, l)))),
     inner);
   ticketsView(inner, { fixed: who[2] });
+  get('/api/tickets?assignee=me&status=open', { quiet: true }).then(list => {
+    const a = container.querySelector('.seg a');
+    if (a && Array.isArray(list)) a.textContent = `I miei · ${list.length}`;
+  }).catch(() => {});
 }

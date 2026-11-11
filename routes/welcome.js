@@ -96,7 +96,7 @@ function registerWelcome(app, { db, isAdmin, notifier, live }) {
         WHERE t.status <> 'done' AND ${LIVE}
         ORDER BY t.due_date IS NULL, t.due_date, t.id DESC LIMIT 4`, [me]);
     const { rows: [counts] } = await db.query(
-      `SELECT COUNT(*) FILTER (WHERE t.due_date <= $2)::int AS due, COUNT(*) FILTER (WHERE t.due_date < $2)::int AS late
+      `SELECT COUNT(*) FILTER (WHERE t.due_date <= $2)::int AS due, COUNT(*) FILTER (WHERE t.due_date < $2)::int AS late, COUNT(*)::int AS open
          FROM tickets t JOIN ticket_assignees a ON a.ticket_id = t.id AND a.user_id = $1 WHERE t.status <> 'done' AND ${LIVE}`, [me, iso(today)]);
     const { rows: [appr] } = await db.query(
       `SELECT (SELECT COUNT(*)::int FROM pm_change_requests cr WHERE cr.status = 'pending' AND (cr.approver_id = $1 OR ($2 AND cr.approver_id IS NULL))) AS scheda,
@@ -123,7 +123,7 @@ function registerWelcome(app, { db, isAdmin, notifier, live }) {
       ideas: ideaStats,
       review: { year, quarter, deadline: quarter === 4 ? `${year + 1}-01-15` : `${year}-${String(quarter * 3 + 1).padStart(2, '0')}-15`, ...rev },
       my: {
-        tickets: myTickets, due: counts.due, late: counts.late,
+        tickets: myTickets, due: counts.due, late: counts.late, open: counts.open,
         approvals: { scheda: appr.scheda, rda: appr.rda },
         scheda,
         objectives: obj.n ? { count: obj.n, achievement: obj.den ? Math.round(Number(obj.num) / Number(obj.den)) : null } : null,
