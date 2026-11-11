@@ -62,3 +62,19 @@
 .wk-car { background: var(--green-soft); }
 .wk-car .wk-tag { color: var(--green); }
 @media (max-width: 760px) { .wk-days { grid-template-columns: 1fr; } .wk-day { min-height: 0; } }
+
+/* Bacheca: «Condividi una novità» con Foto e Ringrazia, post «Grazie a…», news fissate e argomenti a lato */
+.composer.composer-v2 { display: grid; gap: 10px; }
+.composer-top { display: flex; align-items: center; gap: 12px; }
+.composer-acts { display: flex; gap: var(--ap-space-2); padding-left: 52px; flex-wrap: wrap; }
+.composer-act { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; font: inherit; color: var(--ap-text); padding: 6px 10px; border-radius: var(--radius-pill); cursor: pointer; }
+.composer-act:hover { background: var(--ap-grey-100); color: var(--ap-text-strong); }
+.post-grazie { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 16px 8px; padding: 8px 12px; border-radius: var(--radius); background: var(--green-soft); color: var(--green); }
+.post-grazie strong { color: var(--ap-text-strong); }
+.side-news { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; border: 0; background: transparent; font: inherit; color: var(--ap-text-strong); padding: 6px 0; cursor: pointer; }
+.side-news:hover span { color: var(--orange-fill, var(--orange)); }
+.side-news .icon, .side-news svg { flex: none; margin-top: 3px; color: var(--orange-fill, var(--orange)); }
+.side-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.side-tag { padding: 4px 10px; border-radius: var(--radius-pill); background: var(--ap-grey-100); color: var(--ap-text); text-decoration: none; font-size: var(--ap-fs-xs, 13px); }
+.side-tag:hover { background: var(--ap-orange-tint, #FFF1E5); color: var(--orange-fill, var(--orange)); }
+@media (max-width: 600px) { .composer-acts { padding-left: 0; } }

@@ -60,3 +60,23 @@ test('bacheca: «Del mio reparto» mostra solo i post dei colleghi dello stesso 
   assert.equal((await ANNA('GET', '/api/feed?filter=altro')).status, 400);
   assert.equal((await ANNA('GET', '/api/feed')).body.posts.length, 2);
 });
+
+test('bacheca: «Dai cantieri», post «Grazie a…» con chi e pillar, news fissate e argomenti a lato', async () => {
+  const luca = (await LUCA('GET', '/api/me')).body;
+  await SARA('POST', '/api/posts', { body: 'Getto del solaio oggi #cantiere #sicurezza' });
+  await SARA('POST', '/api/posts', { body: 'Riunione di fine mese #amministrazione' });
+  // Luca è nel reparto Cantieri: i suoi post sono «dai cantieri» anche senza hashtag
+  const cantieri = (await ANNA('GET', '/api/feed?filter=cantieri')).body.posts.map(p => p.body);
+  assert.ok(cantieri.includes('Getto del solaio oggi #cantiere #sicurezza'));
+  assert.ok(cantieri.includes('Foto dal cantiere'));
+  assert.ok(!cantieri.includes('Riunione di fine mese #amministrazione'));
+
+  assert.equal((await ANNA('POST', '/api/welcome/grazie', { user_id: luca.id, body: 'per il sopralluogo', pillar: 'Sicurezza' })).status, 201);
+  const g = (await ANNA('GET', '/api/feed?filter=grazie')).body.posts[0];
+  assert.deepEqual([g.kind, g.thanked_id, g.pillar], ['grazie', luca.id, 'Sicurezza']);
+
+  const side = (await ANNA('GET', '/api/feed/side')).body;
+  assert.deepEqual(side.pinned, []);
+  assert.ok(side.tags.some(t => t.tag === 'cantiere' && t.n === 1));
+  assert.ok(side.tags.some(t => t.tag === 'sicurezza'));
+});

@@ -8,7 +8,7 @@ const TAG_RE = /^[\p{L}\p{N}_]{1,50}$/u;
 
 // $1 = utente che guarda.
 const POST_SELECT = `
-  SELECT p.id, p.author_id, p.body, p.pinned_at, p.created_at,
+  SELECT p.id, p.author_id, p.body, p.pinned_at, p.created_at, p.kind, p.thanked_id, p.pillar,
          COALESCE((SELECT json_agg(json_build_object('id', m.id, 'w', m.width, 'h', m.height) ORDER BY pm.position)
                      FROM post_media pm JOIN media m ON m.id = pm.media_id WHERE pm.post_id = p.id), '[]') AS media,
          (SELECT COUNT(*)::int FROM post_likes l WHERE l.post_id = p.id) AS like_count,
@@ -35,6 +35,19 @@ function registerFeed(app, { db, live, notifier, isAdmin }) {
   }
 
   // ── bacheca ────────────────────────────────────────────────────────────────
+  // colonna a lato della Bacheca: le news fissate (titolo = prima riga) e gli argomenti più usati negli ultimi 60 giorni
+  app.get('/api/feed/side', async (_req, res) => {
+    const [{ rows: pinned }, { rows: tags }] = await Promise.all([
+      db.query('SELECT id, body FROM posts WHERE pinned_at IS NOT NULL ORDER BY pinned_at DESC LIMIT 5'),
+      db.query(`SELECT lower(m[1]) AS tag, COUNT(DISTINCT p.id)::int AS n
+                  FROM posts p, regexp_matches(p.body, '#([[:alnum:]_]+)', 'g') AS m
+                 WHERE p.created_at > now() - interval '60 days'
+                 GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 8`),
+    ]);
+    const title = b => { const l = String(b || '').split('\n').find(x => x.trim()) || 'Post in evidenza'; return l.length > 80 ? `${l.slice(0, 80)}…` : l; };
+    res.json({ pinned: pinned.map(p => ({ id: p.id, title: title(p.body) })), tags });
+  });
+
   app.get('/api/feed', async (req, res) => {
     const params = [req.user.id];
     const where = [];
@@ -44,8 +57,13 @@ function registerFeed(app, { db, live, notifier, isAdmin }) {
     const tag = req.query.tag === undefined ? undefined : String(req.query.tag);
     if (tag !== undefined && !TAG_RE.test(tag)) throw new HttpError(400, 'Hashtag non valido');
     // filtri della Bacheca: solo i «Grazie a…», o solo i colleghi del mio reparto (organigramma di Microsoft)
-    const filter = v.oneOf(req.query.filter, 'filtro', ['grazie', 'reparto']);
+    const filter = v.oneOf(req.query.filter, 'filtro', ['grazie', 'reparto', 'cantieri']);
     if (filter === 'grazie') where.push("p.kind = 'grazie'");
+    // «Dai cantieri»: post con #cantiere/#cantieri, o di chi lavora in un reparto di cantiere
+    if (filter === 'cantieri') {
+      where.push(`(p.body ~* '(^|[^[:alnum:]_])#cantier[ei]([^[:alnum:]_]|$)' OR EXISTS (SELECT 1 FROM users au JOIN org_people ao ON ao.oid = au.oid OR lower(ao.email) = lower(au.email)
+              WHERE au.id = p.author_id AND ao.department ILIKE '%cantier%'))`);
+    }
     if (filter === 'reparto') {
       add(`EXISTS (SELECT 1 FROM users au JOIN org_people ao ON ao.oid = au.oid OR lower(ao.email) = lower(au.email),
                      users mu JOIN org_people mo ON mo.oid = mu.oid OR lower(mo.email) = lower(mu.email)

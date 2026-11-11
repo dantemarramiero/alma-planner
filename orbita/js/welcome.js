@@ -5,6 +5,7 @@ import { get, put, post, del } from './api.js';
 import { store, userById, firstName } from './store.js';
 import { icon } from './icons.js';
 import { openPost, openComposer } from './feed.js';
+import { openGrazie } from './grazie.js';
 import { mediaUrl } from './media.js';
 import { openRdaForm } from './rda.js';
 import { CATEGORIES, statusPill } from './ideas.js';
@@ -79,25 +80,6 @@ function progressAt(p, iso) {
   return { act, exp, ok: act >= exp };
 }
 
-// «Grazie a…»: un collega, un pillar, due righe
-function openGrazie(pillars, onDone) {
-  const who = h('select.select', h('option', { value: '' }, 'Scegli il collega…'),
-    store.users.filter(u => u.active !== false && u.id !== store.me.id).map(u => h('option', { value: String(u.id) }, u.name)));
-  const pillar = h('select.select', h('option', { value: '' }, 'Nessun pillar'), pillars.map(p => h('option', { value: p.name }, p.name)));
-  const text = h('textarea.input', { rows: 3, maxlength: 2000, placeholder: 'Per cosa lo ringrazi?' });
-  const m = modal({
-    title: 'Ringrazia un collega',
-    body: [h('label.field', h('span', 'Chi'), who), h('label.field', h('span', 'Grazie per…'), text),
-      h('label.field', h('span', 'Su quale pillar dell’Hoshin Kanri (facoltativo)'), pillar),
-      h('p.muted.small', 'Compare nella bacheca e nella pagina di benvenuto; il collega riceve una notifica.')],
-    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
-      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-        if (!who.value || !text.value.trim()) { toast('Scegli il collega e scrivi il ringraziamento', 'err'); return; }
-        await post('/api/welcome/grazie', { user_id: Number(who.value), body: text.value.trim(), pillar: pillar.value });
-        m.close(); toast('Grazie pubblicato'); onDone?.();
-      } } }, 'Pubblica')],
-  });
-}
 
 function newPoll(onDone) {
   const q = h('input.input', { maxlength: 200, placeholder: 'Es. Dove facciamo la cena di Natale?' });

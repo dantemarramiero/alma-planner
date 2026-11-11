@@ -1,5 +1,5 @@
 // Bacheca dell'intranet (prima era la Home): storie, nuovo post, post in evidenza + cronologici a scorrimento
-// infinito, filtri (News aziendali, Grazie a…, Del mio reparto) e a lato i colleghi. Profilo e ticket stanno nella Home.
+// infinito, filtri (News aziendali, Dai cantieri, Grazie a…, Del mio reparto) e a lato news fissate e argomenti. Profilo e ticket stanno nella Home.
 import { h, clear, fill, avatar, modal, toast, timeAgo, fmtDate, confirmDialog, today, loading, isMobile } from './ui.js';
 import { get, post, del } from './api.js';
 import { store, userById, firstName } from './store.js';
@@ -7,15 +7,15 @@ import { mediaUrl, pickImages, uploadImage } from './media.js';
 import { icon, richText, withMentions, popMenu, ringAvatar, userLink } from './social.js';
 import { storiesBar, loadStories, openStories } from './stories.js';
 import { onLive } from './live.js';
-import { messageButton } from './teams.js';
 import { ticketCard } from './tickets.js';
+import { openGrazieLoading } from './grazie.js';
 
 const MAX_PHOTOS = 10;
 const CAPTION_CUT = 220;
 
 export function homeView(view, params) {
   const tag = params.get('tag');
-  const FILTERS = [['', 'Tutto'], ['news', 'News aziendali'], ['grazie', 'Grazie a…'], ['reparto', 'Del mio reparto']];
+  const FILTERS = [['', 'Tutto'], ['news', 'News aziendali'], ['cantieri', 'Dai cantieri'], ['grazie', 'Grazie a…'], ['reparto', 'Del mio reparto']];
   const filter = FILTERS.some(([k]) => k && k === params.get('filtro')) ? params.get('filtro') : '';
   const offs = [];
   let next = null, busy = false, observer = null;
@@ -54,7 +54,7 @@ export function homeView(view, params) {
     try {
       const q = new URLSearchParams();
       if (tag) q.set('tag', tag);
-      if (filter === 'grazie' || filter === 'reparto') q.set('filter', filter);
+      if (['grazie', 'reparto', 'cantieri'].includes(filter)) q.set('filter', filter);
       if (next) q.set('before', next);
       const data = await get(`/api/feed?${q}`);
       if (!next && data.pinned?.length) pinnedBox.append(...data.pinned.map(p => postCard(p, cardOpts)));
@@ -95,13 +95,15 @@ export function homeView(view, params) {
 // ── nuovo post ──────────────────────────────────────────────────────────────
 function composerCard(onCreated) {
   const open = () => openComposer({ onCreated });
-  return h('div.card.composer', { on: { click: open } },
-    avatar(store.me, 40),
-    h('div.composer-fake', `A cosa stai lavorando, ${firstName(store.me)}?`),
-    h('button.btn-icon', { type: 'button', title: 'Aggiungi foto' }, icon('image', { size: 22 })));
+  const act = (ico, label, fn) => h('button.composer-act', { type: 'button', on: { click: e => { e.stopPropagation(); fn(); } } }, icon(ico, { size: 18 }), label);
+  return h('div.card.composer.composer-v2', { on: { click: open } },
+    h('div.composer-top', avatar(store.me, 40), h('div.composer-fake', 'Condividi una novità con i colleghi')),
+    h('div.composer-acts',
+      act('image', 'Foto', () => openComposer({ onCreated, photos: true })),
+      act('heart', 'Ringrazia', () => openGrazieLoading(() => onCreated?.()))));
 }
 
-export function openComposer({ onCreated } = {}) {
+export function openComposer({ onCreated, photos: pickNow = false } = {}) {
   const photos = []; // { id?, url, uploading }
   const text = h('textarea.input.composer-text', { placeholder: 'Scrivi un post… usa @ per menzionare un collega e # per un argomento', maxLength: 5000, autofocus: true });
   const strip = h('div.photo-strip');
@@ -143,6 +145,7 @@ export function openComposer({ onCreated } = {}) {
 
   const m = modal({ title: 'Nuovo post', body, actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), publish] });
   m.box.classList.add('composer-modal');
+  if (pickNow) addPhotos(); // da «Foto»: si sceglie subito la foto
   publish.addEventListener('click', async () => {
     if (!text.value.trim() && !photos.length) return toast('Scrivi qualcosa o aggiungi una foto', 'err');
     publish.disabled = true;
@@ -236,6 +239,10 @@ export function postCard(p, opts = {}) {
     h('div.grow', h('div', userLink(author)), h('div.post-meta', [author?.job_title, timeAgo(p.created_at)].filter(Boolean).join(' · '))),
     p.pinned_at ? h('span.pinned', icon('pin', { size: 14 }), 'In evidenza') : null,
     more);
+  // «Grazie a…»: chi ringrazia chi, e su quale pillar
+  const thanks = p.kind === 'grazie' ? h('div.post-grazie', icon('heart', { size: 15 }),
+    h('strong', `${author?.name || 'Un collega'} → ${userById(p.thanked_id)?.name || 'un collega'}`),
+    h('span', `Grazie a…${p.pillar ? ` · ${p.pillar}` : ''}`)) : null;
 
   const hasMedia = p.media.length > 0;
   const caption = p.body ? captionBlock(author, p.body, { withName: hasMedia }) : null;
@@ -260,7 +267,7 @@ export function postCard(p, opts = {}) {
   }, withMentions(commentInput), sendBtn);
 
   fill(el,
-    head,
+    head, thanks,
     hasMedia ? carousel(p.media, { onDoubleTap: () => toggleLike(true) }) : null,
     !hasMedia && caption ? h('div.post-text', caption) : null,
     actions,
@@ -445,16 +452,21 @@ function todayCard() {
   return card;
 }
 
+// A lato: news fissate (i post in evidenza) e argomenti più usati. Profilo e ticket stanno nella Home.
 function sideColumn() {
-  const people = h('div.side-list');
-  const colleagues = store.users.filter(u => u.id !== store.me.id && u.active);
-  people.append(...colleagues.slice(0, 8).map(u => h('div.side-person',
-    h('a', { href: `#/u/${u.id}` }, avatar(u, 34)),
-    h('div.grow', h('a.user-link.strong', { href: `#/u/${u.id}` }, u.name), h('small', u.job_title || `@${u.handle}`)),
-    messageButton(u, { className: 'link-btn.strong.accent' }))));
-  if (!colleagues.length) people.append(h('div.muted.small', 'I colleghi compaiono qui dopo il loro primo accesso.'));
+  const news = h('div.side-list', loading());
+  const tags = h('div.side-tags');
+  get('/api/feed/side', { quiet: true }).then(d => {
+    fill(news, d.pinned.length
+      ? d.pinned.map(p => h('button.side-news', { type: 'button', on: { click: () => openPost(p.id) } }, icon('pin', { size: 14 }), h('span', p.title)))
+      : h('div.muted.small', 'Nessuna news fissata.'));
+    fill(tags, d.tags.length ? d.tags.map(t => h('a.side-tag', { href: `#/?tag=${encodeURIComponent(t.tag)}` }, `#${t.tag}`))
+      : h('div.muted.small', 'Usa # nei post per creare un argomento.'));
+  }).catch(() => fill(news));
 
   return h('aside.home-side',
-    h('section', h('div.side-title', h('span', 'Colleghi'), h('a', { href: '#/persone' }, 'Tutti')), people),
+    h('section', h('div.side-title', h('span', 'News fissate')), news),
+    h('section', h('div.side-title', h('span', 'Argomenti')), tags),
+    h('section', h('div.side-title', h('span', 'Persone'), h('a', { href: '#/persone' }, 'Tutte')), h('div.muted.small', 'Colleghi, compleanni e organigramma.')),
     h('div.side-foot', 'Intranet Almacis · Alma Planet'));
 }
