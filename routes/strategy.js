@@ -131,8 +131,10 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier, alerts })
       for (const r of (await q.query('SELECT * FROM hk_functions WHERE year = $1 ORDER BY position, id', [from])).rows) {
         fmap[r.id] = (await q.query('INSERT INTO hk_functions (year, position, name, sponsor, color, kind) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', [year, r.position, r.name, r.sponsor, r.color, r.kind])).rows[0].id;
       }
-      for (const r of (await q.query('SELECT * FROM hk_areas WHERE year = $1 ORDER BY position, id', [from])).rows) {
-        await q.query('INSERT INTO hk_areas (year, position, name, sponsor, function_id) VALUES ($1,$2,$3,$4,$5)', [year, r.position, r.name, r.sponsor, fmap[r.function_id] || null]);
+      const amap = {};
+      for (const r of (await q.query('SELECT * FROM hk_areas WHERE year = $1 ORDER BY parent_id NULLS FIRST, position, id', [from])).rows) {
+        amap[r.id] = (await q.query('INSERT INTO hk_areas (year, position, name, sponsor, function_id, parent_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+          [year, r.position, r.name, r.sponsor, fmap[r.function_id] || null, r.parent_id ? amap[r.parent_id] || null : null])).rows[0].id;
       }
       const { rows: kcols } = await q.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'hk_kpis'");
       const skip = new Set(['id', 'year', 'pillar_id', 'monthly']);
@@ -406,6 +408,16 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier, alerts })
     const e = entity(req.params.entity);
     await guard(req, req.params.entity, null, req.body || {});
     const row = { ...e.defaults, ...clean(e, req.body || {}) };
+    let parent = null;
+    if (req.params.entity === 'areas' && req.body?.parent_id) {
+      const pid = v.int(req.body.parent_id, 'macro area', { min: 1 });
+      ({ rows: [parent] } = await db.query('SELECT id, year, function_id, parent_id FROM hk_areas WHERE id = $1', [pid]));
+      if (!parent || parent.parent_id) throw new HttpError(400, 'Una sotto area va dentro una macro area');
+      row.parent_id = parent.id;
+      row.function_id = parent.function_id;
+      req.body.function_id = parent.function_id;
+      if (row.name === 'Nuova area') row.name = 'Nuova sotto area';
+    }
     for (const k of e.needs || []) row[k] = v.int(req.body[k], k, { min: 1 });
     if (!e.noYear) row.year = yearOf(req);
     if (row.position === undefined) {
@@ -417,6 +429,11 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier, alerts })
     const { rows: [created] } = await db.query(
       `INSERT INTO ${e.table} (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`, keys.map(k => row[k]));
     if (req.params.entity === 'tasks') created.ticket_id = await ticketForNewTask(db, created, req.user.id);
+    if (parent) {
+      // prima sotto area: i progetti che erano sulla macro area passano a lei
+      const { rows: [{ n }] } = await db.query('SELECT COUNT(*)::int AS n FROM hk_areas WHERE parent_id = $1', [parent.id]);
+      created.moved = n === 1 ? (await db.query('UPDATE hk_projects SET area_id = $2, updated_at = now() WHERE area_id = $1', [parent.id, created.id])).rowCount : 0;
+    }
     res.status(201).json(created);
     if (req.params.entity === 'tasks') tellA3(created.project_id, req, taskChange(null, created, row));
   });
@@ -434,6 +451,7 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier, alerts })
     const { rows: [updated] } = await db.query(`UPDATE ${e.table} SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, [id, ...keys.map(k => row[k])]);
     if (!updated) throw new HttpError(404, 'Elemento non trovato');
     if (req.params.entity === 'tasks') await taskToTicket(db, updated, row);
+    if (req.params.entity === 'areas' && row.function_id !== undefined) await db.query('UPDATE hk_areas SET function_id = $2 WHERE parent_id = $1', [id, row.function_id]);
     if (req.params.entity === 'projects' && row.name !== undefined && updated.project_id) {
       await db.query('UPDATE projects SET name = $2, updated_at = now() WHERE id = $1', [updated.project_id, (updated.name || 'A3').slice(0, 200)]);
     }

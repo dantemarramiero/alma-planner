@@ -167,3 +167,24 @@ test('aggiungere al team dell’A3 senza richiesta: chi lavora sull’A3 lo fa, 
   assert.equal((await fresh('GET', `/api/projects/${r.body.project_id}`)).body.my_role, 'member');
   assert.equal((await L('POST', `/api/strategy/projects/${p.id}/members`, { user_ids: [nid] })).body.added, 0, 'già dentro');
 });
+
+test('macro aree e sotto aree: la prima sotto area prende i progetti della macro area; il nuovo anno le copia', async () => {
+  const { rows: [f] } = await db.query("INSERT INTO hk_functions (year, name, kind) VALUES (2026, 'BU Prova Macro', 'bu') RETURNING id");
+  const macro = (await A('POST', '/api/strategy/areas', { year: 2026, function_id: f.id, name: 'Infrastrutture' })).body;
+  const p = (await A('POST', '/api/strategy/projects', { year: 2026, area_id: macro.id, name: 'Rapportini reti' })).body;
+  const sub = (await A('POST', '/api/strategy/areas', { year: 2026, parent_id: macro.id, name: 'Reti metano' }));
+  assert.equal(sub.status, 201);
+  assert.deepEqual([sub.body.parent_id, sub.body.function_id, sub.body.moved], [macro.id, f.id, 1]);
+  const { rows: [moved] } = await db.query('SELECT area_id FROM hk_projects WHERE id = $1', [p.id]);
+  assert.equal(moved.area_id, sub.body.id);
+  // la seconda sotto area non sposta niente; una sotto area non può avere sotto aree
+  assert.equal((await A('POST', '/api/strategy/areas', { year: 2026, parent_id: macro.id, name: 'Strade' })).body.moved, 0);
+  assert.equal((await A('POST', '/api/strategy/areas', { year: 2026, parent_id: sub.body.id })).status, 400);
+  // la macro area cambia BU: le sotto aree la seguono
+  const { rows: [f2] } = await db.query("INSERT INTO hk_functions (year, name, kind) VALUES (2026, 'BU Altra', 'bu') RETURNING id");
+  await A('PATCH', `/api/strategy/areas/${macro.id}`, { function_id: f2.id });
+  const { rows: kids } = await db.query('SELECT DISTINCT function_id FROM hk_areas WHERE parent_id = $1', [macro.id]);
+  assert.deepEqual(kids.map(r => r.function_id), [f2.id]);
+  const all = (await A('GET', '/api/strategy?year=2026')).body;
+  assert.ok(all.areas.some(a => a.id === sub.body.id && a.parent_id === macro.id));
+});

@@ -182,3 +182,24 @@
 .ns-device { padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between; margin-top: var(--ap-space-4); }
 .ns-actions { flex-wrap: wrap; }
 @media (max-width: 560px) { .ns-row { grid-template-columns: minmax(0, 1fr) repeat(3, 56px); gap: 6px; } .ns-head .ns-c { font-size: 11px; } }
+
+/* Hoshin Kanri: macro aree (riga sopra le colonne) e Gestione → Aree ad albero */
+.hk-mbar { border-radius: 6px; font-size: 11px; font-weight: var(--ap-fw-bold, 700); display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 4px; }
+.hk-mbar span { overflow: hidden; text-overflow: ellipsis; }
+.hk-areas { display: grid; gap: var(--ap-space-4); }
+.hk-afunc { display: grid; gap: 10px; }
+.hk-afunc-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.hk-amacro { border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
+.hk-arow { display: grid; grid-template-columns: 64px minmax(0, 1fr) 180px 170px 96px auto; gap: 10px; align-items: center; padding: 10px 12px; }
+.hk-arow.macro { background: var(--ap-bg, #F7F6F3); }
+.hk-arow.sub { border-top: 1px solid var(--rule); }
+.hk-arow.sub .hk-aname { padding-left: 18px; }
+.hk-aname { display: grid; gap: 2px; min-width: 0; }
+.hk-akind { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.hk-atree { color: #C9C4BE; }
+.hk-link-btn { border: 0; background: transparent; color: var(--orange-fill, #B54E0A); font: inherit; font-weight: var(--ap-fw-medium, 500); cursor: pointer; padding: 4px 6px; white-space: nowrap; }
+.hk-arow .hk-actions { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+@media (max-width: 900px) { .hk-arow { grid-template-columns: 64px minmax(0, 1fr) auto; } .hk-asp, .hk-afn, .hk-an { grid-column: 2 / -1; } }
+.hk-aname .row { flex-wrap: nowrap; align-items: center; }
+.hk-aname .row .hk-in { flex: 1; min-width: 0; }
+.hk-mbar { font-size: 10px; }

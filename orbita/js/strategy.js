@@ -75,11 +75,24 @@ const pillarOf = k => D.pillars.find(p => p.id === k.pillar_id);
 const kpiById = id => D.kpis.find(k => k.id === id);
 const areaById = id => D.areas.find(a => a.id === id);
 const funcById = id => D.functions.find(f => f.id === id);
-// Aree nell'ordine delle fasce: prima le funzioni di staff, poi le BU, ognuna con le sue aree.
-function orderedAreas() {
-  const fpos = f => (f.kind === 'staff' ? 0 : 1000) + f.position;
-  return [...D.areas].sort((a, b) => fpos(funcById(a.function_id)) - fpos(funcById(b.function_id)) || a.position - b.position);
+// Macro aree e sotto aree (11/11/2026): un'area senza parent_id è una macro area. Le colonne dell'Hoshin Kanri e le
+// aree a cui si assegna un progetto sono le aree «finali»: le sotto aree, o la macro area quando non ne ha.
+const byPos = (a, b) => a.position - b.position || a.id - b.id;
+const childrenOf = id => D.areas.filter(x => x.parent_id === id).sort(byPos);
+const macroOf = a => (a?.parent_id ? areaById(a.parent_id) : a);
+const areaLabel = a => (!a ? '' : a.parent_id ? `${macroOf(a)?.name || ''} › ${a.name}` : a.name);
+const hasSubAreas = () => D.areas.some(a => a.parent_id);
+// macro aree nell'ordine delle fasce: prima le funzioni di staff, poi le BU
+function orderedMacros() {
+  const fpos = f => (f ? (f.kind === 'staff' ? 0 : 1000) + f.position : 9999);
+  return D.areas.filter(a => !a.parent_id).sort((a, b) => fpos(funcById(a.function_id)) - fpos(funcById(b.function_id)) || byPos(a, b));
 }
+// Aree finali nell'ordine delle fasce: macro area per macro area, le sue sotto aree (o lei stessa).
+function orderedAreas() {
+  return orderedMacros().flatMap(m => { const kids = childrenOf(m.id); return kids.length ? kids : [m]; });
+}
+// tutti i progetti di un'area: di una macro area anche quelli delle sue sotto aree
+const inArea = (p, id) => p.area_id === id || areaById(p.area_id)?.parent_id === id;
 function areaColors() {
   const out = {}, byFunc = {};
   for (const a of orderedAreas()) (byFunc[a.function_id] ||= []).push(a);
@@ -184,7 +197,7 @@ function matrixPage(container) {
     const stat = (label, value, cls) => h('div.hk-stat', h('span', label), h('strong', { class: cls || '' }, value));
     fill(strip,
       h('div.hk-stats', stat('Progetti', ids.length), stat('In linea', ok, 'ok'), stat('In ritardo', ids.length - ok, 'ko'),
-        stat('KPI coperti da progetti', `${covered} su ${D.kpis.length}`), stat('Aree senza progetti', `${empty.length} su ${D.areas.length}`)),
+        stat('KPI coperti da progetti', `${covered} su ${D.kpis.length}`), stat('Aree senza progetti', `${empty.length} su ${orderedAreas().length}`)),
       h('div.hk-filters', [['all', 'Tutto'], ['late', 'Solo in ritardo'], ['mine', 'I miei']].map(([k, l]) =>
         h('button.hk-chip', { type: 'button', class: filter === k ? 'on' : '', 'aria-pressed': String(filter === k), on: { click: () => { filter = k; sel = null; draw(); } } }, l))));
   }
@@ -203,7 +216,7 @@ function matrixPage(container) {
         ps.map(p => {
           const st = status.get(p.id), a = areaById(p.area_id);
           return h('a.hk-phone-p', { href: `#/strategy/a3/${p.id}` },
-            h('span.hk-phone-t', h('span.hk-eyebrow', { style: { color: colors[a.id] } }, a.name), h('strong', p.name), h('small', p.owner)),
+            h('span.hk-phone-t', h('span.hk-eyebrow', { style: { color: colors[a?.id] } }, areaLabel(a)), h('strong', p.name), h('small', p.owner)),
             h('span.hk-phone-r', h('span.hk-status', { class: st.ok ? 'ok' : 'ko' }, st.ok ? 'in linea' : 'in ritardo'), h('span.hk-prog', progressBar(st.act, st.exp), `${st.act}%`)));
         }))) : h('div.card.empty', 'Nessun progetto con questo filtro.'),
       h('div.hk-card.hk-phone-tn', h('span.hk-eyebrow', 'True North'), h('p', D.true_north ? `“${D.true_north}”` : 'Ancora da scrivere.'))));
@@ -228,7 +241,8 @@ function matrixPage(container) {
     const heightOf = list => list.reduce((s, a) => s + hOf(a), 0);
     const LABEL_H = 128;
     const staffY = 30, buY = staffY + heightOf(staff) + 26, labelY = buY + heightOf(bu) + 8;
-    const fY = labelY + LABEL_H + 4;
+    const MACRO_H = hasSubAreas() ? 24 : 0; // riga delle macro aree
+    const fY = labelY + LABEL_H + 4 + MACRO_H;
     const pTop = fY + 62;
     const kRows = D.pillars.map(p => Math.max(2, D.kpis.filter(k => k.pillar_id === p.id).length));
     const thisMonth = Number(today.slice(0, 4)) === YEAR ? Number(today.slice(5, 7)) - 1 : -1;
@@ -273,7 +287,7 @@ function matrixPage(container) {
       });
       return abs(PX, y, width - PX, RH, { class: `hk-prow ${dim(on)} ${sel?.t === 'p' && sel.id === p.id ? 'sel' : ''}` },
         h('span.hk-track', { style: { left: `${monthsX - PX}px`, width: `${12 * COLS.month}px` } }),
-        h('button.hk-pname', { type: 'button', title: `${p.name}${area ? ` · ${area.name}` : ''}${p.target ? ` · ${p.target}` : ''}`, style: { width: `${COLS.name}px`, borderLeftColor: color }, on: { click: () => { sel = sel?.t === 'p' && sel.id === p.id ? null : { t: 'p', id: p.id }; draw(); if (sel) openPanel(p); } } }, p.name),
+        h('button.hk-pname', { type: 'button', title: `${p.name}${area ? ` · ${areaLabel(area)}` : ''}${p.target ? ` · ${p.target}` : ''}`, style: { width: `${COLS.name}px`, borderLeftColor: color }, on: { click: () => { sel = sel?.t === 'p' && sel.id === p.id ? null : { t: 'p', id: p.id }; draw(); if (sel) openPanel(p); } } }, p.name),
         col(COLS.owner, { class: 'hk-cell', title: p.owner }, p.owner),
         COLS.target ? col(COLS.target, { class: 'hk-cell muted', title: p.target }, p.target) : null,
         cells,
@@ -311,6 +325,18 @@ function matrixPage(container) {
       }
     };
     fspan(staff, X0); fspan(bu, BUX);
+    // macro aree: una fascia sopra le sue colonne (sotto aree), con il nome se c'è spazio
+    const mspan = (list, x0) => {
+      const groups = [];
+      list.forEach((a, i) => { const m = macroOf(a), last = groups[groups.length - 1]; if (last && last.m === m.id) last.to = i; else groups.push({ m: m.id, from: i, to: i }); });
+      for (const g of groups.filter(x => childrenOf(x.m).length)) { // solo le macro aree con sotto aree: le altre hanno già il loro nome
+        const m = areaById(g.m), x = x0 + g.from * (CW + GAP), w = (g.to - g.from + 1) * (CW + GAP) - GAP;
+        const c = mix(funcById(m.function_id)?.color || '#8A8A8A', 0.45);
+        els.push(abs(x, labelY + LABEL_H + 4, w, MACRO_H - 4, { class: 'hk-mbar', style: { background: c, color: inkOn(c) }, title: `Macro area ${m.name}${m.sponsor ? ` · sponsor ${m.sponsor}` : ''}` },
+          w >= 24 ? h('span', m.name) : null));
+      }
+    };
+    if (MACRO_H) { mspan(staff, X0); mspan(bu, BUX); }
 
     els.push(abs(PX, labelY + 4, monthsX + 12 * COLS.month - PX, LABEL_H + 50, { class: 'hk-tn' }, trueNorth()));
 
@@ -406,7 +432,7 @@ function matrixPage(container) {
     const area = areaById(p.area_id);
     modal({
       drawer: true,
-      title: h('div', h('div.hk-eyebrow', `A3 · ${area?.name || ''}`), h('h2', p.name)),
+      title: h('div', h('div.hk-eyebrow', `A3 · ${areaLabel(area)}`), h('h2', p.name)),
       body: h('div.hk-panel',
         h('p.muted', `Owner ${p.owner || '—'} · ${p.target || ''}`),
         h('div.hk-two', h('div.hk-box', h('span', 'Avanzamento reale'), h('strong', { class: st.ok ? 'ok' : 'ko' }, `${st.act}%`)), h('div.hk-box', h('span', 'Atteso a oggi'), h('strong', `${st.exp}%`))),
@@ -549,12 +575,12 @@ function gestionePage(container, tabKey) {
       const areas = orderedAreas();
       fill(body, h('div.hk-gcard', h('table.hk-grid',
         h('thead', h('tr', ['Progetto', 'Area', 'Owner', 'KPI collegati', 'Target', 'Contromisure', 'Avanzamento', ''].map(t => h('th', t)))),
-        h('tbody', areas.flatMap(a => projectsOf(a.id)).concat(D.projects.filter(p => !p.area_id)).map(p => {
+        h('tbody', areas.flatMap(a => projectsOf(a.id)).concat(D.projects.filter(p => !p.area_id || !areas.some(a => a.id === p.area_id))).map(p => {
           const st = progressAt(p, D.today);
           const sum = p.tasks.reduce((s, t) => s + t.weight, 0);
           return h('tr',
             h('td', { style: { minWidth: '260px' } }, cell('projects', p, 'name', { cls: 'strong' })),
-            h('td', choose('projects', p, 'area_id', [['', '—'], ...areas.map(x => [x.id, `${funcById(x.function_id).name} · ${x.name}`])])),
+            h('td', choose('projects', p, 'area_id', [['', '—'], ...areas.map(x => [x.id, `${funcById(x.function_id)?.name || ''} · ${areaLabel(x)}`])])),
             h('td', cell('projects', p, 'owner')),
             h('td', { style: { minWidth: '280px' } }, kpiField(p, { compact: true, editable: D.can_admin, onChange: draw })),
             h('td', { style: { minWidth: '200px' } }, cell('projects', p, 'target')),
@@ -595,26 +621,49 @@ function gestionePage(container, tabKey) {
             remove('functions', f, `«${f.name}» con le sue aree`))),
           add('Nuova BU o funzione', () => post('/api/strategy/functions', { year: YEAR })))));
     } else {
-      const areas = orderedAreas();
+      // macro aree e sotto aree, BU per BU (canvas 11/11): i progetti stanno sulla sotto area o, se non ce ne sono, sulla macro area
+      const colors = areaColors();
       const move = (a, dir) => async () => {
-        const same = areas.filter(x => x.function_id === a.function_id);
+        const same = (a.parent_id ? childrenOf(a.parent_id) : orderedMacros().filter(x => x.function_id === a.function_id));
         const i = same.indexOf(a), other = same[i + dir];
         if (!other) return;
         const [pa, pb] = [a.position, other.position === a.position ? a.position + dir : other.position];
         await Promise.all([save('areas', a, { position: pb }), save('areas', other, { position: pa })]);
         draw();
       };
-      fill(body, h('div.hk-gcard', h('p.muted', 'Le aree sono le colonne dell’Hoshin Kanri: qui l’ordine è quello delle fasce. Il colore viene dalla BU o funzione.'),
-        h('table.hk-grid',
-          h('thead', h('tr', ['', 'Area', 'BU o funzione', 'Sponsor di area', 'Progetti', ''].map(t => h('th', t)))),
-          h('tbody', areas.map(a => h('tr',
-            h('td', { style: { width: '70px' } }, h('div.row', h('button.hk-icon', { type: 'button', 'aria-label': 'Sposta su', on: { click: move(a, -1) } }, '↑'), h('button.hk-icon', { type: 'button', 'aria-label': 'Sposta giù', on: { click: move(a, 1) } }, '↓'))),
-            h('td', h('div.row', h('span.hk-swatch', { style: { background: areaColors()[a.id] } }), cell('areas', a, 'name', { cls: 'strong' }))),
-            h('td', choose('areas', a, 'function_id', D.functions.map(f => [f.id, f.name]))),
-            h('td', cell('areas', a, 'sponsor')),
-            h('td.muted', String(projectsOf(a.id).length)),
-            h('td.hk-actions', remove('areas', a, `l’area «${a.name}»`)))))),
-        add('Nuova area', () => post('/api/strategy/areas', { year: YEAR, function_id: D.functions[0].id }))));
+      const arrows = a => h('div.row', h('button.hk-icon', { type: 'button', 'aria-label': 'Sposta su', on: { click: move(a, -1) } }, '↑'), h('button.hk-icon', { type: 'button', 'aria-label': 'Sposta giù', on: { click: move(a, 1) } }, '↓'));
+      const nProj = id => D.projects.filter(p => inArea(p, id)).length;
+      const addSub = m => h('button.hk-link-btn', { type: 'button', on: { click: async () => {
+        const n = D.projects.filter(p => p.area_id === m.id).length;
+        if (!childrenOf(m.id).length && n && !await confirmDialog(`«${m.name}» ha ${n === 1 ? '1 progetto' : `${n} progetti`}: passeranno alla nuova sotto area (poi puoi spostarli).`, { ok: 'Aggiungi la sotto area' })) return;
+        const r = await post('/api/strategy/areas', { year: YEAR, parent_id: m.id });
+        if (r.moved) toast(`${r.moved === 1 ? '1 progetto spostato' : `${r.moved} progetti spostati`} nella nuova sotto area`);
+        await reload();
+      } } }, '+ Sotto area');
+      const funcs = [...D.functions].sort((a, b) => (a.kind === b.kind ? a.position - b.position : a.kind === 'staff' ? -1 : 1));
+      fill(body, h('div.hk-areas',
+        h('p.muted', 'Ogni BU o funzione ha le sue macro aree; una macro area può avere sotto aree. I progetti vanno su una sotto area oppure, se la macro area non ne ha, direttamente sulla macro area. L’ordine è quello delle colonne dell’Hoshin Kanri.'),
+        funcs.map(f => h('section.hk-gcard.hk-afunc',
+          h('div.hk-afunc-h', h('span.row', h('span.hk-swatch', { style: { background: f.color } }), h('strong', f.name), f.sponsor ? h('span.muted.small', `sponsor ${f.sponsor}`) : null),
+            add('Macro area', () => post('/api/strategy/areas', { year: YEAR, function_id: f.id, name: 'Nuova macro area' }))),
+          orderedMacros().filter(m => m.function_id === f.id).map(m => {
+            const kids = childrenOf(m.id);
+            return h('div.hk-amacro',
+              h('div.hk-arow.macro',
+                arrows(m),
+                h('div.hk-aname', h('span.hk-akind', kids.length ? 'Macro area' : 'Macro area · senza sotto aree'), h('div.row', kids.length ? null : h('span.hk-swatch', { style: { background: colors[m.id] } }), cell('areas', m, 'name', { cls: 'strong' }))),
+                h('div.hk-asp', cell('areas', m, 'sponsor', { placeholder: 'Sponsor' })),
+                h('div.hk-afn', choose('areas', m, 'function_id', D.functions.map(x => [x.id, x.name]))),
+                h('span.muted.small.hk-an', nProj(m.id) === 1 ? '1 progetto' : `${nProj(m.id)} progetti`),
+                h('div.hk-actions', addSub(m), remove('areas', m, kids.length ? `la macro area «${m.name}» con le sue sotto aree` : `la macro area «${m.name}»`))),
+              kids.map(a => h('div.hk-arow.sub',
+                arrows(a),
+                h('div.hk-aname', h('div.row', h('span.hk-atree', { 'aria-hidden': 'true' }, '└'), h('span.hk-swatch', { style: { background: colors[a.id] } }), cell('areas', a, 'name'))),
+                h('div.hk-asp', cell('areas', a, 'sponsor', { placeholder: 'Sponsor' })),
+                h('div.hk-afn'),
+                h('span.muted.small.hk-an', nProj(a.id) === 1 ? '1 progetto' : `${nProj(a.id)} progetti`),
+                h('div.hk-actions', remove('areas', a, `la sotto area «${a.name}»`)))));
+          })))));
     }
   }
   drawTabs();
@@ -672,17 +721,17 @@ function a3List(container) {
       h('p.muted.small', 'La barra è l’avanzamento medio degli A3 della funzione, la tacca l’atteso a oggi. Le funzioni senza A3 sono sbiadite.'));
   }
   const s = funcStats(sel);
-  const areas = orderedAreas().filter(a => a.function_id === sel.id);
-  const list = s.ps.filter(p => !areaSel || p.area_id === areaSel);
+  const areas = orderedMacros().filter(a => a.function_id === sel.id);
+  const list = s.ps.filter(p => !areaSel || inArea(p, areaSel));
   fill(container, head(`A3 · ${sel.name}`, D.can_admin ? h('a.btn', { href: '#/strategy/gestione' }, icon('plus'), 'Nuovo progetto') : null), crumb,
     h('div.row.wrap.a3f-areas', [{ id: null, name: 'Tutte le aree' }, ...areas].map(a => {
-      const n = a.id ? s.ps.filter(p => p.area_id === a.id).length : s.n;
+      const n = a.id ? s.ps.filter(p => inArea(p, a.id)).length : s.n;
       return h('button.hk-chip', { type: 'button', class: areaSel === a.id ? 'on' : '', 'aria-pressed': String(areaSel === a.id), on: { click: () => go(sel.id, a.id) } }, a.name, h('span.a3f-cn', ` ${n}`));
     })),
     list.length ? h('div.hk-a3grid', list.map(p => {
       const st = progressAt(p, D.today), a = areaById(p.area_id);
-      return h('a.hk-a3card', { href: `#/strategy/a3/${p.id}`, style: { borderTopColor: colors[a.id] } },
-        h('span.hk-eyebrow', a.name), h('strong', p.name), h('span.muted', p.owner),
+      return h('a.hk-a3card', { href: `#/strategy/a3/${p.id}`, style: { borderTopColor: colors[a?.id] } },
+        h('span.hk-eyebrow', areaLabel(a)), h('strong', p.name), h('span.muted', p.owner),
         h('div.kp-chips', p.kpi_ids.map(kid => kpiChip(kpiById(kid), { small: true }))),
         h('span.hk-prog', progressBar(st.act, st.exp), `${st.act}% / ${st.exp}%`));
     })) : h('div.card.empty', 'Nessun A3 per questa funzione.'));
@@ -1011,7 +1060,7 @@ function a3Tab(box, p, reload) {
           h('label.hk-fact', h('span', 'Proprietario di A3'), h('input.hk-in', { value: p.owner, on: { change: e => save('projects', p, { owner: e.target.value }) } })),
           h('label.hk-fact', h('span', 'Team di progetto'), h('input.hk-in', { value: p.team, placeholder: 'Nomi separati da virgola', on: { change: e => save('projects', p, { team: e.target.value }) } })),
           h('label.hk-fact', h('span', 'Funzione / BU da HK'), h('select.hk-in', { on: { change: e => save('projects', p, { area_id: Number(e.target.value) }).then(refresh) } },
-            areas.map(a => h('option', { value: a.id, selected: a.id === p.area_id }, `${funcById(a.function_id).name} · ${a.name}`)))),
+            areas.map(a => h('option', { value: a.id, selected: a.id === p.area_id }, `${funcById(a.function_id)?.name || ''} · ${areaLabel(a)}`)))),
           h('label.hk-fact', h('span', 'Stato'), h('select.hk-in', { on: { change: e => save('projects', p, { status: e.target.value }) } }, STATUSES.map(([k, l]) => h('option', { value: k, selected: p.status === k }, l)))),
           h('label.hk-fact', h('span', 'Anno di partenza'), h('input.hk-in', { value: p.start_year || '', inputmode: 'numeric', on: { change: e => save('projects', p, { start_year: e.target.value ? Number(e.target.value) : null }) } })),
           h('label.hk-fact', h('span', 'Tag'), h('input.hk-in', { value: p.tags || '', placeholder: 'Separati da virgola', on: { change: e => save('projects', p, { tags: e.target.value }) } })),
