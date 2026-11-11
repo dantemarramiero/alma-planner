@@ -8,8 +8,8 @@ self.addEventListener('push', event => {
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : '' }; }
   event.waitUntil(self.registration.showNotification(data.title || 'Alma Planet', {
     body: data.body || '',
-    icon: '/brand/almacis/app-icon-192.png',
-    badge: '/brand/almacis/app-icon-192.png',
+    icon: '/brand/almacis/app-icon-192.png?v=2',
+    badge: '/brand/almacis/app-icon-192.png?v=2',
     tag: data.tag || undefined,
     data: { url: data.url || '/app#/benvenuto' },
   }));

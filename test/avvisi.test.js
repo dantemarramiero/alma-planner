@@ -49,7 +49,9 @@ test("file dell'app: manifest con il logo Almacis e service worker", async () =>
   const man = await m.json();
   assert.equal(man.name, 'Alma Planet');
   assert.equal(man.display, 'standalone');
-  assert.ok(man.icons.some(i => i.src === '/brand/almacis/app-icon-512.png'));
+  assert.ok(man.icons.some(i => i.src.split('?')[0] === '/brand/almacis/app-icon-512.png'));
+  const mask = man.icons.find(i => i.purpose === 'maskable');
+  assert.equal((await fetch(base + mask.src)).status, 200);
   assert.equal((await fetch(`${base}/brand/almacis/app-icon-180.png`)).status, 200);
   const sw = await fetch(`${base}/sw.js`);
   assert.equal(sw.status, 200);
