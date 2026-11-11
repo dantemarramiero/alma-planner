@@ -298,3 +298,20 @@
 .gp-row.done strong { text-decoration: line-through; color: var(--muted); }
 .gp-today { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--orange, #FF8A26); border-radius: 1px; z-index: 1; }
 .gp-full { margin-top: 12px; justify-self: start; }
+
+/* Alma Energy sul telefono (canvas 11/11) */
+.en-tb-inner { display: contents; }
+@media (max-width: 760px) {
+  .en-kinds, .en-stages { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .en-phone-filters { margin-bottom: 10px; background: var(--card, #fff); border: 1px solid var(--rule); border-radius: 14px; padding: 10px 12px; }
+  .en-phone-filters summary { cursor: pointer; font-weight: var(--ap-fw-medium, 500); }
+  .en-phone-filters .toolbar { display: grid; gap: 8px; margin-top: 10px; }
+  .en-phone-filters .toolbar > * { width: 100%; min-width: 0; }
+  .en-phone-new { margin-bottom: 10px; }
+  .en-phone-col { display: grid; gap: 10px; }
+  .en-phone-col .en-card { width: auto; }
+  .en-quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .en-quick .btn { justify-content: center; }
+  .en-body .sw-kpis, .en-body .en-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.en-kinds a.hk-chip { text-decoration: none; color: inherit; }

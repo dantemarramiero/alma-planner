@@ -81,7 +81,7 @@ const TABS = {
   strategy: [['#/strategy/hoshin', 'strategy-hoshin', 'grid-3x3', 'Hoshin'], ['#/strategy/a3', 'strategy-a3', 'file-text', 'A3'], ['#/strategy/dashboard', 'strategy-dashboard', 'layout-dashboard', 'Dashboard'], ['#/strategy/obiettivi', 'strategy-obiettivi', 'target', 'Obiettivi']],
   itTeam: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/ticket', 'it-ticket', 'life-buoy', 'Ticket IT'], ['#/it/richieste', 'it-richieste', 'inbox', 'Richieste'], ['#/it/panoramica', 'it-panoramica', 'layout-dashboard', 'Panoramica']],
   it: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/strumenti?azione=segnala', '', 'life-buoy', 'Segnala'], ['#/it/strumenti?azione=richiedi', '', 'plus', 'Richiedi']],
-  energy: [['#/energy/panoramica', 'energy-panoramica', 'layout-dashboard', 'Panoramica'], ['#/energy/opportunita', 'energy-opportunita', 'sun', 'Pipeline'], ['#/energy/aziende', 'energy-aziende', 'building', 'Aziende'], ['#/energy/screening', 'energy-screening', 'map', 'Mappa']],
+  energy: [['#/energy/panoramica', 'energy-panoramica', 'layout-dashboard', 'Panoramica'], ['#/energy/ppa', 'energy-ppa energy-revamping energy-fv energy-opportunita', 'sun', 'Pipeline'], ['#/energy/aziende', 'energy-aziende', 'building', 'Aziende'], ['#/energy/screening', 'energy-screening', 'map', 'Mappa']],
 };
 let current = { key: 'planet', label: 'Alma Planet', modules: [] };
 
@@ -99,7 +99,7 @@ function drawTabs() {
 // la pagina attiva: la stessa voce accesa nel menu laterale
 function markActive() {
   const on = document.querySelector('.sidebar nav[data-ws]:not([hidden]) a.active')?.dataset.nav;
-  for (const a of document.querySelectorAll('#m-tabs [data-tab]')) a.classList.toggle('active', Boolean(on) && a.dataset.tab === on);
+  for (const a of document.querySelectorAll('#m-tabs [data-tab]')) a.classList.toggle('active', Boolean(on) && a.dataset.tab.split(' ').includes(on));
 }
 
 // «+» tondo: crea la cosa della pagina in cui si è

@@ -1,7 +1,7 @@
 // Alma Energy: modulo della BU Energy (business IPP), riservato ai suoi membri.
 // Panoramica, pipeline a kanban (energy-pipeline.js), Database Conto Energia, tutte le opportunità con stadio e
 // collegamenti, CRM con aziende (filtro per tipo) e persone, membri del modulo. Simulatore e Impianti target arrivano dopo.
-import { h, clear, fill, modal, confirmDialog, toast, fmtDate, loading, debounce } from './ui.js';
+import { h, clear, fill, modal, confirmDialog, toast, fmtDate, loading, debounce, isMobile } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
@@ -243,7 +243,15 @@ export function opportunitySheet(o, refresh) {
   drawLinks(o);
   const historyLabel = s => (s.startsWith('step:') ? meta.targetSteps.find(x => x.key === s.slice(5))?.label || s
     : s.startsWith('esito:') ? meta.targetOutcomes[s.slice(6)] || 'Iter riaperto' : stageLabel(o.kind, s));
+  // telefono: chiama, scrivi o apri la mappa con un tocco (canvas 11/11)
+  const tel = (o.links || []).find(l => l.phone)?.phone, mail = (o.links || []).find(l => l.email && !l.opt_out)?.email;
+  const place = [o.address, o.city, o.province].filter(Boolean).join(', ');
+  const quick = isMobile() && (tel || mail || place) ? h('div.en-quick',
+    tel ? h('a.btn', { href: `tel:${String(tel).replace(/\s+/g, '')}` }, icon('phone', { size: 16 }), 'Chiama') : null,
+    mail ? h('a.btn', { href: `mailto:${mail}` }, icon('mail', { size: 16 }), 'Email') : null,
+    place ? h('a.btn', { href: `https://maps.apple.com/?q=${encodeURIComponent(place)}`, target: '_blank', rel: 'noopener' }, icon('map', { size: 16 }), 'Mappa') : null) : null;
   return h('div.en-sheet',
+    quick,
     h('div.en-sheet-main',
       h('section.card.sw-card.en-sec', h('div.en-sec-head', h('h3', 'Dati'),
         h('button.btn.btn-sm', { type: 'button', on: { click: () => opportunityForm({ opp: o, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica')),

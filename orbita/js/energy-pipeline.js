@@ -1,7 +1,7 @@
 // Alma Energy: pipeline a kanban (PPA on-site, Revamping, FV classico), import dei file Excel con anteprima,
 // Database impianti in Conto Energia con «Porta in pipeline» e le parti della scheda che cambiano per tipo
 // (dati dello screening, incassi GSE e dati tecnici del revamping, dati autorizzativi e scadenze del FV classico).
-import { h, fill, modal, toast, loading, debounce, promptDialog, confirmDialog, fmtDate } from './ui.js';
+import { h, fill, modal, toast, loading, debounce, promptDialog, confirmDialog, fmtDate, isMobile } from './ui.js';
 import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';
 import { meta, num, openOpportunity, opportunityForm, field, input, select } from './energy.js';
@@ -51,8 +51,14 @@ export async function pipelineView(box, kind) {
     load();
   } } });
   const imp = IMPORTS[kind];
+  const phone = isMobile();
+  let stageSel = null; // telefono: la fase che si vede
+  // telefono: il tipo in pillole (sono tre pagine del menu), i filtri si aprono a parte
+  const kindPills = phone ? h('nav.en-kinds', { 'aria-label': 'Tipo' }, [['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico']].map(([k, l]) =>
+    h('a.hk-chip', { href: `#/energy/${k}`, class: location.hash.startsWith(`#/energy/${k}`) ? 'on' : '' }, l))) : null;
   fill(box,
-    h('div.toolbar',
+    kindPills,
+    ((items) => (phone ? h('details.en-phone-filters', h('summary', 'Cerca e filtra'), h('div.toolbar', items)) : h('div.toolbar', items)))([
       viewSeg,
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, comune o azienda…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
       select([['', 'Tutte le priorità'], ['A', 'Priorità A'], ['B', 'Priorità B'], ['C', 'Priorità C'], ...(kind === 'revamping' ? [['D', 'Priorità D']] : [])], '',
@@ -62,7 +68,8 @@ export async function pipelineView(box, kind) {
       kind === 'revamping' ? select([['', 'Tutti i segnali'], ...Object.entries(SIGNAL_LABEL)], '', { on: { change: e => { state.signal = e.target.value; load(); } } }) : null,
       kind === 'revamping' ? select([['', 'Ogni strategia'], ...Object.entries(STRATEGIA)], '', { on: { change: e => { state.strategia = e.target.value; load(); } } }) : null,
       imp ? h('button.btn', { type: 'button', on: { click: () => importDialog(imp, load) } }, icon('upload', { size: 16 }), imp.label) : null,
-      h('button.btn.btn-primary', { type: 'button', on: { click: () => opportunityForm({ kind, onSaved: o => { load(); openOpportunity(o.id, load); } }) } }, icon('plus', { size: 16 }), 'Nuova opportunità')),
+      phone ? null : h('button.btn.btn-primary', { type: 'button', on: { click: () => opportunityForm({ kind, onSaved: o => { load(); openOpportunity(o.id, load); } }) } }, icon('plus', { size: 16 }), 'Nuova opportunità')]),
+    phone ? h('button.btn.btn-primary.en-phone-new', { type: 'button', on: { click: () => opportunityForm({ kind, onSaved: o => { load(); openOpportunity(o.id, load); } }) } }, icon('plus', { size: 16 }), 'Nuova opportunità') : null,
     board);
 
   let provincesFilled = false;
@@ -79,6 +86,15 @@ export async function pipelineView(box, kind) {
       return fill(board, h('div.card.empty', imp ? `Nessuna opportunità. Usa «${imp.label}» o «Nuova opportunità».` : 'Nessuna opportunità. Creane una con «Nuova opportunità».'));
     }
     if (view === 'mappa') return mapView(board, kind, state, p => openOpportunity(p.id, load));
+    if (phone) {
+      // una fase alla volta: le fasi in pillole con il numero, sotto le sue schede
+      if (!stageSel || !data.stages.some(s => s.key === stageSel)) stageSel = (data.stages.find(s => s.count) || data.stages[0])?.key;
+      const st = data.stages.find(s => s.key === stageSel);
+      const pills = h('nav.en-stages', { 'aria-label': 'Fase' }, data.stages.map(s => h('button.hk-chip', { type: 'button', class: s.key === stageSel ? 'on' : '', 'aria-pressed': String(s.key === stageSel),
+        on: { click: () => { stageSel = s.key; load(); } } }, s.label, h('span.a3f-cn', ` ${num(s.count)}`))));
+      return fill(board, pills, st ? h('div.en-phone-col', st.cards.length ? st.cards.map(c => card(kind, c, load)) : h('div.card.empty', 'Nessuna opportunità in questa fase.'),
+        st.count > st.cards.length ? h('div.en-col-more', `altre ${num(st.count - st.cards.length)}: restringi con i filtri`) : null) : null);
+    }
     fill(board, h('div.en-board', data.stages.map(st => column(kind, st, data.perStage, load))));
   }
   await load();
