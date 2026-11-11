@@ -200,17 +200,14 @@ export async function welcomeView(view) {
     h('button.btn.btn-sm', { type: 'button', on: { click: () => openGrazie(pillars, reload) } }, icon('heart', { size: 14 }), 'Ringrazia'));
 
   const ideaColor = { innovazione: ['#F3E6F2', '#8A3A83'], sostenibilita: ['#E7F5EC', '#1F6A41'], sicurezza: ['#FCEBE9', '#A3261B'], persone: ['#E9F1FB', '#24658C'] };
-  const lab = h('section.card.wl-lab',
-    h('div.wl-lab-head',
-      h('span.wl-lab-t', h('span.wl-lab-ico', icon('lightbulb', { size: 20 })), h('span', h('h2', 'Laboratorio delle idee'),
-        h('small', [home.ideas.month ? plural(home.ideas.month, 'nuova', 'nuove') + ' questo mese' : 'Nessuna idea nuova questo mese', home.ideas.awarded ? plural(home.ideas.awarded, 'premiata', 'premiate') : null].filter(Boolean).join(' · ')))),
-      h('span.wl-lab-act', h('a.small', { href: '#/idee' }, 'Tutte le idee'), h('a.btn.btn-sm.wl-lab-btn', { href: '#/idee?new=1' }, 'Proponi un’idea'))),
-    d.ideas.length ? h('div.wl-lab-grid', d.ideas.map(i => {
-      const [bg, fg] = ideaColor[i.category] || ['#F1EFEB', '#5E5A55'];
-      return h('a.wl-lab-card', { href: `#/idee/${i.id}` },
-        h('span.wl-lab-pills', h('span.pill', { style: { background: bg, color: fg } }, CATEGORIES[i.category] || i.category), statusPill(i.status)),
-        h('strong', i.title), h('small', `${nameOf(i.author_id)} · ${plural(i.support_count, 'sostegno', 'sostegni')}`));
-    })) : h('p.muted', 'Ancora nessuna idea: proponi la prima.'));
+  const lab = h('section.card.wl-sum',
+    h('div.wl-sum-head', h('h2', 'Laboratorio delle idee'), h('a', { href: '#/idee?new=1' }, 'Proponi un’idea →')),
+    d.ideas.length ? h('div.wl-sum-grid.two', d.ideas.slice(0, 2).map(i => {
+      const [, fg] = ideaColor[i.category] || ['#F1EFEB', '#5E5A55'];
+      return h('a.wl-sum-tile.wl-idea', { href: `#/idee/${i.id}` },
+        h('span.small', { style: { color: fg } }, `${CATEGORIES[i.category] || i.category} · ${String(statusPill(i.status).textContent || '').toLowerCase()}`),
+        h('strong', i.title), h('span.small.muted', `${nameOf(i.author_id)} · ${plural(i.support_count, 'sostegno', 'sostegni')}`));
+    })) : h('p.muted.small', 'Ancora nessuna idea: proponi la prima.'));
 
   const newsCard = p => h('article.card.wl-newscard',
     p.media_id ? h('button.wl-news-img', { type: 'button', on: { click: () => openPost(p.id) } }, h('img', { src: mediaUrl(p.media_id), alt: '', loading: 'lazy' }))
@@ -237,11 +234,18 @@ export async function welcomeView(view) {
     p.kind === 'grazie' ? h('span.pill.wl-grazie', `Grazie a…${p.pillar ? ` · ${p.pillar}` : ''}`) : null,
     p.media_id ? h('button.wl-post-img', { type: 'button', on: { click: () => openPost(p.id) } }, h('img', { src: mediaUrl(p.media_id), alt: '', loading: 'lazy' })) : null);
 
-  const feed = h('main.wl-feed', composer, lab,
-    home.news.length ? home.news.map(newsCard) : (store.me.is_admin ? h('div.card.wl-empty', 'Nessuna news: metti in evidenza un post della bacheca (menu «…» del post) e comparirà qui.') : null),
-    a3Card,
-    home.posts.slice(0, 4).map(postCardSmall),
-    h('a.btn.wl-more', { href: '#/' }, 'Vai alla bacheca'));
+  const postTile = p => h('button.wl-sum-tile', { type: 'button', on: { click: () => openPost(p.id) } },
+    h('strong', p.kind === 'grazie' ? `${nameOf(p.author_id)} → ${nameOf(p.thanked_id)}` : nameOf(p.author_id)),
+    h('span.wl-sum-text', excerpt(p.kind === 'grazie' ? p.body.replace(/^Grazie a @\S+:\s*/, '') : p.body, 110)),
+    h('span.small.muted', p.kind === 'grazie' ? '«Grazie a…»' : [p.likes ? plural(p.likes, 'mi piace', 'mi piace') : null, p.comments ? plural(p.comments, 'commento', 'commenti') : null].filter(Boolean).join(' · ') || timeAgo(p.created_at)));
+  const fromFeed = h('section.card.wl-sum',
+    h('div.wl-sum-head', h('h2', 'Dalla Bacheca'), h('a', { href: '#/' }, 'Vai alla Bacheca →')),
+    home.posts.length ? h('div.wl-sum-grid', home.posts.slice(0, 3).map(postTile)) : h('p.muted.small', 'Ancora nessun post: scrivi il primo dalla Bacheca.'));
+
+  void composer; void a3Card; void postCardSmall; // la Home del layout 11/11 non li mostra (A3 nelle storie, post in Bacheca)
+  const feed = h('main.wl-feed',
+    home.news.length ? home.news.slice(0, 1).map(newsCard) : (store.me.is_admin ? h('div.card.wl-empty', 'Nessuna news: metti in evidenza un post della bacheca (menu «…» del post) e comparirà qui.') : null),
+    fromFeed, lab);
 
   // ── colonna di destra: le mie cose ──
   const mine = hk?.projects?.filter(p => surname(p.owner) && surname(p.owner) === surname(store.me.name)) || [];
@@ -268,18 +272,11 @@ export async function welcomeView(view) {
   const dayBox = h('section.card.wl-box',
     h('div.spread', h('h2', 'La mia giornata'), h('a.small', { href: '#/settimana' }, 'La settimana →')),
     agenda,
-    my.tickets.length ? my.tickets.slice(0, 3).map(t => {
-      const late = t.due_date && t.due_date < today, now = t.due_date === today;
-      return h('a.wl-ticket', { href: `#/tickets/${t.id}` }, h('span.wl-tdot', { style: { background: t.color || '#C9C4BE' } }),
-        h('span.wl-ticket-t', h('strong', t.title), h('small', t.project || 'Senza progetto')),
-        t.due_date ? h('span.pill', { class: late ? 'wl-late' : now ? 'wl-today' : '' }, late ? 'in ritardo' : now ? 'oggi' : itDate(t.due_date).slice(0, 5)) : null);
-    }) : h('p.muted.small', 'Nessun ticket aperto: bel lavoro.'),
     h('div.wl-daylist',
       h('a.wl-kv', { href: '#/tickets' }, h('span', 'Ticket in scadenza oggi'), h('strong', { class: my.due ? 'ko' : '' }, String(my.due || 0))),
       h('a.wl-kv', { href: '#/tickets' }, h('span', 'Ticket aperti'), h('strong', String(my.open ?? my.tickets.length))),
       h('a.wl-kv', { href: '#/rda' }, h('span', 'RDA da accettare'), h('strong', String(my.approvals.rda || 0))),
-      h('a.wl-kv', { href: '#/it/strumenti' }, h('span', 'Richieste IT in corso'), itWaiting)),
-    h('div.wl-two', h('button.btn.btn-sm', { type: 'button', on: { click: () => openRdaForm({ onDone: reload }) } }, 'Nuova RDA'), h('a.btn.btn-sm', { href: '#/it/strumenti' }, 'Richiedi un software')));
+      h('a.wl-kv', { href: '#/it/strumenti' }, h('span', 'Richieste IT in corso'), itWaiting)));
 
   const eventsBox = home.events.length ? h('section.card.wl-box',
     h('div.spread', h('h2', 'Prossimi eventi'), h('button.link-btn.small', { type: 'button', on: { click: () => storyModal('Prossimi eventi', eventsList(),
@@ -304,7 +301,8 @@ export async function welcomeView(view) {
   };
   drawPoll(home.poll);
 
-  const side = h('aside.wl-side2', dayBox, contrib, pollBox, eventsBox);
+  void contrib; // nel layout 11/11 la colonna di destra è La mia giornata, Sondaggio, Prossimi eventi
+  const side = h('aside.wl-side2', dayBox, pollBox, eventsBox);
 
   fill(view, h('div.wl2',
     h('div.page-head.wl-head',

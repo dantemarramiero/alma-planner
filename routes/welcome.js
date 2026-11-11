@@ -80,7 +80,9 @@ function registerWelcome(app, { db, isAdmin, notifier, live }) {
                        (SELECT COUNT(*)::int FROM post_comments c WHERE c.post_id = p.id) AS comments
                   FROM posts p WHERE p.pinned_at IS NOT NULL ORDER BY p.pinned_at DESC LIMIT 3`).then(r => r.rows).catch(() => []),
       db.query(`SELECT p.id, p.author_id, p.kind, p.thanked_id, p.pillar, left(p.body, 300) AS body, p.created_at,
-                       (SELECT pm.media_id FROM post_media pm WHERE pm.post_id = p.id ORDER BY pm.position LIMIT 1) AS media_id
+                       (SELECT pm.media_id FROM post_media pm WHERE pm.post_id = p.id ORDER BY pm.position LIMIT 1) AS media_id,
+                       (SELECT COUNT(*)::int FROM post_likes l WHERE l.post_id = p.id) AS likes,
+                       (SELECT COUNT(*)::int FROM post_comments c WHERE c.post_id = p.id) AS comments
                   FROM posts p WHERE p.pinned_at IS NULL ORDER BY p.id DESC LIMIT 6`).then(r => r.rows),
       db.query(`SELECT COUNT(*) FILTER (WHERE created_at >= date_trunc('month', now()))::int AS month,
                        COUNT(*) FILTER (WHERE status = 'premiata' AND year = $1)::int AS awarded FROM ideas`, [year]).then(r => r.rows[0]),

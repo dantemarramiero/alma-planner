@@ -30,12 +30,12 @@ export function homeView(view, params) {
     newPill,
     tag
       ? h('div.tag-head', h('h1', `#${tag}`), h('a.btn.btn-sm', { href: '#/' }, '← Tutta la bacheca'))
-      : [h('div.page-head.feed-head', h('div', h('h1', 'Bacheca'), h('div.sub', 'Tutti i post dei colleghi, le news e le storie di 24 ore.')),
-        h('nav.seg.feed-filters', { 'aria-label': 'Filtro' }, FILTERS.map(([k, l]) => h('a', { href: k ? `#/?filtro=${k}` : '#/', class: k === filter ? 'on' : '', 'aria-current': k === filter ? 'page' : null }, l)))),
-        stories.el, isMobile() ? todayCard() : null, composerCard(() => reload())],
+      : [stories.el, isMobile() ? todayCard() : null, composerCard(() => reload())],
     pinnedBox, list, sentinel);
 
-  fill(view, h('div.home', feedCol, sideColumn()));
+  const feedHead = tag ? null : h('div.page-head.feed-head', h('div', h('h1', 'Bacheca'), h('div.sub', 'Tutti i post dei colleghi, le news e le storie di 24 ore.')),
+    h('nav.seg.feed-filters', { 'aria-label': 'Filtro' }, FILTERS.map(([k, l]) => h('a', { href: k ? `#/?filtro=${k}` : '#/', class: k === filter ? 'on' : '', 'aria-current': k === filter ? 'page' : null }, l))));
+  fill(view, h('div.bacheca', feedHead, h('div.home', feedCol, sideColumn())));
 
   // le storie danno l'anello agli avatar dei post
   function redrawRings() {
@@ -97,10 +97,9 @@ function composerCard(onCreated) {
   const open = () => openComposer({ onCreated });
   const act = (ico, label, fn) => h('button.composer-act', { type: 'button', on: { click: e => { e.stopPropagation(); fn(); } } }, icon(ico, { size: 18 }), label);
   return h('div.card.composer.composer-v2', { on: { click: open } },
-    h('div.composer-top', avatar(store.me, 40), h('div.composer-fake', 'Condividi una novità con i colleghi')),
-    h('div.composer-acts',
-      act('image', 'Foto', () => openComposer({ onCreated, photos: true })),
-      act('heart', 'Ringrazia', () => openGrazieLoading(() => onCreated?.()))));
+    avatar(store.me, 40), h('div.composer-fake', 'Condividi una novità con i colleghi'),
+    act('image', 'Foto', () => openComposer({ onCreated, photos: true })),
+    act('heart', 'Ringrazia', () => openGrazieLoading(() => onCreated?.())));
 }
 
 export function openComposer({ onCreated, photos: pickNow = false } = {}) {
@@ -236,13 +235,12 @@ export function postCard(p, opts = {}) {
 
   const head = h('header.post-head',
     h('a', { href: `#/u/${p.author_id}` }, ringAvatar(author, 36, { onStory: opts.onStory })),
-    h('div.grow', h('div', userLink(author)), h('div.post-meta', [author?.job_title, timeAgo(p.created_at)].filter(Boolean).join(' · '))),
+    p.kind === 'grazie'
+      ? h('div.grow', h('div', userLink(author), h('span.post-arrow', ' → '), userById(p.thanked_id) ? userLink(userById(p.thanked_id)) : h('strong', 'un collega')),
+        h('div.post-meta', ['Grazie a…', p.pillar || null, timeAgo(p.created_at)].filter(Boolean).join(' · ')))
+      : h('div.grow', h('div', userLink(author)), h('div.post-meta', [author?.job_title, timeAgo(p.created_at)].filter(Boolean).join(' · '))),
     p.pinned_at ? h('span.pinned', icon('pin', { size: 14 }), 'In evidenza') : null,
     more);
-  // «Grazie a…»: chi ringrazia chi, e su quale pillar
-  const thanks = p.kind === 'grazie' ? h('div.post-grazie', icon('heart', { size: 15 }),
-    h('strong', `${author?.name || 'Un collega'} → ${userById(p.thanked_id)?.name || 'un collega'}`),
-    h('span', `Grazie a…${p.pillar ? ` · ${p.pillar}` : ''}`)) : null;
 
   const hasMedia = p.media.length > 0;
   const caption = p.body ? captionBlock(author, p.body, { withName: hasMedia }) : null;
@@ -267,7 +265,7 @@ export function postCard(p, opts = {}) {
   }, withMentions(commentInput), sendBtn);
 
   fill(el,
-    head, thanks,
+    head,
     hasMedia ? carousel(p.media, { onDoubleTap: () => toggleLike(true) }) : null,
     !hasMedia && caption ? h('div.post-text', caption) : null,
     actions,
@@ -465,8 +463,6 @@ function sideColumn() {
   }).catch(() => fill(news));
 
   return h('aside.home-side',
-    h('section', h('div.side-title', h('span', 'News fissate')), news),
-    h('section', h('div.side-title', h('span', 'Argomenti')), tags),
-    h('section', h('div.side-title', h('span', 'Persone'), h('a', { href: '#/persone' }, 'Tutte')), h('div.muted.small', 'Colleghi, compleanni e organigramma.')),
-    h('div.side-foot', 'Intranet Almacis · Alma Planet'));
+    h('section.side-box', h('h2', 'News fissate'), news),
+    h('section.side-box', h('h2', 'Argomenti'), tags));
 }

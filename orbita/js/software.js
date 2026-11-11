@@ -197,24 +197,25 @@ async function ticketsBoard(container, body) {
 }
 
 // ── richieste e proposte ──────────────────────────────────────────────────
-const REQ_KIND = { software: 'Richiede un software', nuovo: 'Software non in elenco', rilascio: 'Non gli serve più' };
+const REQ_KIND = { software: 'Richiesta della persona', nuovo: 'Software non in elenco', rilascio: 'Non mi serve più' };
 async function requestsPage(box, data) {
   let status = 'da_rispondere';
   const list = h('div.sw-props');
-  const seg = h('div.seg', [['da_rispondere', 'Da rispondere'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate']].map(([k, l]) =>
+  const waiting = (data.totals.requests || 0) + (data.totals.proposals || 0);
+  const seg = h('div.seg.sw-req-seg', [['da_rispondere', waiting ? `Da rispondere · ${num(waiting)}` : 'Da rispondere'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate']].map(([k, l]) =>
     h('button', { type: 'button', 'data-k': k, on: { click: () => { status = k; draw(); } } }, l)));
-  const proposals = h('div');
-  fill(box,
-    h('section.it-block', h('div.spread', h('h2', 'Richieste delle persone', data.totals.requests ? h('span.sw-count-badge', num(data.totals.requests)) : null), seg), list),
-    h('section.it-block', h('h2', 'Proposte per ruolo', data.totals.proposals ? h('span.sw-count-badge', num(data.totals.proposals)) : null), proposals));
-  proposalsTab(proposals);
+  list.classList.add('sw-req-grid');
+  fill(box, seg, list);
   await draw();
 
   async function draw() {
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.k === status));
     fill(list, loading());
     const rows = await get(`/api/software/requests?status=${status}`);
-    fill(list, rows.length ? rows.map(card) : h('div.card.empty', status === 'da_rispondere' ? 'Nessuna richiesta da rispondere.' : 'Nessuna richiesta qui.'));
+    const props = h('div.sw-contents');
+    fill(list, rows.map(card), props);
+    const n = await proposalsTab(props, { status: status === 'da_rispondere' ? 'da_accettare' : status, bare: true, onChange: draw });
+    if (!rows.length && !n) fill(list, h('div.card.empty', status === 'da_rispondere' ? 'Niente da rispondere: nessuna richiesta e nessuna proposta in attesa.' : 'Niente qui.'));
   }
 
   function card(r) {
@@ -271,23 +272,34 @@ function dashboard(box, data) {
   const top = [...spend.values()].sort((a, b) => b.monthly_cost - a.monthly_cost).slice(0, 8);
   const max = top[0]?.monthly_cost || 1;
 
+  // Panoramica come nel layout approvato (11/11): cinque numeri in fila, poi spesa per fornitore, rinnovi e collegamenti
+  const waiting = (t.requests || 0) + (t.proposals || 0);
+  const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
+  const syncState = src => {
+    const s = data.sync[src.key];
+    if (!src.configured || (src.oauth && !src.connected)) return h('span.pill.sw-src-off', 'Da collegare');
+    if (!s) return h('span.pill.sw-src-off', 'Mai aggiornato');
+    const d = String(s.synced_at).slice(0, 10);
+    return h('span.pill.sw-src-ok', d === new Date().toISOString().slice(0, 10) ? 'Aggiornato oggi' : `Aggiornato il ${fmtDate(d)}`);
+  };
   fill(box,
-    h('div.sw-kpis',
-      kpi('Spesa al mese', eur(t.monthly_cost), `circa ${eur(t.monthly_cost * 12)} all'anno`),
-      kpi('Software in uso', num(t.software), t.to_check ? `${num(t.to_check)} scoperti da verificare` : 'tutti verificati', t.to_check > 0, '#/it/fornitori'),
-      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `pagate e libere, ${eur(t.free_cost)} al mese` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/it/da-assegnare' : null),
-      kpi('Licenze da recuperare', num(t.departed), t.departed ? 'account disattivati o persone uscite' : 'nessuna', t.departed > 0),
-      kpi('Prezzi da completare', num(t.missing_cost + t.estimated), t.estimated ? `${num(t.estimated)} software con prezzo di listino stimato` : 'tutti inseriti', t.missing_cost + t.estimated > 0)),
-    h('div.sw-grid',
-      sourcesCard(data),
-      h('section.card.sw-card', h('h3', 'Dove va la spesa, per fornitore'),
+    h('div.sw-kpis.sw-kpis5',
+      kpi('Spesa al mese', eur(t.monthly_cost), `circa ${eur(t.monthly_cost * 12)} l'anno`),
+      kpi('Da rispondere', num(waiting), waiting ? [plural(t.requests || 0, 'richiesta', 'richieste'), plural(t.proposals || 0, 'proposta', 'proposte')].join(', ') : 'niente in attesa', waiting > 0, '#/it/richieste'),
+      kpi('Licenze da assegnare', num(t.free_seats), t.free_cost ? `${eur(t.free_cost)} al mese pagati per niente` : 'nessuna', t.free_seats > 0, t.free_seats ? '#/it/da-assegnare' : null),
+      kpi('Da recuperare', num(t.departed), t.departed ? 'account disattivati' : 'nessuna', t.departed > 0),
+      kpi('Software da verificare', num(t.to_check), t.to_check ? 'scoperti da Microsoft' : 'tutti verificati', t.to_check > 0, '#/it/fornitori')),
+    h('div.sw-stack',
+      h('section.card.sw-card', h('div.spread', h('h3', 'Dove va la spesa, per fornitore'), h('a.sw-more', { href: '#/it/fornitori' }, 'Tutti i fornitori →')),
         top.length ? h('div.sw-bars', top.map(s => h('a.sw-bar', { href: vendorHref(s.v) },
           h('span.sw-bar-name', s.v), h('span.sw-bar-track', h('i', { style: { width: `${Math.max(2, (s.monthly_cost / max) * 100)}%` } })),
           h('span.sw-bar-val', eur(s.monthly_cost), s.estimated ? h('small', ' stimato') : null))))
           : h('p.muted', 'Nessun costo ancora: aggiorna Microsoft 365 o inserisci i prezzi dei software.')),
       h('section.card.sw-card', h('h3', 'Prossimi rinnovi'),
-        soon.length ? h('div.sw-list', soon.map(({ s, date }) => h('a.sw-line', { href: `#/it/software/${s.id}` }, h('span.grow', s.name), h('span.muted', fmtDate(date, { year: true })))))
+        soon.length ? h('div.sw-list', soon.map(({ s, date }) => h('a.sw-line', { href: `#/it/software/${s.id}` }, h('span.grow', s.name), h('strong', fmtDate(date, { year: true })))))
           : h('p.muted', 'Nessuna data di rinnovo inserita.')),
+      h('section.card.sw-card', h('div.spread', h('h3', 'Collegamenti'), h('a.sw-more', { href: '#/it/collegamenti' }, 'Gestisci →')),
+        h('div.sw-list', data.sources.map(src => h('a.sw-line', { href: '#/it/collegamenti' }, h('span.grow', src.label), syncState(src))))),
       data.departed.length ? h('section.card.sw-card', h('h3', 'Licenze da recuperare'),
         h('p.small.muted', 'Persone che non sono più nell\'organigramma di Microsoft ma hanno ancora licenze qui.'),
         h('div.sw-list', data.departed.map(a => h('a.sw-line', { href: `#/it/software/${a.software_id}` },
@@ -845,24 +857,29 @@ async function applyPackage(k, oids, onDone) {
 // ── proposte per ruolo ────────────────────────────────────────────────────
 // Persona nuova in Microsoft con un ruolo che ha un pacchetto → proposta. Il team IT sceglie quali licenze
 // dare (di base tutte) e accetta, oppure rifiuta con un motivo.
-async function proposalsTab(box) {
-  let status = 'da_accettare';
-  const list = h('div.sw-props');
+async function proposalsTab(box, opts = {}) {
+  let status = opts.status || 'da_accettare';
+  const list = h(opts.bare ? 'div.sw-contents' : 'div.sw-props');
   const seg = h('div.seg', [['da_accettare', 'Da accettare'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate']].map(([k, label]) =>
     h('button', { type: 'button', 'data-k': k, on: { click: () => { status = k; draw(); } } }, label)));
   const note = h('p.muted.grow');
-  fill(box, h('div.sw-tools', seg, note), list);
-  await draw();
+  fill(box, opts.bare ? null : h('div.sw-tools', seg, note), list);
+  return draw();
 
   async function draw() {
+    if (opts.bare && draw.done) return opts.onChange?.(); // dentro «Richieste e proposte» si ridisegna tutto l'elenco
+    draw.done = Boolean(opts.bare);
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === status));
-    fill(list, loading());
+    if (!opts.bare) fill(list, loading());
     const d = await get(`/api/software/proposals?status=${status}`);
     note.textContent = `Nascono quando in Microsoft arriva una persona nuova con un ruolo o reparto che ha un pacchetto. Le accetta il team IT (${d.it_department || 'reparto IT'}) o un amministratore.`;
     if (!d.proposals.length) {
-      return fill(list, h('div.card.empty', status === 'da_accettare' ? 'Nessuna proposta da accettare.' : 'Nessuna proposta qui.'));
+      if (opts.bare) { fill(list); return 0; }
+      fill(list, h('div.card.empty', status === 'da_accettare' ? 'Nessuna proposta da accettare.' : 'Nessuna proposta qui.'));
+      return 0;
     }
     fill(list, d.proposals.map(p => card(p)));
+    return d.proposals.length;
   }
 
   function card(p) {

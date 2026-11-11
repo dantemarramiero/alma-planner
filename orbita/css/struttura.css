@@ -84,3 +84,70 @@
 .ps-group { display: grid; gap: var(--ap-space-3); }
 .ps-group h2 { margin: 0; font-size: 17px; }
 .ps-thank { justify-self: start; margin-top: 4px; }
+
+/* Bacheca come nel layout approvato (11/11): titolo e filtri su una riga; feed fino a 680px e colonna a lato
+   larga; «Condividi una novità» su una riga con Foto e Ringrazia; a lato News fissate e Argomenti */
+.bacheca { display: grid; gap: 18px; max-width: 1120px; margin: 0 auto; }
+.bacheca > .feed-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; margin: 0; }
+.bacheca > .feed-head h1 { font-size: 30px; font-weight: 300; }
+.bacheca .home { grid-template-columns: minmax(0, 680px) minmax(280px, 1fr); gap: 20px; justify-content: stretch; }
+.bacheca .feed-filters { background: var(--ap-grey-100, #F1EFEB); padding: 3px; gap: 2px; border-radius: 999px; }
+.bacheca .feed-filters a { padding: 8px 14px; }
+.bacheca .composer.composer-v2 { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.bacheca .composer.composer-v2 .composer-fake { flex: 1; height: 44px; display: flex; align-items: center; padding: 0 18px; border: 1px solid var(--rf-line, #ECEAE6); background: var(--ap-bg, #F7F6F3); }
+.bacheca .composer-v2 .composer-act { height: 40px; border: 1px solid #E0DDD8; border-radius: 12px; background: var(--ap-white, #fff); padding: 0 14px; }
+.bacheca .composer-v2 .composer-act:hover { background: var(--ap-grey-100, #F1EFEB); }
+.bacheca .home-side { gap: 16px; }
+.bacheca .home-side > .side-box { padding: 18px 20px; display: grid; gap: 10px; }
+.bacheca .side-box h2 { margin: 0; font-size: 16px; color: var(--ap-text-strong, #2C2C2C); }
+.bacheca .side-news { padding: 2px 0; color: var(--ap-text, #3F3F3F); }
+.bacheca .side-tag { background: var(--ap-grey-100, #F1EFEB); color: var(--ap-text, #3F3F3F); font-size: 14px; }
+.post-arrow { color: var(--muted); }
+@media (max-width: 1100px) { .bacheca .home { grid-template-columns: minmax(0, 680px); justify-content: center; } }
+@media (max-width: 640px) { .bacheca .composer.composer-v2 { flex-wrap: wrap; } .bacheca .composer.composer-v2 .composer-fake { flex-basis: calc(100% - 52px); } }
+
+/* Persone come nel layout approvato (11/11): 4 riquadri della settimana, ricerca a pillola, schede 4 per riga */
+.ps-week { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.ps-tile { padding: 16px 18px; gap: 8px; }
+.ps-lab { font-size: 12px; }
+.ps-tile small { font-size: 12px; }
+.ps-grazie { background: var(--green-soft, #E7F5EC); }
+.ps-grazie .ps-lab { color: var(--green, #1F6A41); }
+.ps-thank { justify-self: start; border: 0; background: transparent; padding: 0; font: inherit; font-weight: var(--ap-fw-medium, 500); color: var(--green, #1F6A41); cursor: pointer; }
+.ps-thank:hover { text-decoration: underline; }
+.ps-search { border-radius: 999px; height: 44px; padding: 0 16px; }
+.ps-dept { display: flex; align-items: center; gap: 8px; }
+.ps-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.ps-card { padding: 18px; gap: 8px; }
+@media (max-width: 1100px) { .ps-week, .ps-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .ps-week, .ps-grid { grid-template-columns: 1fr; } }
+
+/* Ticket come nel layout approvato (11/11): I miei/Creati/Tutti + Nuovo ticket in alto, ricerca a pillola,
+   Progetto e Scadenza, bacheca a 4 colonne su fondo grigio */
+.tk-page-head { align-items: flex-end; }
+.tk-head-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tk-head-actions .seg a { padding: 8px 16px; }
+.tk-page-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.tk-search { flex: 1 1 260px; display: flex; }
+.tk-search .input { flex: 1; border-radius: 999px; height: 40px; padding: 0 16px; }
+.tk-lab { display: flex; align-items: center; gap: 6px; }
+.tk-lab .select { height: 40px; }
+
+/* Home come nel layout approvato (11/11): «Dalla Bacheca» e «Laboratorio delle idee» come riassunti a riquadri */
+.wl-sum { padding: 18px 20px; display: grid; gap: 14px; }
+.wl-sum-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wl-sum-head h2 { margin: 0; font-size: 16px; color: var(--ap-text-strong, #2C2C2C); }
+.wl-sum-head a { color: var(--orange-fill, #B54E0A); text-decoration: none; font-size: 14px; }
+.wl-sum-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.wl-sum-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wl-sum-tile { display: flex; flex-direction: column; gap: 4px; text-align: left; border: 0; font: inherit; color: var(--ap-text, #3F3F3F); background: var(--ap-bg, #F7F6F3); border-radius: 14px; padding: 12px; cursor: pointer; text-decoration: none; min-width: 0; }
+.wl-sum-tile strong { color: var(--ap-text-strong, #2C2C2C); }
+.wl-sum-tile:hover { background: var(--ap-grey-100, #F1EFEB); }
+.wl-sum-tile.wl-idea { background: var(--ap-white, #fff); border: 1px solid var(--rf-line, #ECEAE6); }
+.wl-sum-text { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .wl-sum-grid, .wl-sum-grid.two { grid-template-columns: 1fr; } }
+.wl2 .wl-sum .wl-sum-tile { background: var(--ap-bg, #F7F6F3); border-radius: 14px; padding: 12px; }
+.wl2 .wl-sum .wl-sum-tile.wl-idea { background: var(--ap-white, #fff); border: 1px solid var(--rf-line, #ECEAE6); }
+.wl2 .wl-sum .wl-sum-tile:hover { background: var(--ap-grey-100, #F1EFEB); }
+.wl2 .wl-side2 .wl-box h2 { text-transform: none; letter-spacing: 0; font-size: 16px; font-weight: var(--ap-fw-bold, 700); color: var(--ap-text-strong, #2C2C2C); }
+.wl2 .wl-side2 .wl-box .spread > a, .wl2 .wl-side2 .wl-box .spread > .link-btn { color: var(--orange-fill, #B54E0A); text-decoration: none; }

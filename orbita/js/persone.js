@@ -32,21 +32,21 @@ export async function personeView(container, params) {
   const ppl = home?.people || { arrivals: [], birthdays: [], anniversaries: [] };
   const first = (list, note) => (list.length ? [h('strong', list[0].name), h('small', note(list[0]) + (list.length > 1 ? ` · e altri ${list.length - 1}` : ''))] : [h('small.muted', 'Nessuno questa settimana')]);
   const week = h('section.ps-week',
-    h('div.card.ps-tile', h('span.ps-lab', icon('sprout', { size: 16 }), 'Nuovi arrivi'), first(ppl.arrivals, p => `arrivato il ${itDate(p.hired_on)}`)),
-    h('div.card.ps-tile', h('span.ps-lab', icon('cake', { size: 16 }), 'Compleanni'), first(ppl.birthdays, p => inDays(p.in_days))),
-    h('div.card.ps-tile', h('span.ps-lab', icon('star', { size: 16 }), 'Anniversari'), first(ppl.anniversaries, p => `${p.years} anni in azienda, ${inDays(p.in_days)}`)),
-    h('div.card.ps-tile.ps-grazie', h('span.ps-lab', icon('heart', { size: 16 }), 'Grazie a…'),
-      h('strong', `${(home?.grazie || []).length} ringraziamenti`),
-      h('button.btn.btn-sm.ps-thank', { type: 'button', on: { click: () => openGrazieLoading(() => personeView(container, params)) } }, 'Ringrazia un collega')));
+    h('div.card.ps-tile', h('span.ps-lab', 'Nuovi arrivi'), first(ppl.arrivals, p => `arrivato il ${itDate(p.hired_on)}`)),
+    h('div.card.ps-tile', h('span.ps-lab', 'Compleanni'), first(ppl.birthdays, p => inDays(p.in_days))),
+    h('div.card.ps-tile', h('span.ps-lab', 'Anniversari'), first(ppl.anniversaries, p => `${p.years} anni in azienda, ${inDays(p.in_days)}`)),
+    h('div.card.ps-tile.ps-grazie', h('span.ps-lab', 'Grazie a…'),
+      h('strong', (home?.grazie || []).length === 1 ? '1 ringraziamento' : `${(home?.grazie || []).length} ringraziamenti`),
+      h('button.ps-thank', { type: 'button', on: { click: () => openGrazieLoading(() => personeView(container, params)) } }, 'Ringrazia un collega')));
 
   const depts = [...new Set(org.people.map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
   let q = '', dept = '';
   const grid = h('div.ps-grid');
   const count = h('span.small.muted');
   const tools = h('div.ps-tools',
-    h('input.input', { type: 'search', placeholder: 'Cerca per nome, ruolo o reparto', 'aria-label': 'Cerca un collega', on: { input: debounce(e => { q = lc(e.target.value.trim()); draw(); }, 150) } }),
-    h('select.select', { 'aria-label': 'Reparto', on: { change: e => { dept = e.target.value; draw(); } } },
-      h('option', { value: '' }, 'Tutti i reparti'), depts.map(d => h('option', { value: d }, d))),
+    h('input.input.ps-search', { type: 'search', placeholder: 'Cerca per nome, ruolo o reparto', 'aria-label': 'Cerca un collega', on: { input: debounce(e => { q = lc(e.target.value.trim()); draw(); }, 150) } }),
+    h('label.ps-dept', 'Reparto', h('select.select', { 'aria-label': 'Reparto', on: { change: e => { dept = e.target.value; draw(); } } },
+      h('option', { value: '' }, 'Tutti'), depts.map(d => h('option', { value: d }, d)))),
     count);
   fill(body, vista === 'reparti' ? null : week, tools, grid);
   draw();
@@ -56,7 +56,7 @@ export async function personeView(container, params) {
     return h('article.card.ps-card',
       avatar(u || { name: p.name }, 64),
       h('strong', p.name),
-      h('span.small.muted', [p.job_title, p.department].filter(Boolean).join(' · ') || ' '),
+      h('span.small.muted', p.job_title || ' ', p.department ? [h('br'), p.department] : null),
       h('div.row',
         p.email ? h('button.btn.btn-sm', { type: 'button', on: { click: () => openChatWithEmails([p.email]) } }, 'Chat') : null,
         u ? h('a.btn.btn-sm', { href: `#/u/${u.id}` }, 'Profilo') : null));

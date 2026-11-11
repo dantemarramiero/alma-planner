@@ -71,12 +71,15 @@ const WHO = [['miei', 'I miei', { assignee: 'me' }], ['creati', 'Creati da me', 
 export function ticketsPage(container, params) {
   const who = WHO.find(([k]) => k === params.get('di')) || WHO[0];
   const inner = h('div');
+  const actions = h('div.tk-head-actions',
+    h('nav.seg', { 'aria-label': 'Di chi' }, WHO.map(([k, l]) => h('a', { href: k === 'miei' ? '#/tickets' : `#/tickets?di=${k}`, class: k === who[0] ? 'on' : '', 'aria-current': k === who[0] ? 'page' : null }, l))));
   fill(container,
-    h('div.page-head',
-      h('div', h('h1', 'Ticket'), h('div.sub', 'Una pagina sola: i miei di partenza, quelli che ho creato e tutti con un clic.')),
-      h('nav.seg', { 'aria-label': 'Di chi' }, WHO.map(([k, l]) => h('a', { href: k === 'miei' ? '#/tickets' : `#/tickets?di=${k}`, class: k === who[0] ? 'on' : '', 'aria-current': k === who[0] ? 'page' : null }, l)))),
+    h('div.page-head.tk-page-head',
+      h('div', h('h1', 'Ticket'), h('div.sub', 'Una pagina sola: i miei di partenza, tutti con un clic.')),
+      actions),
     inner);
-  ticketsView(inner, { fixed: who[2] });
+  // bacheca a colonne di partenza, come nel layout
+  ticketsView(inner, { fixed: who[2], view: 'board', page: { head: actions } });
   get('/api/tickets?assignee=me&status=open', { quiet: true }).then(list => {
     const a = container.querySelector('.seg a');
     if (a && Array.isArray(list)) a.textContent = `I miei · ${list.length}`;

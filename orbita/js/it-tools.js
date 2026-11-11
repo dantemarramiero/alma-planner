@@ -34,9 +34,9 @@ export async function myToolsView(container) {
         l.external_id === 'collegati' ? 'accesso con l\'account Microsoft' : null,
         l.package ? (l.package.on_request ? 'su richiesta' : `di base per «${l.package.package_name}»`) : null].filter(Boolean).join(' · ')))),
     l.software_notes ? h('p.small.it-card-note', l.software_notes.length > 180 ? `${l.software_notes.slice(0, 180)}…` : l.software_notes) : null,
-    h('div.row',
-      (l.website || vendorOf(l) === 'Microsoft') ? h('a.btn.btn-sm', { href: l.website || 'https://www.microsoft365.com', target: '_blank', rel: 'noopener' }, `Apri ${l.website ? l.software_name : 'Microsoft 365'}`, icon('external', { size: 14 })) : null,
-      h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => release(l, reload) } }, 'Non mi serve più')))))
+    h('div.it-card-links',
+      (l.website || vendorOf(l) === 'Microsoft') ? h('a.it-link', { href: l.website || 'https://www.microsoft365.com', target: '_blank', rel: 'noopener' }, `Apri ${l.website ? l.software_name : 'Microsoft 365'} →`) : null,
+      h('button.it-link', { type: 'button', on: { click: () => release(l, reload) } }, 'Non mi serve più')))))
     : h('div.card.empty', d.person ? 'Nel censimento non risultano licenze a tuo nome.' : 'Non ti trovo nell\'organigramma di Microsoft: chiedi al team IT di controllare il tuo account.');
 
   const reqs = d.requests.length ? h('div.it-reqs', d.requests.map(r => {
@@ -66,17 +66,18 @@ export async function myToolsView(container) {
       } } }, 'Annulla') : null);
   })) : h('p.muted', 'Nessuna segnalazione negli ultimi 30 giorni.');
 
+  const form = requestSoftware(d.catalog, reload, { inline: true });
   fill(container,
-    h('div.page-head',
+    h('div.page-head.it-page-head',
       h('div', h('h1', 'I miei strumenti'), h('div.sub', 'I software che hai, come entrarci, e cosa puoi chiedere al team IT.')),
       h('div.row',
-        h('button.btn', { type: 'button', on: { click: () => reportProblem(reload) } }, icon('life-buoy', { size: 16 }), 'Segnala un problema'),
-        h('button.btn.btn-primary', { type: 'button', on: { click: () => requestSoftware(d.catalog, reload) } }, icon('plus', { size: 16 }), 'Richiedi un software'))),
+        h('button.btn', { type: 'button', on: { click: () => reportProblem(reload) } }, 'Segnala un problema'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); form.querySelector('select')?.focus(); } } }, 'Richiedi un software'))),
+    cards,
+    form,
+    h('section.card.it-section.it-pad', h('h2', 'Le mie richieste'), reqs),
     h('section.card.it-section.it-pad', h('div.spread', h('h2', 'I miei ticket IT'),
-      h('button.btn.btn-sm', { type: 'button', on: { click: () => reportProblem(reload) } }, 'Segnala un problema')), tickets),
-    h('section.it-section', h('h2', 'Le mie licenze'), cards),
-    h('section.card.it-section.it-pad', h('div.spread', h('h2', 'Le mie richieste'),
-      h('button.btn.btn-sm', { type: 'button', on: { click: () => requestSoftware(d.catalog, reload) } }, 'Nuova richiesta')), reqs));
+      h('button.it-link', { type: 'button', on: { click: () => reportProblem(reload) } }, 'Segnala un problema')), tickets));
 }
 
 function field(lab, input, hint) {
@@ -84,7 +85,7 @@ function field(lab, input, hint) {
 }
 
 // Richiedi un software: dal censimento, oppure uno che non c'è scrivendone il nome.
-function requestSoftware(catalog, onDone) {
+function requestSoftware(catalog, onDone, { inline = false } = {}) {
   const groups = new Map();
   for (const c of catalog) {
     const v = (c.vendor || '').trim() || c.software_name;
@@ -102,7 +103,25 @@ function requestSoftware(catalog, onDone) {
   pick.addEventListener('change', () => { nameBox.hidden = pick.value !== 'nuovo'; if (!nameBox.hidden) name.focus(); });
   const reason = h('textarea.input', { rows: 3, maxlength: 1000, placeholder: 'A cosa ti serve? Es. disegni esecutivi per il cantiere di…' });
   const due = h('input.input', { type: 'date' });
-  const m = modal({
+  const send = async () => {
+    const body = { reason: reason.value, due_date: due.value || null };
+    if (pick.value === 'nuovo') body.name = name.value;
+    else if (pick.value) body.plan_id = Number(pick.value);
+    else return toast('Scegli un software o scrivi il suo nome', 'err');
+    await post('/api/it/requests', body);
+    m?.close();
+    toast('Richiesta inviata al team IT');
+    onDone();
+  };
+  // nella pagina, come nel layout: un riquadro con i campi e «Invia al team IT»
+  if (inline) {
+    due.classList.add('it-due');
+    return h('section.card.it-section.it-pad.it-reqform', h('h2', 'Richiedi un software'),
+      field('Cosa ti serve', pick), nameBox, field('Perché', reason), field('Entro il', due),
+      h('p.small.muted', 'Non è in elenco? Scegli «Non è in elenco» e scrivi il nome: il team IT lo valuta e, se serve, lo aggiunge al censimento.'),
+      h('div', h('button.btn.btn-primary', { type: 'button', on: { click: send } }, 'Invia al team IT')));
+  }
+  var m = modal({
     title: 'Richiedi un software',
     body: [field('Cosa ti serve', pick), nameBox, field('Perché', reason), field('Entro il (facoltativo)', due),
       h('p.small.muted', 'La richiesta arriva al team IT, che ti risponde qui e con una notifica.')],

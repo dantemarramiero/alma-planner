@@ -24,7 +24,7 @@ export const movedText = moved => moved.length === 1
 const isLate = t => t.due_date && t.status !== 'done' && t.due_date < today();
 
 // ── vista elenco/bacheca ───────────────────────────────────────────────────
-// opts: { title, subtitle, fixed: { assignee?, project? }, embedded }
+// opts: { title, subtitle, fixed: { assignee?, project? }, embedded, page: { head } } — page = pagina Ticket del layout 11/11
 export function ticketsView(container, opts = {}) {
   const fixed = opts.fixed || {};
   const mobile = isMobile(); // sul telefono: solo schede, stato scelto con i pulsanti tondi
@@ -35,7 +35,9 @@ export function ticketsView(container, opts = {}) {
     assignee: fixed.assignee ?? '',
     creator: fixed.creator ?? '',
     status: opts.defaultStatus ?? 'open',
+    due: '', // filtro «Scadenza» della pagina Ticket
   };
+  const page = opts.page || null;
   let tickets = [];
   const body = h('div');
   const selected = new Set(); // ticket scelti per l'eliminazione (solo quelli che posso cancellare)
@@ -64,16 +66,29 @@ export function ticketsView(container, opts = {}) {
   statusSelect.hidden = state.view === 'board';
   if (state.view === 'board' && state.status === 'open') state.status = '';
 
-  const search = h('input.input', { type: 'search', placeholder: 'Cerca…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } });
+  const search = h('input.input', { type: 'search', placeholder: page ? 'Cerca nei ticket' : 'Cerca…', 'aria-label': 'Cerca nei ticket', on: { input: debounce(e => { state.q = e.target.value; load(); }) } });
+  const dueSelect = h('select.select', { 'aria-label': 'Scadenza', on: { change: e => { state.due = e.target.value; load(); } } },
+    [['', 'Qualsiasi'], ['late', 'Scaduti'], ['today', 'Oggi'], ['week', 'Entro 7 giorni'], ['none', 'Senza scadenza']].map(([k, l]) => h('option', { value: k }, l)));
   const newBtn = h('button.btn.btn-primary', { type: 'button', on: { click: () => openTicket(null, {
     defaults: { project_id: fixed.project ? Number(fixed.project) : null, assignee_ids: fixed.assignee === 'me' || !fixed.project ? [store.me.id] : [] },
     onSaved: load,
   }) } }, '+ Nuovo ticket');
 
-  const toolbar = h('div.toolbar.tickets-tools', search,
-    fixed.project === undefined ? projectSelect : null,
-    fixed.assignee === undefined ? peopleSelect : null,
-    statusSelect, h('span.grow'), viewSeg, newBtn);
+  const toolbar = page
+    // pagina Ticket: ricerca a pillola, Progetto, Scadenza, Bacheca/Elenco; «Nuovo ticket» sta in alto accanto a I miei/Creati/Tutti
+    ? h('div.toolbar.tickets-tools.tk-page-tools', h('label.tk-search', search),
+      h('label.tk-lab', 'Progetto', projectSelect), h('label.tk-lab', 'Scadenza', dueSelect), statusSelect, viewSeg)
+    : h('div.toolbar.tickets-tools', search,
+      fixed.project === undefined ? projectSelect : null,
+      fixed.assignee === undefined ? peopleSelect : null,
+      statusSelect, h('span.grow'), viewSeg, newBtn);
+  if (page) {
+    projectSelect.firstChild.textContent = 'Tutti';
+    viewSeg.replaceChildren(...[...viewSeg.children].reverse()); // Bacheca prima di Elenco
+    viewSeg.querySelector('[data-v="list"]').textContent = 'Elenco';
+    page.head?.append(newBtn);
+    newBtn.textContent = 'Nuovo ticket';
+  }
 
   clear(container);
   if (opts.title) container.append(h('div.page-head', h('div', h('h1', opts.title), opts.subtitle ? h('div.sub', opts.subtitle) : null)));
@@ -95,6 +110,14 @@ export function ticketsView(container, opts = {}) {
 
   function render() {
     clear(body);
+    if (state.due) {
+      const today = new Date().toISOString().slice(0, 10);
+      const week = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+      const keep = t => state.due === 'none' ? !t.due_date
+        : !t.due_date || t.status === 'done' ? false
+          : state.due === 'late' ? t.due_date < today : state.due === 'today' ? t.due_date === today : t.due_date <= week;
+      tickets = tickets.filter(keep);
+    }
     if (mobile) return body.append(mobileList(tickets, { onChange: load, hideProject: fixed.project !== undefined, done: state.status === 'done' }));
     // selezione: resta solo su ticket ancora in elenco e cancellabili
     const deletable = tickets.filter(canDeleteTicket);
