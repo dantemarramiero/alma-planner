@@ -1,6 +1,6 @@
 // Alma IT · I miei strumenti (per tutti): le licenze che ho, come entrarci, cosa posso chiedere al team IT
 // («Richiedi un software», anche uno che non è nel censimento), «Non mi serve più», le mie richieste e
-// «Segnala un problema» (ticket IT: il team IT lo risolve qui o su Linear, lo stato torna qui).
+// «Segnala un problema» (ticket IT: il team IT lo prende in carico e risponde qui).
 import { h, fill, modal, toast, fmtDate, loading } from './ui.js';
 import { get, post } from './api.js';
 import { icon } from './icons.js';
@@ -130,7 +130,7 @@ export function reportProblem(onDone) {
     title: 'Segnala un problema al team IT',
     body: [field('Cosa succede', title), field('Dettagli', body),
       h('label.row', urgent, h('span', 'Mi blocca: non riesco a lavorare')),
-      h('p.small.muted', 'Alma propone tipo e priorità; il team IT ti risponde qui e con una notifica, anche quando lo risolve su Linear.')],
+      h('p.small.muted', 'Alma propone tipo e priorità; il team IT ti risponde qui e con una notifica.')],
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {

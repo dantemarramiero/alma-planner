@@ -11,7 +11,7 @@ import { myToolsView, ticketState, PRIORITY } from './it-tools.js';
 // pagine del team IT: indirizzo → titolo e sottotitolo
 const PAGES = {
   panoramica: ['Panoramica', 'Quanto spendiamo in software, cosa c\'è da sistemare e cosa aspetta una risposta.'],
-  ticket: ['Ticket IT', 'Le segnalazioni delle persone arrivano qui: le cose veloci si chiudono qui, le altre diventano issue del team IT su Linear e il loro stato torna qui da solo.'],
+  ticket: ['Ticket IT', 'Le segnalazioni delle persone arrivano qui: le prendi in carico e le chiudi con una risposta, che arriva a chi ha segnalato.'],
   richieste: ['Richieste e proposte', 'Cosa chiedono le persone e cosa propone Alma per i nuovi arrivi: si accetta, in parte o tutto, o si rifiuta con un motivo.'],
   fornitori: ['Fornitori e software', 'Per ogni fornitore le licenze, chi le usa e quanto costano.'],
   persone: ['Persone e licenze', 'Chi ha cosa, persona per persona.'],
@@ -101,9 +101,10 @@ async function ticketsBoard(container, body) {
   // stato del collegamento con Linear, accanto al titolo
   const head = container.querySelector('.page-head');
   head.querySelector('.it-linear')?.remove();
-  head.append(h('div.it-linear', d.linear.error ? h('span.pill.it-st-no', 'Linear non raggiungibile')
-    : d.linear.configured ? h('span.pill.it-st-ok', h('span.dot'), `Linear collegato · team ${d.linear.team?.key || ''}`)
-      : h('span.pill.it-st-off', 'Linear da collegare')));
+  if (d.linear.configured) {
+    head.append(h('div.it-linear', d.linear.error ? h('span.pill.it-st-no', 'Linear non raggiungibile')
+      : h('span.pill.it-st-ok', h('span.dot'), `Linear collegato · team ${d.linear.team?.key || ''}`)));
+  }
 
   const sendLinear = t => {
     const prio = h('select.select', Object.entries(PRIORITY).map(([k, l]) => h('option', { value: k, selected: k === t.priority }, l)));
@@ -179,7 +180,6 @@ async function ticketsBoard(container, body) {
   } else {
     const mineCard = t => item(t, t.status === 'in_corso' ? [h('button.btn.btn-sm', { type: 'button', on: { click: () => closeTicket(t) } }, 'Rispondi e chiudi')] : null);
     columns = [col('In carico', d.tickets.filter(t => t.status === 'in_corso'), mineCard),
-      col('Su Linear', d.tickets.filter(t => t.status === 'linear'), t => item(t, null)),
       col('Chiusi questa settimana', d.tickets.filter(t => t.status === 'chiuso'), t => item(t, null))];
   }
   const taken = d.board ? d.tickets.filter(t => t.status === 'in_corso') : [];
@@ -193,7 +193,7 @@ async function ticketsBoard(container, body) {
         taken.length ? h('section.card.it-pad', h('h2', 'Presi in carico in Alma'), taken.map(t => item(t, [
           linearOn ? h('button.btn.btn-sm', { type: 'button', on: { click: () => sendLinear(t) } }, 'Manda a Linear') : null,
           h('button.btn.btn-sm', { type: 'button', on: { click: () => closeTicket(t) } }, 'Rispondi e chiudi')]))) : null)),
-    d.linear.configured ? null : h('p.small.muted', 'Linear non è ancora collegato: i ticket si prendono in carico e si chiudono qui. Per collegarlo servono le variabili LINEAR_API_KEY e LINEAR_TEAM su Railway.'));
+    null);
 }
 
 // ── richieste e proposte ──────────────────────────────────────────────────
