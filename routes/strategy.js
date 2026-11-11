@@ -6,6 +6,7 @@ const { seedStrategy } = require('../lib/strategy-seed');
 const { ensureProject, ticketForNewTask, taskToTicket, matchUser } = require('../lib/strategy-sync');
 const { graph } = require('../lib/graph');
 const { buildInviteEmail } = require('../lib/a3-mail');
+const { markSent } = require('../lib/settings');
 
 const MAX_TEXT = 4000;
 const text = max => (val, field) => v.text(val ?? '', field, { max }) ?? '';
@@ -47,7 +48,25 @@ function clean(e, body) {
   return out;
 }
 
-function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
+function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier, alerts }) {
+  // «Aggiornamento su un mio A3» (Profilo → Notifiche): una volta ogni 30 minuti per A3 e per chi modifica
+  async function tellA3(hkId, req, what) {
+    if (!alerts || !hkId) return;
+    const slot = Math.floor(Date.now() / (30 * 60 * 1000));
+    if (!await markSent(db, `a3:${hkId}:${req.user.id}:${slot}`)) return;
+    alerts.a3Update(hkId, req.user, what).catch(err => console.warn('[avvisi] A3', err.message));
+  }
+  const itDay = d => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
+  function taskChange(before, after, row) {
+    const name = `«${(after || before).activity || 'contromisura'}»`;
+    if (!before) return `nuova contromisura ${name}`;
+    if (!after) return `tolta la contromisura ${name}`;
+    if (row.closed_date !== undefined && after.closed_date && !before.closed_date) return `contromisura ${name} chiusa`;
+    if (row.closed_date !== undefined && !after.closed_date && before.closed_date) return `contromisura ${name} riaperta`;
+    if (row.due_date !== undefined && String(after.due_date) !== String(before.due_date)) return `contromisura ${name} spostata al ${itDay(after.due_date)}`;
+    if (row.owner !== undefined && after.owner !== before.owner) return `contromisura ${name} ora a ${after.owner || 'nessuno'}`;
+    return `contromisura ${name} modificata`;
+  }
   // Permessi (ALM2-37): gli amministratori modificano tutto; un A3 lo modifica chi è nel suo progetto di Alma Planner
   // (responsabile o membro) o, se non è ancora collegato, il suo proprietario; tutti gli altri vedono in sola lettura.
   const admin = req => Boolean(isAdmin?.(req));
@@ -399,6 +418,7 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
       `INSERT INTO ${e.table} (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`, keys.map(k => row[k]));
     if (req.params.entity === 'tasks') created.ticket_id = await ticketForNewTask(db, created, req.user.id);
     res.status(201).json(created);
+    if (req.params.entity === 'tasks') tellA3(created.project_id, req, taskChange(null, created, row));
   });
 
   app.patch('/api/strategy/:entity/:id', async (req, res) => {
@@ -408,6 +428,7 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
     const row = clean(e, req.body || {});
     const keys = Object.keys(row);
     if (!keys.length) throw new HttpError(400, 'Niente da salvare');
+    const before = ['tasks', 'projects'].includes(req.params.entity) ? (await db.query(`SELECT * FROM ${e.table} WHERE id = $1`, [id])).rows[0] : null;
     const sets = keys.map((k, i) => `${k} = $${i + 2}`);
     if (e.table === 'hk_projects') sets.push('updated_at = now()');
     const { rows: [updated] } = await db.query(`UPDATE ${e.table} SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, [id, ...keys.map(k => row[k])]);
@@ -417,6 +438,8 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
       await db.query('UPDATE projects SET name = $2, updated_at = now() WHERE id = $1', [updated.project_id, (updated.name || 'A3').slice(0, 200)]);
     }
     res.json(updated);
+    if (req.params.entity === 'tasks') tellA3(updated.project_id, req, taskChange(before, updated, row));
+    if (req.params.entity === 'projects' && keys.some(k => k !== 'position')) tellA3(id, req, `modificato ${keys.includes('target') ? 'il target' : keys.includes('owner') ? "l'owner" : "il contenuto dell'A3"}`);
   });
 
   app.delete('/api/strategy/:entity/:id', async (req, res) => {
@@ -424,6 +447,7 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier }) {
     const id = v.int(req.params.id, 'id', { min: 1 });
     await guard(req, req.params.entity, id);
     const { rows: [gone] } = await db.query(`DELETE FROM ${e.table} WHERE id = $1 RETURNING *`, [id]);
+    if (req.params.entity === 'tasks' && gone) tellA3(gone.project_id, req, taskChange(gone, null, {}));
     // la contromisura tolta dall'A3 si porta via il suo ticket
     if (req.params.entity === 'tasks' && gone?.ticket_id) await db.query('DELETE FROM tickets WHERE id = $1', [gone.ticket_id]);
     res.json({ ok: true });

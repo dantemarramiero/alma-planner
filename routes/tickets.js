@@ -109,7 +109,7 @@ async function rdaRules(db, req, before, { fields, assigneeIds, hours }) {
   return extra;
 }
 
-function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
+function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
   const ticketMail = createTicketMail({ db, auth, baseUrl }); // email a chi riceve un ticket
   async function getTicket(id, q = db) {
     const { rows } = await q.query(`${SELECT} WHERE t.id = $1`, [id]);
@@ -322,7 +322,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
     });
     const created = await getTicket(id);
     res.status(201).json(created);
-    ticketMail.notifyAssigned(created, assigneeIds, req.user); // dopo la risposta: non fa aspettare
+    (alerts ? alerts.ticketAssigned(created, assigneeIds, req.user) : ticketMail.notifyAssigned(created, assigneeIds, req.user)).catch(() => {}); // dopo la risposta: non fa aspettare
   });
 
   app.patch('/api/tickets/:id', async (req, res) => {
@@ -373,7 +373,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier }) {
     res.json({ ...updated, rescheduled: moved.filter(m => m.id !== id) });
     syncMoved(moved.filter(m => m.id !== id));
     // email solo a chi è stato aggiunto ora
-    if (assigneeIds) ticketMail.notifyAssigned(updated, assigneeIds.filter(uid => !previous.includes(uid)), req.user);
+    if (assigneeIds) { const fresh = assigneeIds.filter(uid => !previous.includes(uid)); (alerts ? alerts.ticketAssigned(updated, fresh, req.user) : ticketMail.notifyAssigned(updated, fresh, req.user)).catch(() => {}); }
   });
 
   // Lo cancella solo chi l'ha creato; un ticket rimasto senza autore (persona uscita) lo cancella un amministratore.

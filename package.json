@@ -20,7 +20,8 @@
     "fullcalendar": "^6.1.21",
     "leaflet": "1.9.4",
     "pg": "^8.23.1",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8"

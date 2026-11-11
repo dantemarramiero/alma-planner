@@ -44,6 +44,10 @@ const { registerWelcome } = require('./routes/welcome');
 const { createEnergyAccess } = require('./lib/energy');
 const { createEnergyReminders } = require('./lib/energy-reminders');
 const { createScreeningRunner } = require('./lib/energy-screening');
+const { createPush } = require('./lib/push');
+const { createAlerts } = require('./lib/alerts');
+const { createTicketMail } = require('./lib/ticket-mail');
+const { registerAlerts } = require('./routes/alerts');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -69,7 +73,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -177,6 +181,9 @@ async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
   deps.energyReminders = createEnergyReminders({ db, notifier: deps.notifier }); // Alma Energy: promemoria delle scadenze
   // Alma Energy: screening dei tetti per provincia in background (nei test OpenStreetMap e PVGIS sono finti)
   deps.energyScreening = createScreeningRunner({ db, ...(energyFetch ? { fetchImpl: energyFetch, retryDelayMs: 0 } : {}) });
+  // app sul telefono e i tre avvisi (nuovo post, ticket assegnato, A3) con campanella, telefono ed email
+  deps.push = createPush({ db, auth, sender: pushSender || null });
+  deps.alerts = createAlerts({ db, auth, notifier: deps.notifier, push: deps.push, ticketMail: createTicketMail({ db, auth, baseUrl: config.baseUrl }), baseUrl: config.baseUrl });
   deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
   registerUsers(app, deps);
@@ -206,6 +213,7 @@ async function createApp(config, { db, confirmAccount, energyFetch } = {}) {
   registerPerformance(app, deps); // Alma Strategy: performance management (scheda, obiettivi, team, mansionario)
   registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto
   registerWelcome(app, deps); // Alma Planet: dati della nuova pagina di benvenuto (sondaggi, eventi, organigramma, «Grazie a…»)
+  registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   registerAudit(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));

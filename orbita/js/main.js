@@ -25,6 +25,8 @@ import { strategyView } from './strategy.js';
 import { ideasView } from './ideas.js';
 import { welcomeView } from './welcome.js';
 import { icon } from './icons.js';
+import { startPwa } from './pwa.js';
+import { notifSettingsView } from './notif-settings.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -196,6 +198,9 @@ async function route() {
     case 'notifications':
       cleanup = notificationsView(view);
       break;
+    case 'notifiche': // Profilo → Notifiche: campanella, telefono, email
+      await notifSettingsView(view);
+      break;
     case 'mine': // pagina unica dei Ticket: «I miei» è la vista di partenza
       location.replace('#/tickets');
       return;
@@ -303,6 +308,7 @@ async function start() {
   }));
 
   startLive();
+  startPwa(); // app sul telefono: service worker per le notifiche, avviso «Aggiungi alla schermata Home» su iPhone
   for (const ev of ['notification', 'badges', 'message', 'read', 'rda']) onLive(ev, refreshBadges);
   // censimento software: amministratori e team IT (il server lo rifiuta comunque agli altri)
   // Alma IT: le voci del team IT solo per amministratori e team IT (il server lo rifiuta comunque agli altri)

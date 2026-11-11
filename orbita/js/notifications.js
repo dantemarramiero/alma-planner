@@ -10,6 +10,9 @@ import { icon } from './icons.js';
 const hours = n => `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h`;
 const quote = s => (s ? ` «${s.length > 80 ? `${s.slice(0, 80)}…` : s}»` : '');
 
+// alcuni testi già pronti cominciano con il nome di chi agisce: non ripeterlo dopo il nome in grassetto
+const withoutName = (text, name) => (name && typeof text === 'string' && text.startsWith(`${name} `) ? text.slice(name.length + 1) : text);
+
 function sentence(n) {
   switch (n.kind) {
     case 'like': return 'ha messo mi piace al tuo post.';
@@ -21,7 +24,8 @@ function sentence(n) {
     case 'mezzi': return n.body || '';
     case 'energy': return n.body || ''; // scadenze di Alma Energy
     case 'strategy': return n.body || '';
-    case 'it': return n.body || ''; // Alma IT: richieste al team IT e risposte // Alma Strategy: modifiche della scheda da approvare, decisioni, revisioni
+    case 'it': return n.body || '';
+    case 'new_post': case 'ticket_assigned': case 'a3_update': return n.body || ''; // avvisi scelti in Profilo → Notifiche // Alma IT: richieste al team IT e risposte // Alma Strategy: modifiche della scheda da approvare, decisioni, revisioni
     case 'ticket_reminder': return `ti manda un promemoria su${quote(n.ticket_title)}:${quote(n.body)}`;
     case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
     case 'overdue_project': return `Ritardo nel tuo progetto:${quote(n.ticket_title)} è scaduto da almeno 2 giorni lavorativi.`;
@@ -49,7 +53,7 @@ async function open(n) {
 
 export function notificationsView(view) {
   const list = h('div.card.notif-list', loading());
-  fill(view, h('div.narrow', h('div.page-head', h('h1', 'Notifiche')), list));
+  fill(view, h('div.narrow', h('div.page-head', h('h1', 'Notifiche'), h('a.btn', { href: '#/notifiche/impostazioni' }, 'Impostazioni')), list));
 
   async function load() {
     const items = await get('/api/notifications');
@@ -66,7 +70,7 @@ export function notificationsView(view) {
     const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind) || (n.kind === 'mezzi' && !n.actor_id); // li manda Alma Planet, non una persona
     return h('button.notif', { type: 'button', class: n.read_at ? '' : 'new', on: { click: () => open(n) } },
       system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : n.kind === 'mezzi' ? 'car' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
-      h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], sentence(n), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
+      h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], withoutName(sentence(n), system ? null : u?.name), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
       n.post_media_id ? h('img.notif-thumb', { src: mediaUrl(n.post_media_id), alt: '' }) : n.post_body ? h('span.notif-thumb.text', n.post_body) : null);
   }
 

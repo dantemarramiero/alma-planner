@@ -23,7 +23,7 @@ function daysUntil(dateIso, today) {
   return Math.round((next - today) / 86400000);
 }
 
-function registerWelcome(app, { db, isAdmin, notifier, live }) {
+function registerWelcome(app, { db, isAdmin, notifier, live, alerts }) {
   const admin = req => Boolean(isAdmin(req));
   const mustAdmin = req => { if (!admin(req)) throw new HttpError(403, 'Lo possono fare solo gli amministratori'); };
   async function setting(key, fallback) {
@@ -150,6 +150,7 @@ function registerWelcome(app, { db, isAdmin, notifier, live }) {
     await notifier?.notify({ userIds: [thanked], actorId: req.user.id, kind: 'mention', postId: p.id }).catch(() => {});
     live?.broadcast('post', { id: p.id, author_id: req.user.id }, { except: req.user.id });
     res.status(201).json({ id: p.id });
+    alerts?.newPost({ id: p.id, body }, req.user, { except: [thanked] }).catch(() => {});
   });
 
   // ── sondaggi ──

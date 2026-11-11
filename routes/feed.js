@@ -20,7 +20,7 @@ const POST_SELECT = `
                       WHERE c.post_id = p.id ORDER BY c.id DESC LIMIT 2) c), '[]') AS recent_comments
     FROM posts p`;
 
-function registerFeed(app, { db, live, notifier, isAdmin }) {
+function registerFeed(app, { db, live, notifier, isAdmin, alerts }) {
   async function getPost(id, userId) {
     const { rows } = await db.query(`${POST_SELECT} WHERE p.id = $2`, [userId, id]);
     if (!rows[0]) throw new HttpError(404, 'Post non trovato');
@@ -110,9 +110,11 @@ function registerFeed(app, { db, live, notifier, isAdmin }) {
       }
       return rows[0].id;
     });
-    await notifier.notify({ userIds: await notifier.mentionedIds(body), actorId: req.user.id, kind: 'mention', postId: id });
+    const mentioned = await notifier.notify({ userIds: await notifier.mentionedIds(body), actorId: req.user.id, kind: 'mention', postId: id });
     live.broadcast('post', { id, author_id: req.user.id }, { except: req.user.id });
     res.status(201).json(await getPost(id, req.user.id));
+    // «Nuovo post in bacheca» a tutti (chi è menzionato ha già la sua notifica)
+    alerts?.newPost({ id, body }, req.user, { except: mentioned || [] }).catch(err => console.warn('[avvisi] nuovo post', err.message));
   });
 
   app.delete('/api/posts/:id', async (req, res) => {
