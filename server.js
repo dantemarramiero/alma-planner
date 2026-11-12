@@ -37,6 +37,8 @@ const { registerAudit } = require('./routes/audit');
 const { registerFleet } = require('./routes/fleet');
 const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
+const { registerCrm } = require('./routes/crm');
+const { createCrmAccess } = require('./lib/crm');
 const { registerStrategy } = require('./routes/strategy');
 const { registerPerformance } = require('./routes/performance');
 const { registerIdeas } = require('./routes/ideas');
@@ -178,6 +180,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender }
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
   deps.energyAccess = createEnergyAccess({ db, isAdmin }); // Alma Energy: solo i membri della BU Energy
+  deps.crmAccess = createCrmAccess({ db, isAdmin }); // CRM: la direzione vede tutto, gli altri le anagrafiche della loro ASA
   deps.energyReminders = createEnergyReminders({ db, notifier: deps.notifier }); // Alma Energy: promemoria delle scadenze
   // Alma Energy: screening dei tetti per provincia in background (nei test OpenStreetMap e PVGIS sono finti)
   deps.energyScreening = createScreeningRunner({ db, ...(energyFetch ? { fetchImpl: energyFetch, retryDelayMs: 0 } : {}) });
@@ -209,6 +212,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender }
   registerIt(app, deps);
   registerFleet(app, deps);
   registerEnergy(app, deps);
+  registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)
   registerPerformance(app, deps); // Alma Strategy: performance management (scheda, obiettivi, team, mansionario)
   registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto

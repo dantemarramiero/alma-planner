@@ -21,6 +21,7 @@ import { settimanaView, ticketsPage } from './settimana.js';
 import { personeView } from './persone.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
+import { crmView } from './crm.js';
 import { strategyView } from './strategy.js';
 import { ideasView } from './ideas.js';
 import { welcomeView } from './welcome.js';
@@ -51,7 +52,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -83,13 +84,15 @@ const MODULES = [
   // Alma IT: «I miei strumenti» per tutti, censimento e richieste per il team IT
   { key: 'it', label: 'Alma IT', icon: 'monitor', home: '#/it/strumenti', can: () => true },
   { key: 'energy', label: 'Alma Energy', icon: 'zap', home: '#/energy/panoramica', can: () => Boolean(store.me.energy) },
+  // Alma CRM: la direzione e chi è assegnato a un'ASA (canvas del 12/11/2026)
+  { key: 'crm', label: 'Alma CRM', icon: 'contact', home: '#/crm/lead', can: () => Boolean(store.me.crm) },
 ];
 // sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
 const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar']); // OneDrive è in Planet
 let lastModule = 'planet';
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
-  : section === 'energy' || section === 'strategy' || section === 'it' ? section : 'planet');
+  : section === 'energy' || section === 'strategy' || section === 'it' || section === 'crm' ? section : 'planet');
 const MOD_KEY = 'alma.modulePages';
 const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
 const availableModules = () => MODULES.filter(m => m.can());
@@ -158,6 +161,7 @@ async function route() {
   // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
+    : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] || 'lead'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'
     : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
@@ -257,6 +261,9 @@ async function route() {
     case 'strategy':
       await strategyView(view, parts);
       break;
+    case 'crm':
+      await crmView(view, parts);
+      break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
@@ -316,6 +323,8 @@ async function start() {
   for (const el of document.querySelectorAll('[data-it-team]')) el.hidden = !store.me.software;
   // Alma Strategy: dashboard dei team e mansionario solo agli amministratori (il server lo rifiuta comunque agli altri)
   document.getElementById('nav-pm-mans').hidden = !store.me.is_admin;
+  document.getElementById('nav-crm-asa').hidden = !store.me.is_admin; // CRM: ASA e accessi solo per la direzione
+  document.getElementById('nav-crm-admin-label').hidden = !store.me.is_admin;
   // la dashboard dei team la vedono gli amministratori, il team HR e chi è responsabile di qualcuno
   document.getElementById('nav-pm-team').hidden = !store.me.is_admin;
   if (!store.me.is_admin) get('/api/pm/flags', { quiet: true }).then(f => { document.getElementById('nav-pm-team').hidden = !(f?.manager || f?.hr); }).catch(() => {});

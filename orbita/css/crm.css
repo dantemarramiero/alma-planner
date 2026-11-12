@@ -1,0 +1,83 @@
+/* Alma CRM: riusa card, tabelle, pillole e kanban di Alma Energy (energy.css); qui solo quello che serve in più. */
+.card.crm-pad, .crm-pad { padding: var(--ap-space-4); }
+.crm-h3 { font-size: var(--ap-fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: var(--ap-fw-medium); margin: 0 0 var(--ap-space-2); }
+.crm-switch { margin: 0; }
+
+.crm-role { background: var(--ap-grey-100); }
+.crm-r-lead { background: var(--ap-surface); color: var(--orange); }
+.crm-r-cliente { background: var(--green-soft); color: var(--green); }
+.crm-asa { background: transparent; border: 1px solid var(--rule); color: var(--ap-text); }
+.crm-prio { flex: none; background: var(--ap-grey-100); }
+.crm-p-alta { background: var(--orange); color: var(--ap-white); }
+
+/* intestazione della scheda */
+.crm-head { align-items: flex-start; }
+.crm-actions { display: flex; gap: var(--ap-space-2); align-items: center; }
+.crm-menu { position: relative; }
+.crm-menu > summary { list-style: none; cursor: pointer; }
+.crm-menu > summary::-webkit-details-marker { display: none; }
+.crm-more { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: grid; min-width: 220px; padding: var(--ap-space-1); background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); box-shadow: var(--shadow); }
+.crm-more .btn { justify-content: flex-start; }
+
+/* fasi del lead */
+.crm-stages { display: flex; flex-wrap: wrap; gap: var(--ap-space-1); align-items: center; margin: var(--ap-space-3) 0; }
+.crm-stage { border: 1px solid var(--rule); background: var(--card); border-radius: var(--radius-pill); padding: var(--ap-space-1) var(--ap-space-3); font-size: var(--ap-fs-sm); cursor: pointer; color: var(--ap-text); display: inline-flex; align-items: center; gap: var(--ap-space-1); }
+button.crm-stage:hover { border-color: var(--orange); }
+.crm-stage.on { background: var(--orange); border-color: var(--orange); color: var(--ap-white); }
+.crm-stage.lost.on { background: var(--red); border-color: var(--red); }
+.crm-stage-end { cursor: default; border-style: dashed; color: var(--muted); }
+.crm-lost { flex-basis: 100%; }
+
+/* prossimo passo, sempre in alto */
+.crm-next { display: grid; grid-template-columns: auto minmax(0, 1fr) 170px; gap: var(--ap-space-3); align-items: center; padding: var(--ap-space-3) var(--ap-space-4); margin-bottom: var(--ap-space-3); }
+.crm-next.late { border-color: var(--red); }
+.crm-next-lab { display: inline-flex; gap: var(--ap-space-2); align-items: center; font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); white-space: nowrap; }
+.crm-tabs { margin-bottom: var(--ap-space-3); }
+
+.crm-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--ap-space-4); align-items: start; }
+.crm-side { display: grid; gap: var(--ap-space-4); }
+.crm-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ap-space-2); margin-bottom: var(--ap-space-2); }
+.crm-kpi { border: 1px solid var(--rule); border-radius: var(--radius); padding: var(--ap-space-2) var(--ap-space-3); display: grid; gap: 2px; }
+.crm-kpi span { font-size: var(--ap-fs-xs); color: var(--muted); }
+.crm-kpi strong { font-size: var(--ap-fs-lg, 18px); font-variant-numeric: tabular-nums; }
+.crm-linkbtn { background: var(--card); text-align: left; cursor: pointer; font: inherit; width: 100%; }
+.crm-linkbtn:hover { border-color: var(--orange); }
+
+/* attività */
+.crm-composer { display: grid; gap: var(--ap-space-2); }
+.crm-composer-row { display: flex; gap: var(--ap-space-2); flex-wrap: wrap; }
+.crm-composer-row .select { flex: 1; min-width: 140px; }
+.crm-composer-row .input { width: 170px; }
+.crm-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ap-space-3); }
+.crm-timeline li { display: flex; gap: var(--ap-space-3); align-items: flex-start; }
+.crm-timeline .grow { flex: 1; min-width: 0; }
+.crm-tl-ico { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--ap-grey-100); display: grid; place-items: center; color: var(--ap-text-strong); }
+
+/* contatti: dove lavora */
+.crm-links-edit { display: grid; gap: var(--ap-space-2); margin-bottom: var(--ap-space-1); }
+.crm-link-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto 150px auto; gap: var(--ap-space-2); align-items: center; }
+.crm-check { align-self: end; padding-bottom: var(--ap-space-2); }
+.crm-dup { display: flex; flex-wrap: wrap; gap: var(--ap-space-1); align-items: center; }
+
+/* ASA e accessi */
+.crm-asa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--ap-space-3); }
+.crm-asa-card { display: grid; gap: var(--ap-space-2); align-content: start; }
+.crm-member { display: inline-flex; align-items: center; gap: var(--ap-space-1); background: var(--ap-grey-100); }
+.crm-x { border: 0; background: none; padding: 0; cursor: pointer; color: var(--muted); display: inline-grid; }
+.crm-x:hover { color: var(--red); }
+.crm-add { display: flex; gap: var(--ap-space-2); align-items: center; }
+.crm-add .input { flex: 1; min-width: 0; width: auto; }
+.crm-add .btn { flex: none; }
+.crm-asa-card .en-sec-head { flex-wrap: wrap; }
+
+@media (max-width: 760px) {
+  .crm-grid { grid-template-columns: 1fr; }
+  .crm-next { grid-template-columns: 1fr; }
+  .crm-link-row { grid-template-columns: 1fr auto; }
+  .crm-link-row .input, .crm-link-row .select { grid-column: 1 / -1; }
+  .page-head.crm-head { flex-direction: column; align-items: stretch; text-align: left; }
+  .crm-head .en-head-pills, .crm-actions { justify-content: flex-start; }
+  .profile-tabs.crm-tabs { width: 100%; overflow-x: auto; justify-content: flex-start; scrollbar-width: none; }
+  .profile-tabs.crm-tabs button { flex: none; white-space: nowrap; }
+}
+.crm-board { grid-auto-columns: minmax(210px, 1fr); }

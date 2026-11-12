@@ -32,6 +32,7 @@
   <link rel="stylesheet" href="/css/struttura.css">
   <link rel="stylesheet" href="/css/fleet.css">
   <link rel="stylesheet" href="/css/energy.css">
+  <link rel="stylesheet" href="/css/crm.css">
   <link rel="stylesheet" href="/css/strategy.css">
   <link rel="stylesheet" href="/css/ideas.css">
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
@@ -110,6 +111,19 @@
         <a href="#/energy/persone" data-nav="energy-persone"><span class="nav-ico" data-icon="users"></span>Persone</a>
         <span class="nav-label">Modulo</span>
         <a href="#/energy/membri" data-nav="energy-membri"><span class="nav-ico" data-icon="key-round"></span>Membri</a>
+      </nav>
+      <!-- menu di Alma CRM: anagrafiche per ASA -->
+      <nav class="nav" data-ws="crm" hidden>
+        <span class="nav-label">Anagrafiche</span>
+        <a href="#/crm/lead" data-nav="crm-lead"><span class="nav-ico" data-icon="target"></span>Lead</a>
+        <a href="#/crm/clienti" data-nav="crm-clienti"><span class="nav-ico" data-icon="building"></span>Clienti</a>
+        <a href="#/crm/fornitori" data-nav="crm-fornitori"><span class="nav-ico" data-icon="package"></span>Fornitori</a>
+        <a href="#/crm/partner" data-nav="crm-partner"><span class="nav-ico" data-icon="handshake"></span>Partner e concorrenti</a>
+        <a href="#/crm/tutte" data-nav="crm-tutte"><span class="nav-ico" data-icon="list"></span>Tutte le anagrafiche</a>
+        <span class="nav-label">Persone</span>
+        <a href="#/crm/contatti" data-nav="crm-contatti"><span class="nav-ico" data-icon="contact"></span>Contatti</a>
+        <span class="nav-label" id="nav-crm-admin-label" hidden>Direzione</span>
+        <a href="#/crm/asa" data-nav="crm-asa" id="nav-crm-asa" hidden><span class="nav-ico" data-icon="key-round"></span>ASA e accessi</a>
       </nav>
       <!-- menu di Alma Strategy: Hoshin Kanri e (dopo) performance management -->
       <nav class="nav" data-ws="strategy" hidden>
