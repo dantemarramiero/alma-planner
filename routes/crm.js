@@ -273,7 +273,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
                        AND (cl.date_from IS NULL OR cl.date_from <= m.start_at::date) AND (cl.date_to IS NULL OR cl.date_to >= m.start_at::date)))
                    AND m.end_at < $${params.length + 1}::timestamp AND NOT EXISTS (SELECT 1 FROM crm_notes n WHERE n.meeting_id = m.id AND n.deleted_at IS NULL)) AS missing_notes
          FROM crm_subjects s LEFT JOIN users u ON u.id = s.owner_id
-        WHERE ${where.join(' AND ')} ORDER BY lower(s.name) LIMIT 1000`, [...params, nowRome()]);
+        WHERE ${where.join(' AND ')} ORDER BY lower(s.name) LIMIT 10000`, [...params, nowRome()]);
     res.json({ subjects: rows });
   });
 
@@ -520,7 +520,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     const { rows } = await db.query(
       `SELECT c.id, c.title, c.first_name, c.last_name, c.email, c.mobile, c.phone, c.status, c.owner_id, u.name AS owner_name
          FROM crm_contacts c LEFT JOIN users u ON u.id = c.owner_id
-        WHERE ${where.join(' AND ')} ORDER BY lower(c.last_name), lower(c.first_name) LIMIT 1000`, params);
+        WHERE ${where.join(' AND ')} ORDER BY lower(c.last_name), lower(c.first_name) LIMIT 10000`, params);
     const links = await linksOf(req, rows.map(r => r.id));
     res.json({ contacts: rows.map(c => ({ ...c, links: links.filter(l => l.contact_id === c.id) })) });
   });
