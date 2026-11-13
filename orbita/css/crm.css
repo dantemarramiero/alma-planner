@@ -163,3 +163,5 @@ label.crm-pick { cursor: pointer; }
 .crm-pickbox { margin-top: var(--ap-space-2); max-height: 260px; }
 .crm-import { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-3); }
 .crm-actions { flex-wrap: wrap; justify-content: flex-end; }
+.crm-filterbar { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; padding: var(--ap-space-2) var(--ap-space-3); margin: calc(var(--ap-space-3) * -1) 0 var(--ap-space-3); border-radius: var(--radius); background: var(--ap-orange-tint); color: var(--ap-text-strong); font-size: var(--ap-fs-sm); }
+.crm-filterbar span { flex: 1; min-width: 0; }

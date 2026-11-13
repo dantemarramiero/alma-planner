@@ -20,11 +20,11 @@ const FILTER_KEY = () => `alma.crmFilters.${store.me.id}`;
 const readFilters = () => { try { return JSON.parse(localStorage.getItem(FILTER_KEY())) || {}; } catch { return {}; } };
 const saveFilter = (k, val) => { try { localStorage.setItem(FILTER_KEY(), JSON.stringify({ ...readFilters(), [k]: val })); } catch { /* niente */ } };
 // ASA scelta: 'mine' = le mie ASA, '' = tutte, oppure una sola
-const asaChoice = () => { const f = readFilters(); if ('asa' in f && (f.asa === '' || f.asa === 'mine' || data.asa.some(a => a.key === f.asa))) return f.asa; return data.myAsa.length ? 'mine' : ''; };
+const asaChoice = () => { const f = readFilters(); if ('asa' in f && (f.asa === '' || f.asa === 'mine' || data.asa.some(a => a.key === f.asa))) return f.asa; return data.myAsa.length && !data.admin ? 'mine' : ''; }; // la direzione parte da tutto
 const asaQuery = () => { const c = asaChoice(); return c === 'mine' ? data.myAsa.join(',') : c; };
 // ASA da proporre su una scheda nuova
 const currentAsa = () => { const c = asaChoice(); return c && c !== 'mine' ? c : data.myAsa.length === 1 ? data.myAsa[0] : ''; };
-const ownerDefault = () => { const f = readFilters(); return 'owner' in f ? f.owner : data.mine ? String(store.me.id) : ''; };
+const ownerDefault = () => { const f = readFilters(); return 'owner' in f ? f.owner : data.mine && !data.admin ? String(store.me.id) : ''; };
 
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
 const eur = n => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 0 })} €`);
@@ -127,8 +127,14 @@ export async function crmView(container, parts = []) {
       { 'aria-label': 'ASA', on: { change: e => { saveFilter('asa', e.target.value); crmView(container, parts); } } })
     : null;
   const asaEyebrow = asaChoice() === 'mine' ? (data.myAsa.length === 1 ? asaLabel(data.myAsa[0]) : 'le mie ASA') : asaChoice() ? asaLabel(asaChoice()) : '';
+  // filtri attivi sempre in vista, con «Mostra tutto» (13/11: la direzione era in Energy e non vedeva le aziende caricate)
+  const active = [asaEyebrow && `ASA: ${asaEyebrow}`, ownerDefault() === String(store.me.id) && 'Owner: i miei',
+    ownerDefault() && ownerDefault() !== String(store.me.id) && `Owner: ${store.users.find(u => String(u.id) === ownerDefault())?.name || '—'}`].filter(Boolean);
+  const banner = tab !== 'asa' && active.length ? h('div.crm-filterbar', icon('sliders', { size: 15 }), h('span', `Stai vedendo solo: ${active.join(' · ')}`),
+    h('button.btn.btn-sm', { type: 'button', on: { click: () => { saveFilter('asa', ''); saveFilter('owner', ''); crmView(container, parts); } } }, 'Mostra tutto')) : null;
   fill(container,
     h('div.page-head', h('div', h('div.en-eyebrow', asaEyebrow && tab !== 'asa' ? `Alma CRM · ${asaEyebrow}` : 'Alma CRM'), h('h1', TABS.find(([k]) => k === tab)[1])), asaSel),
+    banner,
     body);
   if (tab === 'lead') await leadTab(body, parts[2]);
   else if (tab === 'contatti') await contactsTab(body);
