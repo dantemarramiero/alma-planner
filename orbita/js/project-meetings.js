@@ -23,12 +23,13 @@ export function meetingWhen(m) {
 const isPast = m => String(m.start_at || m.start).slice(0, 10) <= today();
 
 // Carica dei file su una nota (uno alla volta, nel database). Ritorna quanti sono andati.
-export async function uploadNoteFiles(noteId, files) {
+// base: /api/notes per progetti e ticket, /api/crm/notes per il CRM
+export async function uploadNoteFiles(noteId, files, base = '/api/notes') {
   let ok = 0;
   for (const f of files) {
     if (f.size > FILE_MAX) { toast(`«${f.name}» supera 20 MB: non caricato`, 'err'); continue; }
     try {
-      await api('POST', `/api/notes/${noteId}/files?name=${encodeURIComponent(f.name)}&type=${encodeURIComponent(f.type || 'application/octet-stream')}`, f,
+      await api('POST', `${base}/${noteId}/files?name=${encodeURIComponent(f.name)}&type=${encodeURIComponent(f.type || 'application/octet-stream')}`, f,
         { raw: true, headers: { 'Content-Type': 'application/octet-stream' } });
       ok++;
     } catch { /* l'errore lo mostra già api() */ }
@@ -36,14 +37,14 @@ export async function uploadNoteFiles(noteId, files) {
   return ok;
 }
 
-export function noteFileLinks(n, onChange) {
+export function noteFileLinks(n, onChange, base = '/api/note-files') {
   if (!n.files?.length) return null;
   return h('div.mt-files', n.files.map(f => h('span.mt-file',
-    h('a', { href: `/api/note-files/${f.id}`, download: f.name, title: 'Scarica' }, icon('paperclip', { size: 13 }), ' ', f.name, h('span.muted', ` ${fmtSize(f.size)}`)),
+    h('a', { href: `${base}/${f.id}`, download: f.name, title: 'Scarica' }, icon('paperclip', { size: 13 }), ' ', f.name, h('span.muted', ` ${fmtSize(f.size)}`)),
     onChange && (f.added_by === store.me.id || n.author_id === store.me.id || store.me.is_admin)
       ? h('button.mt-file-x', { type: 'button', title: 'Togli il file', 'aria-label': `Togli «${f.name}»`, on: { click: async () => {
         if (!await confirmDialog(`Togliere «${f.name}»?`, { ok: 'Togli', danger: true })) return;
-        await del(`/api/note-files/${f.id}`);
+        await del(`${base}/${f.id}`);
         onChange();
       } } }, '×') : null)));
 }

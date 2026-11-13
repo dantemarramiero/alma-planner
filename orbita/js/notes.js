@@ -46,8 +46,10 @@ function undoToast(message, onUndo) {
 
 // box: dove disegnare; url: /api/projects/:id/notes oppure /api/tickets/:id/notes;
 // showTicket: nel progetto, le note dei ticket portano il collegamento al ticket; onCount(n): per i contatori.
-export function notesPanel(box, { url, showTicket = false, onCount, title = 'Note' } = {}) {
-  let notes = [], editing = null, adding = false, filter = 'all';
+// CRM: api/filesApi = indirizzi delle note del CRM, openMeetingFn = apre l'incontro del CRM, origins = filtro
+// «Solo della scheda / Dei contatti / Degli incontri» e la riga «tramite <contatto>» (n.via).
+export function notesPanel(box, { url, showTicket = false, onCount, title = 'Note', api: noteApi = '/api/notes', filesApi = '/api/note-files', openMeetingFn = null, origins = null } = {}) {
+  let notes = [], editing = null, adding = false, filter = 'all', origin = 'all';
   const listBox = h('div.nt-list', loading());
   const search = h('input.input.nt-search', { type: 'search', placeholder: 'Cerca nelle note…' });
   const count = h('span.nt-count');
@@ -58,7 +60,12 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
   }, label)));
   search.addEventListener('input', draw);
 
-  box.append(h('div.nt-head', h('h3', title, count), h('div.nt-tools', search, newBtn)), kinds, listBox);
+  const originBox = origins ? h('div.seg.nt-kinds', [['all', 'Tutte'], ['own', origins], ['via', 'Dei contatti'], ['meeting', 'Degli incontri']].map(([k, label]) => h('button', {
+    type: 'button', 'data-o': k, class: k === origin ? 'on' : '',
+    on: { click: () => { origin = k; originBox.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.o === k)); draw(); } },
+  }, label))) : null;
+  const originOf = n => (n.meeting_id ? 'meeting' : n.via ? 'via' : 'own');
+  box.append(h('div.nt-head', h('h3', title, count), h('div.nt-tools', search, newBtn)), kinds, originBox, listBox);
 
   async function load() {
     try { notes = await get(url); } catch { return fill(listBox, h('p.muted', 'Note non disponibili.')); }
@@ -70,7 +77,7 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
     onCount?.(notes.length);
     newBtn.hidden = adding;
     const q = search.value.trim().toLowerCase();
-    const shown = notes.filter(n => (filter === 'all' || n.kind === filter)
+    const shown = notes.filter(n => (filter === 'all' || n.kind === filter) && (origin === 'all' || originOf(n) === origin)
       && (!q || `${n.title} ${n.body} ${n.ticket_title || ''}`.toLowerCase().includes(q)));
     const items = [];
     if (adding) items.push(editor(null));
@@ -89,7 +96,7 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
     const fileIn = h('input', { type: 'file', multiple: true, hidden: true, on: { change: async e => {
       const files = [...e.target.files];
       if (!files.length) return;
-      const up = await uploadNoteFiles(n.id, files);
+      const up = await uploadNoteFiles(n.id, files, noteApi);
       if (up) toast(`${up} file ${up === 1 ? 'aggiunto' : 'aggiunti'} alla nota`);
       load();
     } } });
@@ -106,12 +113,13 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
         showTicket && n.ticket_id ? h('button.nt-ticket', { type: 'button', title: 'Apri il ticket',
           on: { click: async () => (await import('./tickets.js')).openTicket(n.ticket_id, { onSaved: load }) } }, `Ticket #${n.ticket_id} · ${n.ticket_title || ''}`) : null,
         n.meeting_id ? h('button.nt-ticket.nt-meeting', { type: 'button', title: 'Apri l\'incontro',
-          on: { click: () => openMeeting(n.meeting_id, projectById(n.project_id) || {}, load) } },
+          on: { click: () => (openMeetingFn ? openMeetingFn(n.meeting_id, load) : openMeeting(n.meeting_id, projectById(n.project_id) || {}, load)) } },
           icon('calendar', { size: 13 }), ` Incontro · ${meetingWhen({ start_at: n.meeting_start, all_day: n.meeting_all_day }).split(' · ')[0]}`) : null,
         actions),
       n.title ? h('div.nt-title', n.title) : null,
       n.body ? h('div.nt-body', linkify(n.body)) : null,
-      noteFileLinks(n, mine ? load : null),
+      n.via ? h('div.nt-via', `tramite ${n.via}`) : null,
+      noteFileLinks(n, mine ? load : null, filesApi),
       h('div.nt-foot', author ? avatar(author, 20) : null, h('span', author?.name || 'Utente rimosso'),
         n.updated_at ? h('span.muted', ` · modificata il ${fmtDateTime(n.updated_at)}`) : null));
   }
@@ -161,7 +169,7 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
 
   async function save(n, data) {
     try {
-      const updated = await patch(`/api/notes/${n.id}`, data);
+      const updated = await patch(`${noteApi}/${n.id}`, data);
       tellMentions(updated.mentions);
       notes = notes.map(x => (x.id === n.id ? updated : x));
       sortNotes();
@@ -172,11 +180,11 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
   }
 
   async function remove(n) {
-    try { await del(`/api/notes/${n.id}`); } catch { return; }
+    try { await del(`${noteApi}/${n.id}`); } catch { return; }
     notes = notes.filter(x => x.id !== n.id);
     draw();
     undoToast('Nota eliminata', async () => {
-      const back = await post(`/api/notes/${n.id}/restore`);
+      const back = await post(`${noteApi}/${n.id}/restore`);
       notes.push(back);
       sortNotes();
       draw();

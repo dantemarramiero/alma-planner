@@ -39,6 +39,7 @@ const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { registerCrm } = require('./routes/crm');
 const { createCrmAccess } = require('./lib/crm');
+const { createCrmSync } = require('./lib/crm-sync');
 const { registerStrategy } = require('./routes/strategy');
 const { registerPerformance } = require('./routes/performance');
 const { registerIdeas } = require('./routes/ideas');
@@ -75,7 +76,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -186,6 +187,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender }
   deps.energyScreening = createScreeningRunner({ db, ...(energyFetch ? { fetchImpl: energyFetch, retryDelayMs: 0 } : {}) });
   // app sul telefono e i tre avvisi (nuovo post, ticket assegnato, A3) con campanella, telefono ed email
   deps.push = createPush({ db, auth, sender: pushSender || null });
+  // CRM: incontri di Outlook collegati da soli e avviso «incontro senza note» (nei test il calendario è finto)
+  deps.crmSync = createCrmSync({ db, auth, notifier: deps.notifier, push: deps.push, fetchEvents: crmFetchEvents });
   deps.alerts = createAlerts({ db, auth, notifier: deps.notifier, push: deps.push, ticketMail: createTicketMail({ db, auth, baseUrl: config.baseUrl }), baseUrl: config.baseUrl });
   deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
@@ -230,13 +233,14 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender }
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening };
+  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening, crmSync: deps.crmSync };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit, digest, fleet, energyReminders, energyScreening } = await createApp(config);
+    const { app, db, auth, audit, digest, fleet, energyReminders, energyScreening, crmSync } = await createApp(config);
+    crmSync.start(); // ogni 15 minuti i calendari (incontri con i contatti del CRM), ogni 5 gli incontri finiti senza note
     digest.start();
     energyReminders.start(); // ogni 5 minuti, di giorno: scadenze delle opportunità di Alma Energy
     energyScreening.start().catch(err => console.warn('[energy] screening non ripartito', err.message)); // giri in coda dopo un riavvio

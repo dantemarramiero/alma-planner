@@ -75,7 +75,9 @@ CREATE TABLE crm_subjects (
   next_step_date  DATE,
   -- fornitore: categorie e zone; la qualifica arriva da Vittoria (secondo passo)
   supplier_categories TEXT[] NOT NULL DEFAULT '{}',
-  supplier_zones  TEXT NOT NULL DEFAULT '',
+  supplier_subcategories TEXT[] NOT NULL DEFAULT '{}',
+  supplier_zones  TEXT[] NOT NULL DEFAULT '{}',   -- sigle delle province servite
+  soa             JSONB NOT NULL DEFAULT '[]',    -- [{ cat: 'OG1', cls: 'III', expires: 'YYYY-MM-DD' }] per subappaltatori e partner
   -- codici di altri sistemi
   boss_code       TEXT NOT NULL DEFAULT '',
   accounting_code TEXT NOT NULL DEFAULT '',   -- Target
@@ -128,21 +130,6 @@ CREATE TABLE crm_contact_links (
   UNIQUE (contact_id, subject_id)
 );
 CREATE INDEX crm_contact_links_subject ON crm_contact_links (subject_id);
-
--- Attività: note, chiamate, email, incontri. Su un soggetto, su un contatto o su tutti e due.
-CREATE TABLE crm_activities (
-  id          SERIAL PRIMARY KEY,
-  subject_id  INTEGER REFERENCES crm_subjects(id) ON DELETE CASCADE,
-  contact_id  INTEGER REFERENCES crm_contacts(id) ON DELETE CASCADE,
-  kind        TEXT NOT NULL DEFAULT 'nota' CHECK (kind IN ('nota', 'chiamata', 'email', 'incontro')),
-  body        TEXT NOT NULL CHECK (length(body) BETWEEN 1 AND 5000),
-  happened_on DATE NOT NULL DEFAULT CURRENT_DATE,
-  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK (subject_id IS NOT NULL OR contact_id IS NOT NULL)
-);
-CREATE INDEX crm_activities_subject ON crm_activities (subject_id, happened_on DESC);
-CREATE INDEX crm_activities_contact ON crm_activities (contact_id, happened_on DESC);
 
 -- Storico dei cambi di stato del lead (anche Lead → Cliente).
 CREATE TABLE crm_stage_history (

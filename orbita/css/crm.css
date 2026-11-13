@@ -81,3 +81,81 @@ button.crm-stage:hover { border-color: var(--orange); }
   .profile-tabs.crm-tabs button { flex: none; white-space: nowrap; }
 }
 .crm-board { grid-auto-columns: minmax(210px, 1fr); }
+
+/* ── scheda per categoria, tab Email/Incontri/Note/Progetti (artboard del 13/11) ── */
+.crm-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .9fr); gap: var(--ap-space-4); align-items: start; margin-bottom: var(--ap-space-4); }
+.crm-col { display: grid; gap: var(--ap-space-4); align-content: start; min-width: 0; }
+.crm-cols .en-dl { grid-template-columns: 140px minmax(0, 1fr); }
+.crm-notes { margin-top: var(--ap-space-3); }
+.crm-sec-row { display: flex; justify-content: space-between; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; margin-bottom: var(--ap-space-2); }
+.crm-sec-row .crm-h3 { margin: 0; }
+.crm-right { justify-content: flex-end; margin-bottom: var(--ap-space-3); }
+.crm-lines { display: grid; }
+.crm-line { display: flex; gap: var(--ap-space-3); align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--rule); }
+.crm-line:first-child { border-top: 0; }
+.crm-line .grow { flex: 1; min-width: 0; }
+.crm-line-t { font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+.crm-line-b { font-size: var(--ap-fs-sm); color: var(--ap-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+a.crm-linkline { color: inherit; text-decoration: none; border-radius: var(--radius); }
+a.crm-linkline:hover .crm-line-t { color: var(--orange); }
+.crm-linkline.past { opacity: .55; }
+.crm-ico { width: 32px; height: 32px; flex: none; border-radius: 50%; background: var(--ap-grey-100); display: grid; place-items: center; color: var(--ap-text-strong); }
+.crm-ico.mail { background: var(--blue-soft); color: #0057B8; }
+.crm-ico.meet { background: var(--ap-orange-tint); color: var(--ap-orange-hover); }
+.crm-ico.note { background: var(--green-soft); color: var(--green); }
+.crm-ico.warn { background: var(--red-soft); color: var(--red); }
+.crm-via, .nt-via { font-size: var(--ap-fs-xs); color: #0057B8; }
+.crm-auto { background: var(--blue-soft); color: #0057B8; gap: 4px; }
+.crm-missing { background: var(--red-soft); color: var(--red); }
+.crm-bang { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #E5484D; color: #fff; font-size: 12px; font-weight: 700; margin-left: 6px; vertical-align: middle; flex: none; }
+.crm-dashed { border-style: dashed; box-shadow: none; background: #FBFAF8; }
+label.crm-pick { cursor: pointer; }
+.crm-pick input { margin-top: 4px; }
+.crm-scroll { max-height: 55vh; overflow-y: auto; }
+.crm-mail { white-space: pre-wrap; font-family: inherit; font-size: var(--ap-fs-sm); background: var(--rf-soft); border-radius: var(--radius); padding: var(--ap-space-3); max-height: 50vh; overflow: auto; margin: 0; }
+
+/* settimana del calendario, come negli A3 */
+.crm-cal { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-4); }
+.crm-legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: var(--ap-fs-xs); color: var(--muted); }
+.crm-legend span { display: inline-flex; gap: 6px; align-items: center; }
+.crm-legend i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+.crm-legend i.mine { background: var(--orange); }
+.crm-legend i.other { background: var(--ap-grey-100); border: 1px solid var(--ap-grey-200); }
+.crm-legend i.nonotes { border: 2px solid #E5484D; }
+.crm-week { border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+.crm-wh { display: grid; grid-template-columns: repeat(5, 1fr); margin-left: 48px; font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); color: var(--muted); }
+.crm-wh span { padding: 8px; }
+.crm-wb { position: relative; margin-left: 48px; background: repeating-linear-gradient(var(--card) 0 35px, var(--rule) 35px 36px); }
+.crm-hr { position: absolute; left: -44px; font-size: 11px; color: var(--muted); }
+.crm-ev { position: absolute; width: calc(20% - 6px); border-radius: 8px; padding: 3px 7px; font: inherit; font-size: 12px; line-height: 15px; overflow: hidden; text-align: left; cursor: pointer; border: 1px solid transparent; display: grid; align-content: start; }
+.crm-ev.mine { background: var(--orange); color: #fff; }
+.crm-ev.other { background: var(--ap-grey-100); color: var(--ap-grey-700); border-color: var(--ap-grey-200); }
+.crm-ev.nonotes { box-shadow: inset 0 0 0 2px #E5484D; }
+.crm-ev small { font-size: 10.5px; opacity: .9; }
+
+/* progetti */
+.crm-proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--ap-space-4); }
+.crm-proj { display: grid; gap: var(--ap-space-3); }
+.crm-proj-head { display: flex; gap: var(--ap-space-3); align-items: center; color: inherit; text-decoration: none; }
+.crm-bar { height: 8px; border-radius: 999px; background: var(--ap-grey-100); overflow: hidden; }
+.crm-bar i { display: block; height: 8px; background: var(--orange); border-radius: 999px; }
+
+/* elenchi da cui scegliere nei moduli */
+.crm-soa { display: grid; gap: var(--ap-space-2); margin-bottom: var(--ap-space-1); }
+.crm-soa-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 150px auto; gap: var(--ap-space-2); align-items: center; }
+.crm-picker { display: grid; gap: var(--ap-space-2); }
+.crm-job { display: grid; gap: var(--ap-space-1); }
+
+@media (max-width: 1100px) { .crm-cols { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) {
+  .crm-cols { grid-template-columns: 1fr; }
+  .crm-soa-row { grid-template-columns: 1fr auto; }
+  .crm-soa-row .select, .crm-soa-row .input { grid-column: 1 / -1; }
+  .crm-wh, .crm-wb { margin-left: 36px; }
+  .crm-ev { font-size: 10.5px; padding: 2px 4px; }
+}
+/* nei tab a pillola il refresh dà stile a ogni span: il «!» va ripristinato */
+.profile-tabs .crm-bang { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border-radius: 50%; background: #E5484D; color: #fff; font-size: 12px; font-weight: 700; margin-left: 6px; box-shadow: none; }
+.profile-tabs.crm-tabs button { display: inline-flex; align-items: center; }
+.crm-composer-row { align-items: center; }
+.crm-composer-row .grow { flex: 1; }
