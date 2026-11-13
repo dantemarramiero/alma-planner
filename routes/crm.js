@@ -144,7 +144,7 @@ function contactFields(b, { partial }) {
 
 function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   app.use('/api/crm', (req, _res, next) => {
-    crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Il CRM è per la direzione e per chi è assegnato a un\'ASA')), next);
+    crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Accesso richiesto')), next);
   });
   const functionNames = async () => (await loadFunctions(db)).map(f => f.name).sort((a, b) => a.localeCompare(b, 'it'));
   async function checkOwnerFunction(f, { creating }) {
@@ -155,25 +155,19 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   }
   const allAsa = async () => (await db.query('SELECT key, label, boss_label, sort FROM crm_asa ORDER BY sort, label')).rows;
 
-  // Filtro di visibilità sui soggetti (alias s): amministratori tutto, gli altri le loro ASA. Restituisce [sql, params].
-  const seeSql = (req, alias, params) => {
-    if (req.crm.admin) return 'TRUE';
-    params.push(req.crm.asas);
-    return `${alias}.asa && $${params.length}::text[]`;
-  };
+  // Visibilità: dal 13/11 tutti vedono tutto (le ASA sono filtri). Resta una funzione per poterla stringere di nuovo.
+  const seeSql = () => 'TRUE';
   async function subjectById(req, id, { forWrite = false } = {}) {
     const { rows: [s] } = await db.query(
       `SELECT s.*, u.name AS owner_name, g.name AS group_name, m.name AS merged_name FROM crm_subjects s
          LEFT JOIN users u ON u.id = s.owner_id LEFT JOIN crm_subjects g ON g.id = s.group_id
          LEFT JOIN crm_subjects m ON m.id = s.merged_into WHERE s.id = $1`, [id]);
-    if (!s || !(req.crm.admin || s.asa.some(a => req.crm.asas.includes(a)))) throw new HttpError(404, 'Anagrafica non trovata');
+    if (!s) throw new HttpError(404, 'Anagrafica non trovata');
     if (forWrite && s.merged_into) throw new HttpError(409, `Questa scheda è stata unita a «${s.merged_name}»`);
     return s;
   }
-  // un non amministratore deve tenere almeno una delle sue ASA, sennò perderebbe la scheda
   function checkAsa(req, asa) {
     if (!asa.length) throw new HttpError(400, 'Scegli almeno un\'ASA');
-    if (!req.crm.admin && !asa.some(a => req.crm.asas.includes(a))) throw new HttpError(400, 'Tra le ASA ci deve essere almeno una delle tue');
   }
   function checkRoles(req, roles, before = []) {
     if (!roles.length) throw new HttpError(400, 'Scegli almeno un ruolo');
@@ -198,6 +192,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     ]);
     res.json({
       admin: req.crm.admin, myAsa: req.crm.asas, asa, functions,
+      mine: (await db.query('SELECT COUNT(*)::int AS n FROM crm_subjects WHERE owner_id = $1 AND merged_into IS NULL', [req.user.id])).rows[0].n,
       counts: Object.fromEntries(counts.map(r => [r.role, r.n])),
       stages: Object.fromEntries(stages.map(r => [r.stage, r.n])),
       meta: { roles: ROLES, kinds: KINDS, status: STATUS, leadStages: LEAD_STAGES, priorities: PRIORITIES, origins: ORIGINS, lostReasons: LOST_REASONS,
@@ -254,7 +249,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     const where = ['s.merged_into IS NULL', seeSql(req, 's', params)];
     const add = (sql, val) => { params.push(val); where.push(sql.replace('?', `$${params.length}`)); };
     if (req.query.role) add('? = ANY(s.roles)', String(req.query.role));
-    if (req.query.asa) add('? = ANY(s.asa)', String(req.query.asa));
+    if (req.query.asa) add('s.asa && ?::text[]', String(req.query.asa).split(',').filter(Boolean));
     if (req.query.stage) add('s.lead_stage = ?', String(req.query.stage));
     if (req.query.category) add('? = ANY(s.supplier_categories)', String(req.query.category));
     if (req.query.owner) add('s.owner_id = ?', Number(req.query.owner) || 0);
@@ -288,7 +283,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     const { rows } = await db.query(
       `SELECT id, name, vat, asa FROM crm_subjects WHERE merged_into IS NULL
           AND (($1 <> '' AND vat = $1) OR ($2 <> '' AND tax_code = $2) OR ($3 <> '' AND lower(name) = lower($3))) LIMIT 5`, [vat, tax, name]);
-    res.json({ matches: rows.map(r => ({ id: r.id, name: r.name, vat: r.vat, visible: req.crm.admin || r.asa.some(a => req.crm.asas.includes(a)) })) });
+    res.json({ matches: rows.map(r => ({ id: r.id, name: r.name, vat: r.vat, visible: true })) });
   });
 
   app.post('/api/crm/subjects', async (req, res) => {
@@ -449,14 +444,8 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   });
 
   // ── contatti ─────────────────────────────────────────────────────────────────────────────
-  // visibili se collegati a un soggetto visibile, o creati da me e non ancora collegati
-  const contactSeeSql = (req, alias, params) => {
-    if (req.crm.admin) return 'TRUE';
-    params.push(req.crm.asas, req.user.id);
-    const a = params.length - 1;
-    return `(EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = ${alias}.id AND s.asa && $${a}::text[])
-             OR (${alias}.created_by = $${a + 1} AND NOT EXISTS (SELECT 1 FROM crm_contact_links l WHERE l.contact_id = ${alias}.id)))`;
-  };
+  // tutti vedono tutti i contatti (dal 13/11)
+  const contactSeeSql = () => 'TRUE';
   async function contactById(req, id) {
     const params = [id];
     const see = contactSeeSql(req, 'c', params);
@@ -514,8 +503,12 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
       where.push(`EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = c.id AND $${params.length} = ANY(s.roles))`);
     }
     if (req.query.asa) {
-      params.push(String(req.query.asa));
-      where.push(`EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = c.id AND $${params.length} = ANY(s.asa))`);
+      params.push(String(req.query.asa).split(',').filter(Boolean));
+      where.push(`EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = c.id AND s.asa && $${params.length}::text[])`);
+    }
+    if (req.query.owner) {
+      params.push(Number(req.query.owner) || 0);
+      where.push(`c.owner_id = $${params.length}`);
     }
     const { rows } = await db.query(
       `SELECT c.id, c.title, c.first_name, c.last_name, c.email, c.mobile, c.phone, c.status, c.owner_id, u.name AS owner_name

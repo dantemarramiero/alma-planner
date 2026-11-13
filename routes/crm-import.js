@@ -12,6 +12,7 @@ const express = require('express');
 const { HttpError } = require('../lib/http');
 const { readXlsx } = require('../lib/xlsx');
 const { classify, norm } = require('../lib/crm-zoho');
+const { vatOk, taxCodeOk } = require('../lib/crm');
 
 // nome di una persona senza badare all'ordine: Microsoft scrive «Marramiero Dante», Zoho «Dante Marramiero»
 const personKey = s => norm(s).split(' ').filter(Boolean).sort().join(' ');
@@ -21,9 +22,7 @@ const CATEGORIES = ['materiali', 'subappalti', 'noli', 'servizi_cantiere', 'prof
 
 // righe dell'Excel → aziende da caricare
 function readCompanies(buf) {
-  let sheets;
-  try { sheets = readXlsx(buf); } catch { throw new HttpError(400, 'Il file non è un Excel (.xlsx) valido'); }
-  const rows = sheets.Aziende || Object.values(sheets)[0];
+  const rows = sheetRows(buf);
   if (!rows?.length) throw new HttpError(400, 'Il file è vuoto');
   const head = rows[0].map(h => norm(h));
   const col = (...names) => head.findIndex(h => names.map(norm).includes(h));
@@ -52,6 +51,23 @@ function readCompanies(buf) {
   return out;
 }
 
+// CSV di Zoho (virgole, virgolette doppie)
+function parseCsv(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n') { row.push(cur.replace(/\r$/, '')); rows.push(row); row = []; cur = ''; }
+    else cur += c;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.length > 1 || r[0]);
+}
+const isCommesseFile = rows => rows?.[0]?.some(h => norm(h) === norm('Committente (Nome Azienda).id'));
+const ASA_OF = { edilizia: 'edilizia', impianti: 'impianti', facility: 'facility', 'facility management': 'facility', 'reti mp bp': 'reti_mp_bp', 'reti bp mp': 'reti_mp_bp',
+  'reti ap': 'reti_ap', 'metano ap': 'reti_ap', restauro: 'restauro', progettazione: 'progettazione', 'altri servizi': 'altri_servizi', esco: 'esco' };
 const isContactsFile = rows => rows?.[0]?.some(h => norm(h) === 'contact name');
 function readContacts(rows) {
   const head = rows[0].map(h => norm(h));
@@ -66,6 +82,7 @@ function readContacts(rows) {
   });
 }
 const sheetRows = buf => {
+  if (buf.length > 1 && !(buf[0] === 0x50 && buf[1] === 0x4b)) return parseCsv(buf.toString('utf8').replace(/^\uFEFF/, '')); // non è uno zip: CSV
   let sheets;
   try { sheets = readXlsx(buf); } catch { throw new HttpError(400, 'Il file non è un Excel (.xlsx) valido'); }
   return sheets.Aziende || Object.values(sheets)[0];
@@ -78,7 +95,9 @@ function registerCrmImport(app, { db }) {
   async function plan(req) {
     adminOnly(req);
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'Carica il file Excel');
-    const contactsFile = isContactsFile(sheetRows(req.body));
+    const firstRows = sheetRows(req.body);
+    const contactsFile = isContactsFile(firstRows);
+    if (isCommesseFile(firstRows)) return planCommesse(req, firstRows);
     const items = contactsFile ? [] : readCompanies(req.body);
     const [{ rows: users }, { rows: existing }, { rows: asa }, { rows: org }] = await Promise.all([
       db.query(`SELECT u.id, u.name, lower(u.email) AS email, (SELECT o.department FROM org_people o WHERE lower(o.email) = lower(u.email) LIMIT 1) AS department FROM users u`),
@@ -160,10 +179,57 @@ function registerCrmImport(app, { db }) {
     }
     return { stats, load, newUsers: [...newUsers.values()] };
   }
+  async function planCommesse(req, rows) {
+    const head = rows[0].map(h => norm(h));
+    const col = (...names) => head.findIndex(h => names.map(norm).includes(h));
+    const I = { cid: col('Committente (Nome Azienda).id'), cname: col('Committente (Nome Azienda)'), rs: col('Ragione Sociale'), code: col('Codice Commessa'), name: col('Nome Commessa'),
+      piva: col('Partita Iva'), cf: col('Codice Fiscale'), sdi: col('Codice univoco di fatturazione'), pec: col('E-mail/PEC'), asa: col('ASA'),
+      dates: ['Data Contratto', 'Data inizio lavori (effettiva)', 'Data Inizio Lavori Prevista', 'Data di aggiudicazione'].map(n => col(n)).filter(i => i >= 0) };
+    const cell = (r, i) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+    const { rows: subjects } = await db.query('SELECT id, name, zoho_id, roles, vat, tax_code, sdi_code, pec, asa, client_since, lead_stage FROM crm_subjects WHERE merged_into IS NULL');
+    const byZoho = new Map(subjects.filter(x => x.zoho_id).map(x => [x.zoho_id, x]));
+    const byName = new Map(subjects.map(x => [norm(x.name), x]));
+    const usedVat = new Map(subjects.filter(x => x.vat).map(x => [x.vat, x.id]));
+    const usedTax = new Map(subjects.filter(x => x.tax_code).map(x => [x.tax_code, x.id]));
+    const per = new Map(); // azienda → dati raccolti dalle sue commesse
+    const stats = { commesse: true, total: rows.length - 1, withClient: 0, found: 0, notFound: [], newClients: 0, alreadyClients: 0, vatAdded: 0, taxAdded: 0 };
+    for (const r of rows.slice(1)) {
+      const cid = cell(r, I.cid), cname = cell(r, I.cname) || cell(r, I.rs);
+      if (!cid && !cname) continue;
+      stats.withClient++;
+      const subj = byZoho.get(cid) || (cname ? byName.get(norm(cname)) : null);
+      if (!subj) { if (!stats.notFound.includes(cname)) stats.notFound.push(cname); continue; }
+      stats.found++;
+      const p = per.get(subj.id) || { subj, codes: [], first: null, vat: '', tax: '', sdi: '', pec: '', asa: new Set() };
+      p.codes.push(cell(r, I.code) || cell(r, I.name));
+      for (const i of I.dates) { const d = cell(r, i).slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(d) && (!p.first || d < p.first)) p.first = d; }
+      const vat = cell(r, I.piva).replace(/\D/g, ''); if (!p.vat && vat.length === 11 && vatOk(vat)) p.vat = vat;
+      const tax = cell(r, I.cf).replace(/\s/g, '').toUpperCase(); if (!p.tax && tax && taxCodeOk(tax)) p.tax = tax;
+      const sdi = cell(r, I.sdi).toUpperCase(); if (!p.sdi && /^[A-Z0-9]{6,7}$/.test(sdi) && sdi !== '0000000') p.sdi = sdi;
+      const pec = cell(r, I.pec).toLowerCase(); if (!p.pec && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pec)) p.pec = pec;
+      for (const a of cell(r, I.asa).split(';')) { const k = ASA_OF[norm(a)]; if (k) p.asa.add(k); }
+      per.set(subj.id, p);
+    }
+    const load = [];
+    for (const p of per.values()) {
+      const s0 = p.subj;
+      const change = { id: s0.id, name: s0.name, wasLead: s0.roles.includes('lead'), becomesClient: !s0.roles.includes('cliente'), codes: p.codes, first: p.first };
+      if (change.becomesClient) stats.newClients++; else stats.alreadyClients++;
+      if (!s0.vat && p.vat && !usedVat.has(p.vat)) { change.vat = p.vat; usedVat.set(p.vat, s0.id); stats.vatAdded++; }
+      if (!s0.tax_code && p.tax && !usedTax.has(p.tax)) { change.tax_code = p.tax; usedTax.set(p.tax, s0.id); stats.taxAdded++; }
+      if (!s0.sdi_code && p.sdi) change.sdi_code = p.sdi;
+      if (!s0.pec && p.pec) change.pec = p.pec;
+      const asa = [...new Set([...s0.asa.filter(a => a !== 'altri_servizi' || !p.asa.size), ...p.asa])];
+      if (asa.join() !== s0.asa.join()) change.asa = asa;
+      load.push(change);
+    }
+    return { stats, load };
+  }
   const contactSample = load => load.slice(0, 30).map(x => ({ name: x.name, job: x.job, company: x.subject_name || (x.company_name ? `${x.company_name} (non trovata)` : '—'), owner: x.owner_label }));
 
   app.post('/api/crm/import/anteprima', raw, async (req, res) => {
     const { stats, load } = await plan(req);
+    if (stats.commesse) return res.json({ stats, sample: load.slice(0, 30).map(x => ({ name: x.name, becomesClient: x.becomesClient, vat: x.vat || '', commesse: x.codes.length, first: x.first })) });
     if (stats.contacts) return res.json({ stats, sample: contactSample(load) });
     res.json({ stats, sample: load.slice(0, 30).map(x => ({ name: x.name, kind: x.kind, roles: x.roles, asa: x.asa, owner: x.owner_label, function_name: x.function_name, why: x.why || '' })) });
   });
@@ -172,6 +238,25 @@ function registerCrmImport(app, { db }) {
     const { stats, load, newUsers } = await plan(req);
     const today = new Date().toISOString().slice(0, 10);
     let created = 0;
+    if (stats.commesse) {
+      await db.tx(async q => {
+        for (const x of load) {
+          const { rows: [cur] } = await q.query('SELECT roles, lead_stage, client_since FROM crm_subjects WHERE id = $1', [x.id]);
+          const roles = [...new Set([...cur.roles.filter(r => r !== 'lead'), 'cliente'])];
+          const since = [cur.client_since, x.first].filter(Boolean).sort()[0] || today;
+          const sets = ['roles = $2', 'client_since = $3', 'updated_at = now()'];
+          const vals = [x.id, roles, since];
+          for (const k of ['vat', 'tax_code', 'sdi_code', 'pec', 'asa']) if (x[k] !== undefined) { vals.push(x[k]); sets.push(`${k} = $${vals.length}`); }
+          await q.query(`UPDATE crm_subjects SET ${sets.join(', ')} WHERE id = $1`, vals);
+          if (x.becomesClient) {
+            await q.query('INSERT INTO crm_stage_history (subject_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
+              [x.id, x.wasLead ? cur.lead_stage : null, 'cliente', `prima commessa ${x.codes[0] || ''} (da Zoho)`.trim(), req.user.id]);
+          }
+          created++;
+        }
+      });
+      return res.status(201).json({ created, stats });
+    }
     if (stats.contacts) {
       await db.tx(async q => {
         const ids = new Map();
