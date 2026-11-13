@@ -274,3 +274,17 @@ test('la direzione crea nuove ASA', async () => {
   const { body } = await D('GET', '/api/crm/asa');
   assert.equal(body.asa.find(a => a.key === 'energy').energyMembers[0].email, 'dante.marramiero@almacis.it');
 });
+
+test('owner obbligatorio e funzione di riferimento scelta tra i reparti dell\'organigramma', async () => {
+  await db.query(`INSERT INTO org_people (oid, name, email, department) VALUES ('o1', 'Laura Acquisti', 'laura@almacis.it', 'Acquisti'), ('o2', 'Gino Gare', 'gino@almacis.it', 'Gare')`);
+  const { body: meta } = await E('GET', '/api/crm');
+  assert.deepEqual(meta.functions, ['Acquisti', 'Gare']);
+  const r = await E('POST', '/api/crm/subjects', { name: 'Ferro Sud', roles: ['fornitore'], asa: ['edilizia'], function_name: 'Acquisti' });
+  assert.equal(r.status, 201);
+  assert.ok(r.body.owner_id); // di default chi la crea
+  assert.equal(r.body.function_name, 'Acquisti');
+  assert.equal((await E('PATCH', `/api/crm/subjects/${r.body.id}`, { owner_id: null })).status, 400);
+  assert.equal((await E('PATCH', `/api/crm/subjects/${r.body.id}`, { function_name: 'Marketing' })).status, 400);
+  assert.equal((await E('PATCH', `/api/crm/subjects/${r.body.id}`, { function_name: 'Gare' })).body.function_name, 'Gare');
+  assert.deepEqual((await E('GET', '/api/crm/subjects?function=Gare')).body.subjects.map(s => s.name), ['Ferro Sud']);
+});

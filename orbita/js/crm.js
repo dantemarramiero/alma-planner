@@ -36,6 +36,15 @@ const late = d => d && String(d).slice(0, 10) < new Date().toISOString().slice(0
 const provinceName = code => data.meta.regions.flatMap(r => r.provinces).find(([k]) => k === code)?.[1] || code;
 const regionOf = code => data.meta.regions.find(r => r.provinces.some(([k]) => k === code))?.name || '';
 const dlist = pairs => h('dl.en-dl', pairs.filter(Boolean).flatMap(([k, val]) => [h('dt', k), h('dd', val ?? '—')]));
+// filtri «owner» e «funzione» delle liste; state.owner / state.fn
+function ownerFunctionFilters(state, load) {
+  const owner = select([['', 'Tutti gli owner'], [String(store.me.id), 'I miei'], ...store.users.filter(u => u.active !== false && u.id !== store.me.id).map(u => [u.id, u.name])], state.owner,
+    { 'aria-label': 'Owner', on: { change: e => { state.owner = e.target.value; load(); } } });
+  const fn = data.functions.length ? select([['', 'Tutte le funzioni'], ...data.functions.map(f => [f, f])], state.fn,
+    { 'aria-label': 'Funzione di riferimento', on: { change: e => { state.fn = e.target.value; load(); } } }) : null;
+  return [owner, fn];
+}
+const ownerLine = s => h('div', s.owner_name || '—', s.function_name ? h('div.t-meta', s.function_name) : null);
 const sec = (title, ...body) => h('section.card.crm-pad', h('h3.crm-h3', title), ...body);
 
 function read(form) {
@@ -123,18 +132,19 @@ export async function crmView(container, parts = []) {
 
 // ── lead: colonne per fase ──────────────────────────────────────────────────
 async function leadTab(box, mode) {
-  const state = { q: '', mode: mode === 'elenco' ? 'elenco' : 'colonne' };
+  const state = { q: '', mode: mode === 'elenco' ? 'elenco' : 'colonne', owner: '', fn: '' };
   const content = h('div', loading());
   fill(box,
     h('div.toolbar',
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, P.IVA o comune…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
+      ...ownerFunctionFilters(state, () => load()),
       h('div.profile-tabs.crm-switch', [['colonne', 'Colonne'], ['elenco', 'Elenco']].map(([k, label]) => h('button', {
         type: 'button', class: state.mode === k ? 'on' : '', on: { click: e => { state.mode = k; [...e.currentTarget.parentElement.children].forEach(b => b.classList.toggle('on', b === e.currentTarget)); load(); } },
       }, label))),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: ['lead'] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, icon('plus', { size: 16 }), 'Nuovo lead')),
     content);
   async function load() {
-    const { subjects } = await get(`/api/crm/subjects${qs({ role: 'lead', asa: currentAsa(), q: state.q })}`);
+    const { subjects } = await get(`/api/crm/subjects${qs({ role: 'lead', asa: currentAsa(), q: state.q, owner: state.owner, function: state.fn })}`);
     if (state.mode === 'elenco') return fill(content, subjectTable(subjects, 'lead', state.q));
     fill(content, h('div.en-board-wrap', h('div.en-board.crm-board', data.meta.leadStages.map(([stage, label]) => {
       const items = subjects.filter(s => s.lead_stage === stage);
@@ -165,7 +175,7 @@ function leadCard(s) {
     dragend: () => card.classList.remove('dragging'),
   } },
   h('div.en-card-top', h('div.en-card-title.grow', s.name), s.missing_notes ? bang() : null, s.priority ? h('span.pill.crm-prio', { class: `crm-p-${s.priority}` }, data.meta.priorities[s.priority]) : null),
-  h('div.en-card-meta', [s.city, s.potential_value ? eur(s.potential_value) : '', s.owner_name].filter(Boolean).join(' · ')),
+  h('div.en-card-meta', [s.city, s.potential_value ? eur(s.potential_value) : '', s.owner_name, s.function_name].filter(Boolean).join(' · ')),
   s.next_step ? h('div.t-meta', { class: late(s.next_step_date) ? 'due-late' : '' }, `${s.next_step}${s.next_step_date ? ` · ${day(s.next_step_date)}` : ''}`) : null);
   return card;
 }
@@ -200,7 +210,7 @@ async function changeStage(s, stage) {
 // ── elenchi di anagrafiche ──────────────────────────────────────────────────
 async function subjectsTab(box, tab) {
   const role = ROLE_OF_TAB[tab] || '';
-  const state = { q: '', chip: tab === 'partner' ? 'partner' : '' };
+  const state = { q: '', chip: tab === 'partner' ? 'partner' : '', owner: '', fn: '' };
   const chipDefs = tab === 'fornitori' ? [['', 'Tutte le categorie'], ...Object.entries(data.meta.supplierCategories)]
     : tab === 'partner' ? [['partner', 'Partner'], ['concorrente', 'Concorrenti']]
       : tab === 'tutte' ? [['', 'Tutti i ruoli'], ...Object.entries(data.meta.roles)] : null;
@@ -210,6 +220,7 @@ async function subjectsTab(box, tab) {
   fill(box,
     h('div.toolbar',
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, P.IVA o comune…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
+      ...ownerFunctionFilters(state, () => load()),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: newRole() ? [newRole()] : [] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } },
         icon('plus', { size: 16 }), tab === 'clienti' ? 'Nuovo cliente' : tab === 'fornitori' ? 'Nuovo fornitore' : 'Nuova anagrafica')),
     chipDefs ? chips : null,
@@ -217,7 +228,7 @@ async function subjectsTab(box, tab) {
     list);
   async function load() {
     if (chipDefs) fill(chips, chipDefs.map(([k, label]) => h('button.pill.en-chip', { type: 'button', class: state.chip === k ? 'on' : '', on: { click: () => { state.chip = k; load(); } } }, label)));
-    const query = { asa: currentAsa(), q: state.q, role };
+    const query = { asa: currentAsa(), q: state.q, role, owner: state.owner, function: state.fn };
     if (tab === 'fornitori') query.category = state.chip;
     else if (tab === 'partner' || tab === 'tutte') query.role = state.chip;
     const { subjects } = await get(`/api/crm/subjects${qs(query)}`);
@@ -230,7 +241,7 @@ function subjectTable(subjects, tab, filtered) {
   if (!subjects.length) return h('div.card.empty', filtered ? 'Nessuna anagrafica con questi filtri.' : 'Ancora nessuna anagrafica qui.');
   const extra = tab === 'lead' ? ['Fase', 'Valore potenziale'] : tab === 'fornitori' ? ['Categorie'] : ['Ruoli'];
   return h('div.card.table-wrap', h('table.list',
-    h('thead', h('tr', ['Anagrafica', ...extra, 'ASA', 'Luogo', 'Responsabile', 'Contatti', 'Prossimo passo'].map(t => h('th', t)))),
+    h('thead', h('tr', ['Anagrafica', ...extra, 'ASA', 'Luogo', 'Owner · funzione', 'Contatti', 'Prossimo passo'].map(t => h('th', t)))),
     h('tbody', subjects.map(s => h('tr', { on: { click: () => { location.hash = `#/crm/scheda/${s.id}`; } } },
       h('td', h('div.t-title', s.name, s.missing_notes ? bang() : null), h('div.t-meta', [data.meta.kinds[s.kind], s.vat && `P.IVA ${s.vat}`, s.status !== 'attivo' && data.meta.status[s.status]].filter(Boolean).join(' · '))),
       ...(tab === 'lead' ? [h('td', stageLabel(s.lead_stage)), h('td.num', eur(s.potential_value))]
@@ -238,7 +249,7 @@ function subjectTable(subjects, tab, filtered) {
           : [h('td', rolePills(s.roles))]),
       h('td', asaPills(s.asa)),
       h('td', [s.city, s.province].filter(Boolean).join(', ') || '—'),
-      h('td', s.owner_name || '—'),
+      h('td', ownerLine(s)),
       h('td.num', String(s.contacts)),
       h('td', s.next_step ? h('div', s.next_step, h('div.t-meta', { class: late(s.next_step_date) ? 'due-late' : '' }, day(s.next_step_date))) : '—'))))));
 }
@@ -288,6 +299,7 @@ async function subjectPage(container, id, tabKey) {
       h('div', h('div.en-eyebrow', kindLine), h('h1', s.name),
         h('div.en-head-pills', rolePills(s.roles), asaPills(s.asa),
           s.client_since ? h('span.pill.crm-r-cliente', `Cliente dal ${s.client_since.slice(0, 4)}`) : null,
+          h('span.pill.crm-owner', icon('user', { size: 12 }), `Owner ${s.owner_name || '—'}${s.function_name ? ` · ${s.function_name}` : ''}`),
           s.status !== 'attivo' ? h('span.pill.en-lost', data.meta.status[s.status]) : null)),
       h('div.crm-actions',
         h('button.btn', { type: 'button', on: { click: () => subjectForm({ subject: s, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica'),
@@ -366,13 +378,14 @@ async function overviewTab(box, s, base, go) {
     h('div.t-meta', [new Date(x.at).toLocaleDateString('it-IT'), x.user_name, x.note].filter(Boolean).join(' · ')))))));
   const contactsLine = [s.pec && h('a', { href: `mailto:${s.pec}` }, `PEC ${s.pec}`), s.email && h('a', { href: `mailto:${s.email}` }, s.email), s.phone && h('a', { href: `tel:${s.phone}` }, s.phone), s.website].filter(Boolean);
   const col2 = [sec('Anagrafica', dlist([
+    ['Owner', h('strong', s.owner_name || '—')], ['Funzione di riferimento', h('strong', s.function_name || '—')],
     ['Ragione sociale', s.name + (s.short_name ? ` (${s.short_name})` : '')], ['Tipo', `${data.meta.kinds[s.kind]}${s.legal_form ? ` · ${s.legal_form}` : ''}`],
     ['P.IVA', s.vat || '—'], ['Codice fiscale', s.tax_code || '—'], (s.kind === 'ente_pubblico' || s.ipa_code) && ['Codice IPA', s.ipa_code || '—'],
     ['Codice SDI', s.sdi_code || '—'], ['ATECO', s.ateco || '—'],
     ['Gruppo', s.group_id ? h('a', { href: `#/crm/scheda/${s.group_id}` }, s.group_name) : '—'],
     ['Sede', [s.address, s.city, s.province && `(${s.province})`, s.region].filter(Boolean).join(' ') || '—'],
     ['Contatti', contactsLine.length ? h('span', contactsLine.flatMap((x, i) => (i ? [' · ', x] : [x]))) : '—'],
-    ['Responsabile Almacis', s.owner_name || '—'], ['ASA', s.asa.map(asaLabel).join(', ')],
+    ['ASA', s.asa.map(asaLabel).join(', ')],
     ['Stato', data.meta.status[s.status] + (s.status === 'bloccato' && s.block_reason ? ` · ${s.block_reason}` : '')]]),
   s.notes ? h('p.en-notes.crm-notes', s.notes) : null),
   sec('Codici', dlist([['ID Alma Planet', String(s.id)], ['Codice BOSS', s.boss_code || '—'], ['Codice contabile (Target)', s.accounting_code || '—'], ['Codice Zoho (storico)', s.zoho_id || '—']]))];
@@ -490,12 +503,16 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
     h('div.en-row2', field('Ragione sociale', nameIn), field('Nome breve', input({ 'data-k': 'short_name', value: s.short_name || '', placeholder: 'Per le liste' }))),
     h('div.en-row3', field('P.IVA', vatIn), field('Codice fiscale', taxIn), field('Tipo', select(Object.entries(data.meta.kinds), s.kind, { 'data-k': 'kind' }))),
     dup,
+    h('div.en-row2',
+      field('Owner', select(userOptions().slice(1), subject ? s.owner_id || store.me.id : store.me.id, { 'data-k': 'owner_id' }), 'Chi tiene il rapporto: obbligatorio'),
+      field('Funzione di riferimento', data.functions.length
+        ? select([['', '—'], ...data.functions.map(f => [f, f])], s.function_name, { 'data-k': 'function_name' })
+        : input({ 'data-k': 'function_name', value: s.function_name || '', placeholder: 'Reparto' }), 'Reparto dell\'organigramma che segue l\'anagrafica')),
     field('Ruoli', roles.el, wasLead && !data.admin ? 'Un lead diventa cliente da solo alla prima commessa in BOSS.' : 'Un\'anagrafica può avere più ruoli: Lead oppure Cliente, e anche Fornitore, Partner, Concorrente.'),
     field('ASA', asa.el, data.admin ? 'Chi è di un\'ASA vede solo le anagrafiche della sua.' : 'Tieni almeno una delle tue ASA, sennò non vedrai più la scheda.'),
     leadBox, supplierBox, soaBox,
-    h('div.en-row3',
+    h('div.en-row2',
       field('Segmento', select(segments, s.segment, { 'data-k': 'segment' })),
-      field('Responsabile Almacis', select(userOptions(), subject ? s.owner_id : store.me.id, { 'data-k': 'owner_id' })),
       field('Gruppo / capogruppo', select([['', '—'], ...others.filter(x => x.id !== subject?.id).map(x => [x.id, x.name])], s.group_id, { 'data-k': 'group_id' }))),
     field('Indirizzo della sede', input({ 'data-k': 'address', value: s.address || '' })),
     h('div.en-row3', field('Comune', input({ 'data-k': 'city', value: s.city || '' })), field('Provincia', prov), field('Regione', region)),
@@ -563,7 +580,7 @@ async function contactsTab(box) {
     const { contacts } = await get(`/api/crm/contacts${qs({ q: state.q, asa: currentAsa() })}`);
     if (!contacts.length) return fill(list, h('div.card.empty', state.q ? 'Nessun contatto con questa ricerca.' : 'Ancora nessun contatto. Le persone si aggiungono di solito dalla scheda della loro azienda.'));
     fill(list, h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', ['Persona', 'Dove lavora', 'Email', 'Telefono', 'Responsabile'].map(t => h('th', t)))),
+      h('thead', h('tr', ['Persona', 'Dove lavora', 'Email', 'Telefono', 'Owner'].map(t => h('th', t)))),
       h('tbody', contacts.map(c => h('tr', { on: { click: () => { location.hash = `#/crm/contatti/${c.id}`; } } },
         h('td', h('div.t-title', personName(c)), c.status !== 'attivo' ? h('div.t-meta', data.meta.contactStatus[c.status]) : null),
         h('td', c.links.filter(l => !l.date_to).map(l => h('div', l.name, l.job ? h('span.t-meta', ` · ${l.job}`) : null))),
@@ -606,7 +623,7 @@ async function contactPage(container, id, tabKey) {
     h('div.crm-col', sec('Persona', dlist([
       ['Nome', personName(c)], ['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : '—'],
       ['Cellulare · telefono', [c.mobile && h('a', { href: `tel:${c.mobile}` }, c.mobile), c.phone].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x])).length ? h('span', [c.mobile && h('a', { href: `tel:${c.mobile}` }, c.mobile), c.phone].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))) : '—'],
-      ['LinkedIn', c.linkedin || '—'], ['Lingua', c.language || '—'], ['Responsabile Almacis', c.owner_name || '—'], ['Stato', data.meta.contactStatus[c.status]],
+      ['LinkedIn', c.linkedin || '—'], ['Lingua', c.language || '—'], ['Owner', c.owner_name || '—'], ['Stato', data.meta.contactStatus[c.status]],
       ['Privacy', `${data.meta.legalBasis[c.legal_basis]}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`]]), c.notes ? h('p.en-notes.crm-notes', c.notes) : null)),
     h('div.crm-col', sec('Dove lavora', c.links.length ? h('div.crm-lines', c.links.map(l => h('a.crm-line.crm-linkline', { href: `#/crm/scheda/${l.subject_id}`, class: l.date_to ? 'past' : '' },
       h('span.crm-ico', icon('building', { size: 15 })),
@@ -657,7 +674,7 @@ async function contactForm({ contact = null, preset = {}, onSaved }) {
     dup,
     h('div.en-row3', field('LinkedIn', input({ 'data-k': 'linkedin', value: c.linkedin || '' })),
       field('Lingua', select([['', '—'], ...data.meta.languages.map(x => [x, x])], c.language, { 'data-k': 'language' })),
-      field('Responsabile Almacis', select(userOptions(), contact ? c.owner_id : store.me.id, { 'data-k': 'owner_id' }))),
+      field('Owner', select(userOptions(), contact ? c.owner_id : store.me.id, { 'data-k': 'owner_id' }))),
     h('div.en-row3', field('Stato', select(Object.entries(data.meta.contactStatus), c.status || 'attivo', { 'data-k': 'status' })),
       field('Base giuridica (privacy)', select(Object.entries(data.meta.legalBasis), c.legal_basis || 'legittimo_interesse', { 'data-k': 'legal_basis' })),
       h('label.en-check.crm-check', h('input', { type: 'checkbox', 'data-k': 'newsletter', checked: Boolean(c.newsletter) }), 'Consenso alle comunicazioni')),

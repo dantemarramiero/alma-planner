@@ -159,3 +159,4 @@ label.crm-pick { cursor: pointer; }
 .profile-tabs.crm-tabs button { display: inline-flex; align-items: center; }
 .crm-composer-row { align-items: center; }
 .crm-composer-row .grow { flex: 1; }
+.crm-owner { background: #fff; border: 1px solid var(--rf-line-strong); gap: 4px; }

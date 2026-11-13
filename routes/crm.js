@@ -11,6 +11,7 @@ const {
 } = require('../lib/crm');
 const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { registerCrmLinks } = require('./crm-links');
+const { loadFunctions } = require('../lib/functions');
 const SUBCATS = [...new Set(Object.values(SUPPLIER_SUBCATEGORIES).flat())];
 const SOA_CATS = SOA_CATEGORIES.map(([k]) => k);
 const SOA_CLS = SOA_CLASSES.map(([k]) => k);
@@ -98,7 +99,8 @@ function subjectFields(b, { partial, asaKeys }) {
     group_id: v.int(b.group_id, 'Gruppo', { min: 1, nullable: true }),
     roles: list(b.roles, 'Ruoli', Object.keys(ROLES)),
     asa: list(b.asa, 'ASA', asaKeys),
-    owner_id: v.int(b.owner_id, 'Responsabile', { min: 1, nullable: true }),
+    owner_id: v.int(b.owner_id, 'Owner', { min: 1, nullable: true }),
+    function_name: v.text(b.function_name, 'Funzione di riferimento', { max: 120 }),
     status: v.oneOf(b.status, 'Stato', Object.keys(STATUS)),
     block_reason: v.text(b.block_reason, 'Motivo del blocco', { max: 300 }),
     segment: v.text(b.segment, 'Segmento', { max: 60 }),
@@ -143,6 +145,13 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   app.use('/api/crm', (req, _res, next) => {
     crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Il CRM è per la direzione e per chi è assegnato a un\'ASA')), next);
   });
+  const functionNames = async () => (await loadFunctions(db)).map(f => f.name).sort((a, b) => a.localeCompare(b, 'it'));
+  async function checkOwnerFunction(f, { creating }) {
+    if (creating && !f.owner_id) throw new HttpError(400, 'Scegli l\'owner dell\'anagrafica');
+    if (f.owner_id === null) throw new HttpError(400, 'L\'owner è obbligatorio');
+    if (f.owner_id) { const { rowCount } = await db.query('SELECT 1 FROM users WHERE id = $1', [f.owner_id]); if (!rowCount) throw new HttpError(400, 'Owner non trovato'); }
+    if (f.function_name) { const names = await functionNames(); if (names.length && !names.includes(f.function_name)) throw new HttpError(400, 'La funzione di riferimento non è tra i reparti dell\'organigramma'); }
+  }
   const allAsa = async () => (await db.query('SELECT key, label, boss_label, sort FROM crm_asa ORDER BY sort, label')).rows;
 
   // Filtro di visibilità sui soggetti (alias s): amministratori tutto, gli altri le loro ASA. Restituisce [sql, params].
@@ -180,13 +189,14 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   app.get('/api/crm', async (req, res) => {
     const params = [];
     const see = seeSql(req, 's', params);
-    const [asa, { rows: counts }, { rows: stages }] = await Promise.all([
+    const [asa, { rows: counts }, { rows: stages }, functions] = await Promise.all([
       allAsa(),
       db.query(`SELECT r AS role, COUNT(*)::int AS n FROM crm_subjects s, unnest(s.roles) r WHERE s.merged_into IS NULL AND ${see} GROUP BY r`, params),
       db.query(`SELECT s.lead_stage AS stage, COUNT(*)::int AS n FROM crm_subjects s WHERE s.merged_into IS NULL AND 'lead' = ANY(s.roles) AND ${see} GROUP BY s.lead_stage`, params),
+      functionNames(),
     ]);
     res.json({
-      admin: req.crm.admin, myAsa: req.crm.asas, asa,
+      admin: req.crm.admin, myAsa: req.crm.asas, asa, functions,
       counts: Object.fromEntries(counts.map(r => [r.role, r.n])),
       stages: Object.fromEntries(stages.map(r => [r.stage, r.n])),
       meta: { roles: ROLES, kinds: KINDS, status: STATUS, leadStages: LEAD_STAGES, priorities: PRIORITIES, origins: ORIGINS, lostReasons: LOST_REASONS,
@@ -247,6 +257,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     if (req.query.stage) add('s.lead_stage = ?', String(req.query.stage));
     if (req.query.category) add('? = ANY(s.supplier_categories)', String(req.query.category));
     if (req.query.owner) add('s.owner_id = ?', Number(req.query.owner) || 0);
+    if (req.query.function) add('s.function_name = ?', String(req.query.function));
     if (req.query.q) {
       params.push(`%${String(req.query.q).trim()}%`);
       const n = params.length;
@@ -254,7 +265,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     }
     const { rows } = await db.query(
       `SELECT s.id, s.name, s.short_name, s.kind, s.vat, s.city, s.province, s.roles, s.asa, s.status, s.lead_stage, s.priority, s.potential_value,
-              s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.updated_at,
+              s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.function_name, s.updated_at,
               (SELECT COUNT(*)::int FROM crm_contact_links l WHERE l.subject_id = s.id AND l.date_to IS NULL) AS contacts,
               (SELECT COUNT(*)::int FROM crm_meeting_links ml JOIN crm_meetings m ON m.id = ml.meeting_id
                  WHERE NOT ml.removed AND (ml.subject_id = s.id OR ml.contact_id IN (SELECT cl.contact_id FROM crm_contact_links cl WHERE cl.subject_id = s.id
@@ -288,6 +299,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     checkAsa(req, f.asa);
     if (f.roles.includes('cliente')) f.client_since = new Date().toISOString().slice(0, 10);
     if (f.owner_id === undefined) f.owner_id = req.user.id;
+    await checkOwnerFunction(f, { creating: true });
     f.created_by = req.user.id;
     try {
       const { rows: [s] } = await db.query(insertSql('crm_subjects', f), vals(f));
@@ -323,6 +335,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     if (f.group_id === id) throw new HttpError(400, 'Un soggetto non può essere il gruppo di sé stesso');
     if (f.roles) checkRoles(req, f.roles, cur.roles);
     if (f.asa) checkAsa(req, f.asa);
+    await checkOwnerFunction(f, { creating: false });
     if (f.roles?.includes('cliente') && !cur.roles.includes('cliente') && !cur.client_since) f.client_since = new Date().toISOString().slice(0, 10);
     if (!Object.keys(f).length) return res.json(cur);
     try {
