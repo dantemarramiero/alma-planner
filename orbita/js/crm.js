@@ -821,7 +821,7 @@ function importCard() {
     let pre;
     try { pre = await send('/api/crm/import/anteprima', buf); } catch (err) { return fill(out, h('p.small', { style: { color: 'var(--red)' } }, err.message)); }
     const st = pre.stats;
-    const missing = Object.entries(st.ownersMissing);
+    const missing = Object.entries(st.ownersMissing || {}); // le commesse non hanno owner
     const go = label => h('div', h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
       e.currentTarget.disabled = true;
       try {
