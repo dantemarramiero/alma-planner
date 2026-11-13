@@ -349,3 +349,28 @@ test('caricamento da Zoho: anteprima e caricamento solo per la direzione, classi
   assert.deepEqual((await D('GET', '/api/crm/subjects?q=rti costruzioni')).body.subjects[0].roles, ['concorrente']);
   assert.equal((await post(cookies.D, '/api/crm/import')).body.created, 0); // rifatto: niente doppioni
 });
+
+test('caricamento dei contatti di Zoho: collegati alla loro azienda con il codice Zoho o il nome, colleghi esclusi, niente doppioni', async () => {
+  const { writeXlsx } = require('../lib/xlsx');
+  const file = writeXlsx({ Sheet0: [
+    ['ID record', 'Contact Name', 'Ruolo in azienda', 'Azienda.id', 'Azienda', 'E-mail', 'Owner Contatto'],
+    ['c1', 'Anna Bianchi', 'RUP', 'z1', 'Comune di Teramo', '', 'Marco Edile'],
+    ['c2', 'Piero Neri', 'Direttore tecnico', 'zz-doppione', 'Comune di Teramo', 'p.neri@teramo.example', 'Vittoria Marinelli'],
+    ['c3', 'Emanuela Piccoli', 'Ufficio gare', 'zx', 'ALMA C.I.S', 'emanuela.piccoli@almacis.it', 'Marco Edile'],
+    ['c4', 'Senza Azienda', '', '', '', '', 'Marco Edile'],
+  ] });
+  const post = path => fetch(base + path, { method: 'POST', headers: { cookie: cookies.D, 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: file })
+    .then(async r => ({ status: r.status, body: await r.json() }));
+  const pre = await post('/api/crm/import/anteprima');
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.equal(pre.body.stats.contacts, true);
+  assert.equal(pre.body.stats.toLoad, 3);
+  assert.equal(pre.body.stats.linked, 2);
+  assert.equal(pre.body.stats.unlinked, 1);
+  assert.equal(pre.body.stats.colleagues, 1);
+  assert.equal((await post('/api/crm/import')).body.created, 3);
+  const { body: { subjects: [teramo] } } = await D('GET', '/api/crm/subjects?q=comune di teramo');
+  const { body: det } = await D('GET', `/api/crm/subjects/${teramo.id}`);
+  assert.deepEqual(det.contacts.map(c => [c.last_name, c.job]).sort(), [['Bianchi', 'RUP'], ['Neri', 'Direttore tecnico']]);
+  assert.equal((await post('/api/crm/import')).body.created, 0);
+});

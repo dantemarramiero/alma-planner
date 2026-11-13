@@ -815,6 +815,22 @@ function importCard() {
     try { pre = await send('/api/crm/import/anteprima', buf); } catch (err) { return fill(out, h('p.small', { style: { color: 'var(--red)' } }, err.message)); }
     const st = pre.stats;
     const missing = Object.entries(st.ownersMissing);
+    const go = label => h('div', h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await send('/api/crm/import', buf);
+        toast(`Caricati ${r.created} ${label}`);
+        fill(out, h('p', `Caricati ${r.created} ${label}. Li trovi nel CRM.`));
+      } catch (err) { toast(err.message, 'err'); }
+    } } }, `Carica ${st.toLoad} ${label}`));
+    if (st.contacts) {
+      return fill(out, h('div.en-detail',
+        h('p', `${st.toLoad} contatti da caricare: ${st.linked} collegati alla loro azienda, ${st.unlinked} senza azienda · ${st.existing} già presenti · ${st.colleagues} colleghi Almacis esclusi`),
+        missing.length ? h('p.small.muted', `Owner non trovati (i loro contatti vanno a te): ${missing.map(([n, c]) => `${n} (${c})`).join(', ')}`) : null,
+        h('div.card.table-wrap', h('table.list', h('thead', h('tr', ['Persona', 'Qualifica', 'Azienda', 'Owner'].map(t => h('th', t)))),
+          h('tbody', pre.sample.map(x => h('tr', h('td', x.name), h('td', x.job || '—'), h('td', x.company), h('td', x.owner)))))),
+        go('contatti')));
+    }
     fill(out, h('div.en-detail',
       h('p', `${st.toLoad} da caricare · ${st.existing} già presenti · ${st.duplicates} doppioni · ${st.skipped} escluse`),
       h('p.small.muted', roleText(st.roles)),
@@ -832,6 +848,6 @@ function importCard() {
       } } }, `Carica ${st.toLoad} aziende`))));
   });
   return h('section.card.crm-pad.crm-import', h('h3.crm-h3', 'Carica le aziende da Zoho'),
-    h('p.small.muted', 'L\'export «Aziende» di Zoho così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano. Prima vedi l\'anteprima; le aziende già presenti non si toccano.'),
+    h('p.small.muted', 'L\'export «Aziende» di Zoho così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano; poi l\'export «Contatti», che si collegano da soli alla loro azienda. Prima vedi l\'anteprima; quello che c\'è già non si tocca.'),
     file, out);
 }

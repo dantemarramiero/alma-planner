@@ -5,6 +5,9 @@
 // nome) non si toccano. Owner = collega con lo stesso nome dell'owner di Zoho; se non ha ancora fatto accesso ma è
 // nell'organigramma Microsoft lo si aggiunge ai colleghi (come «aggiungi dalla rubrica»); sennò chi carica.
 // Funzione = il suo reparto nell'organigramma.
+// Anche i contatti (export «Contatti» di Zoho): ognuno si collega alla sua azienda con il codice Zoho dell'azienda
+// («Azienda.id», lo stesso salvato su ogni scheda) o, se quella era un doppione unito, con il nome. I colleghi
+// Almacis (email @almacis.it o azienda del gruppo) non diventano contatti: stanno in Persone.
 const express = require('express');
 const { HttpError } = require('../lib/http');
 const { readXlsx } = require('../lib/xlsx');
@@ -47,6 +50,25 @@ function readCompanies(buf) {
   return out;
 }
 
+const isContactsFile = rows => rows?.[0]?.some(h => norm(h) === 'contact name');
+function readContacts(rows) {
+  const head = rows[0].map(h => norm(h));
+  const col = (...names) => head.findIndex(h => names.map(norm).includes(h));
+  const I = { id: col('ID record'), name: col('Contact Name'), job: col('Ruolo in azienda'), cid: col('Azienda.id'), cname: col('Azienda'), email: col('E-mail', 'Email'), owner: col('Owner Contatto') };
+  const cell = (r, i) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+  return rows.slice(1).map(r => {
+    const name = cell(r, I.name).replace(/\s+/g, ' ');
+    const parts = name.split(' ');
+    return { zoho_id: cell(r, I.id), name, first_name: parts.length > 1 ? parts.slice(0, -1).join(' ') : '', last_name: parts.length > 1 ? parts[parts.length - 1] : name,
+      job: cell(r, I.job), company_zoho_id: cell(r, I.cid), company_name: cell(r, I.cname), email: cell(r, I.email).toLowerCase(), owner_name: cell(r, I.owner) };
+  });
+}
+const sheetRows = buf => {
+  let sheets;
+  try { sheets = readXlsx(buf); } catch { throw new HttpError(400, 'Il file non è un Excel (.xlsx) valido'); }
+  return sheets.Aziende || Object.values(sheets)[0];
+};
+
 function registerCrmImport(app, { db }) {
   const raw = express.raw({ type: () => true, limit: '20mb' });
   const adminOnly = req => { if (!req.crm?.admin) throw new HttpError(403, 'Il caricamento lo fa la direzione'); };
@@ -54,7 +76,8 @@ function registerCrmImport(app, { db }) {
   async function plan(req) {
     adminOnly(req);
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'Carica il file Excel');
-    const items = readCompanies(req.body);
+    const contactsFile = isContactsFile(sheetRows(req.body));
+    const items = contactsFile ? [] : readCompanies(req.body);
     const [{ rows: users }, { rows: existing }, { rows: asa }, { rows: org }] = await Promise.all([
       db.query(`SELECT u.id, u.name, lower(u.email) AS email, (SELECT o.department FROM org_people o WHERE lower(o.email) = lower(u.email) LIMIT 1) AS department FROM users u`),
       db.query('SELECT id, name, zoho_id FROM crm_subjects WHERE merged_into IS NULL'),
@@ -62,6 +85,7 @@ function registerCrmImport(app, { db }) {
       db.query("SELECT oid, name, lower(email) AS email, job_title, department FROM org_people WHERE email IS NOT NULL AND email <> ''"),
     ]);
     const byOrg = new Map(org.map(p => [norm(p.name), p]));
+    if (contactsFile) return planContacts(req, { users, org, byOrg });
     const byEmail = new Map(users.map(u => [u.email, u]));
     const asaKeys = new Set(asa.map(a => a.key));
     const byName = new Map(users.map(u => [norm(u.name), u]));
@@ -99,8 +123,46 @@ function registerCrmImport(app, { db }) {
     return { stats, load, newUsers: [...newUsers.values()] };
   }
 
+  async function planContacts(req, { users, byOrg }) {
+    const items = readContacts(sheetRows(req.body));
+    const [{ rows: subjects }, { rows: existing }] = await Promise.all([
+      db.query('SELECT id, name, zoho_id FROM crm_subjects WHERE merged_into IS NULL'),
+      db.query("SELECT id, zoho_id, lower(email) AS email FROM crm_contacts"),
+    ]);
+    const byZoho = new Map(subjects.filter(x => x.zoho_id).map(x => [x.zoho_id, x]));
+    const byCompanyName = new Map(subjects.map(x => [norm(x.name), x]));
+    const exZoho = new Set(existing.map(x => x.zoho_id).filter(Boolean));
+    const exEmail = new Set(existing.map(x => x.email).filter(Boolean));
+    const byName = new Map(users.map(u => [norm(u.name), u]));
+    const byEmail = new Map(users.map(u => [u.email, u]));
+    const me = users.find(u => u.id === req.user.id);
+    const stats = { contacts: true, total: items.length, toLoad: 0, linked: 0, unlinked: 0, colleagues: 0, existing: 0, skipped: 0, owners: {}, ownersMissing: {}, ownersFromOrg: {} };
+    const newUsers = new Map();
+    const load = [];
+    for (const it of items) {
+      if (!it.name) { stats.skipped++; continue; }
+      if (/@almacis\.it$/.test(it.email) || /\b(almacis|alma c i s)\b/.test(norm(it.company_name))) { stats.colleagues++; continue; }
+      if ((it.zoho_id && exZoho.has(it.zoho_id)) || (it.email && exEmail.has(it.email))) { stats.existing++; continue; }
+      const subject = byZoho.get(it.company_zoho_id) || (it.company_name ? byCompanyName.get(norm(it.company_name)) : null);
+      let owner = byName.get(norm(it.owner_name));
+      if (!owner && it.owner_name) {
+        const p = byOrg.get(norm(it.owner_name));
+        if (p) { owner = byEmail.get(p.email) || { id: null, name: p.name, email: p.email }; if (!owner.id) newUsers.set(p.email, p); stats.ownersFromOrg[p.name] = (stats.ownersFromOrg[p.name] || 0) + 1; }
+        else stats.ownersMissing[it.owner_name] = (stats.ownersMissing[it.owner_name] || 0) + 1;
+      }
+      const o = owner || me;
+      stats.owners[o.name] = (stats.owners[o.name] || 0) + 1;
+      if (subject) stats.linked++; else stats.unlinked++;
+      load.push({ ...it, subject_id: subject?.id || null, subject_name: subject?.name || '', owner_id: o.id, owner_email: o.email, owner_label: o.name });
+      stats.toLoad++;
+    }
+    return { stats, load, newUsers: [...newUsers.values()] };
+  }
+  const contactSample = load => load.slice(0, 30).map(x => ({ name: x.name, job: x.job, company: x.subject_name || (x.company_name ? `${x.company_name} (non trovata)` : '—'), owner: x.owner_label }));
+
   app.post('/api/crm/import/anteprima', raw, async (req, res) => {
     const { stats, load } = await plan(req);
+    if (stats.contacts) return res.json({ stats, sample: contactSample(load) });
     res.json({ stats, sample: load.slice(0, 30).map(x => ({ name: x.name, kind: x.kind, roles: x.roles, asa: x.asa, owner: x.owner_label, function_name: x.function_name, why: x.why || '' })) });
   });
 
@@ -108,6 +170,25 @@ function registerCrmImport(app, { db }) {
     const { stats, load, newUsers } = await plan(req);
     const today = new Date().toISOString().slice(0, 10);
     let created = 0;
+    if (stats.contacts) {
+      await db.tx(async q => {
+        const ids = new Map();
+        for (const p of newUsers) {
+          const { rows: [u] } = await q.query(`INSERT INTO users (oid, email, name, job_title) VALUES ($1, $2, $3, $4)
+            ON CONFLICT (email) DO UPDATE SET oid = COALESCE(users.oid, EXCLUDED.oid) RETURNING id`, [p.oid, p.email, p.name, p.job_title || null]);
+          ids.set(p.email, u.id);
+        }
+        for (const x of load) {
+          const { rows: [c] } = await q.query(
+            `INSERT INTO crm_contacts (first_name, last_name, email, owner_id, zoho_id, notes, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [x.first_name.slice(0, 120), x.last_name.slice(0, 120) || x.name.slice(0, 120), x.email.slice(0, 200), x.owner_id || ids.get(x.owner_email) || req.user.id,
+              x.zoho_id.slice(0, 40), `Caricato da Zoho il ${today}${!x.subject_id && x.company_name ? ` (azienda in Zoho: ${x.company_name})` : ''}`, req.user.id]);
+          if (x.subject_id) await q.query('INSERT INTO crm_contact_links (contact_id, subject_id, job, is_primary) VALUES ($1, $2, $3, true) ON CONFLICT DO NOTHING', [c.id, x.subject_id, x.job.slice(0, 120)]);
+          created++;
+        }
+      });
+      return res.status(201).json({ created, stats });
+    }
     await db.tx(async q => {
       // colleghi dell'organigramma che non hanno ancora fatto accesso: entrano come «aggiunti dalla rubrica»
       const ids = new Map();
