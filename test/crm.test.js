@@ -49,10 +49,10 @@ after(async () => {
   await db?.close();
 });
 
-test('entra la direzione e chi ha un\'ASA; i membri di Alma Energy sono dell\'ASA Energy', async () => {
-  assert.equal((await N('GET', '/api/crm')).status, 403);
-  assert.equal((await N('GET', '/api/me')).body.crm, false);
-  assert.equal((await E('GET', '/api/crm')).status, 403);
+test('entrano tutti; le ASA di ognuno servono ai filtri; i membri di Alma Energy sono dell\'ASA Energy', async () => {
+  assert.equal((await N('GET', '/api/crm')).status, 200);
+  assert.equal((await N('GET', '/api/me')).body.crm, true);
+  assert.deepEqual((await N('GET', '/api/crm')).body.myAsa, []);
   assert.equal((await D('POST', '/api/crm/asa/edilizia/members', { email: 'Edile@almacis.it' })).status, 201);
   assert.equal((await D('POST', '/api/crm/asa/facility/members', { email: 'facility@almacis.it' })).status, 201);
   assert.equal((await E('POST', '/api/crm/asa/facility/members', { email: 'edile@almacis.it' })).status, 403);
@@ -64,7 +64,7 @@ test('entra la direzione e chi ha un\'ASA; i membri di Alma Energy sono dell\'AS
   assert.deepEqual((await G('GET', '/api/crm')).body.myAsa, ['energy']);
   const d = await D('GET', '/api/crm');
   assert.equal(d.body.admin, true);
-  assert.equal(d.body.myAsa.length, 10);
+  assert.deepEqual(d.body.myAsa, []); // la direzione non è in nessuna ASA: parte da «Tutte le ASA»
 });
 
 test('P.IVA e codice fiscale controllati; niente doppioni; ASA e ruoli obbligatori', async () => {
@@ -72,8 +72,6 @@ test('P.IVA e codice fiscale controllati; niente doppioni; ASA e ruoli obbligato
   assert.equal((await E('POST', '/api/crm/subjects', { name: 'Rossi Costruzioni', roles: ['lead'], asa: [] })).status, 400);
   assert.equal((await E('POST', '/api/crm/subjects', { name: 'Rossi Costruzioni', roles: [], asa: ['edilizia'] })).status, 400);
   assert.equal((await E('POST', '/api/crm/subjects', { name: 'Rossi Costruzioni', roles: ['lead', 'cliente'], asa: ['edilizia'] })).status, 400);
-  // non può creare una scheda solo per un'ASA non sua
-  assert.equal((await E('POST', '/api/crm/subjects', { name: 'Rossi Costruzioni', roles: ['lead'], asa: ['facility'] })).status, 400);
   const r = await E('POST', '/api/crm/subjects', { name: 'Rossi Costruzioni', vat: 'IT 0274 386 0690', roles: ['lead'], asa: ['edilizia'], lead_why: 'Fa ristrutturazioni a Pescara' });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.vat, '02743860690');
@@ -86,21 +84,20 @@ test('P.IVA e codice fiscale controllati; niente doppioni; ASA e ruoli obbligato
   assert.equal((await E('POST', '/api/crm/subjects', { name: 'X', tax_code: 'ABC', roles: ['cliente'], asa: ['edilizia'] })).status, 400);
 });
 
-test('ognuno vede la sua ASA; il doppione di un\'altra ASA si segnala e ci si può unire', async () => {
-  const { body: list } = await F('GET', '/api/crm/subjects');
-  assert.equal(list.subjects.length, 0);
+test('tutti vedono tutto; l\'ASA è un filtro (anche più ASA insieme); il doppione si segnala sempre', async () => {
+  assert.equal((await F('GET', '/api/crm/subjects')).body.subjects.length, 1);
+  assert.equal((await N('GET', '/api/crm/subjects')).body.subjects.length, 1);
   const { body: chk } = await F('GET', '/api/crm/subjects/check?vat=02743860690');
   assert.equal(chk.matches.length, 1);
-  assert.equal(chk.matches[0].visible, false);
+  assert.equal(chk.matches[0].visible, true);
   const id = chk.matches[0].id;
-  assert.equal((await F('GET', `/api/crm/subjects/${id}`)).status, 404);
-  assert.equal((await F('PATCH', `/api/crm/subjects/${id}`, { name: 'Hack' })).status, 404);
-  assert.equal((await F('POST', `/api/crm/subjects/${id}/join`, { asa: 'edilizia' })).status, 400); // non è sua
+  assert.equal((await F('GET', `/api/crm/subjects/${id}`)).status, 200);
+  assert.equal((await F('GET', '/api/crm/subjects?asa=facility')).body.subjects.length, 0);
+  assert.equal((await F('GET', '/api/crm/subjects?asa=edilizia')).body.subjects.length, 1);
   assert.equal((await F('POST', `/api/crm/subjects/${id}/join`, { asa: 'facility' })).status, 200);
-  const s = await F('GET', `/api/crm/subjects/${id}`);
-  assert.equal(s.status, 200);
-  assert.deepEqual(s.body.asa.sort(), ['edilizia', 'facility']);
-  assert.equal((await D('GET', '/api/crm/subjects?asa=facility')).body.subjects.length, 1);
+  assert.deepEqual((await F('GET', `/api/crm/subjects/${id}`)).body.asa.sort(), ['edilizia', 'facility']);
+  assert.equal((await D('GET', '/api/crm/subjects?asa=facility,restauro')).body.subjects.length, 1);
+  assert.equal((await D('GET', '/api/crm/subjects?owner=999')).body.subjects.length, 0);
 });
 
 test('fasi del lead con lo storico; diventa cliente solo alla prima commessa', async () => {
@@ -121,7 +118,7 @@ test('fasi del lead con lo storico; diventa cliente solo alla prima commessa', a
   assert.equal((await E('GET', '/api/crm')).body.counts.cliente, 1);
 });
 
-test('contatti in più soggetti, controllo per email, visibili solo con la propria ASA', async () => {
+test('contatti in più soggetti, controllo per email, li vedono tutti', async () => {
   const { body: { subjects: [cli] } } = await E('GET', '/api/crm/subjects?role=cliente');
   const { body: comune } = await E('POST', '/api/crm/subjects', { name: 'Comune di Pescara', kind: 'ente_pubblico', roles: ['lead'], asa: ['edilizia'], ipa_code: 'c_g482' });
   assert.equal((await E('POST', '/api/crm/contacts', { last_name: 'Bianchi' })).status, 400); // senza anagrafica
@@ -134,14 +131,10 @@ test('contatti in più soggetti, controllo per email, visibili solo con la propr
   assert.equal((await E('GET', '/api/crm/contacts/check?email=m.bianchi@example.it')).body.matches.length, 1);
   const { body: det } = await E('GET', `/api/crm/contacts/${c.body.id}`);
   assert.deepEqual(det.links.map(l => l.job), ['Direttore tecnico', 'RUP']);
-  // Facility vede il cliente (ASA aggiunta) ma non il Comune: del contatto vede solo il collegamento al cliente
   const { body: f } = await F('GET', `/api/crm/contacts/${c.body.id}`);
-  assert.deepEqual(f.links.map(l => l.job), ['Direttore tecnico']);
-  // e salvando non toglie il collegamento al Comune che non vede
-  assert.equal((await F('PATCH', `/api/crm/contacts/${c.body.id}`, { links: [{ subject_id: cli.id, job: 'Direttore tecnico' }] })).status, 200);
-  assert.equal((await E('GET', `/api/crm/contacts/${c.body.id}`)).body.links.length, 2);
-  assert.equal((await G('GET', `/api/crm/contacts/${c.body.id}`)).status, 404);
-  assert.equal((await G('GET', '/api/crm/contacts')).body.contacts.length, 0);
+  assert.deepEqual(f.links.map(l => l.job), ['Direttore tecnico', 'RUP']);
+  assert.equal((await G('GET', `/api/crm/contacts/${c.body.id}`)).status, 200);
+  assert.equal((await G('GET', '/api/crm/contacts?asa=energy')).body.contacts.length, 0); // filtro per ASA
   const { body: sc } = await E('GET', `/api/crm/subjects/${comune.id}`);
   assert.equal(sc.contacts[0].job, 'RUP');
 });
@@ -153,7 +146,6 @@ test('note come negli A3 su azienda e contatto; quelle del contatto ricadono sul
   const n1 = await E('POST', `/api/crm/subjects/${comune.id}/notes`, { kind: 'telefonata', body: 'Sentito il RUP per il bando scuole', note_date: '2026-11-10' });
   assert.equal(n1.status, 201);
   assert.equal((await E('POST', `/api/crm/subjects/${comune.id}/notes`, { kind: 'fax', body: 'x' })).status, 400);
-  assert.equal((await F('POST', `/api/crm/subjects/${comune.id}/notes`, { body: 'x' })).status, 404);
   const n2 = await E('POST', `/api/crm/contacts/${mario.id}/notes`, { body: 'Mario dice che il bando esce a gennaio', note_date: '2026-11-11' });
   const { body: onComune } = await E('GET', `/api/crm/subjects/${comune.id}/notes`);
   assert.deepEqual(onComune.map(n => n.body), ['Mario dice che il bando esce a gennaio', 'Sentito il RUP per il bando scuole']);
@@ -166,7 +158,7 @@ test('note come negli A3 su azienda e contatto; quelle del contatto ricadono sul
   await E('POST', `/api/crm/contacts/${mario.id}/notes`, { body: 'Ora lavora altrove', note_date: '2026-12-15' });
   assert.ok(!(await E('GET', `/api/crm/subjects/${comune.id}/notes`)).body.some(n => n.body === 'Ora lavora altrove'));
   // le modifica e le elimina solo chi le ha scritte; eliminare si annulla
-  assert.equal((await G('PATCH', `/api/crm/notes/${n1.body.id}`, { body: 'x' })).status, 404); // G non vede l'azienda
+  assert.equal((await G('PATCH', `/api/crm/notes/${n1.body.id}`, { body: 'x' })).status, 403); // non l'ha scritta lui
   assert.equal((await E('PATCH', `/api/crm/notes/${n1.body.id}`, { pinned: true })).body.pinned, true);
   assert.equal((await E('DELETE', `/api/crm/notes/${n2.body.id}`)).status, 200);
   assert.equal((await E('POST', `/api/crm/notes/${n2.body.id}/restore`)).status, 200);
@@ -198,7 +190,7 @@ test('incontri di Outlook collegati da soli: per email del contatto, per dominio
   await crmSync.syncUser(u.id, new Date('2026-11-13T09:00:00Z'));
   assert.deepEqual((await E('GET', `/api/crm/subjects/${adr.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
   // chi non vede l'azienda non vede l'incontro
-  assert.equal((await G('GET', `/api/crm/meetings/${pres.id}`)).status, 404);
+  assert.equal((await G('GET', `/api/crm/meetings/${pres.id}`)).status, 200); // tutti vedono tutto
 });
 
 test('incontro finito senza note: «!» e avviso subito a chi c\'era, una volta sola; sparisce con la prima nota', async () => {
@@ -233,7 +225,7 @@ test('email collegate a un contatto ricadono sull\'azienda; progetti collegati',
   assert.match(emails[0].via, /Luca Rossi/);
   assert.equal((await E('DELETE', `/api/crm/subjects/${adr.id}/emails/${e.id}`)).status, 400);
   assert.equal((await E('GET', `/api/crm/emails/${e.id}`)).body.subject, 'Richiesta di offerta');
-  assert.equal((await G('GET', `/api/crm/emails/${e.id}`)).status, 404);
+  assert.equal((await G('GET', `/api/crm/emails/${e.id}`)).status, 200);
   const { body: p } = await E('POST', '/api/projects', { name: 'Proposta Adriatica' });
   assert.equal((await E('POST', `/api/crm/subjects/${adr.id}/projects`, { project_id: p.id })).status, 201);
   assert.equal((await E('GET', `/api/crm/subjects/${adr.id}/projects`)).body[0].name, 'Proposta Adriatica');
@@ -259,7 +251,7 @@ test('unione dei doppioni («Collega a» un\'altra scheda): contatti e note pass
   const { body: b } = await E('POST', '/api/crm/subjects', { name: 'Verdi S.r.l.', vat: '00488410010', roles: ['fornitore'], asa: ['edilizia'] });
   await E('POST', '/api/crm/contacts', { last_name: 'Neri', links: [{ subject_id: a.id, job: 'Commerciale' }] });
   await E('POST', `/api/crm/subjects/${a.id}/notes`, { body: 'Preventivo nolo gru' });
-  assert.equal((await F('POST', `/api/crm/subjects/${a.id}/merge`, { into: b.id })).status, 404); // non le vede
+  assert.equal((await N('GET', `/api/crm/subjects/${a.id}`)).status, 200); // la vedono tutti
   assert.equal((await E('POST', `/api/crm/subjects/${a.id}/merge`, { into: b.id })).status, 200); // «Collega a» un'altra scheda
   const { body: good } = await E('GET', `/api/crm/subjects/${b.id}`);
   assert.equal(good.contacts[0].last_name, 'Neri');
@@ -307,7 +299,7 @@ test('«Collega a» aggiunge un ruolo alla stessa scheda; «Trasforma in» lo so
   assert.equal((await E('POST', `/api/crm/subjects/${l.id}/roles`, { mode: 'set', roles: ['cliente'] })).status, 400);
   assert.equal((await E('POST', `/api/crm/subjects/${l.id}/roles`, { mode: 'add', roles: ['cliente'] })).status, 400);
   assert.deepEqual((await D('POST', `/api/crm/subjects/${l.id}/roles`, { mode: 'add', roles: ['cliente'] })).body.roles, ['cliente']);
-  assert.equal((await F('POST', `/api/crm/subjects/${f.id}/roles`, { mode: 'add', roles: ['cliente'] })).status, 404);
+  assert.deepEqual((await F('POST', `/api/crm/subjects/${f.id}/roles`, { mode: 'add', roles: ['cliente'] })).body.roles.sort(), ['cliente', 'partner']);
 });
 
 test('caricamento da Zoho: anteprima e caricamento solo per la direzione, classificazione, owner per nome, niente doppioni', async () => {
@@ -373,4 +365,32 @@ test('caricamento dei contatti di Zoho: collegati alla loro azienda con il codic
   const { body: det } = await D('GET', `/api/crm/subjects/${teramo.id}`);
   assert.deepEqual(det.contacts.map(c => [c.last_name, c.job]).sort(), [['Bianchi', 'RUP'], ['Neri', 'Direttore tecnico']]);
   assert.equal((await post('/api/crm/import')).body.created, 0);
+});
+
+test('caricamento delle commesse di Zoho: i committenti diventano clienti, con P.IVA e codice fiscale, ASA della commessa', async () => {
+  const head = 'ID record,Nome Commessa,Codice Commessa,Committente (Nome Azienda).id,Committente (Nome Azienda),Ragione Sociale,Partita Iva,Codice Fiscale,ASA,Data Contratto,Data inizio lavori (effettiva)';
+  const csv = [head,
+    'k1,Scuola Teramo,AL1001,z1,Comune di Teramo,,00122720675,00122720675,Edilizia,2024-04-01 11:00:00,2024-05-01',
+    'k2,Palestra Teramo,AL1002,z1,Comune di Teramo,,,,Restauro,2023-02-01 10:00:00,',
+    'k3,Senza committente,AL1003,,,,,,Impianti,,',
+    'k4,Altro,AL1004,zz,Committente Sconosciuto,,,,Facility,,'].join('\n');
+  const post = path => fetch(base + path, { method: 'POST', headers: { cookie: cookies.D, 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: Buffer.from(csv) })
+    .then(async r => ({ status: r.status, body: await r.json() }));
+  const pre = await post('/api/crm/import/anteprima');
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.equal(pre.body.stats.commesse, true);
+  assert.equal(pre.body.stats.withClient, 3);
+  assert.equal(pre.body.stats.newClients, 1);
+  assert.equal(pre.body.stats.vatAdded, 1);
+  assert.deepEqual(pre.body.stats.notFound, ['Committente Sconosciuto']);
+  const imp = await post('/api/crm/import');
+  assert.equal(imp.body.created, 1, JSON.stringify(imp.body));
+  const { body: { subjects: [t] } } = await D('GET', '/api/crm/subjects?q=comune di teramo');
+  const { body: s } = await D('GET', `/api/crm/subjects/${t.id}`);
+  assert.deepEqual(s.roles, ['cliente']);
+  assert.equal(s.client_since, '2023-02-01'); // la prima commessa
+  assert.equal(s.vat, '00122720675');
+  assert.ok(s.asa.includes('edilizia') && s.asa.includes('restauro'));
+  assert.match(s.history[0].note, /prima commessa AL1001/);
+  assert.equal((await post('/api/crm/import')).body.stats.newClients, 0); // rifatto: è già cliente
 });

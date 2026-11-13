@@ -15,10 +15,16 @@ const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' }
 const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner' };
 
 let data = null; // meta, ASA, le mie ASA, numeri
-const ASA_KEY = 'alma.crmAsa';
-const readAsa = () => { try { return sessionStorage.getItem(ASA_KEY) || ''; } catch { return ''; } };
-const saveAsa = k => { try { sessionStorage.setItem(ASA_KEY, k); } catch { /* niente */ } };
-const currentAsa = () => { const k = readAsa(); return data.myAsa.includes(k) ? k : ''; };
+// Tutti vedono tutto (13/11); i filtri partono dalle cose di ognuno e restano ricordati su questo computer.
+const FILTER_KEY = () => `alma.crmFilters.${store.me.id}`;
+const readFilters = () => { try { return JSON.parse(localStorage.getItem(FILTER_KEY())) || {}; } catch { return {}; } };
+const saveFilter = (k, val) => { try { localStorage.setItem(FILTER_KEY(), JSON.stringify({ ...readFilters(), [k]: val })); } catch { /* niente */ } };
+// ASA scelta: 'mine' = le mie ASA, '' = tutte, oppure una sola
+const asaChoice = () => { const f = readFilters(); if ('asa' in f && (f.asa === '' || f.asa === 'mine' || data.asa.some(a => a.key === f.asa))) return f.asa; return data.myAsa.length ? 'mine' : ''; };
+const asaQuery = () => { const c = asaChoice(); return c === 'mine' ? data.myAsa.join(',') : c; };
+// ASA da proporre su una scheda nuova
+const currentAsa = () => { const c = asaChoice(); return c && c !== 'mine' ? c : data.myAsa.length === 1 ? data.myAsa[0] : ''; };
+const ownerDefault = () => { const f = readFilters(); return 'owner' in f ? f.owner : data.mine ? String(store.me.id) : ''; };
 
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
 const eur = n => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 0 })} €`);
@@ -39,7 +45,7 @@ const dlist = pairs => h('dl.en-dl', pairs.filter(Boolean).flatMap(([k, val]) =>
 // filtri «owner» e «funzione» delle liste; state.owner / state.fn
 function ownerFunctionFilters(state, load) {
   const owner = select([['', 'Tutti gli owner'], [String(store.me.id), 'I miei'], ...store.users.filter(u => u.active !== false && u.id !== store.me.id).map(u => [u.id, u.name])], state.owner,
-    { 'aria-label': 'Owner', on: { change: e => { state.owner = e.target.value; load(); } } });
+    { 'aria-label': 'Owner', on: { change: e => { state.owner = e.target.value; saveFilter('owner', state.owner); load(); } } });
   const fn = data.functions.length ? select([['', 'Tutte le funzioni'], ...data.functions.map(f => [f, f])], state.fn,
     { 'aria-label': 'Funzione di riferimento', on: { change: e => { state.fn = e.target.value; load(); } } }) : null;
   return [owner, fn];
@@ -107,7 +113,6 @@ function soaEditor(list) {
 const soaText = soa => (soa?.length ? soa.map(x => `${x.cat} ${x.cls}`).join(' · ') : '—');
 
 export async function crmView(container, parts = []) {
-  if (!store.me.crm) return fill(container, h('div.card.empty', 'Il CRM è per la direzione e per chi è assegnato a un\'ASA. Chiedi alla direzione di aggiungerti.'));
   data = await get('/api/crm');
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
@@ -117,12 +122,13 @@ export async function crmView(container, parts = []) {
   }
   const tab = TABS.some(([k]) => k === parts[1]) && (parts[1] !== 'asa' || data.admin) ? parts[1] : 'lead';
   const body = h('div.en-body', loading());
-  const asaSel = data.myAsa.length > 1 && tab !== 'asa'
-    ? select([['', data.admin ? 'Tutte le ASA' : 'Tutte le mie ASA'], ...data.myAsa.map(k => [k, asaLabel(k)])], currentAsa(),
-      { 'aria-label': 'ASA', on: { change: e => { saveAsa(e.target.value); crmView(container, parts); } } })
+  const asaSel = tab !== 'asa'
+    ? select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, a.label])], asaChoice(),
+      { 'aria-label': 'ASA', on: { change: e => { saveFilter('asa', e.target.value); crmView(container, parts); } } })
     : null;
+  const asaEyebrow = asaChoice() === 'mine' ? (data.myAsa.length === 1 ? asaLabel(data.myAsa[0]) : 'le mie ASA') : asaChoice() ? asaLabel(asaChoice()) : '';
   fill(container,
-    h('div.page-head', h('div', h('div.en-eyebrow', currentAsa() && tab !== 'asa' ? `Alma CRM · ${asaLabel(currentAsa())}` : 'Alma CRM'), h('h1', TABS.find(([k]) => k === tab)[1])), asaSel),
+    h('div.page-head', h('div', h('div.en-eyebrow', asaEyebrow && tab !== 'asa' ? `Alma CRM · ${asaEyebrow}` : 'Alma CRM'), h('h1', TABS.find(([k]) => k === tab)[1])), asaSel),
     body);
   if (tab === 'lead') await leadTab(body, parts[2]);
   else if (tab === 'contatti') await contactsTab(body);
@@ -132,7 +138,7 @@ export async function crmView(container, parts = []) {
 
 // ── lead: colonne per fase ──────────────────────────────────────────────────
 async function leadTab(box, mode) {
-  const state = { q: '', mode: mode === 'elenco' ? 'elenco' : 'colonne', owner: '', fn: '' };
+  const state = { q: '', mode: mode === 'elenco' ? 'elenco' : 'colonne', owner: ownerDefault(), fn: '' };
   const content = h('div', loading());
   fill(box,
     h('div.toolbar',
@@ -144,7 +150,7 @@ async function leadTab(box, mode) {
       h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: ['lead'] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, icon('plus', { size: 16 }), 'Nuovo lead')),
     content);
   async function load() {
-    const { subjects } = await get(`/api/crm/subjects${qs({ role: 'lead', asa: currentAsa(), q: state.q, owner: state.owner, function: state.fn })}`);
+    const { subjects } = await get(`/api/crm/subjects${qs({ role: 'lead', asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`);
     if (state.mode === 'elenco') return fill(content, subjectTable(subjects, 'lead', state.q));
     fill(content, h('div.en-board-wrap', h('div.en-board.crm-board', data.meta.leadStages.map(([stage, label]) => {
       const items = subjects.filter(s => s.lead_stage === stage);
@@ -210,7 +216,7 @@ async function changeStage(s, stage) {
 // ── elenchi di anagrafiche ──────────────────────────────────────────────────
 async function subjectsTab(box, tab) {
   const role = ROLE_OF_TAB[tab] || '';
-  const state = { q: '', chip: tab === 'partner' ? 'partner' : '', owner: '', fn: '' };
+  const state = { q: '', chip: tab === 'partner' ? 'partner' : '', owner: ownerDefault(), fn: '' };
   const chipDefs = tab === 'fornitori' ? [['', 'Tutte le categorie'], ...Object.entries(data.meta.supplierCategories)]
     : tab === 'partner' ? [['partner', 'Partner'], ['concorrente', 'Concorrenti']]
       : tab === 'tutte' ? [['', 'Tutti i ruoli'], ...Object.entries(data.meta.roles)] : null;
@@ -228,7 +234,7 @@ async function subjectsTab(box, tab) {
     list);
   async function load() {
     if (chipDefs) fill(chips, chipDefs.map(([k, label]) => h('button.pill.en-chip', { type: 'button', class: state.chip === k ? 'on' : '', on: { click: () => { state.chip = k; load(); } } }, label)));
-    const query = { asa: currentAsa(), q: state.q, role, owner: state.owner, function: state.fn };
+    const query = { asa: asaQuery(), q: state.q, role, owner: state.owner, function: state.fn };
     if (tab === 'fornitori') query.category = state.chip;
     else if (tab === 'partner' || tab === 'tutte') query.role = state.chip;
     const { subjects } = await get(`/api/crm/subjects${qs(query)}`);
@@ -238,7 +244,7 @@ async function subjectsTab(box, tab) {
 }
 
 function subjectTable(subjects, tab, filtered) {
-  if (!subjects.length) return h('div.card.empty', filtered ? 'Nessuna anagrafica con questi filtri.' : 'Ancora nessuna anagrafica qui.');
+  if (!subjects.length) return h('div.card.empty', filtered || asaChoice() || ownerDefault() ? 'Nessuna anagrafica con questi filtri: prova «Tutte le ASA» o «Tutti gli owner».' : 'Ancora nessuna anagrafica qui.');
   const extra = tab === 'lead' ? ['Fase', 'Valore potenziale'] : tab === 'fornitori' ? ['Categorie'] : ['Ruoli'];
   return h('div.card.table-wrap', h('table.list',
     h('thead', h('tr', ['Anagrafica', ...extra, 'ASA', 'Luogo', 'Owner · funzione', 'Contatti', 'Prossimo passo'].map(t => h('th', t)))),
@@ -632,15 +638,16 @@ async function mergeForm(s) {
 
 // ── contatti ────────────────────────────────────────────────────────────────
 async function contactsTab(box) {
-  const state = { q: '' };
+  const state = { q: '', owner: ownerDefault() };
   const list = h('div', loading());
   fill(box,
     h('div.toolbar',
       h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome o email…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
+      ownerFunctionFilters(state, () => load())[0],
       h('button.btn.btn-primary', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, icon('plus', { size: 16 }), 'Nuovo contatto')),
     list);
   async function load() {
-    const { contacts } = await get(`/api/crm/contacts${qs({ q: state.q, asa: currentAsa() })}`);
+    const { contacts } = await get(`/api/crm/contacts${qs({ q: state.q, asa: asaQuery(), owner: state.owner })}`);
     if (!contacts.length) return fill(list, h('div.card.empty', state.q ? 'Nessun contatto con questa ricerca.' : 'Ancora nessun contatto. Le persone si aggiungono di solito dalla scheda della loro azienda.'));
     fill(list, h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', ['Persona', 'Dove lavora', 'Email', 'Telefono', 'Owner'].map(t => h('th', t)))),
@@ -797,7 +804,7 @@ async function asaTab(box) {
 
 // Primo caricamento da Zoho: export «Aziende» così com'è, oppure l'Excel di controllo corretto a mano
 function importCard() {
-  const file = h('input', { type: 'file', accept: '.xlsx' });
+  const file = h('input', { type: 'file', accept: '.xlsx,.csv' });
   const out = h('div');
   const send = async (path, buf) => {
     const res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: buf });
@@ -823,6 +830,14 @@ function importCard() {
         fill(out, h('p', `Caricati ${r.created} ${label}. Li trovi nel CRM.`));
       } catch (err) { toast(err.message, 'err'); }
     } } }, `Carica ${st.toLoad} ${label}`));
+    if (st.commesse) {
+      return fill(out, h('div.en-detail',
+        h('p', `${st.total} commesse, ${st.withClient} con il committente · ${st.newClients} aziende diventano clienti, ${st.alreadyClients} lo erano già · ${st.vatAdded} P.IVA e ${st.taxAdded} codici fiscali da aggiungere`),
+        st.notFound.length ? h('p.small.muted', `Committenti non trovati tra le anagrafiche: ${st.notFound.join(', ')}`) : null,
+        h('div.card.table-wrap', h('table.list', h('thead', h('tr', ['Azienda', 'Diventa cliente', 'P.IVA', 'Commesse', 'Prima'].map(t => h('th', t)))),
+          h('tbody', pre.sample.map(x => h('tr', h('td', x.name), h('td', x.becomesClient ? 'sì' : 'è già cliente'), h('td', x.vat || '—'), h('td.num', String(x.commesse)), h('td', x.first ? fmtDate(x.first, { year: true }) : '—')))))),
+        go('aziende dai committenti')));
+    }
     if (st.contacts) {
       return fill(out, h('div.en-detail',
         h('p', `${st.toLoad} contatti da caricare: ${st.linked} collegati alla loro azienda, ${st.unlinked} senza azienda · ${st.existing} già presenti · ${st.colleagues} colleghi Almacis esclusi`),
@@ -848,6 +863,6 @@ function importCard() {
       } } }, `Carica ${st.toLoad} aziende`))));
   });
   return h('section.card.crm-pad.crm-import', h('h3.crm-h3', 'Carica le aziende da Zoho'),
-    h('p.small.muted', 'L\'export «Aziende» di Zoho così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano; poi l\'export «Contatti», che si collegano da soli alla loro azienda. Prima vedi l\'anteprima; quello che c\'è già non si tocca.'),
+    h('p.small.muted', 'L\'export «Aziende» di Zoho così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano; poi l\'export «Contatti», che si collegano da soli alla loro azienda, e l\'export «Commesse» (CSV), che fa diventare clienti i committenti con P.IVA e codice fiscale. Prima vedi l\'anteprima; quello che c\'è già non si tocca.'),
     file, out);
 }
