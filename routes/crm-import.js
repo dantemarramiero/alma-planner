@@ -13,6 +13,8 @@ const { HttpError } = require('../lib/http');
 const { readXlsx } = require('../lib/xlsx');
 const { classify, norm } = require('../lib/crm-zoho');
 
+// nome di una persona senza badare all'ordine: Microsoft scrive «Marramiero Dante», Zoho «Dante Marramiero»
+const personKey = s => norm(s).split(' ').filter(Boolean).sort().join(' ');
 const ROLE_OF = { lead: 'lead', cliente: 'cliente', fornitore: 'fornitore', partner: 'partner', concorrente: 'concorrente' };
 const KIND_OF = { impresa: 'impresa', 'ente pubblico': 'ente_pubblico', 'societa partecipata': 'partecipata', professionista: 'professionista', condominio: 'condominio', altro: 'altro' };
 const CATEGORIES = ['materiali', 'subappalti', 'noli', 'servizi_cantiere', 'professionisti', 'mezzi', 'servizi_generali'];
@@ -84,11 +86,11 @@ function registerCrmImport(app, { db }) {
       db.query('SELECT key FROM crm_asa'),
       db.query("SELECT oid, name, lower(email) AS email, job_title, department FROM org_people WHERE email IS NOT NULL AND email <> ''"),
     ]);
-    const byOrg = new Map(org.map(p => [norm(p.name), p]));
+    const byOrg = new Map(org.map(p => [personKey(p.name), p]));
     if (contactsFile) return planContacts(req, { users, org, byOrg });
     const byEmail = new Map(users.map(u => [u.email, u]));
     const asaKeys = new Set(asa.map(a => a.key));
-    const byName = new Map(users.map(u => [norm(u.name), u]));
+    const byName = new Map(users.map(u => [personKey(u.name), u]));
     const me = users.find(u => u.id === req.user.id);
     const exZoho = new Set(existing.map(e => e.zoho_id).filter(Boolean));
     const exName = new Set(existing.map(e => norm(e.name)));
@@ -104,9 +106,9 @@ function registerCrmImport(app, { db }) {
       seen.add(key);
       let roles = [...new Set(it.roles)];
       if (roles.includes('cliente')) roles = roles.filter(r => r !== 'lead');
-      let owner = byName.get(norm(it.owner_name));
+      let owner = byName.get(personKey(it.owner_name));
       if (!owner && it.owner_name) {
-        const p = byOrg.get(norm(it.owner_name));
+        const p = byOrg.get(personKey(it.owner_name));
         if (p) {
           owner = byEmail.get(p.email) || { id: null, name: p.name, email: p.email, department: p.department };
           if (!owner.id) newUsers.set(p.email, p);
@@ -133,7 +135,7 @@ function registerCrmImport(app, { db }) {
     const byCompanyName = new Map(subjects.map(x => [norm(x.name), x]));
     const exZoho = new Set(existing.map(x => x.zoho_id).filter(Boolean));
     const exEmail = new Set(existing.map(x => x.email).filter(Boolean));
-    const byName = new Map(users.map(u => [norm(u.name), u]));
+    const byName = new Map(users.map(u => [personKey(u.name), u]));
     const byEmail = new Map(users.map(u => [u.email, u]));
     const me = users.find(u => u.id === req.user.id);
     const stats = { contacts: true, total: items.length, toLoad: 0, linked: 0, unlinked: 0, colleagues: 0, existing: 0, skipped: 0, owners: {}, ownersMissing: {}, ownersFromOrg: {} };
@@ -144,9 +146,9 @@ function registerCrmImport(app, { db }) {
       if (/@almacis\.it$/.test(it.email) || /\b(almacis|alma c i s)\b/.test(norm(it.company_name))) { stats.colleagues++; continue; }
       if ((it.zoho_id && exZoho.has(it.zoho_id)) || (it.email && exEmail.has(it.email))) { stats.existing++; continue; }
       const subject = byZoho.get(it.company_zoho_id) || (it.company_name ? byCompanyName.get(norm(it.company_name)) : null);
-      let owner = byName.get(norm(it.owner_name));
+      let owner = byName.get(personKey(it.owner_name));
       if (!owner && it.owner_name) {
-        const p = byOrg.get(norm(it.owner_name));
+        const p = byOrg.get(personKey(it.owner_name));
         if (p) { owner = byEmail.get(p.email) || { id: null, name: p.name, email: p.email }; if (!owner.id) newUsers.set(p.email, p); stats.ownersFromOrg[p.name] = (stats.ownersFromOrg[p.name] || 0) + 1; }
         else stats.ownersMissing[it.owner_name] = (stats.ownersMissing[it.owner_name] || 0) + 1;
       }

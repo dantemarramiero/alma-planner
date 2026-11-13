@@ -312,8 +312,8 @@ test('«Collega a» aggiunge un ruolo alla stessa scheda; «Trasforma in» lo so
 
 test('caricamento da Zoho: anteprima e caricamento solo per la direzione, classificazione, owner per nome, niente doppioni', async () => {
   const { writeXlsx } = require('../lib/xlsx');
-  await db.query("INSERT INTO org_people (oid, name, email, department) VALUES ('o9', 'Edile', 'edile@almacis.it', 'Direzione tecnica'), ('o10', 'Vittoria Marinelli', 'vittoria@almacis.it', 'Gare') ON CONFLICT DO NOTHING");
-  await db.query("UPDATE users SET name = 'Marco Edile' WHERE email = 'edile@almacis.it'");
+  await db.query("INSERT INTO org_people (oid, name, email, department) VALUES ('o9', 'Edile', 'edile@almacis.it', 'Direzione tecnica'), ('o10', 'Marinelli Vittoria', 'vittoria@almacis.it', 'Gare') ON CONFLICT DO NOTHING");
+  await db.query("UPDATE users SET name = 'Edile Marco' WHERE email = 'edile@almacis.it'");
   const file = writeXlsx({ Sheet0: [
     ['ID record', 'Nome Azienda', 'Sito Web', 'Owner Azienda', 'Tipologia'],
     ['z1', 'Comune di Teramo', '', 'Marco Edile', ''],
@@ -331,7 +331,7 @@ test('caricamento da Zoho: anteprima e caricamento solo per la direzione, classi
   const pre = await post(cookies.D, '/api/crm/import/anteprima');
   assert.equal(pre.status, 200, JSON.stringify(pre.body));
   assert.equal(pre.body.stats.toLoad, 5);
-  assert.equal(pre.body.stats.ownersFromOrg['Vittoria Marinelli'], 1);
+  assert.equal(pre.body.stats.ownersFromOrg['Marinelli Vittoria'], 1);
   assert.equal(pre.body.stats.skipped, 1);
   assert.equal(pre.body.stats.duplicates, 1);
   assert.equal(pre.body.stats.existing, 1); // Adriatica Costruzioni c'è già
@@ -339,11 +339,11 @@ test('caricamento da Zoho: anteprima e caricamento solo per la direzione, classi
   const done = await post(cookies.D, '/api/crm/import');
   assert.equal(done.body.created, 5);
   const { body: { subjects: [chieti] } } = await D('GET', '/api/crm/subjects?q=provincia di chieti');
-  assert.equal(chieti.owner_name, 'Vittoria Marinelli');
+  assert.equal(chieti.owner_name, 'Marinelli Vittoria');
   assert.equal(chieti.function_name, 'Gare');
   const { body: { subjects } } = await D('GET', '/api/crm/subjects?q=teramo');
   assert.deepEqual(subjects[0].roles, ['lead']);
-  assert.equal(subjects[0].owner_name, 'Marco Edile');
+  assert.equal(subjects[0].owner_name, 'Edile Marco'); // Microsoft scrive cognome e nome
   assert.equal(subjects[0].function_name, 'Direzione tecnica');
   assert.deepEqual((await D('GET', '/api/crm/subjects?q=fornitori uniti')).body.subjects[0].roles, ['fornitore']);
   assert.deepEqual((await D('GET', '/api/crm/subjects?q=rti costruzioni')).body.subjects[0].roles, ['concorrente']);
