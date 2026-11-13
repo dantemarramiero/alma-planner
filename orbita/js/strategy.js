@@ -3,7 +3,8 @@
 // - Gestione: tabelle da scrivere come in Excel (progetti, KPI, pillar e BU, aree), si salva cella per cella;
 // - A3: la scheda del progetto con il format Almacis e le contromisure che fanno l'avanzamento.
 import { a3Calendar } from './a3-calendar.js';
-import { h, fill, toast, confirmDialog, modal, loading, avatar } from './ui.js';
+import { h, fill, toast, confirmDialog, modal, loading, avatar, isMobile } from './ui.js';
+import { a3QuickBox } from './app2.js';
 import { get, post, patch, del } from './api.js';
 import { store, userById } from './store.js';
 import { icon } from './icons.js';
@@ -1053,6 +1054,8 @@ function a3Tab(box, p, reload) {
     const areas = orderedAreas();
 
     fill(box,
+      // telefono (app 2.0, 13/11): l'A3 in dieci secondi in cima; il foglio intero si apre sotto
+      isMobile() ? a3QuickBox(p, refresh, D.today, box) : null,
       // intestazione dell'A3 (i campi del format), modificabile qui
       h('section.hk-card.hk-a3head',
         h('div.hk-a3fields',

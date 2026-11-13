@@ -96,7 +96,7 @@ export async function openRdaForm({ onDone, defaults = {} } = {}) {
 }
 
 // ── accetta / rifiuta (solo il responsabile) ───────────────────────────────
-async function openAccept(t, onDone) {
+export async function openAccept(t, onDone) {
   const fn = (await functions(true)).find(f => f.name === t.rda_function);
   const team = fn?.team || [];
   const hours = h('input.input', { type: 'number', min: '0.25', step: '0.5', inputmode: 'decimal', value: String(Number(t.hours_estimated)), style: { maxWidth: '140px' } });
@@ -137,7 +137,7 @@ async function openAccept(t, onDone) {
   });
 }
 
-function openReject(t, onDone) {
+export function openReject(t, onDone) {
   const reason = h('textarea.input', { rows: 3, autofocus: true, placeholder: 'Perché no, o cosa servirebbe per farla' });
   const reject = async () => {
     if (!reason.value.trim()) { toast('Scrivi il motivo', 'err'); reason.focus(); return; }

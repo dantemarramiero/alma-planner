@@ -1,7 +1,7 @@
 // Notifiche dell'intranet e contatori per il menu. Le chat di Teams hanno il loro (/api/teams/unread);
 const { loadFunctions, orgOidOf } = require('../lib/functions');
 
-function registerNotifications(app, { db, live, fleet }) {
+function registerNotifications(app, { db, live, fleet, isAdmin, softwareAccess }) {
   app.get('/api/notifications', async (req, res) => {
     const { rows } = await db.query(
       `SELECT n.id, n.actor_id, n.kind, n.post_id, n.comment_id, n.note_id, n.ticket_id, n.read_at, n.created_at, n.body, n.link,
@@ -42,7 +42,15 @@ function registerNotifications(app, { db, live, fleet }) {
     const mezzi = fleet && await fleet.isManager(req)
       ? (await db.query("SELECT COUNT(*)::int AS n FROM vehicle_bookings WHERE status = 'richiesta'")).rows[0].n
       : 0;
-    res.json({ ...rows[0], rda, mezzi });
+    // Inbox del telefono (app 2.0, 13/11): il numero rosso conta solo le cose «da decidere»
+    const admin = Boolean(isAdmin?.(req));
+    const { rows: [d] } = await db.query(
+      `SELECT (SELECT COUNT(*)::int FROM hk_invites WHERE user_id = $1 AND status = 'pending') AS invites,
+              (SELECT COUNT(*)::int FROM pm_change_requests cr WHERE cr.status = 'pending' AND (cr.approver_id = $1 OR ($2 AND cr.approver_id IS NULL))) AS scheda`,
+      [req.user.id, admin]);
+    const itTeam = softwareAccess ? await softwareAccess.canUse(req).catch(() => false) : admin;
+    const it = itTeam ? (await db.query("SELECT COUNT(*)::int AS n FROM it_requests WHERE status = 'da_rispondere'")).rows[0].n : 0;
+    res.json({ ...rows[0], rda, mezzi, decide: rda + d.invites + d.scheda + it });
   });
 }
 

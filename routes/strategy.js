@@ -388,6 +388,29 @@ function registerStrategy(app, { db, isAdmin, auth, baseUrl, notifier, alerts })
     res.json(rows);
   });
 
+  // «Aggiornamento del mese» dell'A3 (app 2.0 sul telefono, 13/11): in linea / a rischio / fuori + una riga.
+  // Lo scrive chi può modificare l'A3; lo leggono tutti. Il team lo sa come «Aggiornamento su un mio A3».
+  const CHECKIN = { in_linea: 'in linea', a_rischio: 'a rischio', fuori: 'fuori strada' };
+  app.get('/api/strategy/projects/:id/checkins', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    const { rows } = await db.query(
+      `SELECT c.id, c.status, c.note, c.created_at, c.user_id, u.name AS user_name FROM hk_checkins c LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.hk_project_id = $1 ORDER BY c.created_at DESC, c.id DESC LIMIT 6`, [id]);
+    res.json(rows);
+  });
+  app.post('/api/strategy/projects/:id/checkins', async (req, res) => {
+    const id = v.int(req.params.id, 'A3', { min: 1 });
+    const status = v.oneOf(req.body?.status, 'stato', Object.keys(CHECKIN));
+    const note = v.text(req.body?.note, 'nota', { max: 500 }) || '';
+    const { rows: [p] } = await db.query('SELECT id FROM hk_projects WHERE id = $1', [id]);
+    if (!p) throw new HttpError(404, 'A3 non trovato');
+    await mustEditA3(req, id);
+    const { rows: [c] } = await db.query(
+      'INSERT INTO hk_checkins (hk_project_id, user_id, status, note) VALUES ($1, $2, $3, $4) RETURNING id, status, note, created_at', [id, req.user.id, status, note]);
+    tellA3(id, req, `stato del mese «${CHECKIN[status]}»${note ? `: «${note}»` : ''}`);
+    res.status(201).json(c);
+  });
+
   // dal progetto all'A3 (per aprire la pagina giusta da «Progetti»)
   app.get('/api/strategy/by-project/:pid', async (req, res) => {
     const pid = v.int(req.params.pid, 'progetto', { min: 1 });

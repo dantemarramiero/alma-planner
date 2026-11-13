@@ -28,6 +28,8 @@ import { welcomeView } from './welcome.js';
 import { icon } from './icons.js';
 import { startPwa } from './pwa.js';
 import { notifSettingsView } from './notif-settings.js';
+import { oggiView, lavoroView, inboxView, esploraView, ioView, markPlace, trackRecent, isRoot } from './app2.js';
+import { isMobile } from './ui.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -52,7 +54,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -171,6 +173,7 @@ async function route() {
   document.title = section === 'direct' ? `Chat · ${modLabel}` : modLabel;
   trackBack(section);
   drawModule(section);
+  markPlace(section); // telefono: posto acceso nella barra in basso
   cleanup?.();
   cleanup = null;
   clear(view).append(loading());
@@ -237,8 +240,22 @@ async function route() {
     case 'search':
       searchView(view, params);
       break;
-    case 'benvenuto':
-      await welcomeView(view);
+    case 'benvenuto': // sul telefono la Home è «Oggi» (app 2.0, 13/11)
+      if (isMobile()) await oggiView(view);
+      else await welcomeView(view);
+      break;
+    // i cinque posti dell'app sul telefono; sul computer portano alla pagina che c'era già
+    case 'lavoro':
+      if (isMobile()) await lavoroView(view, params); else location.replace('#/settimana');
+      break;
+    case 'inbox':
+      if (isMobile()) await inboxView(view); else location.replace('#/notifications');
+      break;
+    case 'esplora':
+      if (isMobile()) esploraView(view); else location.replace('#/benvenuto');
+      break;
+    case 'io':
+      if (isMobile()) await ioView(view); else location.replace(`#/u/${store.me.id}`);
       break;
     case 'idee':
       await ideasView(view, parts, params);
@@ -268,6 +285,7 @@ async function route() {
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
   view.focus({ preventScroll: true });
+  trackRecent();
 }
 
 // ── contatori nel menu ──────────────────────────────────────────────────────

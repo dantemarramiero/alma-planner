@@ -1,5 +1,6 @@
 // Alma Planet sul telefono: tasto «+» (ticket, post, storia, evento), menu con le altre pagine e avatar nella barra in basso.
-import { h, mobileQuery } from './ui.js';
+import { h, mobileQuery, avatar } from './ui.js';
+const avatarOf = () => avatar(store.me, 32);
 import { icon } from './icons.js';
 import { get, post } from './api.js';
 import { store } from './store.js';
@@ -7,6 +8,7 @@ import { openTicket } from './tickets.js';
 import { openComposer } from './feed.js';
 import { addStory } from './stories.js';
 import { openRdaForm } from './rda.js';
+import { drawBar, setupScrollBars, applyTheme } from './app2.js';
 
 const MQ = mobileQuery;
 
@@ -177,16 +179,17 @@ let cardTimer = null;
 
 export function setupMobile() {
   new MutationObserver(() => { clearTimeout(cardTimer); cardTimer = setTimeout(cardifyTables, 60); }).observe(document.getElementById('view'), { childList: true, subtree: true });
-  document.getElementById('m-module')?.addEventListener('click', openModules);
-  document.addEventListener('module-changed', e => {
-    current = e.detail;
-    const name = document.getElementById('m-module-name');
-    if (name) name.textContent = current.label;
-    drawTabs();
-  });
-  window.addEventListener('hashchange', () => setTimeout(() => { markActive(); drawFab(); }, 0));
-  drawTabs();
-  setTimeout(() => { markActive(); drawFab(); }, 0);
+  // app 2.0 (13/11): cinque posti fissi in basso, uguali in ogni modulo; in alto «‹ indietro», cerca e la mia foto
+  document.addEventListener('module-changed', e => { current = e.detail; });
+  drawBar();
+  setupScrollBars();
+  applyTheme();
+  document.getElementById('m-back')?.addEventListener('click', () => document.getElementById('back').click());
+  const me = document.getElementById('m-me');
+  if (me) me.replaceChildren(avatarOf());
+  document.addEventListener('me-changed', () => { if (me) me.replaceChildren(avatarOf()); });
   // passando da telefono a schermo largo (o ruotando un tablet) le pagine si ridisegnano nella forma giusta
   MQ.addEventListener('change', rerender);
 }
+// i vecchi pezzi (barre per modulo, menu, «+» tondo) restano per chi li chiama ancora
+export { openCreate, openMenu, openModules, drawTabs, drawFab };

@@ -11,9 +11,9 @@ const hours = n => `${Number(n).toLocaleString('it-IT', { maximumFractionDigits:
 const quote = s => (s ? ` «${s.length > 80 ? `${s.slice(0, 80)}…` : s}»` : '');
 
 // alcuni testi già pronti cominciano con il nome di chi agisce: non ripeterlo dopo il nome in grassetto
-const withoutName = (text, name) => (name && typeof text === 'string' && text.startsWith(`${name} `) ? text.slice(name.length + 1) : text);
+export const withoutName = (text, name) => (name && typeof text === 'string' && text.startsWith(`${name} `) ? text.slice(name.length + 1) : text);
 
-function sentence(n) {
+export function sentence(n) {
   switch (n.kind) {
     case 'like': return 'ha messo mi piace al tuo post.';
     case 'comment': return `ha commentato:${quote(n.comment_body)}`;
@@ -41,7 +41,7 @@ function sentence(n) {
 }
 
 // Dove porta il clic: il post, oppure la nota (tab Note del progetto, o la scheda del ticket).
-async function open(n) {
+export async function open(n) {
   if (n.post_id) return openPost(n.post_id, { focus: !!n.comment_id });
   if (n.link) { location.hash = `#${n.link}`; return; } // parco mezzi: link già pronto
   if (n.kind === 'rda_new' || n.kind === 'rda_rejected') { location.hash = '#/rda'; return; }
