@@ -181,7 +181,7 @@ test('storie: le proprie per prime, viste, scadute nascoste', async () => {
 test('chat interna tolta (migrazione 040): niente API e niente contatore', async () => {
   assert.equal((await api('anna', 'GET', '/api/me')).body.internal_chat, undefined);
   assert.equal((await api('anna', 'GET', '/api/conversations')).status, 404);
-  assert.deepEqual(Object.keys((await api('anna', 'GET', '/api/badges')).body), ['notifications', 'rda', 'mezzi']);
+  assert.deepEqual(Object.keys((await api('anna', 'GET', '/api/badges')).body), ['notifications', 'rda', 'mezzi', 'decide']);
   const { rows } = await db.query("SELECT to_regclass('conversations') AS c, to_regclass('messages') AS m");
   assert.deepEqual(rows[0], { c: null, m: null });
 });

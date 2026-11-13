@@ -395,7 +395,28 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
       where.push(`(o.company_id = $${n} OR EXISTS (SELECT 1 FROM energy_links l WHERE l.opportunity_id = o.id AND l.company_id = $${n}))`);
     }
     if (req.query.q) add('o.title ILIKE ?', `%${String(req.query.q).trim()}%`);
+    // «Vicino a me» (app 2.0 sul telefono, 13/11): near=lat,lon e km (massimo 100). Prima un riquadro in SQL,
+    // poi la distanza vera e l'ordine dal più vicino.
+    let near = null;
+    if (req.query.near) {
+      const [lat, lon] = String(req.query.near).split(',').map(Number);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new HttpError(400, 'Posizione non valida');
+      const km = Math.min(Math.max(Number(req.query.km) || 25, 1), 100);
+      const dLat = km / 111, dLon = km / (111 * Math.max(Math.cos(lat * Math.PI / 180), 0.1));
+      add('o.lat >= ?', lat - dLat); add('o.lat <= ?', lat + dLat); add('o.lon >= ?', lon - dLon); add('o.lon <= ?', lon + dLon);
+      near = { lat, lon, km };
+    }
     const limit = Math.min(Number(req.query.limit) || 2000, 5000);
+    if (near) {
+      const { rows } = await db.query(
+        `SELECT o.id, o.kind, o.title, o.stage, o.priority, o.mw, o.city, o.province, o.lat, o.lon, o.company_id, c.name AS company_name
+           FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id WHERE ${where.join(' AND ')} LIMIT 5000`, params);
+      const rad = x => x * Math.PI / 180;
+      const dist = o => 2 * 6371 * Math.asin(Math.sqrt(Math.sin(rad(o.lat - near.lat) / 2) ** 2
+        + Math.cos(rad(near.lat)) * Math.cos(rad(o.lat)) * Math.sin(rad(o.lon - near.lon) / 2) ** 2));
+      const out = rows.map(o => ({ ...o, km: Math.round(dist(o) * 10) / 10 })).filter(o => o.km <= near.km).sort((a, b) => a.km - b.km);
+      return res.json({ opportunities: out.slice(0, Math.min(limit, 100)), total: out.length });
+    }
     const { rows } = await db.query(
       `SELECT o.id, o.kind, o.title, o.stage, o.priority, o.mw, o.capex, o.probability, o.city, o.province, o.region, o.lat, o.lon,
               o.company_id, c.name AS company_name, o.owner_id, u.name AS owner_name, o.project_id, o.stage_changed_at, o.updated_at

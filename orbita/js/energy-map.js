@@ -6,7 +6,7 @@ import { get, qs } from './api.js';
 import { meta, num } from './energy.js';
 
 let leafletReady = null;
-function loadLeaflet() {
+export function loadLeaflet() {
   leafletReady ??= new Promise((resolve, reject) => {
     document.head.append(h('link', { rel: 'stylesheet', href: '/vendor/leaflet/leaflet.css' }));
     const s = h('script', { src: '/vendor/leaflet/leaflet.js' });

@@ -13,7 +13,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Alma Planet">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="theme-color" content="#FFFFFF">
+  <meta name="theme-color" content="#F7F6F3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#161514" media="(prefers-color-scheme: dark)">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="/brand/tokens.css">
@@ -37,6 +38,8 @@
   <link rel="stylesheet" href="/css/ideas.css">
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
   <link rel="stylesheet" href="/css/refresh.css">
+  <!-- app 2.0 sul telefono (canvas approvato il 13/11/2026): dopo il refresh, vale solo sotto i 760px -->
+  <link rel="stylesheet" href="/css/app2.css">
   <script src="/vendor/fullcalendar/index.global.min.js"></script>
   <script src="/vendor/fullcalendar-locales/it.global.min.js"></script>
   <script type="module" src="/js/main.js"></script>
@@ -147,13 +150,10 @@
     </aside>
     <!-- Sul telefono: barra in alto (notifiche, chat, menu) e barra in basso a cinque tasti, come Instagram -->
     <header class="m-top">
-      <a class="m-logo" href="#/benvenuto" aria-label="Alma Planet, home"><img src="/brand/almacis/app-icon-180.png?v=2" alt=""></a>
-      <button class="m-module" id="m-module" type="button" aria-haspopup="dialog"><span id="m-module-name">Alma Planet</span><span class="m-module-caret" aria-hidden="true">▾</span></button>
+      <button class="m-back" id="m-back" type="button" aria-label="Torna indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span id="m-back-label">Indietro</span></button>
+      <span class="m-title" id="m-title"></span>
       <div class="m-icons">
-        <a class="m-ico" href="#/notifications" data-nav="notifications" aria-label="Notifiche">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-          <span class="nav-badge" data-badge="notifications" hidden></span>
-        </a>
+        <a class="m-ico m-me2" id="m-me" href="#/io" aria-label="Io: profilo e impostazioni"></a>
       </div>
     </header>
     <main class="main">

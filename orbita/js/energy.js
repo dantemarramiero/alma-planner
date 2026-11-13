@@ -46,6 +46,8 @@ function read(form) {
 
 export async function energyView(container, parts = []) {
   if (!store.me.energy) return fill(container, h('div.card.empty', 'Alma Energy è riservato alla BU Energy.'));
+  // «Vicino a me» sul telefono (app 2.0, 13/11): mappa e opportunità intorno a dove sei
+  if (parts[1] === 'vicino') return (await import('./energy-near.js')).nearView(container, new URLSearchParams(location.hash.split('?')[1] || ''));
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
   // la pagina di un'opportunità ha la sua intestazione, come i progetti (ALM2-24)
   if (tab === 'opportunita' && Number(parts[2])) {
