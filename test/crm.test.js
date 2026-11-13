@@ -6,6 +6,7 @@ const { createApp, readConfig } = require('../server');
 const { createDb } = require('../lib/db');
 
 let server, base, db, D, E, F, N, G, crmSync;
+const cookies = {};
 const calendar = new Map(); // calendario finto per email dell'utente
 const ADMIN = 'direzione@almacis.it';
 
@@ -34,8 +35,10 @@ before(async () => {
   server.keepAliveTimeout = 60000;
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  D = as(await login(ADMIN)); // direzione
-  E = as(await login('edile@almacis.it')); // ASA Edilizia
+  cookies.D = await login(ADMIN);
+  D = as(cookies.D); // direzione
+  cookies.E = await login('edile@almacis.it');
+  E = as(cookies.E); // ASA Edilizia
   F = as(await login('facility@almacis.it')); // ASA Facility
   N = as(await login('nessuno@almacis.it')); // nessuna ASA
   G = as(await login('dante.marramiero@almacis.it')); // membro di Alma Energy → ASA Energy
@@ -251,13 +254,13 @@ test('liste da cui scegliere: SOA con classifica, forma giuridica, provincia, zo
   assert.ok(body.meta.regions.find(r => r.name === 'Abruzzo').provinces.some(([k]) => k === 'PE'));
 });
 
-test('unione dei doppioni (direzione): contatti e note passano alla scheda buona', async () => {
+test('unione dei doppioni («Collega a» un\'altra scheda): contatti e note passano alla scheda buona', async () => {
   const { body: a } = await E('POST', '/api/crm/subjects', { name: 'Verdi Srl', roles: ['fornitore'], asa: ['edilizia'], supplier_categories: ['noli'] });
   const { body: b } = await E('POST', '/api/crm/subjects', { name: 'Verdi S.r.l.', vat: '00488410010', roles: ['fornitore'], asa: ['edilizia'] });
   await E('POST', '/api/crm/contacts', { last_name: 'Neri', links: [{ subject_id: a.id, job: 'Commerciale' }] });
   await E('POST', `/api/crm/subjects/${a.id}/notes`, { body: 'Preventivo nolo gru' });
-  assert.equal((await E('POST', `/api/crm/subjects/${a.id}/merge`, { into: b.id })).status, 403);
-  assert.equal((await D('POST', `/api/crm/subjects/${a.id}/merge`, { into: b.id })).status, 200);
+  assert.equal((await F('POST', `/api/crm/subjects/${a.id}/merge`, { into: b.id })).status, 404); // non le vede
+  assert.equal((await E('POST', `/api/crm/subjects/${a.id}/merge`, { into: b.id })).status, 200); // «Collega a» un'altra scheda
   const { body: good } = await E('GET', `/api/crm/subjects/${b.id}`);
   assert.equal(good.contacts[0].last_name, 'Neri');
   assert.equal((await E('GET', `/api/crm/subjects/${b.id}/notes`)).body[0].body, 'Preventivo nolo gru');
@@ -287,4 +290,62 @@ test('owner obbligatorio e funzione di riferimento scelta tra i reparti dell\'or
   assert.equal((await E('PATCH', `/api/crm/subjects/${r.body.id}`, { function_name: 'Marketing' })).status, 400);
   assert.equal((await E('PATCH', `/api/crm/subjects/${r.body.id}`, { function_name: 'Gare' })).body.function_name, 'Gare');
   assert.deepEqual((await E('GET', '/api/crm/subjects?function=Gare')).body.subjects.map(s => s.name), ['Ferro Sud']);
+});
+
+test('«Collega a» aggiunge un ruolo alla stessa scheda; «Trasforma in» lo sostituisce, con lo storico', async () => {
+  const { body: f } = await E('POST', '/api/crm/subjects', { name: 'Gru Adriatiche', roles: ['fornitore'], asa: ['edilizia'], supplier_categories: ['noli'] });
+  const add = await E('POST', `/api/crm/subjects/${f.id}/roles`, { mode: 'add', roles: ['concorrente'] });
+  assert.deepEqual(add.body.roles.sort(), ['concorrente', 'fornitore']);
+  const set = await E('POST', `/api/crm/subjects/${f.id}/roles`, { mode: 'set', roles: ['partner'], note: 'gare in ATI' });
+  assert.deepEqual(set.body.roles, ['partner']);
+  assert.deepEqual(set.body.supplier_categories, ['noli']); // i dati del ruolo vecchio restano
+  const { body: d } = await E('GET', `/api/crm/subjects/${f.id}`);
+  assert.match(d.history[0].note, /Partner · gare in ATI/);
+  assert.equal(d.history[0].to_stage, 'ruoli');
+  // un lead non diventa cliente a mano (solo la direzione)
+  const { body: l } = await E('POST', '/api/crm/subjects', { name: 'Lead Prova', roles: ['lead'], asa: ['edilizia'] });
+  assert.equal((await E('POST', `/api/crm/subjects/${l.id}/roles`, { mode: 'set', roles: ['cliente'] })).status, 400);
+  assert.equal((await E('POST', `/api/crm/subjects/${l.id}/roles`, { mode: 'add', roles: ['cliente'] })).status, 400);
+  assert.deepEqual((await D('POST', `/api/crm/subjects/${l.id}/roles`, { mode: 'add', roles: ['cliente'] })).body.roles, ['cliente']);
+  assert.equal((await F('POST', `/api/crm/subjects/${f.id}/roles`, { mode: 'add', roles: ['cliente'] })).status, 404);
+});
+
+test('caricamento da Zoho: anteprima e caricamento solo per la direzione, classificazione, owner per nome, niente doppioni', async () => {
+  const { writeXlsx } = require('../lib/xlsx');
+  await db.query("INSERT INTO org_people (oid, name, email, department) VALUES ('o9', 'Edile', 'edile@almacis.it', 'Direzione tecnica'), ('o10', 'Vittoria Marinelli', 'vittoria@almacis.it', 'Gare') ON CONFLICT DO NOTHING");
+  await db.query("UPDATE users SET name = 'Marco Edile' WHERE email = 'edile@almacis.it'");
+  const file = writeXlsx({ Sheet0: [
+    ['ID record', 'Nome Azienda', 'Sito Web', 'Owner Azienda', 'Tipologia'],
+    ['z1', 'Comune di Teramo', '', 'Marco Edile', ''],
+    ['z2', 'Fornitori Uniti Srl', '', 'Qualcuno Sconosciuto', 'Fornitori'],
+    ['z3', 'Ing. Paolo Verdi', '', 'Marco Edile', ''],
+    ['z4', 'RTI Costruzioni Alfa - Beta', '', 'Super Admin', ''],
+    ['z5', 'TEST', '', 'Super Admin', ''],
+    ['z6', 'Comune di Teramo', '', 'Marco Edile', ''],
+    ['z7', 'Adriatica Costruzioni', '', 'Marco Edile', ''],
+    ['z8', 'Provincia di Chieti', '', 'Vittoria Marinelli', ''], // non ha mai fatto accesso: è nell'organigramma
+  ] });
+  const post = (who, path) => fetch(base + path, { method: 'POST', headers: { cookie: who, 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: file })
+    .then(async r => ({ status: r.status, body: await r.json() }));
+  assert.equal((await post(cookies.E, '/api/crm/import/anteprima')).status, 403);
+  const pre = await post(cookies.D, '/api/crm/import/anteprima');
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.equal(pre.body.stats.toLoad, 5);
+  assert.equal(pre.body.stats.ownersFromOrg['Vittoria Marinelli'], 1);
+  assert.equal(pre.body.stats.skipped, 1);
+  assert.equal(pre.body.stats.duplicates, 1);
+  assert.equal(pre.body.stats.existing, 1); // Adriatica Costruzioni c'è già
+  assert.equal(pre.body.stats.ownersMissing['Qualcuno Sconosciuto'], 1);
+  const done = await post(cookies.D, '/api/crm/import');
+  assert.equal(done.body.created, 5);
+  const { body: { subjects: [chieti] } } = await D('GET', '/api/crm/subjects?q=provincia di chieti');
+  assert.equal(chieti.owner_name, 'Vittoria Marinelli');
+  assert.equal(chieti.function_name, 'Gare');
+  const { body: { subjects } } = await D('GET', '/api/crm/subjects?q=teramo');
+  assert.deepEqual(subjects[0].roles, ['lead']);
+  assert.equal(subjects[0].owner_name, 'Marco Edile');
+  assert.equal(subjects[0].function_name, 'Direzione tecnica');
+  assert.deepEqual((await D('GET', '/api/crm/subjects?q=fornitori uniti')).body.subjects[0].roles, ['fornitore']);
+  assert.deepEqual((await D('GET', '/api/crm/subjects?q=rti costruzioni')).body.subjects[0].roles, ['concorrente']);
+  assert.equal((await post(cookies.D, '/api/crm/import')).body.created, 0); // rifatto: niente doppioni
 });

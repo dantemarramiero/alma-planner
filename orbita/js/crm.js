@@ -302,6 +302,8 @@ async function subjectPage(container, id, tabKey) {
           h('span.pill.crm-owner', icon('user', { size: 12 }), `Owner ${s.owner_name || '—'}${s.function_name ? ` · ${s.function_name}` : ''}`),
           s.status !== 'attivo' ? h('span.pill.en-lost', data.meta.status[s.status]) : null)),
       h('div.crm-actions',
+        h('button.btn', { type: 'button', on: { click: () => linkDialog(s, () => refresh()) } }, icon('link', { size: 15 }), 'Collega a'),
+        h('button.btn', { type: 'button', on: { click: () => transformDialog(s, () => refresh()) } }, icon('arrows', { size: 15 }), 'Trasforma in'),
         h('button.btn', { type: 'button', on: { click: () => subjectForm({ subject: s, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica'),
         more.childElementCount ? h('details.crm-menu', h('summary.btn.btn-ghost', { 'aria-label': 'Altro' }, icon('more', { size: 16 })), more) : null)),
     s.roles.includes('lead') ? stageBar(s, () => refresh()) : null,
@@ -374,7 +376,7 @@ async function overviewTab(box, s, base, go) {
     ['Zone servite', s.supplier_zones.map(provinceName).join(', ') || '—'], ['SOA', soaText(s.soa)], ['Codice Vittoria', s.vittoria_id || '—']])),
   sec('Qualifica (da Vittoria)', h('p.small.muted', 'Stato della qualifica e documenti a scadenza arriveranno da Vittoria.')));
   if (r.includes('partner') || r.includes('concorrente')) col1.push(sec(r.includes('partner') ? 'Come partner (ATI, RTI, avvalimento)' : 'Come concorrente', dlist([['Categorie SOA', soaText(s.soa)], ['Gare', 'da BOSS']])));
-  if (s.history.length) col1.push(sec('Storico delle fasi', h('ul.en-history', s.history.map(x => h('li', h('strong', x.to_stage === 'cliente' ? 'Cliente' : stageLabel(x.to_stage)),
+  if (s.history.length) col1.push(sec('Storico', h('ul.en-history', s.history.map(x => h('li', h('strong', x.to_stage === 'cliente' ? 'Cliente' : x.to_stage === 'ruoli' ? 'Ruoli' : stageLabel(x.to_stage)),
     h('div.t-meta', [new Date(x.at).toLocaleDateString('it-IT'), x.user_name, x.note].filter(Boolean).join(' · ')))))));
   const contactsLine = [s.pec && h('a', { href: `mailto:${s.pec}` }, `PEC ${s.pec}`), s.email && h('a', { href: `mailto:${s.email}` }, s.email), s.phone && h('a', { href: `tel:${s.phone}` }, s.phone), s.website].filter(Boolean);
   const col2 = [sec('Anagrafica', dlist([
@@ -551,6 +553,67 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
   });
 }
 
+// «Collega a»: la stessa azienda ha anche un altro ruolo (resta una scheda sola), oppure c'è già un'altra scheda
+// della stessa azienda e si uniscono (contatti, email, incontri, note, progetti passano qui).
+async function linkDialog(s, onDone) {
+  const { subjects } = await get('/api/crm/subjects');
+  const others = subjects.filter(x => x.id !== s.id);
+  const free = Object.entries(data.meta.roles).filter(([k]) => !s.roles.includes(k) && !(k === 'lead' && s.roles.includes('cliente')));
+  const roles = chipSet(free, [], { disabled: k => (k === 'cliente' && s.roles.includes('lead') && !data.admin ? 'Un lead diventa cliente da solo alla prima commessa in BOSS' : false) });
+  const search = input({ type: 'search', placeholder: 'Cerca l\'anagrafica…' });
+  const results = h('div.crm-lines.crm-scroll.crm-pickbox');
+  let picked = null;
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const list = q ? others.filter(x => `${x.name} ${x.vat || ''}`.toLowerCase().includes(q)).slice(0, 8) : [];
+    fill(results, list.map(x => h('label.crm-line.crm-pick',
+      h('input', { type: 'radio', name: 'crm-link', checked: picked === x.id, on: { change: () => { picked = x.id; } } }),
+      h('div.grow', h('div.crm-line-t', x.name), h('div.t-meta', [x.roles.map(r => data.meta.roles[r]).join(', '), x.vat && `P.IVA ${x.vat}`, `${x.contacts} contatti`].filter(Boolean).join(' · '))))));
+  };
+  search.addEventListener('input', debounce(draw, 150));
+  const m = modal({
+    title: 'Collega a',
+    body: h('div.en-form',
+      h('p.small.muted', 'La stessa azienda ha più ruoli: resta una sola scheda, e se cambi un dato cambia dappertutto.'),
+      field('È anche…', free.length ? roles.el : h('p.small.muted', 'Ha già tutti i ruoli.')),
+      field('Oppure c\'è già un\'altra scheda della stessa azienda', h('div', search, results),
+        'Le due schede diventano una: contatti, email, incontri, note e progetti passano tutti qui, l\'altra resta come rimando.')),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+      if (!roles.values.size && !picked) return toast('Scegli un ruolo o la scheda da collegare', 'err');
+      if (picked) {
+        const other = others.find(x => x.id === picked);
+        if (!await confirmDialog(`Unire «${other.name}» a «${s.name}»? Tutto passa in questa scheda.`, { ok: 'Unisci' })) return;
+        await post(`/api/crm/subjects/${picked}/merge`, { into: s.id });
+      }
+      if (roles.values.size) await post(`/api/crm/subjects/${s.id}/roles`, { mode: 'add', roles: [...roles.values] });
+      m.close();
+      toast('Collegato');
+      onDone?.();
+    } } }, 'Collega')],
+  });
+}
+
+// «Trasforma in»: il ruolo cambia, la scheda resta la stessa con tutta la sua storia
+function transformDialog(s, onDone) {
+  const opts = Object.entries(data.meta.roles).filter(([k]) => !s.roles.includes(k));
+  const roles = chipSet(opts, [], { disabled: k => (k === 'cliente' && s.roles.includes('lead') && !data.admin ? 'Un lead diventa cliente da solo alla prima commessa in BOSS' : false) });
+  const note = textarea('', { placeholder: 'Perché (facoltativo): «da gennaio facciamo le gare in ATI con loro»', maxlength: 300 });
+  const m = modal({
+    title: 'Trasforma in',
+    body: h('div.en-form',
+      h('p.small.muted', 'Il ruolo cambia: la scheda resta la stessa, con tutta la sua storia; il ruolo vecchio sparisce. I dati del ruolo vecchio (categorie, zone, SOA) restano nella scheda.'),
+      h('div.crm-composer-row', rolePills(s.roles), h('span.muted', '→'), roles.el),
+      field('Nota', note)),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+      if (!roles.values.size) return toast('Scegli il ruolo nuovo', 'err');
+      await post(`/api/crm/subjects/${s.id}/roles`, { mode: 'set', roles: [...roles.values], note: note.value.trim() });
+      m.close();
+      toast(`Trasformata in ${[...roles.values].map(r => data.meta.roles[r]).join(', ')}`);
+      onDone?.();
+    } } }, 'Trasforma')],
+  });
+}
+
 async function mergeForm(s) {
   const { subjects } = await get('/api/crm/subjects');
   const target = select([['', 'Scegli la scheda buona…'], ...subjects.filter(x => x.id !== s.id).map(x => [x.id, `${x.name}${x.vat ? ` · ${x.vat}` : ''}`])], '');
@@ -723,10 +786,52 @@ async function asaTab(box) {
           asaTab(box);
         } } }, mail, h('button.btn.btn-sm', { type: 'submit' }, icon('plus', { size: 15 }), 'Aggiungi')));
     })),
+    importCard(),
     h('form.card.crm-pad.crm-add', { on: { submit: async e => {
       e.preventDefault();
       await post('/api/crm/asa', { label: e.currentTarget.querySelector('input').value });
       toast('ASA creata');
       asaTab(box);
     } } }, input({ placeholder: 'Nome della nuova ASA', maxlength: 60 }), h('button.btn', { type: 'submit' }, icon('plus', { size: 15 }), 'Nuova ASA')));
+}
+
+// Primo caricamento da Zoho: export «Aziende» così com'è, oppure l'Excel di controllo corretto a mano
+function importCard() {
+  const file = h('input', { type: 'file', accept: '.xlsx' });
+  const out = h('div');
+  const send = async (path, buf) => {
+    const res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: buf });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'Errore');
+    return body;
+  };
+  const roleText = r => Object.entries(r).map(([k, n]) => `${data.meta.roles[k]} ${n}`).join(' · ');
+  file.addEventListener('change', async () => {
+    const f = file.files[0];
+    if (!f) return;
+    const buf = await f.arrayBuffer();
+    fill(out, loading());
+    let pre;
+    try { pre = await send('/api/crm/import/anteprima', buf); } catch (err) { return fill(out, h('p.small', { style: { color: 'var(--red)' } }, err.message)); }
+    const st = pre.stats;
+    const missing = Object.entries(st.ownersMissing);
+    fill(out, h('div.en-detail',
+      h('p', `${st.toLoad} da caricare · ${st.existing} già presenti · ${st.duplicates} doppioni · ${st.skipped} escluse`),
+      h('p.small.muted', roleText(st.roles)),
+      missing.length ? h('p.small.muted', `Owner di Zoho non trovati tra i colleghi (le loro aziende vanno a te): ${missing.map(([n, c]) => `${n} (${c})`).join(', ')}`) : null,
+      h('div.card.table-wrap', h('table.list', h('thead', h('tr', ['Azienda', 'Tipo', 'Ruolo', 'ASA', 'Owner', 'Perché'].map(t => h('th', t)))),
+        h('tbody', pre.sample.map(x => h('tr', h('td', x.name), h('td', data.meta.kinds[x.kind] || x.kind), h('td', x.roles.map(r => data.meta.roles[r]).join(', ')),
+          h('td', x.asa.map(asaLabel).join(', ')), h('td', h('div', x.owner, x.function_name ? h('div.t-meta', x.function_name) : null)), h('td.small', x.why)))))),
+      h('div', h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
+        e.currentTarget.disabled = true;
+        try {
+          const r = await send('/api/crm/import', buf);
+          toast(`Caricate ${r.created} aziende`);
+          fill(out, h('p', `Caricate ${r.created} aziende. Le trovi nelle liste del CRM.`));
+        } catch (err) { toast(err.message, 'err'); }
+      } } }, `Carica ${st.toLoad} aziende`))));
+  });
+  return h('section.card.crm-pad.crm-import', h('h3.crm-h3', 'Carica le aziende da Zoho'),
+    h('p.small.muted', 'L\'export «Aziende» di Zoho così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano. Prima vedi l\'anteprima; le aziende già presenti non si toccano.'),
+    file, out);
 }

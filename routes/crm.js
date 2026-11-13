@@ -11,6 +11,7 @@ const {
 } = require('../lib/crm');
 const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { registerCrmLinks } = require('./crm-links');
+const { registerCrmImport } = require('./crm-import');
 const { loadFunctions } = require('../lib/functions');
 const SUBCATS = [...new Set(Object.values(SUPPLIER_SUBCATEGORIES).flat())];
 const SOA_CATS = SOA_CATEGORIES.map(([k]) => k);
@@ -377,6 +378,29 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
     res.json(s);
   });
 
+  // «Collega a»: mode add, la stessa scheda ha un ruolo in più. «Trasforma in»: mode set, il ruolo cambia.
+  // È sempre la stessa scheda: contatti, email, incontri, note e progetti restano; i dati del ruolo vecchio pure.
+  app.post('/api/crm/subjects/:id/roles', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const cur = await subjectById(req, id, { forWrite: true });
+    const mode = v.oneOf(req.body.mode, 'Azione', ['add', 'set']);
+    const given = list(req.body.roles, 'Ruoli', Object.keys(ROLES)) || [];
+    if (!given.length) throw new HttpError(400, 'Scegli almeno un ruolo');
+    let roles = mode === 'add' ? [...new Set([...cur.roles, ...given])] : given;
+    // aggiungere «cliente» a un lead = il lead diventa cliente (solo la direzione: di solito lo fa BOSS)
+    if (mode === 'add' && given.includes('cliente')) roles = roles.filter(r => r !== 'lead');
+    if (mode === 'add' && given.includes('lead') && cur.roles.includes('cliente')) throw new HttpError(400, 'È già cliente: non può tornare lead');
+    checkRoles(req, roles, cur.roles);
+    const note = v.text(req.body.note, 'Nota', { max: 300 }) || '';
+    if (roles.length === cur.roles.length && roles.every(r => cur.roles.includes(r))) return res.json(cur);
+    const sets = ['roles = $2', 'updated_at = now()'];
+    if (roles.includes('cliente') && !cur.client_since) sets.push('client_since = CURRENT_DATE');
+    const { rows: [s] } = await db.query(`UPDATE crm_subjects SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, [id, roles]);
+    const label = r => r.map(x => ROLES[x]).join(', ');
+    await history(id, null, 'ruoli', `${label(cur.roles)} → ${label(roles)}${note ? ` · ${note}` : ''}`, req.user.id);
+    res.json(s);
+  });
+
   // Doppione trovato in un'altra ASA: si aggiunge una delle proprie ASA alla scheda che c'è già.
   app.post('/api/crm/subjects/:id/join', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
@@ -390,7 +414,6 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
 
   // Unione di due schede (direzione): contatti, attività e storico passano alla scheda buona; l'altra rimanda lì.
   app.post('/api/crm/subjects/:id/merge', async (req, res) => {
-    adminOnly(req);
     const id = v.int(req.params.id, 'id', { min: 1 });
     const into = v.int(req.body.into, 'Scheda buona', { min: 1 });
     if (id === into) throw new HttpError(400, 'Scegli un\'altra scheda');
@@ -563,6 +586,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
 
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
+  registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
 }
 
 module.exports = { registerCrm };

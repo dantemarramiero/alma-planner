@@ -160,3 +160,6 @@ label.crm-pick { cursor: pointer; }
 .crm-composer-row { align-items: center; }
 .crm-composer-row .grow { flex: 1; }
 .crm-owner { background: #fff; border: 1px solid var(--rf-line-strong); gap: 4px; }
+.crm-pickbox { margin-top: var(--ap-space-2); max-height: 260px; }
+.crm-import { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-3); }
+.crm-actions { flex-wrap: wrap; justify-content: flex-end; }
