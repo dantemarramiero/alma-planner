@@ -183,7 +183,10 @@ export async function openPlan(id, onDone) {
     const t0 = Date.parse(`${today()}T12:00:00Z`);
     const last = Date.parse(`${dates[dates.length - 1]}T12:00:00Z`);
     const span = Math.max(1, last - t0);
-    const marks = [['Oggi', t0, 'now'], ...[...new Set(dates)].map((d, i, a) => [day(d), Date.parse(`${d}T12:00:00Z`), i === a.length - 1 ? 'end' : ''])];
+    const all = [['Oggi', t0, 'now'], ...[...new Set(dates)].map((d, i, a) => [day(d), Date.parse(`${d}T12:00:00Z`), i === a.length - 1 ? 'end' : ''])];
+    // le etichette troppo vicine si toccherebbero: resta il pallino, l'etichetta solo se c'è spazio (sempre l'ultima)
+    let lastPct = -100;
+    const marks = all.map(([l, t, k]) => { const pct = ((t - t0) / span) * 100; const show = k === 'end' || pct - lastPct >= 12; if (show) lastPct = pct; return [show ? l : '', t, k]; });
     fill(timeline, h('div', { style: { position: 'relative', height: '44px', margin: '0 22px' }, 'aria-label': `Il piano dura fino al ${day(dates[dates.length - 1])}` },
       h('div', { style: { position: 'absolute', left: 0, right: 0, top: '12px', height: '2px', background: 'var(--cv-line)' } }),
       marks.map(([l, t, k]) => h('div', { style: { position: 'absolute', left: `${Math.max(0, Math.min(100, ((t - t0) / span) * 100))}%`, top: '6px', transform: 'translateX(-50%)', display: 'grid', justifyItems: 'center', gap: '4px' } },
@@ -201,7 +204,7 @@ export async function openPlan(id, onDone) {
         dragover: e => { e.preventDefault(); if (dragged && dragged !== r) { const after = e.clientY > r.getBoundingClientRect().top + r.offsetHeight / 2; rows.insertBefore(dragged, after ? r.nextSibling : r); } } } },
     h('span.cv-n', { style: { width: '26px', height: '26px', borderRadius: '50%', background: 'var(--cv-or-t)', color: 'var(--cv-or-ink)', fontWeight: 700, fontSize: '12px', display: 'grid', placeItems: 'center' } }),
     h('div', { style: { display: 'grid', gap: '8px', minWidth: 0 } },
-      h('div.cv-row', { style: { gap: '8px' } }, input({ value: st.title, 'data-f': 'title', placeholder: 'Passo', maxlength: 300, 'aria-label': 'Passo', style: { fontWeight: 500 } }),
+      h('div.cv-row', { style: { gap: '8px' } }, input({ value: st.title, 'data-f': 'title', placeholder: 'Passo', maxlength: 300, 'aria-label': 'Passo', style: { fontWeight: 500, flex: '1', minWidth: '0', width: 'auto' } }),
         input({ type: 'date', value: st.due_date || '', 'data-f': 'due_date', 'aria-label': 'Entro quando', style: { width: '150px', flex: 'none' }, on: { input: drawTimeline } }),
         h('span.btn.btn-sm.btn-ghost.cv-ico', { title: 'Trascina per spostare', 'aria-hidden': 'true', style: { cursor: 'grab' } }, ic('grip-vertical', 15)),
         h('button.btn.btn-sm.btn-ghost.cv-ico', { type: 'button', 'aria-label': 'Togli il passo', on: { click: () => { r.remove(); renumber(); } } }, ic('trash', 14))),

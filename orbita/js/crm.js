@@ -32,7 +32,7 @@ const asaQuery = () => { const c = asaChoice(); return c === 'mine' ? data.myAsa
 const currentAsa = () => { const c = asaChoice(); return c && c !== 'mine' ? c : data.myAsa.length === 1 ? data.myAsa[0] : ''; };
 const ownerDefault = () => { const f = readFilters(); return 'owner' in f ? f.owner : data.mine && !data.admin ? String(store.me.id) : ''; };
 
-const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
+const day = d => (d ? fmtDate(String(d).slice(0, 10)) : '—');
 const eur = n => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 0 })} €`);
 const personName = p => [p.title, p.first_name, p.last_name].filter(Boolean).join(' ');
 const asaLabel = k => data.asa.find(a => a.key === k)?.label || k;
@@ -419,7 +419,7 @@ function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () 
         h('td', moreMenu([['Apri la scheda', () => open(s)], ['Nuovo passo', async () => {
           const full = await get(`/api/crm/subjects/${s.id}`);
           stepDialog({ subjectId: s.id, subjectName: s.name, contacts: full.contacts.filter(x => !x.date_to), defaultOwner: s.owner_id, onSaved: reload });
-        }]], { label: `Azioni per ${s.name}` }))))))),
+        }]], { label: `Azioni per ${s.name}`, ghost: true }))))))),
     h('div.cv-tfoot', `Righe ${page * PAGE + 1}–${page * PAGE + shown.length} di ${subjects.length.toLocaleString('it-IT')}`, h('span.cv-grow'),
       pages > 1 ? [h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina prima', disabled: page === 0 || undefined, on: { click: () => { state.page = page - 1; reload(); } } }, ic('chevron-left', 15)),
         h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina dopo', disabled: page >= pages - 1 || undefined, on: { click: () => { state.page = page + 1; reload(); } } }, ic('chevron-right', 15))] : null));

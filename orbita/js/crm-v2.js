@@ -85,10 +85,10 @@ export function tabsBar(tabs, active, go, { max = 7 } = {}) {
 }
 
 // menu «…» con le azioni secondarie
-export function moreMenu(items, { label = 'Altre azioni' } = {}) {
+export function moreMenu(items, { label = 'Altre azioni', ghost = false } = {}) {
   const list = items.filter(Boolean);
   if (!list.length) return null;
-  const d = h('details.cv-more.cv-more-r', h('summary.btn.cv-ico', { 'aria-label': label, title: label }, ic('more', 16)),
+  const d = h('details.cv-more.cv-more-r', h(ghost ? 'summary.btn.btn-ghost.btn-sm.cv-ico' : 'summary.btn.cv-ico', { 'aria-label': label, title: label }, ic('more', 16)),
     h('div.cv-menu', { role: 'menu' }, list.map(([text, fn, danger]) => h('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', on: { click: () => { d.open = false; fn(); } } }, text))));
   return d;
 }
