@@ -12,6 +12,7 @@ async function fakeOpenAI(url, opts) {
   const items = [
     { title: 'Nuovo stabilimento con capannone da 20.000 mq a Ortona', entity: 'Ortona Logistica Srl', kind: 'investimento', amount: 9000000, region: 'Abruzzo', place: 'Ortona', url: 'https://example.com/ortona', published_on: '2026-11-12', deadline: null, summary: 'Investimento annunciato.', why: 'Capannone industriale' },
     { title: 'Senza fonte', entity: 'X', kind: 'notizia', url: '' },
+    { title: 'Nuovo stabilimento con capannone da 20.000 mq a Ortona', entity: 'Ortona Logistica Srl', kind: 'investimento', url: 'https://example.com/ortona-bis' },
   ];
   return { ok: true, json: async () => ({ output_text: 'Ecco:\n```json\n' + JSON.stringify(items) + '\n```', output: [{ type: 'web_search_call' }], usage: { input_tokens: 20000, output_tokens: 2000 } }) };
 }
@@ -160,7 +161,7 @@ test('giro AI (OpenAI finto): notizie → segnali della BU, spesa per BU, quota 
   assert.equal((await E('POST', '/api/crm/radar/run', {})).status, 403);
   const r = await D('POST', '/api/crm/radar/run', { bu: 'edilizia' });
   assert.equal(r.status, 200);
-  assert.equal(r.body.runs[0].found, 1); // la notizia senza link non passa
+  assert.equal(r.body.runs[0].found, 2); // la notizia senza link non passa; la stessa da un altro sito sì, ma non si aggiunge
   assert.equal(r.body.runs[0].added, 1);
   assert.ok(r.body.runs[0].cost > 0);
   assert.match(aiCalls[0].input, /Edilizia/);
@@ -189,4 +190,22 @@ test('giro AI (OpenAI finto): notizie → segnali della BU, spesa per BU, quota 
   assert.equal(st.ai, true);
   assert.ok(st.runs.length >= 2);
   assert.ok(Number(st.spend.find(x => x.bu === 'edilizia').eur) > 0);
+});
+
+test('risposta dell\'AI: link presi dalle citazioni della ricerca web; testo non JSON → nessun segnale', () => {
+  const { parseSignals } = require('../lib/crm-radar-ai');
+  const items = JSON.stringify([{ title: 'Snam avvia il metanodotto Sulmona-Foligno', entity: 'Snam', kind: 'opera_finanziata' }, { title: 'Notizia senza fonte', entity: 'Nessuno', kind: 'notizia' }]);
+  const out = parseSignals(items, [{ url: 'https://example.com/altro', title: 'Altro' }, { url: 'https://example.com/snam-sulmona', title: 'Metanodotto Sulmona-Foligno, via ai lavori' }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].url, 'https://example.com/snam-sulmona');
+  assert.deepEqual(parseSignals('Non ho trovato notizie utili.'), []);
+});
+
+test('risposta dell\'AI con le citazioni dopo il JSON: si legge solo l\'array', () => {
+  const { parseSignals } = require('../lib/crm-radar-ai');
+  const text = '```json\n[{"title":"Piano da 440 milioni per opere pubbliche [Marche]","entity":"Regione Marche","kind":"opera_finanziata","amount":440300000,"place":null,"url":"https://www.ansa.it/x"}]\n```\n([ansa.it](https://www.ansa.it/x))';
+  const out = parseSignals(text);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].amount, 440300000);
+  assert.equal(parseSignals('[{"title":"A","url":"https://a.it"}] e poi ([a.it](https://a.it))').length, 1);
 });
