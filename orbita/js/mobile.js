@@ -83,7 +83,7 @@ const TABS = {
   strategy: [['#/strategy/hoshin', 'strategy-hoshin', 'grid-3x3', 'Hoshin'], ['#/strategy/a3', 'strategy-a3', 'file-text', 'A3'], ['#/strategy/dashboard', 'strategy-dashboard', 'layout-dashboard', 'Dashboard'], ['#/strategy/obiettivi', 'strategy-obiettivi', 'target', 'Obiettivi']],
   itTeam: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/ticket', 'it-ticket', 'life-buoy', 'Ticket IT'], ['#/it/richieste', 'it-richieste', 'inbox', 'Richieste'], ['#/it/panoramica', 'it-panoramica', 'layout-dashboard', 'Panoramica']],
   it: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/strumenti?azione=segnala', '', 'life-buoy', 'Segnala'], ['#/it/strumenti?azione=richiedi', '', 'plus', 'Richiedi']],
-  crm: [['#/crm/lead', 'crm-lead', 'target', 'Lead'], ['#/crm/clienti', 'crm-clienti', 'building', 'Clienti'], ['#/crm/fornitori', 'crm-fornitori', 'package', 'Fornitori'], ['#/crm/contatti', 'crm-contatti', 'contact', 'Contatti']],
+  crm: [['#/crm/settimana', 'crm-settimana', 'alarm-clock', 'Settimana'], ['#/crm/lead', 'crm-lead', 'target', 'Lead'], ['#/crm/clienti', 'crm-clienti', 'building', 'Clienti'], ['#/crm/contatti', 'crm-contatti', 'contact', 'Contatti']],
   energy: [['#/energy/panoramica', 'energy-panoramica', 'layout-dashboard', 'Panoramica'], ['#/energy/ppa', 'energy-ppa energy-revamping energy-fv energy-opportunita', 'sun', 'Pipeline'], ['#/energy/aziende', 'energy-aziende', 'building', 'Aziende'], ['#/energy/screening', 'energy-screening', 'map', 'Mappa']],
 };
 let current = { key: 'planet', label: 'Alma Planet', modules: [] };

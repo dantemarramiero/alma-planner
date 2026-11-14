@@ -9,8 +9,11 @@ import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
+import { weekTab, settingsTab, stepsCard, keyAccountPill } from './crm-commerciale.js';
 
-const TABS = [['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi']];
+const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni']];
+const ADMIN_TABS = ['asa', 'impostazioni'];
+const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana'];
 const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' };
 const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner' };
 
@@ -120,9 +123,9 @@ export async function crmView(container, parts = []) {
     openCrmMeeting(Number(parts[2]));
     parts = ['crm', 'lead'];
   }
-  const tab = TABS.some(([k]) => k === parts[1]) && (parts[1] !== 'asa' || data.admin) ? parts[1] : 'lead';
+  const tab = TABS.some(([k]) => k === parts[1]) && (!ADMIN_TABS.includes(parts[1]) || data.admin) ? parts[1] : 'settimana'; // si parte da «La mia settimana» (canvas 14/11)
   const body = h('div.en-body', loading());
-  const asaSel = tab !== 'asa'
+  const asaSel = !NO_FILTER_TABS.includes(tab)
     ? select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, a.label])], asaChoice(),
       { 'aria-label': 'ASA', on: { change: e => { saveFilter('asa', e.target.value); crmView(container, parts); } } })
     : null;
@@ -130,13 +133,15 @@ export async function crmView(container, parts = []) {
   // filtri attivi sempre in vista, con «Mostra tutto» (13/11: la direzione era in Energy e non vedeva le aziende caricate)
   const active = [asaEyebrow && `ASA: ${asaEyebrow}`, ownerDefault() === String(store.me.id) && 'Owner: i miei',
     ownerDefault() && ownerDefault() !== String(store.me.id) && `Owner: ${store.users.find(u => String(u.id) === ownerDefault())?.name || '—'}`].filter(Boolean);
-  const banner = tab !== 'asa' && active.length ? h('div.crm-filterbar', icon('sliders', { size: 15 }), h('span', `Stai vedendo solo: ${active.join(' · ')}`),
+  const banner = !NO_FILTER_TABS.includes(tab) && active.length ? h('div.crm-filterbar', icon('sliders', { size: 15 }), h('span', `Stai vedendo solo: ${active.join(' · ')}`),
     h('button.btn.btn-sm', { type: 'button', on: { click: () => { saveFilter('asa', ''); saveFilter('owner', ''); crmView(container, parts); } } }, 'Mostra tutto')) : null;
   fill(container,
-    h('div.page-head', h('div', h('div.en-eyebrow', asaEyebrow && tab !== 'asa' ? `Alma CRM · ${asaEyebrow}` : 'Alma CRM'), h('h1', TABS.find(([k]) => k === tab)[1])), asaSel),
+    h('div.page-head', h('div', h('div.en-eyebrow', asaEyebrow && !NO_FILTER_TABS.includes(tab) ? `Alma CRM · ${asaEyebrow}` : 'Alma CRM'), h('h1', TABS.find(([k]) => k === tab)[1])), asaSel),
     banner,
     body);
-  if (tab === 'lead') await leadTab(body, parts[2]);
+  if (tab === 'settimana') await weekTab(body, data);
+  else if (tab === 'impostazioni') await settingsTab(body, data, parts[2]);
+  else if (tab === 'lead') await leadTab(body, parts[2]);
   else if (tab === 'contatti') await contactsTab(body);
   else if (tab === 'asa') await asaTab(body);
   else await subjectsTab(body, tab);
@@ -311,6 +316,7 @@ async function subjectPage(container, id, tabKey) {
       h('div', h('div.en-eyebrow', kindLine), h('h1', s.name),
         h('div.en-head-pills', rolePills(s.roles), asaPills(s.asa),
           s.client_since ? h('span.pill.crm-r-cliente', `Cliente dal ${s.client_since.slice(0, 4)}`) : null,
+          keyAccountPill(s, () => refresh()),
           h('span.pill.crm-owner', icon('user', { size: 12 }), `Owner ${s.owner_name || '—'}${s.function_name ? ` · ${s.function_name}` : ''}`),
           s.status !== 'attivo' ? h('span.pill.en-lost', data.meta.status[s.status]) : null)),
       h('div.crm-actions',
@@ -319,7 +325,7 @@ async function subjectPage(container, id, tabKey) {
         h('button.btn', { type: 'button', on: { click: () => subjectForm({ subject: s, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica'),
         more.childElementCount ? h('details.crm-menu', h('summary.btn.btn-ghost', { 'aria-label': 'Altro' }, icon('more', { size: 16 })), more) : null)),
     s.roles.includes('lead') ? stageBar(s, () => refresh()) : null,
-    nextStepBox(s, () => refresh()),
+    stepsCard(s, () => refresh()),
     tabsBar(container, tabs, tab, go),
     body);
   const canWrite = true;
@@ -352,21 +358,6 @@ function stageBar(s, refresh) {
     }, l)),
     h('span.crm-stage.crm-stage-end', { title: 'Succede da solo alla prima commessa in BOSS' }, icon('check', { size: 14 }), 'Diventa cliente'),
     s.lead_stage === 'non_interessato' && s.lost_reason ? h('div.small.muted.crm-lost', `Motivo: ${s.lost_reason}${s.retry_date ? ` · riprovare il ${day(s.retry_date)}` : ''}`) : null);
-}
-
-// «Prossimo passo» sempre in alto: si cambia sul posto
-function nextStepBox(s, refresh) {
-  const text = input({ value: s.next_step || '', placeholder: 'Cosa fare (chiamare, mandare la presentazione…)', maxlength: 300 });
-  const date = input({ type: 'date', value: s.next_step_date || '' });
-  const save = async () => {
-    if (text.value.trim() === (s.next_step || '') && (date.value || '') === (s.next_step_date || '')) return;
-    await patch(`/api/crm/subjects/${s.id}`, { next_step: text.value, next_step_date: date.value || null });
-    toast('Prossimo passo salvato');
-    refresh();
-  };
-  text.addEventListener('change', save);
-  date.addEventListener('change', save);
-  return h('div.card.crm-next', { class: late(s.next_step_date) ? 'late' : '' }, h('span.crm-next-lab', icon('alarm-clock', { size: 16 }), 'Prossimo passo'), text, date);
 }
 
 // Panoramica: le informazioni della categoria su tre colonne, poi gli ultimi aggiornamenti

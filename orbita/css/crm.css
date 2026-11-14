@@ -165,3 +165,53 @@ label.crm-pick { cursor: pointer; }
 .crm-actions { flex-wrap: wrap; justify-content: flex-end; }
 .crm-filterbar { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; padding: var(--ap-space-2) var(--ap-space-3); margin: calc(var(--ap-space-3) * -1) 0 var(--ap-space-3); border-radius: var(--radius); background: var(--ap-orange-tint); color: var(--ap-text-strong); font-size: var(--ap-fs-sm); }
 .crm-filterbar span { flex: 1; min-width: 0; }
+
+/* lavoro commerciale (canvas «Lavoro commerciale · Radar AI · Piani d'azione», 14/11/2026) */
+.crm-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ap-space-2); margin-bottom: var(--ap-space-2); }
+.crm-card-head .crm-h3 { margin: 0; display: inline-flex; align-items: center; gap: var(--ap-space-1); }
+.crm-steps { margin-bottom: var(--ap-space-3); }
+.crm-steplist { display: grid; }
+.crm-step { display: flex; gap: var(--ap-space-3); align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--rule); }
+.crm-step:first-child { border-top: 0; }
+.crm-step .grow { flex: 1; min-width: 0; }
+.crm-step .t-meta { display: flex; align-items: center; gap: 4px; }
+.crm-step-check { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--rule); background: var(--card); color: transparent; display: grid; place-items: center; cursor: pointer; margin-top: 1px; }
+.crm-step-check:hover, .crm-step-check:focus-visible { border-color: var(--green); color: var(--green); }
+.crm-step.late .crm-step-check { border-color: var(--red); }
+.crm-step-date { flex: none; font-size: var(--ap-fs-sm); color: var(--muted); white-space: nowrap; }
+.crm-step-acts { flex: none; display: flex; }
+.crm-draft summary { cursor: pointer; }
+.crm-done { margin-top: var(--ap-space-2); }
+.crm-done summary { cursor: pointer; }
+.crm-key { border: 1px dashed var(--rule); background: transparent; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.crm-key.on { border: 1px solid var(--orange); color: var(--orange); background: var(--ap-orange-tint); }
+
+.crm-wk-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ap-space-3); flex-wrap: wrap; margin-bottom: var(--ap-space-3); }
+.crm-wk-head p { margin: 0; }
+.crm-wk-head .select { max-width: 260px; }
+.crm-wk-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--ap-space-3); margin-bottom: var(--ap-space-4); }
+.crm-wk-kpi { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-3) var(--ap-space-4); display: grid; gap: 2px; }
+.crm-wk-kpi strong { font-size: 28px; line-height: 1.1; color: var(--ap-text-strong); font-weight: var(--ap-fw-medium); }
+.crm-wk-kpi span { font-size: var(--ap-fs-sm); color: var(--muted); }
+.crm-wk-kpi.warn strong { color: var(--red); }
+.crm-wk-sub { font-size: var(--ap-fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: var(--ap-space-2) 0 0; }
+.crm-wk-sub.due-late { color: var(--red); }
+
+.crm-lineedit { display: grid; gap: var(--ap-space-1); margin-bottom: var(--ap-space-1); }
+.crm-lineedit-row { display: flex; gap: var(--ap-space-1); align-items: center; }
+.crm-lineedit-row .input { flex: 1; min-width: 0; }
+.crm-lineedit-row .input.crm-w { flex: none; width: 80px; }
+.crm-set-foot { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; padding-top: var(--ap-space-3); margin-top: var(--ap-space-2); border-top: 1px solid var(--rule); }
+.crm-set-list { display: grid; gap: var(--ap-space-3); }
+.crm-set-item { display: grid; gap: var(--ap-space-2); }
+.crm-set-item .crm-composer-row .input { flex: 1; width: auto; }
+.crm-set-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.crm-soa-pick summary { cursor: pointer; padding: var(--ap-space-2) var(--ap-space-3); border: 1px solid var(--rule); border-radius: var(--radius); }
+.crm-soa-pick[open] summary { margin-bottom: var(--ap-space-2); }
+label.crm-check { display: flex; gap: var(--ap-space-2); align-items: center; padding: 0; align-self: auto; }
+@media (max-width: 900px) {
+  .crm-wk-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-set-grid { grid-template-columns: 1fr; }
+  .crm-step-acts .btn { padding-inline: 6px; }
+}
+.crm-composer-row .input.crm-grow { flex: 1; width: auto; min-width: 180px; }

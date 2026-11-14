@@ -12,6 +12,7 @@ const {
 const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { registerCrmLinks } = require('./crm-links');
 const { registerCrmImport } = require('./crm-import');
+const { registerCrmCommerciale } = require('./crm-commerciale');
 const { loadFunctions } = require('../lib/functions');
 const SUBCATS = [...new Set(Object.values(SUPPLIER_SUBCATEGORIES).flat())];
 const SOA_CATS = SOA_CATEGORIES.map(([k]) => k);
@@ -146,6 +147,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   app.use('/api/crm', (req, _res, next) => {
     crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Accesso richiesto')), next);
   });
+  let commercial = null; // lavoro commerciale (registrato in fondo)
   const functionNames = async () => (await loadFunctions(db)).map(f => f.name).sort((a, b) => a.localeCompare(b, 'it'));
   async function checkOwnerFunction(f, { creating }) {
     if (creating && !f.owner_id) throw new HttpError(400, 'Scegli l\'owner dell\'anagrafica');
@@ -426,12 +428,15 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
       }
       await q.query('UPDATE crm_contact_proposals SET subject_id = $2 WHERE subject_id = $1 AND email NOT IN (SELECT email FROM crm_contact_proposals WHERE subject_id = $2)', [id, into]);
       await q.query('UPDATE crm_stage_history SET subject_id = $2 WHERE subject_id = $1', [id, into]);
+      await q.query('UPDATE crm_steps SET subject_id = $2 WHERE subject_id = $1', [id, into]);
+      if (a.key_account) await q.query('UPDATE crm_subjects SET key_account = true WHERE id = $1', [into]);
       await q.query('UPDATE crm_subjects SET group_id = $2 WHERE group_id = $1', [id, into]);
       await q.query(`UPDATE crm_subjects SET merged_into = $2, updated_at = now() WHERE id = $1`, [id, into]);
       const roles = [...new Set([...b.roles, ...a.roles])];
       await q.query(`UPDATE crm_subjects SET roles = $2, asa = $3, updated_at = now() WHERE id = $1`,
         [into, roles.includes('cliente') ? roles.filter(r => r !== 'lead') : roles, [...new Set([...b.asa, ...a.asa])]]);
     });
+    await commercial?.syncNext(into);
     res.json({ ok: true, into });
   });
 
@@ -580,6 +585,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
+  commercial = registerCrmCommerciale(app, { db, subjectById }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 
 module.exports = { registerCrm };
