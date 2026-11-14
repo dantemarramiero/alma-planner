@@ -199,3 +199,12 @@ test('risposta dell\'AI: link presi dalle citazioni della ricerca web; testo non
   assert.equal(out[0].url, 'https://example.com/snam-sulmona');
   assert.deepEqual(parseSignals('Non ho trovato notizie utili.'), []);
 });
+
+test('risposta dell\'AI con le citazioni dopo il JSON: si legge solo l\'array', () => {
+  const { parseSignals } = require('../lib/crm-radar-ai');
+  const text = '```json\n[{"title":"Piano da 440 milioni per opere pubbliche [Marche]","entity":"Regione Marche","kind":"opera_finanziata","amount":440300000,"place":null,"url":"https://www.ansa.it/x"}]\n```\n([ansa.it](https://www.ansa.it/x))';
+  const out = parseSignals(text);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].amount, 440300000);
+  assert.equal(parseSignals('[{"title":"A","url":"https://a.it"}] e poi ([a.it](https://a.it))').length, 1);
+});
