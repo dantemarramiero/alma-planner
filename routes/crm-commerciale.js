@@ -179,7 +179,7 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
     const until = addDays(today, settings.rules.week_ahead_days);
     const rhythm = settings.rules.key_rhythm_days;
 
-    const [{ rows: steps }, { rows: keys }, { rows: meetings }, { rows: leads }] = await Promise.all([
+    const [{ rows: steps }, { rows: keys }, { rows: meetings }, { rows: leads }, { rows: business }] = await Promise.all([
       db.query(`${STEP_SELECT} WHERE st.owner_id = $1 AND st.done_at IS NULL AND st.due_date <= $2 ORDER BY st.due_date, st.sort, st.id LIMIT 200`, [userId, until]),
       db.query(
         `SELECT s.id, s.name, s.asa, s.owner_id, u.name AS owner_name, s.key_rhythm_days, s.next_step, s.next_step_date,
@@ -213,6 +213,12 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
             AND s.lead_stage <> 'non_interessato'
             AND NOT EXISTS (SELECT 1 FROM crm_steps st WHERE st.subject_id = s.id AND st.done_at IS NULL)
           ORDER BY s.created_at DESC`, [userId]),
+      // passi aperti delle iniziative di «Nuovi business» (Dante 14/11: «si dai»), scaduti o fino a fine settimana
+      db.query(
+        `SELECT t.id, t.title, t.due_date, t.phase, i.id AS initiative_id, i.name AS initiative_name
+           FROM crm_initiative_tasks t JOIN crm_initiatives i ON i.id = t.initiative_id
+          WHERE t.owner_id = $1 AND t.done_at IS NULL AND (t.due_date IS NULL OR t.due_date <= $2)
+          ORDER BY t.due_date NULLS LAST, t.sort, t.id LIMIT 50`, [userId, until]).catch(() => ({ rows: [] })),
     ]);
     const silent = keys.map(k => {
       const last = dayOf(k.last_contact);
@@ -226,6 +232,7 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
       keyAccounts: { total: keys.length, silent },
       missingNotes: meetings,
       leadsWithoutStep: { total: leads.length, list: leads.slice(0, 20) },
+      business: business.map(t => ({ ...t, due_date: dayOf(t.due_date), late: Boolean(t.due_date) && dayOf(t.due_date) < today })),
       signals: [], // il radar arriva nella prossima tappa
     });
   });

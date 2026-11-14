@@ -191,6 +191,10 @@ export async function weekTab(box, data, { userId = null } = {}) {
     self && w.bus.length ? h('a.small', { href: '#/crm/sottosoglia' }, 'Vedi anche i segnali sotto soglia') : null);
   const plansCard = plans.plans.length ? card('Piani d\'azione da accettare', null, h('div.crm-lines', plans.plans.map(p => h('button.crm-line.crm-linkline', { type: 'button', on: { click: () => openPlan(p.id, again) } },
     ico('list'), h('div.grow', h('div.crm-line-t', p.title), h('div.t-meta', `${p.subject_name} · ${p.steps.length} passi proposti`)), h('span.pill.crm-r-lead', 'da accettare'))))) : null;
+  const businessCard = w.business?.length ? card('Nuovi business', h('a.t-meta', { href: '#/crm/business' }, 'Tutte le iniziative'), h('div.crm-steplist', w.business.map(t => h('div.crm-step', { class: t.late ? 'late' : '' },
+    h('button.crm-step-check', { type: 'button', title: 'Segna come fatto', 'aria-label': `Segna come fatto: ${t.title}`, on: { click: async () => { await patch(`/api/crm/business/tasks/${t.id}`, { done: true }); toast('Fatto'); again(); } } }, icon('check', { size: 14 })),
+    h('div.grow', h('div.crm-line-t', t.title, t.late ? h('span.crm-bang', { title: 'Scaduto' }, '!') : null), h('a.t-meta', { href: `#/crm/business/${t.initiative_id}` }, t.initiative_name)),
+    h('span.crm-step-date', { class: t.late ? 'due-late' : '' }, t.due_date ? day(t.due_date) : 'senza data'))))) : null;
   const gareCard = gare?.signals?.length ? card('Ufficio gare', null, h('a.crm-line.crm-linkline', { href: '#/crm/gare' }, ico('inbox'), h('div.grow', h('div.crm-line-t', `${gare.signals.length} gare proposte dal radar`), h('div.t-meta', 'da guardare prima della riunione del mercoledì')))) : null;
   fill(box,
     h('div.crm-wk-head', h('p.muted', `${self ? 'Le tue cose' : `Le cose di ${w.user.name}`} fino al ${day(w.until)}${w.bus.length ? ` · responsabile di ${w.bus.map(asaName).join(', ')}` : ''}`),
@@ -212,6 +216,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
             } } }, icon('plus', { size: 14 }), 'Passo'))))
             : empty('Tutti i tuoi lead hanno un prossimo passo.'))),
       h('div.crm-side',
+        businessCard,
         gareCard,
         card('Key account da sentire', h('span.t-meta', `${w.keyAccounts.total} key account`),
           w.keyAccounts.silent.length ? h('div.crm-lines', w.keyAccounts.silent.map(k => h('a.crm-line.crm-linkline', { href: `#/crm/scheda/${k.id}` }, ico('star'),

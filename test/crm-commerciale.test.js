@@ -120,3 +120,13 @@ test('impostazioni: valori di partenza del doc, le cambia solo la direzione, con
   assert.equal((await D('PUT', '/api/crm/commerciale/playbooks', { value: [{ name: 'Nuovo stabilimento', bu: ['impianti'], steps: ['Chiamare', 'Incontro'], check: 'Trattativa?' }] })).body.settings.playbooks[0].id, 'nuovo_stabilimento');
   assert.equal((await D('DELETE', '/api/crm/commerciale/scoring')).body.settings.scoring.min, 50);
 });
+
+test('La mia settimana: passi aperti delle iniziative di Nuovi business', async () => {
+  const eid = await meId(E);
+  const { rows: [i] } = await db.query("INSERT INTO crm_initiatives (name, owner_id) VALUES ('Reti elettriche MT/BT', $1) RETURNING id", [eid]);
+  await db.query("INSERT INTO crm_initiative_tasks (initiative_id, phase, title, owner_id, due_date) VALUES ($1, 'esplorazione', 'Sentire e-distribuzione', $2, $3), ($1, 'analisi', 'Fra un mese', $2, $4)", [i.id, eid, plus(-1), plus(40)]);
+  const w = (await E('GET', '/api/crm/settimana')).body;
+  assert.equal(w.business.length, 1);
+  assert.equal(w.business[0].initiative_name, 'Reti elettriche MT/BT');
+  assert.equal(w.business[0].late, true);
+});
