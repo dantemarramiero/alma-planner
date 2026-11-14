@@ -341,7 +341,15 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         cost = r.costEur;
         found = r.signals.length;
         if (!found) error = `Nessuna notizia utilizzabile: ${r.raw || 'risposta vuota'}`.slice(0, 900);
-        for (const s of r.signals) if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu }, c, null)) added++;
+        // la stessa notizia da due siti è un doppione: stesso titolo nella BU negli ultimi 60 giorni
+        const key = t => norm(t).replace(/[^a-z0-9 ]/g, '').trim();
+        const { rows: recent } = await db.query(`SELECT title FROM crm_signals WHERE bu = $1 AND created_at > now() - interval '60 days'`, [bu]);
+        const seen = new Set(recent.map(x => key(x.title)));
+        for (const s of r.signals) {
+          if (seen.has(key(s.title))) continue;
+          seen.add(key(s.title));
+          if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu }, c, null)) added++;
+        }
       } catch (err) { error = String(err.message || err).slice(0, 500); }
       await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, $2, $3) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [month(), bu, cost]);
       await db.query('INSERT INTO crm_radar_runs (bu, found, added, cost_eur, error) VALUES ($1, $2, $3, $4, $5)', [bu, found, added, cost, error]);

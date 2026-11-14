@@ -12,6 +12,7 @@ async function fakeOpenAI(url, opts) {
   const items = [
     { title: 'Nuovo stabilimento con capannone da 20.000 mq a Ortona', entity: 'Ortona Logistica Srl', kind: 'investimento', amount: 9000000, region: 'Abruzzo', place: 'Ortona', url: 'https://example.com/ortona', published_on: '2026-11-12', deadline: null, summary: 'Investimento annunciato.', why: 'Capannone industriale' },
     { title: 'Senza fonte', entity: 'X', kind: 'notizia', url: '' },
+    { title: 'Nuovo stabilimento con capannone da 20.000 mq a Ortona', entity: 'Ortona Logistica Srl', kind: 'investimento', url: 'https://example.com/ortona-bis' },
   ];
   return { ok: true, json: async () => ({ output_text: 'Ecco:\n```json\n' + JSON.stringify(items) + '\n```', output: [{ type: 'web_search_call' }], usage: { input_tokens: 20000, output_tokens: 2000 } }) };
 }
@@ -160,7 +161,7 @@ test('giro AI (OpenAI finto): notizie → segnali della BU, spesa per BU, quota 
   assert.equal((await E('POST', '/api/crm/radar/run', {})).status, 403);
   const r = await D('POST', '/api/crm/radar/run', { bu: 'edilizia' });
   assert.equal(r.status, 200);
-  assert.equal(r.body.runs[0].found, 1); // la notizia senza link non passa
+  assert.equal(r.body.runs[0].found, 2); // la notizia senza link non passa; la stessa da un altro sito sì, ma non si aggiunge
   assert.equal(r.body.runs[0].added, 1);
   assert.ok(r.body.runs[0].cost > 0);
   assert.match(aiCalls[0].input, /Edilizia/);
