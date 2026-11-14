@@ -5,14 +5,15 @@
 // - «La mia settimana»: passi scaduti e in scadenza, key account non sentiti, incontri senza note, lead senza passo;
 // - impostazioni del lavoro commerciale modificabili dall'app (solo la direzione le cambia).
 const { HttpError, v } = require('../lib/http');
-const { CHANNELS, PILOT, SECTIONS, clean, loadSettings, personKey } = require('../lib/crm-commerciale');
+const { CHANNELS, PILOT, SECTIONS, clean, loadSettings, managerOf } = require('../lib/crm-commerciale');
+const { registerCrmRadar } = require('./crm-radar');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const nowRome = () => new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Rome' }).replace(' ', 'T').slice(0, 19);
 const addDays = (iso, n) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const dayOf = x => (x ? (x instanceof Date ? x.toISOString() : String(x)).slice(0, 10) : null);
 
-function registerCrmCommerciale(app, { db, subjectById }) {
+function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch }) {
   const adminOnly = req => { if (!req.crm.admin) throw new HttpError(403, 'Solo la direzione cambia le impostazioni del lavoro commerciale'); };
 
   // il primo passo aperto torna sulla scheda: le liste e le card lo mostrano con il «!» se è scaduto
@@ -125,12 +126,6 @@ function registerCrmCommerciale(app, { db, subjectById }) {
   });
 
   // ── impostazioni ───────────────────────────────────────────────────────────────────────────
-  // responsabile di una BU: quello scelto, oppure la persona con lo stesso nome del valore di partenza
-  function managerOf(profile, users) {
-    if (profile.manager_id) return users.find(u => u.id === profile.manager_id) || null;
-    const key = personKey(profile.manager_name);
-    return key ? users.find(u => personKey(u.name) === key) || null : null;
-  }
   async function settingsView() {
     const [settings, { rows: asa }, { rows: users }, { rows: clients }] = await Promise.all([
       loadSettings(db),
@@ -235,6 +230,7 @@ function registerCrmCommerciale(app, { db, subjectById }) {
     });
   });
 
+  registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails, radarFetch });
   return { syncNext };
 }
 

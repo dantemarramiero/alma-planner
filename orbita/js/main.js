@@ -343,6 +343,7 @@ async function start() {
   document.getElementById('nav-pm-mans').hidden = !store.me.is_admin;
   document.getElementById('nav-crm-asa').hidden = !store.me.is_admin; // CRM: ASA e accessi solo per la direzione
   document.getElementById('nav-crm-settings').hidden = !store.me.is_admin; // e le impostazioni del lavoro commerciale
+  document.getElementById('nav-crm-gare').hidden = !store.me.is_admin; // coda dell'ufficio gare (chi è dell'ufficio la trova in La mia settimana)
   document.getElementById('nav-crm-admin-label').hidden = !store.me.is_admin;
   // la dashboard dei team la vedono gli amministratori, il team HR e chi è responsabile di qualcuno
   document.getElementById('nav-pm-team').hidden = !store.me.is_admin;

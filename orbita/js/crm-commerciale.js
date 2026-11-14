@@ -5,6 +5,7 @@ import { get, post, put, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 import { openCrmMeeting } from './crm-tabs.js';
+import { signalRow, newSignalDialog, openPlan } from './crm-radar.js';
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
@@ -177,16 +178,29 @@ export async function weekTab(box, data, { userId = null } = {}) {
   const who = data.admin ? select(userOptions('Io'), userId || '', { 'aria-label': 'Settimana di', on: { change: e => weekTab(box, data, { userId: Number(e.target.value) || null }) } }) : null;
   const asaName = k => data.asa.find(a => a.key === k)?.label || k;
   const stepsList = list => h('div.crm-steplist', list.map(st => stepRow(st, { showSubject: true, onChange: again })));
-  const radarCard = card('Segnali del radar', null,
-    w.radar.on.length ? empty(`Il radar della tua BU (${w.radar.on.map(asaName).join(', ')}) parte con il pilota: qui arriveranno i segnali da decidere (Interessa o Scarta) e i piani d'azione.`)
-      : w.bus.length ? empty(`Il radar di ${w.bus.map(asaName).join(', ')} è spento: nel pilota sono accese ${w.radar.pilot.map(asaName).join(', ')}. Si accende da Impostazioni.`)
-        : empty('I segnali del radar arrivano ai responsabili di BU. Il responsabile di ogni BU si sceglie in Impostazioni → Profili BU.'));
+  // segnali e piani da accettare: quelli di chi guarda (la settimana di un altro li mostra solo a lui)
+  const self = w.user.id === store.me.id;
+  const [sig, plans, gare] = self ? await Promise.all([
+    get('/api/crm/radar/signals').catch(() => null), get('/api/crm/radar/plans').catch(() => ({ plans: [] })),
+    data.gare ? get('/api/crm/radar/signals?view=gare').catch(() => null) : null]) : [null, { plans: [] }, null];
+  const radarCard = card('Segnali del radar', sig?.signals?.length ? h('span.t-meta', `${sig.signals.length} da decidere`) : null,
+    sig?.signals?.length ? h('div.crm-steplist', sig.signals.slice(0, 15).map(g => signalRow(g, { highlight: sig.highlight, reasons: sig.discardReasons, onChange: again, data })))
+      : w.radar.on.length ? empty(`Nessun segnale da decidere per ${w.radar.on.map(asaName).join(', ')}. Il radar legge le fonti ogni notte; puoi anche segnalare tu un'occasione.`)
+        : w.bus.length ? empty(`Il radar di ${w.bus.map(asaName).join(', ')} è spento: nel pilota sono accese ${w.radar.pilot.map(asaName).join(', ')}. Si accende da Impostazioni.`)
+          : empty('I segnali del radar arrivano ai responsabili di BU. Il responsabile di ogni BU si sceglie in Impostazioni → Profili BU.'),
+    self && w.bus.length ? h('a.small', { href: '#/crm/sottosoglia' }, 'Vedi anche i segnali sotto soglia') : null);
+  const plansCard = plans.plans.length ? card('Piani d\'azione da accettare', null, h('div.crm-lines', plans.plans.map(p => h('button.crm-line.crm-linkline', { type: 'button', on: { click: () => openPlan(p.id, again) } },
+    ico('list'), h('div.grow', h('div.crm-line-t', p.title), h('div.t-meta', `${p.subject_name} · ${p.steps.length} passi proposti`)), h('span.pill.crm-r-lead', 'da accettare'))))) : null;
+  const gareCard = gare?.signals?.length ? card('Ufficio gare', null, h('a.crm-line.crm-linkline', { href: '#/crm/gare' }, ico('inbox'), h('div.grow', h('div.crm-line-t', `${gare.signals.length} gare proposte dal radar`), h('div.t-meta', 'da guardare prima della riunione del mercoledì')))) : null;
   fill(box,
-    h('div.crm-wk-head', h('p.muted', `${w.user.id === store.me.id ? 'Le tue cose' : `Le cose di ${w.user.name}`} fino al ${day(w.until)}${w.bus.length ? ` · responsabile di ${w.bus.map(asaName).join(', ')}` : ''}`), who),
+    h('div.crm-wk-head', h('p.muted', `${self ? 'Le tue cose' : `Le cose di ${w.user.name}`} fino al ${day(w.until)}${w.bus.length ? ` · responsabile di ${w.bus.map(asaName).join(', ')}` : ''}`),
+      h('div.crm-wk-actions', h('button.btn', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, icon('plus', { size: 15 }), 'Segnala un\'occasione'), who)),
     h('div.crm-wk-kpis', kpi(late.length, 'passi scaduti', true), kpi(soon.length, 'passi in scadenza'), kpi(w.keyAccounts.silent.length, 'key account da sentire', true),
       kpi(w.missingNotes.length, 'incontri senza note', true), kpi(w.leadsWithoutStep.total, 'lead senza passo', true)),
     h('div.crm-grid',
       h('div.crm-side',
+        plansCard,
+        radarCard,
         card('Prossimi passi', null, w.steps.length ? [late.length ? h('div.crm-wk-sub.due-late', 'Scaduti') : null, late.length ? stepsList(late) : null,
           soon.length ? h('div.crm-wk-sub', 'Da fare') : null, soon.length ? stepsList(soon) : null] : empty('Niente in scadenza. Ogni lead e cliente attivo dovrebbe avere un prossimo passo.')),
         card('Lead senza prossimo passo', w.leadsWithoutStep.total > w.leadsWithoutStep.list.length ? h('span.t-meta', `${w.leadsWithoutStep.list.length} di ${w.leadsWithoutStep.total}`) : null,
@@ -198,7 +212,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
             } } }, icon('plus', { size: 14 }), 'Passo'))))
             : empty('Tutti i tuoi lead hanno un prossimo passo.'))),
       h('div.crm-side',
-        radarCard,
+        gareCard,
         card('Key account da sentire', h('span.t-meta', `${w.keyAccounts.total} key account`),
           w.keyAccounts.silent.length ? h('div.crm-lines', w.keyAccounts.silent.map(k => h('a.crm-line.crm-linkline', { href: `#/crm/scheda/${k.id}` }, ico('star'),
             h('div.grow', h('div.crm-line-t', k.name), h('div.t-meta', k.last_contact ? `Ultimo contatto ${day(k.last_contact)} · ${k.days} giorni fa` : 'Mai sentito da quando è nel CRM')),
@@ -241,24 +255,50 @@ export async function settingsTab(box, data, section = 'radar') {
     const budget = input({ type: 'number', min: 0, max: 10000, value: r.budget_eur });
     const hour = input({ type: 'number', min: 0, max: 23, value: r.run_hour });
     const alert = h('input', { type: 'checkbox', checked: r.alert_admins_on_budget });
+    const gare = new Set(r.gare_users || []);
+    const gareBox = h('div.en-chips');
+    const drawGare = () => fill(gareBox, [...gare].map(id => h('span.pill.crm-member', store.users.find(u => u.id === id)?.name || '—',
+      h('button.crm-x', { type: 'button', 'aria-label': 'Togli', on: { click: () => { gare.delete(id); drawGare(); } } }, icon('x', { size: 12 })))));
+    const addGare = select(userOptions('Aggiungi una persona…'), '', { 'aria-label': 'Aggiungi all’ufficio gare', on: { change: e => { if (e.target.value) gare.add(Number(e.target.value)); e.target.value = ''; drawGare(); } } });
+    drawGare();
     const sum = h('strong');
+    const status = await get('/api/crm/radar/status').catch(() => ({ ai: false, spend: [], runs: [] }));
+    const spent = k => Number(status.spend.find(x => x.bu === k)?.eur || 0);
     const rows = view.asa.map(a => {
       const b = r.bu[a.key] || { on: false, quota_eur: 0 };
       const on = h('input', { type: 'checkbox', checked: b.on, 'aria-label': `Radar acceso per ${a.label}` });
       const quota = input({ type: 'number', min: 0, max: 10000, value: b.quota_eur, 'aria-label': `Quota di ${a.label}` });
       return { key: a.key, on, quota, tr: h('tr', h('td', h('label.crm-check', on, h('span', a.label))), h('td', view.pilot.includes(a.key) ? h('span.pill.crm-r-lead', 'pilota') : ''),
-        h('td', st.profiles[a.key]?.manager?.name || st.profiles[a.key]?.manager_name || h('span.muted', 'da assegnare')), h('td.num', quota)) };
+        h('td', st.profiles[a.key]?.manager?.name || st.profiles[a.key]?.manager_name || h('span.muted', 'da assegnare')), h('td.num', spent(a.key) ? `${spent(a.key).toLocaleString('it-IT', { maximumFractionDigits: 2 })} €` : '—'), h('td.num', quota)) };
     });
     const total = () => { const n = rows.reduce((s, x) => s + (Number(x.quota.value) || 0), 0); sum.textContent = `${n} € di ${budget.value || 0} €`; sum.classList.toggle('due-late', n > Number(budget.value || 0)); };
     rows.forEach(x => x.quota.addEventListener('input', total));
     budget.addEventListener('input', total);
     total();
-    fill(body, h('section.card.crm-pad.en-form',
+    const asaLab = k => view.asa.find(a => a.key === k)?.label || k;
+    const finished = status.spend.filter(x => x.alerted_at);
+    const last = status.runs[0];
+    const aiCard = h('section.card.crm-pad.crm-ai',
+      h('div.crm-card-head', h('h3.crm-h3', 'Lettura delle notizie con l’AI'),
+        status.ai ? h('button.btn.btn-sm', { type: 'button', on: { click: async e => {
+          e.currentTarget.disabled = true;
+          const out = await post('/api/crm/radar/run', {}).catch(() => null);
+          if (out) toast(out.runs.map(x => `${asaLab(x.bu)}: ${x.skipped || `${x.added} segnali nuovi${x.error ? ' (errore)' : ''}`}`).join(' · ') || 'Nessuna BU accesa');
+          go(section);
+        } } }, icon('refresh', { size: 14 }), 'Avvia adesso') : null),
+      status.ai ? h('p.small', `Accesa (OpenAI, ${status.model}). Ultimo giro: ${last ? `${day(last.at)} · ${asaLab(last.bu)}${last.error ? ` · errore: ${last.error}` : ''}` : 'non ancora'}.`)
+        : h('p.small.due-late', 'Spenta: manca la chiave OpenAI. Va messa su Railway, nel servizio di Alma Planet, con il nome OPENAI_API_KEY. Senza chiave il radar lavora con l’export di Infordat e le segnalazioni a mano.'),
+      finished.map(x => h('div.crm-budget-alert', icon('alert-triangle', { size: 15 }),
+        h('span.grow', `${asaLab(x.bu)} ha finito il budget del radar (${r.bu[x.bu]?.quota_eur ?? 0} €). Fino a quando non decidi riceve solo i segnali dai dati pubblici.`),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/crm/radar/budget/${x.bu}`, { eur: 10 }); toast('Quota aumentata di 10 €'); go(section); } } }, 'Aumenta di 10 €'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: e => e.currentTarget.closest('.crm-budget-alert').remove() } }, 'Lascia così'))));
+    fill(body, aiCard, h('section.card.crm-pad.en-form',
       h('div.en-row2', field('Budget mensile dell\'AI (€)', budget, 'Arrivato al tetto, il radar si ferma fino al mese dopo.'), field('Ora del giro notturno', hour, 'Il radar legge le fonti una volta al giorno.')),
       h('label.crm-check', alert, h('span', 'Quando una BU finisce la sua quota, avvisa gli amministratori con «Aumenta» o «Lascia così». Finché nessuno decide riceve solo i segnali dai dati pubblici.')),
-      h('div.en-table-wrap', h('table.en-table', h('thead', h('tr', h('th', 'BU (acceso / spento)'), h('th', ''), h('th', 'Responsabile'), h('th.num', 'Quota (€/mese)'))), h('tbody', rows.map(x => x.tr)))),
+      h('div.en-table-wrap', h('table.en-table', h('thead', h('tr', h('th', 'BU (acceso / spento)'), h('th', ''), h('th', 'Responsabile'), h('th.num', 'Speso questo mese'), h('th.num', 'Quota (€/mese)'))), h('tbody', rows.map(x => x.tr)))),
       h('p.small', 'Quote assegnate: ', sum),
-      foot('radar', () => save('radar', { budget_eur: Number(budget.value), run_hour: Number(hour.value), alert_admins_on_budget: alert.checked,
+      field('Ufficio gare', h('div', gareBox, addGare), 'Vedono la coda «Proposte dal radar» e caricano l’export di Infordat. La direzione la vede sempre.'),
+      foot('radar', () => save('radar', { budget_eur: Number(budget.value), run_hour: Number(hour.value), alert_admins_on_budget: alert.checked, gare_users: [...gare],
         bu: Object.fromEntries(rows.map(x => [x.key, { on: x.on.checked, quota_eur: Number(x.quota.value) || 0 }])) }))));
   } else if (section === 'scoring') {
     const sc = st.scoring;

@@ -13,6 +13,7 @@ const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { registerCrmLinks } = require('./crm-links');
 const { registerCrmImport } = require('./crm-import');
 const { registerCrmCommerciale } = require('./crm-commerciale');
+const { loadSettings } = require('../lib/crm-commerciale');
 const { loadFunctions } = require('../lib/functions');
 const SUBCATS = [...new Set(Object.values(SUPPLIER_SUBCATEGORIES).flat())];
 const SOA_CATS = SOA_CATEGORIES.map(([k]) => k);
@@ -143,7 +144,7 @@ function contactFields(b, { partial }) {
   });
 }
 
-function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
+function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails = [], radarFetch }) {
   app.use('/api/crm', (req, _res, next) => {
     crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Accesso richiesto')), next);
   });
@@ -186,14 +187,17 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   app.get('/api/crm', async (req, res) => {
     const params = [];
     const see = seeSql(req, 's', params);
-    const [asa, { rows: counts }, { rows: stages }, functions] = await Promise.all([
+    const [asa, { rows: counts }, { rows: stages }, functions, commerciale] = await Promise.all([
       allAsa(),
       db.query(`SELECT r AS role, COUNT(*)::int AS n FROM crm_subjects s, unnest(s.roles) r WHERE s.merged_into IS NULL AND ${see} GROUP BY r`, params),
       db.query(`SELECT s.lead_stage AS stage, COUNT(*)::int AS n FROM crm_subjects s WHERE s.merged_into IS NULL AND 'lead' = ANY(s.roles) AND ${see} GROUP BY s.lead_stage`, params),
       functionNames(),
+      loadSettings(db),
     ]);
     res.json({
       admin: req.crm.admin, myAsa: req.crm.asas, asa, functions,
+      gare: req.crm.admin || (commerciale.radar.gare_users || []).includes(req.user.id), // coda «Proposte dal radar»
+      keyRhythm: commerciale.rules.key_rhythm_days,
       mine: (await db.query('SELECT COUNT(*)::int AS n FROM crm_subjects WHERE owner_id = $1 AND merged_into IS NULL', [req.user.id])).rows[0].n,
       counts: Object.fromEntries(counts.map(r => [r.role, r.n])),
       stages: Object.fromEntries(stages.map(r => [r.stage, r.n])),
@@ -585,7 +589,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync }) {
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
-  commercial = registerCrmCommerciale(app, { db, subjectById }); // prossimi passi, key account, La mia settimana, impostazioni
+  commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 
 module.exports = { registerCrm };

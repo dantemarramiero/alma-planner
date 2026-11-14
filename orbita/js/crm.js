@@ -10,10 +10,11 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
 import { weekTab, settingsTab, stepsCard, keyAccountPill } from './crm-commerciale.js';
+import { gareTab, belowTab, plansTab } from './crm-radar.js';
 
-const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni']];
+const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia']];
 const ADMIN_TABS = ['asa', 'impostazioni'];
-const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana'];
+const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana', 'gare', 'sottosoglia'];
 const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' };
 const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner' };
 
@@ -123,7 +124,7 @@ export async function crmView(container, parts = []) {
     openCrmMeeting(Number(parts[2]));
     parts = ['crm', 'lead'];
   }
-  const tab = TABS.some(([k]) => k === parts[1]) && (!ADMIN_TABS.includes(parts[1]) || data.admin) ? parts[1] : 'settimana'; // si parte da «La mia settimana» (canvas 14/11)
+  const tab = TABS.some(([k]) => k === parts[1]) && (!ADMIN_TABS.includes(parts[1]) || data.admin) && (parts[1] !== 'gare' || data.gare) ? parts[1] : 'settimana'; // si parte da «La mia settimana» (canvas 14/11)
   const body = h('div.en-body', loading());
   const asaSel = !NO_FILTER_TABS.includes(tab)
     ? select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, a.label])], asaChoice(),
@@ -141,6 +142,8 @@ export async function crmView(container, parts = []) {
     body);
   if (tab === 'settimana') await weekTab(body, data);
   else if (tab === 'impostazioni') await settingsTab(body, data, parts[2]);
+  else if (tab === 'gare') await gareTab(body, data);
+  else if (tab === 'sottosoglia') await belowTab(body, data);
   else if (tab === 'lead') await leadTab(body, parts[2]);
   else if (tab === 'contatti') await contactsTab(body);
   else if (tab === 'asa') await asaTab(body);
@@ -291,7 +294,7 @@ async function subjectPage(container, id, tabKey) {
   const c = await counts(base);
   const back = TAB_OF_ROLE[s.roles[0]] || 'tutte';
   const active = s.contacts.filter(x => !x.date_to);
-  const tabs = [['panoramica', 'Panoramica'], ['contatti', label('Contatti', active.length)], ['email', label('Email', c.email)], ['incontri', label('Incontri', c.incontri, c.missing)],
+  const tabs = [['panoramica', 'Panoramica'], ['piani', 'Piano d’azione'], ['contatti', label('Contatti', active.length)], ['email', label('Email', c.email)], ['incontri', label('Incontri', c.incontri, c.missing)],
     ['note', label('Note', c.note)], ['progetti', label('Progetti', c.progetti)],
     ...(s.roles.includes('cliente') ? [['opportunita', 'Opportunità e gare'], ['commesse', 'Commesse']] : s.roles.includes('lead') ? [['opportunita', 'Opportunità']] : []),
     ...(s.roles.includes('fornitore') ? [['qualifica', 'Qualifica e documenti'], ['ordini', 'Ordini e subappalti']] : []),
@@ -316,7 +319,7 @@ async function subjectPage(container, id, tabKey) {
       h('div', h('div.en-eyebrow', kindLine), h('h1', s.name),
         h('div.en-head-pills', rolePills(s.roles), asaPills(s.asa),
           s.client_since ? h('span.pill.crm-r-cliente', `Cliente dal ${s.client_since.slice(0, 4)}`) : null,
-          keyAccountPill(s, () => refresh()),
+          keyAccountPill(s, () => refresh(), data.keyRhythm || 90),
           h('span.pill.crm-owner', icon('user', { size: 12 }), `Owner ${s.owner_name || '—'}${s.function_name ? ` · ${s.function_name}` : ''}`),
           s.status !== 'attivo' ? h('span.pill.en-lost', data.meta.status[s.status]) : null)),
       h('div.crm-actions',
@@ -336,6 +339,7 @@ async function subjectPage(container, id, tabKey) {
   else if (tab === 'incontri') meetingsTab(body, base, { canWrite, people, label: 'quest\'azienda' });
   else if (tab === 'note') notesTab(body, base, { isSubject: true });
   else if (tab === 'progetti') projectsTab(body, base, { canWrite, newName: s.short_name || s.name });
+  else if (tab === 'piani') await plansTab(body, s, () => refresh());
   else fill(body, placeholderTab(tab, s));
 }
 
