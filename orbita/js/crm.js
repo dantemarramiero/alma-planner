@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
 import { weekTab, settingsTab, stepsCard, keyAccountPill } from './crm-commerciale.js';
 import { gareTab, belowTab, plansTab } from './crm-radar.js';
+import { businessView } from './crm-business.js';
 
 const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia']];
 const ADMIN_TABS = ['asa', 'impostazioni'];
@@ -118,6 +119,7 @@ const soaText = soa => (soa?.length ? soa.map(x => `${x.cat} ${x.cls}`).join(' �
 
 export async function crmView(container, parts = []) {
   data = await get('/api/crm');
+  if (parts[1] === 'business') return businessView(container, parts.slice(2), data); // Nuovi business
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'incontro' && Number(parts[2])) { // dalla notifica «mancano le note»
