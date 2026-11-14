@@ -160,3 +160,41 @@ test('iniziativa: chat, azioni, clienti target con sinergie, lead nel CRM, gap, 
   // idea senza iniziativa
   assert.equal((await F('POST', '/api/crm/business/idea', { question: 'In quali aree potremmo entrare?' })).status, 201);
 });
+
+test('v2: G0 scelto alla creazione, date delle fasi, passi collegati, rischi con probabilità, ipotesi prima di un gate, radar per stato, sintesi salvata, idee', async () => {
+  const recchia = await meId(E);
+  const c = await D('POST', '/api/crm/business', { name: 'Teleriscaldamento', description: 'Reti di teleriscaldamento per comuni', owner_id: recchia, budget_eur: 10000, gate0_due: plus(20) });
+  assert.equal(c.status, 201);
+  const id = c.body.id;
+  const i = (await E('GET', `/api/crm/business/${id}`)).body;
+  assert.equal(i.gates[0].due_date, plus(20));
+  // date delle fasi per il Gantt
+  assert.equal((await E('PATCH', `/api/crm/business/${id}`, { phase_dates: { esplorazione: { from: plus(0), to: plus(30) }, analisi: { from: plus(31), to: plus(90) } } })).status, 200);
+  assert.equal((await E('PATCH', `/api/crm/business/${id}`, { phase_dates: { piano: { from: plus(90), to: plus(10) } } })).status, 400);
+  assert.equal((await E('GET', `/api/crm/business/${id}`)).body.phase_dates.analisi.to, plus(90));
+  // passo collegato a un cliente target
+  const t = await E('POST', `/api/crm/business/${id}/targets`, { name: 'Hera Servizi Energia', priority: 'alta' });
+  const task = await E('POST', `/api/crm/business/${id}/tasks`, { title: 'Incontro Hera', due_date: plus(5), target_id: t.body.id });
+  assert.equal(task.status, 201);
+  assert.equal((await E('GET', `/api/crm/business/${id}/tasks`)).body.tasks[0].target_name, 'Hera Servizi Energia');
+  // rischio con probabilità, ipotesi prima del gate G1
+  const r = await E('POST', `/api/crm/business/${id}/riflessioni`, { kind: 'rischio', title: 'Margini bassi', level: 'alto', probability: 'probabile' });
+  assert.equal(r.body.probability, 'probabile');
+  assert.equal((await E('POST', `/api/crm/business/${id}/riflessioni`, { kind: 'rischio', title: 'x', probability: 'forse' })).status, 400);
+  assert.equal((await E('POST', `/api/crm/business/${id}/riflessioni`, { kind: 'ipotesi', title: 'Bastano 2 squadre', before_gate: 1 })).body.before_gate, 1);
+  assert.equal((await D('GET', `/api/crm/business/${id}/analisi`)).body.risks[0].probability, 'probabile');
+  // radar: ultima ricerca e conteggi per stato
+  const run = await E('POST', `/api/crm/business/${id}/radar/run`, {});
+  assert.equal(run.status, 200, JSON.stringify(run.body));
+  const rd = (await E('GET', `/api/crm/business/${id}/radar`)).body;
+  assert.ok(rd.last.at);
+  assert.equal(rd.counts.nuovo, 1);
+  await E('POST', `/api/crm/business/signals/${rd.signals[0].id}/scarta`, {});
+  assert.equal((await E('GET', `/api/crm/business/${id}/radar?status=scartato`)).body.signals.length, 1);
+  // sintesi salvata e mostrata in cima all'analisi
+  assert.equal((await D('POST', `/api/crm/business/${id}/sintesi`, {})).status, 201);
+  const a = (await D('GET', `/api/crm/business/${id}/analisi`)).body;
+  assert.ok(a.summary && a.summary_at);
+  // spesa dell'AI del mese nell'elenco
+  assert.ok((await D('GET', '/api/crm/business')).body.kpis.aiMonth > 0);
+});
