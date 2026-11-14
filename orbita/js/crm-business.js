@@ -170,7 +170,7 @@ function emptyState(ctx) {
       h('div.nb-actions', btn('Chiedi un\'idea all\'assistente', () => ideaDialog(ctx), { ico: 'lightbulb' }), btn('Nuova iniziativa', () => initiativeForm(ctx), { primary: true, ico: 'plus' }))),
     h('div.nb-lbl.nb-sec', 'Come funziona'),
     h('section.nb-card.nb-how', PHASES.map(([, l], k) => h('div', h('span.nb-ph', h('span.nb-ph-c', String(k + 1)), h('b', l)), h('div.nb-small.muted', PHASE_HINT[k]),
-      h('div.nb-small.muted.nb-who', h('span.nb-gd'), `gate G${k}`)))),
+      h('div.nb-small.muted.nb-who', h('span.nb-gd.static'), `gate G${k}`)))),
     h('div.nb-starter', [['Chat con l\'assistente', 'Conosce BU, SOA, commesse e CRM di Almacis e cerca in rete. Ogni risposta diventa clienti target, requisiti o passi con un clic.', 'lightbulb'],
       ['Sinergie dal CRM', 'Per ogni cliente target ti dice chi di noi lo conosce, chi l\'ha incontrato, quali partner ci lavorano già.', 'users'],
       ['Analisi per la direzione', 'Fase, gate, spesa, attività del responsabile e semaforo, calcolati da soli: niente report a mano.', 'square-check']]
