@@ -348,7 +348,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         for (const s of r.signals) {
           if (seen.has(key(s.title))) continue;
           seen.add(key(s.title));
-          if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu }, c, null)) added++;
+          if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu, to_gare: s.kind === 'gara' }, c, null)) added++; // gare già bandite: ufficio gare
         }
       } catch (err) { error = String(err.message || err).slice(0, 500); }
       await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, $2, $3) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [month(), bu, cost]);
