@@ -340,7 +340,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         const r = await searchBu({ apiKey, buLabel: label, profile, clients: cl.map(x => x.name), today: todayRome(), fetchImpl });
         cost = r.costEur;
         found = r.signals.length;
-        if (!found) error = `Nessuna notizia utilizzabile. Inizio della risposta: ${r.raw || '(vuota)'}`;
+        if (!found) error = `Nessuna notizia utilizzabile: ${r.raw || 'risposta vuota'}`.slice(0, 900);
         for (const s of r.signals) if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu }, c, null)) added++;
       } catch (err) { error = String(err.message || err).slice(0, 500); }
       await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, $2, $3) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [month(), bu, cost]);
