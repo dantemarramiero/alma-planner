@@ -190,3 +190,12 @@ test('giro AI (OpenAI finto): notizie → segnali della BU, spesa per BU, quota 
   assert.ok(st.runs.length >= 2);
   assert.ok(Number(st.spend.find(x => x.bu === 'edilizia').eur) > 0);
 });
+
+test('risposta dell\'AI: link presi dalle citazioni della ricerca web; testo non JSON → nessun segnale', () => {
+  const { parseSignals } = require('../lib/crm-radar-ai');
+  const items = JSON.stringify([{ title: 'Snam avvia il metanodotto Sulmona-Foligno', entity: 'Snam', kind: 'opera_finanziata' }, { title: 'Notizia senza fonte', entity: 'Nessuno', kind: 'notizia' }]);
+  const out = parseSignals(items, [{ url: 'https://example.com/altro', title: 'Altro' }, { url: 'https://example.com/snam-sulmona', title: 'Metanodotto Sulmona-Foligno, via ai lavori' }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].url, 'https://example.com/snam-sulmona');
+  assert.deepEqual(parseSignals('Non ho trovato notizie utili.'), []);
+});

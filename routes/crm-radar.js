@@ -74,7 +74,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     } else {
       where.push('NOT g.to_gare');
       add('g.status = ANY(?::text[])', req.query.all ? ['nuovo', 'interessa', 'scartato'] : ['nuovo']);
-      const bus = req.query.bu ? String(req.query.bu).split(',') : c.myBus;
+      const bus = req.query.bu ? String(req.query.bu).split(',') : c.myBus.length || !req.crm.admin ? c.myBus : Object.keys(c.settings.profiles);
       if (req.query.bu && !req.crm.admin && bus.some(b => !c.myBus.includes(b))) throw new HttpError(403, 'Vedi i segnali delle tue BU');
       add('g.bu = ANY(?::text[])', bus);
       if (view === 'sotto') add('g.score < ?', min);
@@ -340,6 +340,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         const r = await searchBu({ apiKey, buLabel: label, profile, clients: cl.map(x => x.name), today: todayRome(), fetchImpl });
         cost = r.costEur;
         found = r.signals.length;
+        if (!found) error = `Nessuna notizia utilizzabile. Inizio della risposta: ${r.raw || '(vuota)'}`;
         for (const s of r.signals) if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu }, c, null)) added++;
       } catch (err) { error = String(err.message || err).slice(0, 500); }
       await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, $2, $3) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [month(), bu, cost]);
