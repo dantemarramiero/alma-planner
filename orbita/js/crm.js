@@ -9,9 +9,10 @@ import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
-import { weekTab, settingsTab, stepsCard, keyAccountPill } from './crm-commerciale.js';
+import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
 import { gareTab, belowTab, plansTab } from './crm-radar.js';
 import { businessView } from './crm-business.js';
+import { ic, dots, pill, av, pageTop, title, card, link, listRow, emptyState, seg, tabsBar as cvTabs, moreMenu, cvModal, choiceChips } from './crm-v2.js';
 
 const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia']];
 const ADMIN_TABS = ['asa', 'impostazioni'];
@@ -127,80 +128,203 @@ export async function crmView(container, parts = []) {
     parts = ['crm', 'lead'];
   }
   const tab = TABS.some(([k]) => k === parts[1]) && (!ADMIN_TABS.includes(parts[1]) || data.admin) && (parts[1] !== 'gare' || data.gare) ? parts[1] : 'settimana'; // si parte da «La mia settimana» (canvas 14/11)
-  const body = h('div.en-body', loading());
-  const asaSel = !NO_FILTER_TABS.includes(tab)
-    ? select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, a.label])], asaChoice(),
-      { 'aria-label': 'ASA', on: { change: e => { saveFilter('asa', e.target.value); crmView(container, parts); } } })
-    : null;
-  const asaEyebrow = asaChoice() === 'mine' ? (data.myAsa.length === 1 ? asaLabel(data.myAsa[0]) : 'le mie ASA') : asaChoice() ? asaLabel(asaChoice()) : '';
-  // filtri attivi sempre in vista, con «Mostra tutto» (13/11: la direzione era in Energy e non vedeva le aziende caricate)
-  const active = [asaEyebrow && `ASA: ${asaEyebrow}`, ownerDefault() === String(store.me.id) && 'Owner: i miei',
-    ownerDefault() && ownerDefault() !== String(store.me.id) && `Owner: ${store.users.find(u => String(u.id) === ownerDefault())?.name || '—'}`].filter(Boolean);
-  const banner = !NO_FILTER_TABS.includes(tab) && active.length ? h('div.crm-filterbar', icon('sliders', { size: 15 }), h('span', `Stai vedendo solo: ${active.join(' · ')}`),
-    h('button.btn.btn-sm', { type: 'button', on: { click: () => { saveFilter('asa', ''); saveFilter('owner', ''); crmView(container, parts); } } }, 'Mostra tutto')) : null;
-  fill(container,
-    h('div.page-head', h('div', h('div.en-eyebrow', asaEyebrow && !NO_FILTER_TABS.includes(tab) ? `Alma CRM · ${asaEyebrow}` : 'Alma CRM'), h('h1', TABS.find(([k]) => k === tab)[1])), asaSel),
-    banner,
-    body);
+  // design v2: ogni pagina disegna la sua intestazione (titolo Light + parola chiave Bold) e i suoi filtri a pillola
+  const body = h('div.cv', loading());
+  fill(container, body);
+  const again = () => crmView(container, parts);
   if (tab === 'settimana') await weekTab(body, data);
-  else if (tab === 'impostazioni') await settingsTab(body, data, parts[2]);
+  else if (tab === 'impostazioni') await settingsTab(body, data, parts[2], { asaTab, importCard });
+  else if (tab === 'asa') await settingsTab(body, data, 'asa', { asaTab, importCard }); // ASA e accessi ora stanno nelle Impostazioni (artboard «Imp-asa»)
   else if (tab === 'gare') await gareTab(body, data);
   else if (tab === 'sottosoglia') await belowTab(body, data);
-  else if (tab === 'lead') await leadTab(body, parts[2]);
-  else if (tab === 'contatti') await contactsTab(body);
-  else if (tab === 'asa') await asaTab(body);
-  else await subjectsTab(body, tab);
+  else if (tab === 'lead') await leadTab(body, parts[2], again);
+  else if (tab === 'contatti') await contactsTab(body, again);
+  else await subjectsTab(body, tab, again);
+}
+
+// ── filtri delle liste, come pillole sopra la tabella (artboard «Elenchi») ─────────────────────
+// Restano ricordati su questo computer; quelli attivi si vedono in arancione, con «Mostra tutto».
+function filterRow(state, load, { search = 'Cerca per nome, P.IVA o città', owner = true, fn = true, key = false, again, extra = [] } = {}) {
+  const asaSel = select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, `ASA: ${a.label}`])], asaChoice(),
+    { 'aria-label': 'ASA', class: asaChoice() ? 'on' : '', on: { change: e => { saveFilter('asa', e.target.value); again ? again() : load(); } } });
+  const [ownerSel, fnSel] = ownerFunctionFilters(state, () => load());
+  if (ownerSel && state.owner) ownerSel.classList.add('on');
+  if (fnSel && state.fn) fnSel.classList.add('on');
+  ownerSel?.addEventListener('change', () => ownerSel.classList.toggle('on', Boolean(ownerSel.value)));
+  fnSel?.addEventListener('change', () => fnSel.classList.toggle('on', Boolean(fnSel.value)));
+  const keyBtn = key ? h('button.cv-pill.line.big', { type: 'button', 'aria-pressed': String(Boolean(state.key)), class: state.key ? 'or' : '', on: { click: e => {
+    state.key = !state.key;
+    e.currentTarget.classList.toggle('or', state.key);
+    e.currentTarget.classList.toggle('line', !state.key);
+    e.currentTarget.setAttribute('aria-pressed', String(state.key));
+    load();
+  } } }, ic('star', 13), 'Key account') : null;
+  if (keyBtn && state.key) keyBtn.classList.remove('line');
+  const anyOn = () => Boolean(asaChoice() || state.owner || state.fn || state.key);
+  const reset = link('Mostra tutto', { on: { click: () => { saveFilter('asa', ''); saveFilter('owner', ''); state.owner = ''; state.fn = ''; state.key = false; again ? again() : load(); } } });
+  const sync = () => { reset.hidden = !anyOn(); };
+  [ownerSel, fnSel, keyBtn].filter(Boolean).forEach(el => el.addEventListener(el === keyBtn ? 'click' : 'change', sync));
+  sync();
+  return h('div.cv-filters',
+    h('input.input', { type: 'search', placeholder: search, 'aria-label': search, value: state.q || '', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
+    asaSel, owner ? ownerSel : null, fn ? fnSel : null, keyBtn, reset, ...extra);
 }
 
 // ── lead: colonne per fase ──────────────────────────────────────────────────
-async function leadTab(box, mode) {
-  const state = { q: '', mode: mode === 'elenco' ? 'elenco' : 'colonne', owner: ownerDefault(), fn: '' };
+// Design v2 (artboard «Lead»): barra della pipeline in alto, kanban solo con i lead vivi, gli altri (quasi tutti dal
+// caricamento di Zoho, mai lavorati) in «Da riordinare» con assegnazione o chiusura in blocco.
+const short = n => (n >= 1e6 ? `${(n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : n >= 1e3 ? `${Math.round(n / 1e3).toLocaleString('it-IT')}k €` : `${n} €`);
+async function leadTab(box, mode, again) {
+  const state = { q: '', mode: ['elenco', 'riordina'].includes(mode) ? mode : 'colonne', owner: ownerDefault(), fn: '', prio: '' };
+  const pipe = h('div');
   const content = h('div', loading());
+  const go = m => { state.mode = m; history.replaceState(null, '', `#/crm/lead${m === 'colonne' ? '' : `/${m}`}`); load(); };
+  const prio = select([['', 'Priorità'], ...Object.entries(data.meta.priorities).map(([k, l]) => [k, `Priorità ${l.toLowerCase()}`])], '', { 'aria-label': 'Priorità',
+    on: { change: e => { state.prio = e.target.value; e.target.classList.toggle('on', Boolean(state.prio)); load(); } } });
+  const modes = h('div');
+  const sub = h('p.cv-sub');
   fill(box,
-    h('div.toolbar',
-      h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, P.IVA o comune…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
-      ...ownerFunctionFilters(state, () => load()),
-      h('div.profile-tabs.crm-switch', [['colonne', 'Colonne'], ['elenco', 'Elenco']].map(([k, label]) => h('button', {
-        type: 'button', class: state.mode === k ? 'on' : '', on: { click: e => { state.mode = k; [...e.currentTarget.parentElement.children].forEach(b => b.classList.toggle('on', b === e.currentTarget)); load(); } },
-      }, label))),
-      h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: ['lead'] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, icon('plus', { size: 16 }), 'Nuovo lead')),
+    pageTop({ eyebrow: 'Alma CRM', heading: title('', 'Lead'), sub,
+      actions: [data.admin ? h('a.btn', { href: '#/crm/impostazioni/zoho' }, ic('upload', 15), 'Importa') : null,
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: ['lead'] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, ic('plus', 15), 'Nuovo lead')] }),
+    pipe,
+    filterRow(state, () => load(), { again, extra: [prio, modes] }),
     content);
+  let all = [];
   async function load() {
-    const { subjects } = await get(`/api/crm/subjects${qs({ role: 'lead', asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`);
-    if (state.mode === 'elenco') return fill(content, subjectTable(subjects, 'lead', state.q));
-    fill(content, h('div.en-board-wrap', h('div.en-board.crm-board', data.meta.leadStages.map(([stage, label]) => {
-      const items = subjects.filter(s => s.lead_stage === stage);
-      const col = h('div.en-col', { class: stage === 'non_interessato' ? 'lost' : '' },
-        h('div.en-col-head', h('span', label), h('span.en-col-n', String(items.length))),
-        stage === 'opportunita' ? h('div.en-col-sub', 'la trattativa si lavora in BOSS') : null,
-        h('div.en-cards', items.length ? items.map(s => leadCard(s)) : h('div.en-col-more', 'Nessuno')));
-      col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
-      col.addEventListener('dragleave', () => col.classList.remove('drop'));
-      col.addEventListener('drop', async e => {
-        e.preventDefault();
-        col.classList.remove('drop');
-        const id = Number(e.dataTransfer.getData('text/crm-lead'));
-        const s = subjects.find(x => x.id === id);
-        if (s && s.lead_stage !== stage && await changeStage(s, stage)) load();
-      });
-      return col;
-    }))));
+    all = (await get(`/api/crm/subjects${qs({ role: 'lead', asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`)).subjects;
+    const shown = all.filter(s => !state.prio || s.priority === state.prio);
+    const live = shown.filter(s => s.live);
+    const dead = shown.filter(s => !s.live);
+    sub.textContent = `${shown.length.toLocaleString('it-IT')} lead · ${shown.filter(s => s.next_step).length.toLocaleString('it-IT')} con un prossimo passo`;
+    fill(modes, seg([['colonne', 'Colonne'], ['elenco', 'Elenco'], ['riordina', 'Da riordinare', dead.length]], state.mode, go, { label: 'Vista dei lead' }));
+    fill(pipe, pipeline(live, dead, () => go('riordina')));
+    if (state.mode === 'riordina') return fill(content, reorderView(dead, load));
+    if (state.mode === 'elenco') return fill(content, subjectTable(live, 'lead', state.q || state.prio, state, load));
+    fill(content, h('div.cv-kan', data.meta.leadStages.map(([stage, label]) => leadColumn(stage, label, live.filter(s => s.lead_stage === stage), live, load))));
   }
   await load();
 }
 
+function pipeline(live, dead, onReorder) {
+  const stages = data.meta.leadStages.filter(([k]) => k !== 'non_interessato');
+  const order = stages.map(([k]) => k);
+  const n = k => live.filter(s => s.lead_stage === k).length;
+  const value = k => live.filter(s => s.lead_stage === k).reduce((t, s) => t + (Number(s.potential_value) || 0), 0);
+  return h('section.cv-card.cv-pipe', { 'aria-label': 'Pipeline dei lead' },
+    stages.map(([k, l], i) => {
+      const later = order.slice(i + 1).reduce((t, x) => t + n(x), 0);
+      const pct = n(k) + later ? Math.round((100 * later) / (n(k) + later)) : 0;
+      return h('div', h('div.cv-lbl', l), h('div.cv-row', { style: { gap: '8px', marginTop: '4px' } }, h('span.cv-pipe-n', String(n(k))), value(k) ? h('span.cv-small.cv-muted', short(value(k))) : null),
+        h('div.cv-small.cv-muted', i < stages.length - 1 ? (n(k) + later ? `${pct}% passa alla fase dopo` : 'nessun lead') : 'si lavora in BOSS'));
+    }),
+    h('div', dead.length ? pill(`${dead.length.toLocaleString('it-IT')} da riordinare`, 'am') : pill('Niente da riordinare', 'gr'),
+      h('div.cv-small.cv-muted', 'senza passo e fermi da più di 90 giorni (quasi tutti da Zoho)'),
+      dead.length ? link(['Riordina', ic('chevron-right', 13)], { on: { click: onReorder } }) : null));
+}
+
+const LEAD_COL_MAX = 30;
+function leadColumn(stage, label, items, all, reload) {
+  const lost = stage === 'non_interessato';
+  const list = h('div');
+  const drawCards = (limit) => fill(list, items.length ? [items.slice(0, limit).map(leadCard),
+    items.length > limit ? h('button.cv-lnk.cv-kc-more', { type: 'button', on: { click: () => drawCards(items.length) } }, `Mostra altri ${items.length - limit}`) : null]
+    : h('div.cv-kc-more', 'Nessuno'));
+  drawCards(LEAD_COL_MAX);
+  const col = h('div.cv-kc', { class: lost ? 'lost' : '', 'aria-label': `${label}: ${items.length}` },
+    h('div.cv-kh', h('span', label), pill(String(items.length))),
+    lost ? h('div.cv-small.cv-muted', { style: { padding: '0 6px 8px' } }, 'Con il motivo e la data per riprovare.') : stage === 'opportunita' ? h('div.cv-small.cv-muted', { style: { padding: '0 6px 8px' } }, 'La trattativa si lavora in BOSS.') : null,
+    list);
+  col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
+  col.addEventListener('dragleave', () => col.classList.remove('drop'));
+  col.addEventListener('drop', async e => {
+    e.preventDefault();
+    col.classList.remove('drop');
+    const s = all.find(x => x.id === Number(e.dataTransfer.getData('text/crm-lead')));
+    if (s && s.lead_stage !== stage && await changeStage(s, stage)) reload();
+  });
+  return col;
+}
+
 function leadCard(s) {
-  const card = h('div.en-card', { tabindex: 0, draggable: 'true', on: {
+  const lost = s.lead_stage === 'non_interessato';
+  const retry = s.retry_date ? fmtDate(String(s.retry_date).slice(0, 10), { year: true }).replace(/^\d+ /, '') : '';
+  const el = h('div.cv-kcard', { tabindex: 0, draggable: 'true', role: 'link', 'aria-label': `Apri ${s.name}`, on: {
     click: () => { location.hash = `#/crm/scheda/${s.id}`; },
     keydown: e => { if (e.key === 'Enter') location.hash = `#/crm/scheda/${s.id}`; },
-    dragstart: e => { e.dataTransfer.setData('text/crm-lead', String(s.id)); card.classList.add('dragging'); },
-    dragend: () => card.classList.remove('dragging'),
+    dragstart: e => { e.dataTransfer.setData('text/crm-lead', String(s.id)); el.classList.add('dragging'); },
+    dragend: () => el.classList.remove('dragging'),
   } },
-  h('div.en-card-top', h('div.en-card-title.grow', s.name), s.missing_notes ? bang() : null, s.priority ? h('span.pill.crm-prio', { class: `crm-p-${s.priority}` }, data.meta.priorities[s.priority]) : null),
-  h('div.en-card-meta', [s.city, s.potential_value ? eur(s.potential_value) : '', s.owner_name, s.function_name].filter(Boolean).join(' · ')),
-  s.next_step ? h('div.t-meta', { class: late(s.next_step_date) ? 'due-late' : '' }, `${s.next_step}${s.next_step_date ? ` · ${day(s.next_step_date)}` : ''}`) : null);
-  return card;
+  h('div.cv-row', { style: { gap: '8px' } }, h('span.cv-t5.cv-grow.cv-ell', s.name), s.missing_notes ? bang() : null, s.owner_name ? av(s.owner_name, 'or') : null),
+  (lost || s.lead_why || s.city) ? h('div.cv-small.cv-muted.cv-ell', lost ? dots([`Motivo: ${s.lost_reason || '—'}`, retry && `riprovare a ${retry}`]) : (s.lead_why || s.city)) : null,
+  h('div.cv-row.cv-small', { style: { gap: '8px' } },
+    s.potential_value ? h('span.cv-t5', { style: { whiteSpace: 'nowrap' } }, short(Number(s.potential_value))) : null,
+    s.priority === 'alta' ? pill('alta', 'or') : null,
+    h('span.cv-grow'),
+    lost ? (retry ? pill(retry) : null)
+      : s.next_step_date ? h('span.cv-date', { class: late(s.next_step_date) ? 'late' : '', title: s.next_step }, ic('alarm-clock', 12), fmtDate(String(s.next_step_date).slice(0, 10)))
+        : pill('senza passo', 'am')));
+  return el;
 }
+
+// «Da riordinare»: elenco con selezione multipla → assegna owner o chiudi come «Non interessato» con il motivo
+function reorderView(list, reload) {
+  if (!list.length) return h('section.cv-card', emptyState('check', 'Niente da riordinare: ogni lead ha un passo o è stato lavorato negli ultimi 90 giorni.'));
+  const picked = new Set();
+  const canPick = s => data.admin || s.owner_id === store.me.id;
+  const count = h('span.cv-grow.cv-small');
+  const owner = select([['', 'Assegna a…'], ...store.users.filter(u => u.active !== false).map(u => [u.id, u.name])], '', { 'aria-label': 'Nuovo owner' });
+  const assignBtn = h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
+    if (!owner.value) return toast('Scegli a chi assegnarli', 'err');
+    const r = await post('/api/crm/subjects/bulk', { action: 'assign', ids: [...picked], owner_id: Number(owner.value) });
+    toast(`${r.updated} lead assegnati a ${store.users.find(u => String(u.id) === owner.value)?.name || ''}`);
+    reload();
+  } } }, ic('user-plus', 14), 'Assegna');
+  const closeBtn = h('button.btn.btn-sm', { type: 'button', on: { click: () => closeLeadsDialog([...picked], reload) } }, ic('x', 14), 'Chiudi come non interessati');
+  const bar = h('div.cv-bulkbar', { hidden: true }, count, owner, assignBtn, closeBtn);
+  const sync = () => {
+    bar.hidden = !picked.size;
+    count.textContent = `${picked.size} selezionati`;
+    all.checked = picked.size && picked.size === list.filter(canPick).length;
+  };
+  const all = h('input', { type: 'checkbox', 'aria-label': 'Seleziona tutti', on: { change: e => {
+    list.filter(canPick).forEach(s => (e.target.checked ? picked.add(s.id) : picked.delete(s.id)));
+    tbody.querySelectorAll('input[type=checkbox]').forEach(cb => { if (!cb.disabled) cb.checked = e.target.checked; });
+    sync();
+  } } });
+  const tbody = h('tbody', list.map(s => h('tr',
+    h('td', h('input', { type: 'checkbox', 'aria-label': `Seleziona ${s.name}`, disabled: !canPick(s) || undefined, title: canPick(s) ? undefined : 'Solo l\'owner o la direzione',
+      on: { change: e => { e.target.checked ? picked.add(s.id) : picked.delete(s.id); sync(); } } })),
+    h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', s.name.slice(0, 2).toUpperCase()), h('div', h('div.cv-t5.cv-ell', { style: { maxWidth: '360px' } }, s.name), h('div.cv-small.cv-muted', dots([data.meta.kinds[s.kind], s.city]) || '—')))),
+    h('td.cv-hide-m', asaCell(s.asa)),
+    h('td.cv-hide-m', ownerCell(s)),
+    h('td.cv-hide-m.cv-small.cv-muted', s.updated_at ? `fermo dal ${day(s.updated_at)}` : '—'))));
+  return h('div.cv-stack',
+    h('section.cv-card', h('div.cv-ch', h('h3.cv-t', h('span', 'Da riordinare'), h('span.cv-c', String(list.length))),
+      h('span.cv-small.cv-muted', 'Senza un passo e fermi da più di 90 giorni: assegnali ai responsabili di BU o chiudili.')),
+    h('div.cv-tblwrap', h('table.cv-tbl', h('thead', h('tr', h('th', { style: { width: '44px' } }, all), h('th', 'Lead'), h('th.cv-hide-m', 'ASA'), h('th.cv-hide-m', 'Owner'), h('th.cv-hide-m', 'Ultimo movimento'))), tbody))),
+    bar);
+}
+function closeLeadsDialog(ids, reload) {
+  const reasons = choiceChips(data.meta.lostReasons.map(r => [r, r]), '', { label: 'Motivo' });
+  const note = input({ placeholder: 'Facoltativa: «non lavorano più nella nostra zona»', maxlength: 500 });
+  const retry = input({ type: 'date', 'aria-label': 'Riprovare il' });
+  const m = cvModal({
+    size: 'md', title: h('div', h('h2', `Chiudi ${ids.length} lead`), h('div.cv-subh', 'Diventano «Non interessato», con il motivo nello storico.')),
+    body: h('div.en-form', h('div.cv-fld', h('span', 'Perché?'), reasons.el), h('label.cv-fld', h('span', 'Nota (facoltativa)'), note),
+      h('label.cv-fld', h('span', 'Riprovare il (facoltativo)'), retry)),
+    actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        if (!reasons.value) return toast('Scegli il motivo', 'err');
+        const r = await post('/api/crm/subjects/bulk', { action: 'close', ids, reason: reasons.value, note: note.value, retry_date: retry.value || null });
+        m.close();
+        toast(`${r.updated} lead chiusi come non interessati`);
+        reload();
+      } } }, 'Chiudi i lead')],
+  });
+}
+const asaCell = asa => h('div.cv-row', { style: { gap: '4px' } }, asa.slice(0, 2).map(a => pill(asaLabel(a), 'line')), asa.length > 2 ? pill(`+${asa.length - 2}`, '', { title: asa.slice(2).map(asaLabel).join(', ') }) : null);
+const ownerCell = s => (s.owner_name ? h('div.cv-row', { style: { gap: '8px' } }, av(s.owner_name, 'bl'), h('div', { style: { minWidth: 0 } }, h('div.cv-small.cv-t5.cv-ell', s.owner_name), s.function_name ? h('div.cv-small.cv-muted.cv-ell', s.function_name) : null)) : h('span.cv-small.cv-muted', '—'));
 
 // Cambio di fase; «Non interessato» chiede motivo e quando riprovare. Restituisce true se cambiata.
 async function changeStage(s, stage) {
@@ -214,7 +338,7 @@ async function changeStage(s, stage) {
     const retry = input({ type: 'date' });
     const note = input({ placeholder: 'Dettagli (facoltativo)' });
     let done = false;
-    const m = modal({
+    const m = cvModal({
       title: `${s.name}: non interessato`,
       body: h('div.en-form', field('Motivo', reason), field('Riprovare il', retry, 'Facoltativo: il lead tornerà in evidenza quel giorno.'), field('Nota', note)),
       onClose: () => { if (!done) resolve(false); },
@@ -230,120 +354,172 @@ async function changeStage(s, stage) {
 }
 
 // ── elenchi di anagrafiche ──────────────────────────────────────────────────
-async function subjectsTab(box, tab) {
+// Design v2 (artboard «Elenchi»): un selettore in alto fra Clienti, Lead, Fornitori, Partner, Concorrenti, Tutte;
+// filtri a pillola; tabella con 6 colonne che sta nello schermo, nomi lunghi con «…», ASA al massimo 2 + «+N».
+const LIST_TITLE = { clienti: 'Clienti', fornitori: 'Fornitori', partner: 'Partner', concorrenti: 'Concorrenti', tutte: 'Tutte le anagrafiche' };
+const PAGE = 50;
+async function subjectsTab(box, tab, again) {
   const role = ROLE_OF_TAB[tab] || '';
-  const state = { q: '', chip: tab === 'partner' ? 'partner' : '', owner: ownerDefault(), fn: '' };
-  const chipDefs = tab === 'fornitori' ? [['', 'Tutte le categorie'], ...Object.entries(data.meta.supplierCategories)]
-    : tab === 'partner' ? [['partner', 'Partner'], ['concorrente', 'Concorrenti']]
-      : tab === 'tutte' ? [['', 'Tutti i ruoli'], ...Object.entries(data.meta.roles)] : null;
-  const chips = h('div.en-chips');
+  const sub = location.hash.split('/')[3] === 'concorrenti' && tab === 'partner' ? 'concorrenti' : tab; // «Partner e concorrenti»: due viste
+  const state = { q: '', owner: ownerDefault(), fn: '', key: false, cat: '', role: '', page: 0 };
   const list = h('div', loading());
-  const newRole = tab === 'partner' ? () => state.chip : () => role || '';
+  const lead = h('p.cv-sub');
+  const newRole = sub === 'concorrenti' ? 'concorrente' : sub === 'partner' ? 'partner' : role;
+  const c = data.counts;
+  const switcher = seg([['clienti', 'Clienti', c.cliente || 0], ['lead', 'Lead', c.lead || 0], ['fornitori', 'Fornitori', c.fornitore || 0], ['partner', 'Partner', c.partner || 0],
+    ['concorrenti', 'Concorrenti', c.concorrente || 0], ['tutte', 'Tutte']], sub, k => { location.hash = k === 'concorrenti' ? '#/crm/partner/concorrenti' : `#/crm/${k}`; }, { label: 'Anagrafiche' });
+  const extra = tab === 'fornitori' ? [select([['', 'Categoria'], ...Object.entries(data.meta.supplierCategories)], '', { 'aria-label': 'Categoria', on: { change: e => { state.cat = e.target.value; e.target.classList.toggle('on', Boolean(state.cat)); load(); } } })]
+    : tab === 'tutte' ? [select([['', 'Ruolo'], ...Object.entries(data.meta.roles)], '', { 'aria-label': 'Ruolo', on: { change: e => { state.role = e.target.value; e.target.classList.toggle('on', Boolean(state.role)); load(); } } })] : [];
+  let rows = [];
   fill(box,
-    h('div.toolbar',
-      h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome, P.IVA o comune…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
-      ...ownerFunctionFilters(state, () => load()),
-      h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: newRole() ? [newRole()] : [] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } },
-        icon('plus', { size: 16 }), tab === 'clienti' ? 'Nuovo cliente' : tab === 'fornitori' ? 'Nuovo fornitore' : 'Nuova anagrafica')),
-    chipDefs ? chips : null,
-    tab === 'clienti' ? h('p.small.muted', 'Un lead diventa cliente da solo alla prima commessa in BOSS. Qui si aggiungono a mano solo i clienti che ci sono già.') : null,
+    pageTop({ eyebrow: 'Alma CRM · anagrafiche', heading: title('', LIST_TITLE[sub]), sub: lead,
+      actions: [h('button.btn', { type: 'button', on: { click: () => exportCsv(rows, LIST_TITLE[sub]) } }, ic('download', 15), 'Esporta'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: newRole ? [newRole] : [] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } },
+          ic('plus', 15), sub === 'clienti' ? 'Nuovo cliente' : sub === 'fornitori' ? 'Nuovo fornitore' : sub === 'partner' ? 'Nuovo partner' : sub === 'concorrenti' ? 'Nuovo concorrente' : 'Nuova anagrafica')] }),
+    h('div.cv-row', switcher),
+    filterRow(state, () => { state.page = 0; load(); }, { key: true, again, extra }),
     list);
   async function load() {
-    if (chipDefs) fill(chips, chipDefs.map(([k, label]) => h('button.pill.en-chip', { type: 'button', class: state.chip === k ? 'on' : '', on: { click: () => { state.chip = k; load(); } } }, label)));
-    const query = { asa: asaQuery(), q: state.q, role, owner: state.owner, function: state.fn };
-    if (tab === 'fornitori') query.category = state.chip;
-    else if (tab === 'partner' || tab === 'tutte') query.role = state.chip;
+    const query = { asa: asaQuery(), q: state.q, role: sub === 'concorrenti' ? 'concorrente' : sub === 'partner' ? 'partner' : role || state.role, owner: state.owner, function: state.fn };
+    if (tab === 'fornitori') query.category = state.cat;
     const { subjects } = await get(`/api/crm/subjects${qs(query)}`);
-    fill(list, subjectTable(subjects, tab, state.q || state.chip));
+    rows = subjects.filter(s => !state.key || s.key_account);
+    const noun = { clienti: 'clienti', fornitori: 'fornitori', partner: 'partner', concorrenti: 'concorrenti', tutte: 'anagrafiche' }[sub];
+    lead.textContent = `${rows.length.toLocaleString('it-IT')} ${noun} · ${rows.filter(s => s.next_step).length.toLocaleString('it-IT')} con un prossimo passo${sub === 'clienti' ? ' · un lead diventa cliente da solo alla prima commessa in BOSS' : ''}`;
+    fill(list, subjectTable(rows, sub, state.q || state.key || state.cat || state.role, state, load));
   }
   await load();
 }
 
-function subjectTable(subjects, tab, filtered) {
-  if (!subjects.length) return h('div.card.empty', filtered || asaChoice() || ownerDefault() ? 'Nessuna anagrafica con questi filtri: prova «Tutte le ASA» o «Tutti gli owner».' : 'Ancora nessuna anagrafica qui.');
-  const extra = tab === 'lead' ? ['Fase', 'Valore potenziale'] : tab === 'fornitori' ? ['Categorie'] : ['Ruoli'];
-  return h('div.card.table-wrap', h('table.list',
-    h('thead', h('tr', ['Anagrafica', ...extra, 'ASA', 'Luogo', 'Owner · funzione', 'Contatti', 'Prossimo passo'].map(t => h('th', t)))),
-    h('tbody', subjects.map(s => h('tr', { on: { click: () => { location.hash = `#/crm/scheda/${s.id}`; } } },
-      h('td', h('div.t-title', s.name, s.missing_notes ? bang() : null), h('div.t-meta', [data.meta.kinds[s.kind], s.vat && `P.IVA ${s.vat}`, s.status !== 'attivo' && data.meta.status[s.status]].filter(Boolean).join(' · '))),
-      ...(tab === 'lead' ? [h('td', stageLabel(s.lead_stage)), h('td.num', eur(s.potential_value))]
-        : tab === 'fornitori' ? [h('td', s.supplier_categories.map(c => data.meta.supplierCategories[c]).join(', ') || '—')]
-          : [h('td', rolePills(s.roles))]),
-      h('td', asaPills(s.asa)),
-      h('td', [s.city, s.province].filter(Boolean).join(', ') || '—'),
-      h('td', ownerLine(s)),
-      h('td.num', String(s.contacts)),
-      h('td', s.next_step ? h('div', s.next_step, h('div.t-meta', { class: late(s.next_step_date) ? 'due-late' : '' }, day(s.next_step_date))) : '—'))))));
+// tabella delle anagrafiche: Azienda · ASA · Owner e funzione · (Contatti | Categorie | Ruoli | Fase) · Prossimo passo · «…»
+function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () => {}) {
+  if (!subjects.length) {
+    return h('section.cv-card', emptyState('building', filtered || asaChoice() || ownerDefault() ? 'Nessuna anagrafica con questi filtri.' : 'Ancora nessuna anagrafica qui.',
+      filtered || asaChoice() || ownerDefault() ? link('Mostra tutto', { on: { click: () => { saveFilter('asa', ''); saveFilter('owner', ''); location.reload(); } } }) : null));
+  }
+  const col4 = tab === 'lead' ? ['Fase', s => h('div', h('div.cv-small.cv-t5', stageLabel(s.lead_stage)), s.potential_value ? h('div.cv-small.cv-muted', short(Number(s.potential_value))) : null)]
+    : tab === 'fornitori' ? ['Categorie', s => h('div.cv-small.cv-ell', { style: { maxWidth: '200px' } }, s.supplier_categories.map(x => data.meta.supplierCategories[x]).join(', ') || '—')]
+      : tab === 'tutte' ? ['Ruoli', s => h('div.cv-row', { style: { gap: '4px' } }, s.roles.slice(0, 2).map(r => pill(data.meta.roles[r], r === 'cliente' ? 'gr' : r === 'lead' ? 'or' : '')))]
+        : ['Contatti', s => String(s.contacts), 'num'];
+  const page = state.page || 0;
+  const shown = subjects.slice(page * PAGE, page * PAGE + PAGE);
+  const open = s => { location.hash = `#/crm/scheda/${s.id}`; };
+  const pages = Math.ceil(subjects.length / PAGE);
+  return h('section.cv-card',
+    h('div.cv-tblwrap', h('table.cv-tbl',
+      h('thead', h('tr', h('th', 'Azienda'), h('th.cv-hide-m', 'ASA'), h('th.cv-hide-m', 'Owner · funzione'), h(`th${col4[2] ? '.num' : ''}.cv-hide-m`, col4[0]), h('th', 'Prossimo passo'), h('th', h('span.cv-sr', 'Azioni')))),
+      h('tbody', shown.map(s => h('tr.cv-click', { on: { click: e => { if (!e.target.closest('.cv-more, a, button')) open(s); } } },
+        h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', (s.short_name || s.name).slice(0, 2).toUpperCase()),
+          h('div', h('div.cv-t5.cv-row', { style: { gap: '6px' } }, h('span.cv-ell', { style: { maxWidth: '300px' } }, s.name), s.key_account ? h('span', { title: 'Key account', style: { color: 'var(--cv-orange-d)', display: 'inline-flex' } }, ic('star', 13)) : null, s.missing_notes ? bang() : null),
+            h('div.cv-small.cv-muted.cv-ell', { style: { maxWidth: '300px' } }, dots([data.meta.kinds[s.kind], s.city, s.status !== 'attivo' && data.meta.status[s.status]]) || '—')))),
+        h('td.cv-hide-m', asaCell(s.asa)),
+        h('td.cv-hide-m', ownerCell(s)),
+        h(`td${col4[2] ? '.num' : ''}.cv-hide-m`, col4[1](s)),
+        h('td', s.next_step ? h('div', { style: { minWidth: 0 } }, h('div.cv-small.cv-t5.cv-ell', { style: { maxWidth: '220px' } }, s.next_step), h('div.cv-date', { class: late(s.next_step_date) ? 'late' : '' }, late(s.next_step_date) ? day(s.next_step_date) : `entro ${day(s.next_step_date)}`)) : h('span.cv-small.cv-muted', '—')),
+        h('td', moreMenu([['Apri la scheda', () => open(s)], ['Nuovo passo', async () => {
+          const full = await get(`/api/crm/subjects/${s.id}`);
+          stepDialog({ subjectId: s.id, subjectName: s.name, contacts: full.contacts.filter(x => !x.date_to), defaultOwner: s.owner_id, onSaved: reload });
+        }]], { label: `Azioni per ${s.name}` }))))))),
+    h('div.cv-tfoot', `Righe ${page * PAGE + 1}–${page * PAGE + shown.length} di ${subjects.length.toLocaleString('it-IT')}`, h('span.cv-grow'),
+      pages > 1 ? [h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina prima', disabled: page === 0 || undefined, on: { click: () => { state.page = page - 1; reload(); } } }, ic('chevron-left', 15)),
+        h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina dopo', disabled: page >= pages - 1 || undefined, on: { click: () => { state.page = page + 1; reload(); } } }, ic('chevron-right', 15))] : null));
+}
+// «Esporta»: le righe che si vedono, in un CSV per Excel
+function exportCsv(rows, name) {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['Azienda', 'Tipo', 'P.IVA', 'Comune', 'Provincia', 'Ruoli', 'ASA', 'Owner', 'Funzione', 'Contatti', 'Prossimo passo', 'Entro'].map(cell).join(';'),
+    ...rows.map(s => [s.name, data.meta.kinds[s.kind], s.vat, s.city, s.province, s.roles.map(r => data.meta.roles[r]).join(', '), s.asa.map(asaLabel).join(', '), s.owner_name, s.function_name, s.contacts, s.next_step, s.next_step_date ? String(s.next_step_date).slice(0, 10) : ''].map(cell).join(';'))];
+  const a = h('a', { href: URL.createObjectURL(new Blob([`﻿${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' })), download: `${name} ${new Date().toISOString().slice(0, 10)}.csv` });
+  document.body.append(a);
+  a.click();
+  a.remove();
 }
 
-// ── intestazione con tab e conteggi, uguale per azienda e contatto ──────────
-function tabsBar(container, tabs, active, go) {
-  return h('nav.profile-tabs.crm-tabs', { role: 'tablist' }, tabs.map(([k, label]) => h('button', {
-    type: 'button', role: 'tab', class: k === active ? 'on' : '', 'aria-selected': String(k === active), 'data-tab': k, on: { click: () => go(k) },
-  }, label)));
+// ── conteggi dei tab, uguali per azienda e contatto ─────────────────────────
+async function counts(base, { plans = false } = {}) {
+  const [e, m, n, p, pl] = await Promise.all([get(`${base}/emails`), get(`${base}/meetings`), get(`${base}/notes`), get(`${base}/projects`),
+    plans ? get(`${base}/plans`) : Promise.resolve({ plans: [] })].map(x => x.catch(() => [])));
+  return { email: e.length, incontri: m.length, missing: m.filter(x => x.missing_notes).length, note: n.length, progetti: p.length, piani: pl?.plans?.length || 0 };
 }
-async function counts(base) {
-  const [e, m, n, p] = await Promise.all([get(`${base}/emails`), get(`${base}/meetings`), get(`${base}/notes`), get(`${base}/projects`)].map(x => x.catch(() => [])));
-  return { email: e.length, incontri: m.length, missing: m.filter(x => x.missing_notes).length, note: n.length, progetti: p.length };
-}
-const label = (name, n, warn) => [name, n ? ` (${n})` : '', warn ? bang() : null];
+// persone attive dell'azienda, una volta sola anche se collegate due volte (design v2: «contatti doppi uniti»)
+const activePeople = s => [...new Map(s.contacts.filter(x => !x.date_to).map(x => [x.id, x])).values()];
+const rolePill = s => {
+  const r = s.roles;
+  if (r.includes('cliente')) return pill(s.client_since ? `Cliente dal ${String(s.client_since).slice(0, 4)}` : 'Cliente', 'gr');
+  if (r.includes('lead')) return pill(`Lead · ${stageLabel(s.lead_stage)}`, s.lead_stage === 'non_interessato' ? 'rd' : 'or');
+  return pill(r.map(x => data.meta.roles[x]).join(' · '));
+};
 
-// ── scheda dell'azienda (artboard «Anagrafica · …» e «Scheda azienda · …») ───
+// ── scheda dell'azienda (design v2, artboard «Scheda» e «Scheda-tab») ───────
+// Intestazione su due righe (nome + pillole, poi owner · P.IVA · sede); davanti Chiama · Email · Nuovo passo, il resto
+// nel menu «…»; il prossimo passo è una riga; tab con i contatori e «Altro ▾»; Panoramica in due colonne.
 async function subjectPage(container, id, tabKey) {
   const s = await get(`/api/crm/subjects/${id}`);
-  if (s.merged_into) return fill(container, h('div.card.empty', 'Questa scheda è stata unita a ', h('a', { href: `#/crm/scheda/${s.merged_into}` }, s.merged_name), '.'));
+  if (s.merged_into) return fill(container, h('div.cv', h('section.cv-card', emptyState('link', ['Questa scheda è stata unita a ', h('a', { href: `#/crm/scheda/${s.merged_into}` }, s.merged_name), '.']))));
   const base = `/api/crm/subjects/${id}`;
-  const c = await counts(base);
+  const c = await counts(base, { plans: true });
   const back = TAB_OF_ROLE[s.roles[0]] || 'tutte';
-  const active = s.contacts.filter(x => !x.date_to);
-  const tabs = [['panoramica', 'Panoramica'], ['piani', 'Piano d’azione'], ['contatti', label('Contatti', active.length)], ['email', label('Email', c.email)], ['incontri', label('Incontri', c.incontri, c.missing)],
-    ['note', label('Note', c.note)], ['progetti', label('Progetti', c.progetti)],
+  const people = activePeople(s);
+  const tabs = [['panoramica', 'Panoramica'], ['piani', 'Piano d’azione', c.piani], ['contatti', 'Contatti', people.length], ['email', 'Email', c.email], ['incontri', 'Incontri', c.incontri, c.missing],
+    ['note', 'Note', c.note], ['progetti', 'Progetti', c.progetti],
     ...(s.roles.includes('cliente') ? [['opportunita', 'Opportunità e gare'], ['commesse', 'Commesse']] : s.roles.includes('lead') ? [['opportunita', 'Opportunità']] : []),
     ...(s.roles.includes('fornitore') ? [['qualifica', 'Qualifica e documenti'], ['ordini', 'Ordini e subappalti']] : []),
     ...(s.roles.includes('partner') || s.roles.includes('concorrente') ? [['gare', 'Gare insieme e contro']] : [])];
   const tab = tabs.some(([k]) => k === tabKey) ? tabKey : 'panoramica';
   const refresh = (k = tab) => subjectPage(container, id, k);
   const go = k => { history.replaceState(null, '', `#/crm/scheda/${id}/${k}`); refresh(k); };
-  const body = h('div');
-  const more = h('div.crm-more');
-  if (data.admin) {
-    more.append(h('button.btn.btn-ghost', { type: 'button', on: { click: () => mergeForm(s) } }, 'Unisci a un\'altra scheda'),
-      h('button.btn.btn-ghost.danger', { type: 'button', on: { click: async () => {
-        if (!await confirmDialog(`Cancellare «${s.name}» dal CRM? I contatti restano, i loro collegamenti a questa scheda si tolgono.`, { ok: 'Cancella', danger: true })) return;
-        await del(base);
-        location.hash = `#/crm/${back}`;
-      } } }, 'Cancella'));
-  }
-  const kindLine = [s.roles.map(r => data.meta.roles[r]).join(' · '), data.meta.kinds[s.kind], s.vat && `P.IVA ${s.vat}`].filter(Boolean).join(' · ');
-  fill(container,
-    h('nav.pj-top', { 'aria-label': 'Percorso' }, h('a.pj-crumb', { href: `#/crm/${back}` }, icon('chevron-left', { size: 16 }), TABS.find(([k]) => k === back)[1])),
-    h('div.page-head.crm-head',
-      h('div', h('div.en-eyebrow', kindLine), h('h1', s.name),
-        h('div.en-head-pills', rolePills(s.roles), asaPills(s.asa),
-          s.client_since ? h('span.pill.crm-r-cliente', `Cliente dal ${s.client_since.slice(0, 4)}`) : null,
-          keyAccountPill(s, () => refresh(), data.keyRhythm || 90),
-          h('span.pill.crm-owner', icon('user', { size: 12 }), `Owner ${s.owner_name || '—'}${s.function_name ? ` · ${s.function_name}` : ''}`),
-          s.status !== 'attivo' ? h('span.pill.en-lost', data.meta.status[s.status]) : null)),
-      h('div.crm-actions',
-        h('button.btn', { type: 'button', on: { click: () => linkDialog(s, () => refresh()) } }, icon('link', { size: 15 }), 'Collega a'),
-        h('button.btn', { type: 'button', on: { click: () => transformDialog(s, () => refresh()) } }, icon('arrows', { size: 15 }), 'Trasforma in'),
-        h('button.btn', { type: 'button', on: { click: () => subjectForm({ subject: s, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica'),
-        more.childElementCount ? h('details.crm-menu', h('summary.btn.btn-ghost', { 'aria-label': 'Altro' }, icon('more', { size: 16 })), more) : null)),
-    s.roles.includes('lead') ? stageBar(s, () => refresh()) : null,
-    stepsCard(s, () => refresh()),
-    tabsBar(container, tabs, tab, go),
-    body);
+  const body = h('div.cv-stack');
+  const primary = people.find(x => x.is_primary) || people[0];
+  const phone = s.phone || primary?.mobile || primary?.phone;
+  const mail = s.email || primary?.email;
+  const newStep = () => stepDialog({ subjectId: s.id, subjectName: s.name, contacts: people, defaultOwner: s.owner_id, onSaved: () => refresh() });
+  const menu = moreMenu([
+    ['Collega a…', () => linkDialog(s, () => refresh())],
+    ['Trasforma in…', () => transformDialog(s, () => refresh())],
+    ['Modifica i dati', () => subjectForm({ subject: s, onSaved: () => refresh() })],
+    ['Key account', () => keyAccountDialog(s, () => refresh(), data.keyRhythm || 90)],
+    data.admin ? ['Unisci a un\'altra scheda', () => mergeForm(s)] : null,
+    data.admin ? ['Cancella', async () => {
+      if (!await confirmDialog(`Cancellare «${s.name}» dal CRM? I contatti restano, i loro collegamenti a questa scheda si tolgono.`, { ok: 'Cancella', danger: true })) return;
+      await del(base);
+      location.hash = `#/crm/${back}`;
+    }, true] : null]);
+  const place = [s.city, s.province && `(${s.province})`].filter(Boolean).join(' ');
+  fill(container, h('div.cv',
+    h('a.cv-crumb', { href: `#/crm/${back}` }, ic('chevron-left', 14), TABS.find(([k]) => k === back)[1]),
+    h('section.cv-card.pad.cv-head.visible',
+      h('div.cv-head-main',
+        h('span.cv-mono', { 'aria-hidden': 'true' }, initialsOf(s.short_name || s.name)),
+        h('div.cv-grow',
+          h('div.cv-row.cv-wrap', { style: { gap: '8px 10px' } }, h('h1.cv-head-name', s.name), rolePill(s), s.asa.slice(0, 3).map(a => pill(asaLabel(a), 'line')),
+            s.asa.length > 3 ? pill(`+${s.asa.length - 3}`, '', { title: s.asa.slice(3).map(asaLabel).join(', ') }) : null,
+            keyAccountPill(s, () => refresh(), data.keyRhythm || 90), s.status !== 'attivo' ? pill(data.meta.status[s.status], 'rd') : null),
+          h('div.cv-head-meta',
+            h('span', s.owner_name ? av(s.owner_name, 'bl') : null, `Owner ${s.owner_name || '—'}${s.function_name ? ` · ${s.function_name}` : ''}`),
+            s.vat ? h('span', `P.IVA ${s.vat}`) : null, place ? h('span', ic('map-pin', 13), place) : null,
+            data.meta.kinds[s.kind] ? h('span', data.meta.kinds[s.kind]) : null)),
+        h('div.cv-head-acts',
+          phone ? h('a.btn', { href: `tel:${phone}` }, ic('phone', 15), 'Chiama') : h('button.btn', { type: 'button', disabled: true, title: 'Nessun telefono: aggiungilo nei dati o ai contatti' }, ic('phone', 15), 'Chiama'),
+          mail ? h('a.btn', { href: `mailto:${mail}` }, ic('mail', 15), 'Email') : h('button.btn', { type: 'button', disabled: true, title: 'Nessuna email' }, ic('mail', 15), 'Email'),
+          h('button.btn.btn-primary', { type: 'button', on: { click: newStep } }, ic('plus', 15), 'Nuovo passo'),
+          menu)),
+      s.roles.includes('lead') ? [h('div.cv-hr'), stageBar(s, () => refresh())] : null,
+      h('div.cv-hr'),
+      stepsCard(s, () => refresh(), { onNew: newStep })),
+    cvTabs(tabs, tab, go),
+    body));
   const canWrite = true;
-  const people = active.map(x => ({ name: personName(x), email: x.email, preset: x.is_primary }));
-  if (tab === 'panoramica') await overviewTab(body, s, base, go);
+  const invite = people.map(x => ({ name: personName(x), email: x.email, preset: x.is_primary }));
+  if (tab === 'panoramica') await overviewTab(body, s, base, go, people, () => refresh());
   else if (tab === 'contatti') subjectContacts(body, s, () => refresh());
   else if (tab === 'email') emailsTab(body, base, { canWrite });
-  else if (tab === 'incontri') meetingsTab(body, base, { canWrite, people, label: 'quest\'azienda' });
+  else if (tab === 'incontri') meetingsTab(body, base, { canWrite, people: invite, label: 'quest\'azienda' });
   else if (tab === 'note') notesTab(body, base, { isSubject: true });
   else if (tab === 'progetti') projectsTab(body, base, { canWrite, newName: s.short_name || s.name });
   else if (tab === 'piani') await plansTab(body, s, () => refresh());
   else fill(body, placeholderTab(tab, s));
 }
+const initialsOf = name => String(name).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(w => w.length > 1 || /\p{Lu}/u.test(w)).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 function placeholderTab(tab, s) {
   const text = {
@@ -353,90 +529,84 @@ function placeholderTab(tab, s) {
     ordini: ['Ordini e subappalti', 'Arriveranno da BOSS, con il voto a fine lavoro.'],
     gare: ['Gare insieme e contro', 'Dalle opportunità di BOSS: le gare fatte in ATI con quest\'impresa e quelle che ci ha vinto.'],
   }[tab];
-  return h('div.card.crm-pad', h('h3.crm-h3', text[0]), h('p', text[1]), h('p.small.muted', 'In arrivo con l\'integrazione.'));
+  return card({ title: text[0], right: pill('in arrivo con l\'integrazione', 'bl') }, emptyState('link', text[1]));
 }
 
 function stageBar(s, refresh) {
-  return h('div.crm-stages', { role: 'group', 'aria-label': 'Fase del lead' },
-    data.meta.leadStages.map(([k, l]) => h('button.crm-stage', {
-      type: 'button', class: [k === s.lead_stage ? 'on' : '', k === 'non_interessato' ? 'lost' : ''].join(' '), 'aria-pressed': String(k === s.lead_stage),
-      on: { click: async () => { if (k !== s.lead_stage && await changeStage(s, k)) refresh(); } },
-    }, l)),
-    h('span.crm-stage.crm-stage-end', { title: 'Succede da solo alla prima commessa in BOSS' }, icon('check', { size: 14 }), 'Diventa cliente'),
-    s.lead_stage === 'non_interessato' && s.lost_reason ? h('div.small.muted.crm-lost', `Motivo: ${s.lost_reason}${s.retry_date ? ` · riprovare il ${day(s.retry_date)}` : ''}`) : null);
+  return h('div.cv-row.cv-wrap', { style: { gap: '10px' } },
+    h('span.cv-lbl', 'Fase del lead'),
+    h('div.cv-stages', { role: 'group', 'aria-label': 'Fase del lead' },
+      data.meta.leadStages.map(([k, l]) => h('button.cv-stage', {
+        type: 'button', class: [k === s.lead_stage ? 'on' : '', k === 'non_interessato' ? 'lost' : ''].join(' '), 'aria-pressed': String(k === s.lead_stage),
+        on: { click: async () => { if (k !== s.lead_stage && await changeStage(s, k)) refresh(); } },
+      }, k === s.lead_stage ? ic('check', 13) : null, l)),
+      h('span.cv-stage.end', { title: 'Succede da solo alla prima commessa in BOSS' }, ic('check', 13), 'Diventa cliente')),
+    s.lead_stage === 'non_interessato' && s.lost_reason ? h('span.cv-small.cv-muted', dots([`Motivo: ${s.lost_reason}`, s.retry_date && `riprovare il ${day(s.retry_date)}`])) : null);
 }
 
-// Panoramica: le informazioni della categoria su tre colonne, poi gli ultimi aggiornamenti
-async function overviewTab(box, s, base, go) {
+// Panoramica: a sinistra le attività recenti (e quello che conta del ruolo), a destra persone e dati; via i riquadri pieni di «—»
+async function overviewTab(box, s, base, go, people, refresh) {
   const r = s.roles;
-  const kpi = list => sec('Numeri', h('div.crm-kpis', list.map(([k, val]) => h('div.crm-kpi', h('span', k), h('strong', val)))), h('p.small.muted', 'da BOSS e da Target'));
-  const col1 = [];
+  const kv = pairs => h('dl.cv-kv', pairs.filter(p => p && p[1] !== null && p[1] !== undefined && p[1] !== '' && p[1] !== '—').flatMap(([k, val]) => [h('dt', k), h('dd', val)]));
+  const left = [await timelineCard(base, { onOpenTab: go })];
   if (r.includes('lead')) {
-    col1.push(sec('Perché ci interessa', h('p.en-notes', s.lead_why || '—'), dlist([
-      ['Segmento', s.segment || '—'], ['Valore potenziale', s.potential_value ? `${eur(s.potential_value)} l'anno` : '—'],
-      ['Priorità', s.priority ? h('span.pill.crm-prio', { class: `crm-p-${s.priority}` }, data.meta.priorities[s.priority]) : '—'],
-      ['Origine', s.origin || '—'], ['Segnalato da', s.referred_by || '—']])));
+    left.push(h('section.cv-card.pad', h('div.cv-lbl', 'Perché ci interessa'), s.lead_why ? h('p', s.lead_why) : emptyState('target', 'Due righe su cosa fa e cosa potremmo fare per lui.', link('Scrivile', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })),
+      kv([['Valore potenziale', s.potential_value ? `${eur(s.potential_value)} l'anno` : ''], ['Priorità', s.priority ? data.meta.priorities[s.priority] : ''], ['Segmento', s.segment], ['Origine', s.origin], ['Segnalato da', s.referred_by]])));
   }
-  if (r.includes('cliente')) col1.push(sec('Cliente', dlist([['Segmento', s.segment || '—'], ['ASA', s.asa.map(asaLabel).join(', ')], ['Cliente dal', day(s.client_since)],
-    ['Pagamenti', 'da Target'], ['Accordi quadro', 'da BOSS']])));
-  if (r.includes('fornitore')) col1.push(sec('Fornitore', dlist([
-    ['Categorie', s.supplier_categories.map(k => data.meta.supplierCategories[k]).join(', ') || '—'],
-    ['Sottocategorie', s.supplier_subcategories.join(', ') || '—'],
-    ['Zone servite', s.supplier_zones.map(provinceName).join(', ') || '—'], ['SOA', soaText(s.soa)], ['Codice Vittoria', s.vittoria_id || '—']])),
-  sec('Qualifica (da Vittoria)', h('p.small.muted', 'Stato della qualifica e documenti a scadenza arriveranno da Vittoria.')));
-  if (r.includes('partner') || r.includes('concorrente')) col1.push(sec(r.includes('partner') ? 'Come partner (ATI, RTI, avvalimento)' : 'Come concorrente', dlist([['Categorie SOA', soaText(s.soa)], ['Gare', 'da BOSS']])));
-  if (s.history.length) col1.push(sec('Storico', h('ul.en-history', s.history.map(x => h('li', h('strong', x.to_stage === 'cliente' ? 'Cliente' : x.to_stage === 'ruoli' ? 'Ruoli' : stageLabel(x.to_stage)),
-    h('div.t-meta', [new Date(x.at).toLocaleDateString('it-IT'), x.user_name, x.note].filter(Boolean).join(' · ')))))));
-  const contactsLine = [s.pec && h('a', { href: `mailto:${s.pec}` }, `PEC ${s.pec}`), s.email && h('a', { href: `mailto:${s.email}` }, s.email), s.phone && h('a', { href: `tel:${s.phone}` }, s.phone), s.website].filter(Boolean);
-  const col2 = [sec('Anagrafica', dlist([
-    ['Owner', h('strong', s.owner_name || '—')], ['Funzione di riferimento', h('strong', s.function_name || '—')],
-    ['Ragione sociale', s.name + (s.short_name ? ` (${s.short_name})` : '')], ['Tipo', `${data.meta.kinds[s.kind]}${s.legal_form ? ` · ${s.legal_form}` : ''}`],
-    ['P.IVA', s.vat || '—'], ['Codice fiscale', s.tax_code || '—'], (s.kind === 'ente_pubblico' || s.ipa_code) && ['Codice IPA', s.ipa_code || '—'],
-    ['Codice SDI', s.sdi_code || '—'], ['ATECO', s.ateco || '—'],
-    ['Gruppo', s.group_id ? h('a', { href: `#/crm/scheda/${s.group_id}` }, s.group_name) : '—'],
-    ['Sede', [s.address, s.city, s.province && `(${s.province})`, s.region].filter(Boolean).join(' ') || '—'],
-    ['Contatti', contactsLine.length ? h('span', contactsLine.flatMap((x, i) => (i ? [' · ', x] : [x]))) : '—'],
-    ['ASA', s.asa.map(asaLabel).join(', ')],
-    ['Stato', data.meta.status[s.status] + (s.status === 'bloccato' && s.block_reason ? ` · ${s.block_reason}` : '')]]),
-  s.notes ? h('p.en-notes.crm-notes', s.notes) : null),
-  sec('Codici', dlist([['ID Alma Planet', String(s.id)], ['Codice BOSS', s.boss_code || '—'], ['Codice contabile (Target)', s.accounting_code || '—'], ['Codice Zoho (storico)', s.zoho_id || '—']]))];
-  if (s.controlled.length) col2.push(sec('Società del gruppo', h('div.en-links', s.controlled.map(x => h('a.en-link', { href: `#/crm/scheda/${x.id}` }, x.name)))));
-  const active = s.contacts.filter(x => !x.date_to);
-  const col3 = [
-    r.includes('cliente') ? kpi([['Commesse aperte', '—'], ['Portafoglio', '—'], ['Fatturato 12 mesi', '—'], ['Margine medio', '—'], ['Gare vinte', '—'], ['Ultimo contatto', '—']])
-      : r.includes('fornitore') ? kpi([['Ordini 12 mesi', '—'], ['Speso 12 mesi', '—'], ['Voto medio', '—'], ['Commesse servite', '—']])
-        : r.includes('lead') ? kpi([['Opportunità aperte', '—'], ['Valore potenziale', s.potential_value ? eur(s.potential_value) : '—'], ['Giorni nella fase', s.history[0] ? String(Math.max(0, Math.round((Date.now() - Date.parse(s.history[0].at)) / 86400000))) : '—'], ['Ultimo contatto', '—']])
-          : kpi([['Gare insieme', '—'], ['Vinte insieme', '—'], ['Gare contro', '—'], ['Ribasso medio', '—']]),
-    sec('Persone', active.length ? h('div.crm-lines', active.slice(0, 5).map(x => h('a.crm-line.crm-linkline', { href: `#/crm/contatti/${x.id}` },
-      h('span.crm-ico', icon('user', { size: 15 })), h('div.grow', h('div.crm-line-t', personName(x)), h('div.t-meta', [x.job, x.is_primary && 'principale'].filter(Boolean).join(' · ')))))) : h('p.small.muted', 'Nessun contatto.')),
+  if (r.includes('cliente')) left.push(card({ title: 'Commesse e opportunità', right: pill('da BOSS', 'bl') }, emptyState('folder', 'Arriveranno da BOSS con il collegamento: commesse aperte e chiuse, opportunità e gare di questo cliente.')));
+  if (r.includes('fornitore')) {
+    left.push(h('section.cv-card.pad', h('div.cv-lbl', 'Fornitore'), kv([['Categorie', s.supplier_categories.map(k => data.meta.supplierCategories[k]).join(', ')], ['Sottocategorie', s.supplier_subcategories.join(', ')],
+      ['Zone servite', s.supplier_zones.map(provinceName).join(', ')], ['SOA', s.soa?.length ? soaText(s.soa) : ''], ['Codice Vittoria', s.vittoria_id]]),
+    h('p.cv-small.cv-muted', 'Qualifica e documenti a scadenza arriveranno da Vittoria.')));
+  }
+  if ((r.includes('partner') || r.includes('concorrente')) && s.soa?.length) left.push(h('section.cv-card.pad', h('div.cv-lbl', r.includes('partner') ? 'Come partner (ATI, RTI, avvalimento)' : 'Come concorrente'), kv([['Categorie SOA', soaText(s.soa)]])));
+  if (s.history.length) {
+    left.push(card({ title: 'Storico', count: s.history.length }, s.history.slice(0, 6).map(x => listRow({ icon: 'clock', title: x.to_stage === 'cliente' ? 'Cliente' : x.to_stage === 'ruoli' ? 'Ruoli' : stageLabel(x.to_stage),
+      meta: dots([new Date(x.at).toLocaleDateString('it-IT'), x.user_name, x.note]) }))));
+  }
+  const contactsLine = [s.pec && h('a', { href: `mailto:${s.pec}` }, s.pec), s.email && h('a', { href: `mailto:${s.email}` }, s.email), s.phone && h('a', { href: `tel:${s.phone}` }, s.phone), s.website].filter(Boolean);
+  const codes = dots([s.boss_code && `BOSS ${s.boss_code}`, s.accounting_code && `Target ${s.accounting_code}`, s.zoho_id && `Zoho ${s.zoho_id}`]);
+  const right = [
+    card({ title: 'Persone', count: people.length, right: people.length ? link('Tutte', { on: { click: () => go('contatti') } }) : null },
+      people.length ? people.slice(0, 5).map(x => listRow({ lead: av(personName(x), 'bl'), title: personName(x), meta: dots([x.job, x.is_primary && 'principale']) || null, href: `#/crm/contatti/${x.id}`,
+        actions: [x.mobile || x.phone ? h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `tel:${x.mobile || x.phone}`, 'aria-label': `Chiama ${personName(x)}` }, ic('phone', 15)) : null,
+          x.email ? h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `mailto:${x.email}`, 'aria-label': `Scrivi a ${personName(x)}` }, ic('mail', 15)) : null] }))
+        : emptyState('users', 'Nessun contatto: aggiungi le persone da conoscere.', h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ preset: { subject_id: s.id }, onSaved: refresh }) } }, 'Aggiungi'))),
+    h('section.cv-card.pad', h('div.cv-lbl', 'Dati'),
+      kv([['Ragione sociale', s.name + (s.short_name ? ` (${s.short_name})` : '')], ['Tipo', `${data.meta.kinds[s.kind] || ''}${s.legal_form ? ` · ${s.legal_form}` : ''}`],
+        ['Codice fiscale', s.tax_code], ['P.IVA', s.vat], (s.kind === 'ente_pubblico' || s.ipa_code) && ['Codice IPA', s.ipa_code], ['SDI', s.sdi_code], ['ATECO', s.ateco],
+        ['Sede', [s.address, s.city, s.province && `(${s.province})`, s.region].filter(Boolean).join(' ')],
+        ['Contatti', contactsLine.length ? h('span', contactsLine.flatMap((x, i) => (i ? [' · ', x] : [x]))) : ''],
+        ['Gruppo', s.group_id ? h('a', { href: `#/crm/scheda/${s.group_id}` }, s.group_name) : ''],
+        ['Società del gruppo', s.controlled.length ? h('span', s.controlled.flatMap((x, i) => [i ? ', ' : '', h('a', { href: `#/crm/scheda/${x.id}` }, x.name)])) : ''],
+        ['Stato', s.status !== 'attivo' ? data.meta.status[s.status] + (s.block_reason ? ` · ${s.block_reason}` : '') : ''],
+        ['Codici', codes ? h('span.cv-small.cv-muted', codes) : '']]),
+      s.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, s.notes) : null,
+      link('Modifica i dati', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })),
   ];
-  fill(box, h('div.crm-cols', h('div.crm-col', col1), h('div.crm-col', col2), h('div.crm-col', col3)));
-  box.append(await timelineCard(base, { onOpenTab: go }));
+  fill(box, h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
 }
 
 async function subjectContacts(box, s, refresh) {
-  const current = s.contacts.filter(c => !c.date_to);
+  const current = activePeople(s);
   const past = s.contacts.filter(c => c.date_to);
-  const row = c => h('a.crm-line.crm-linkline', { href: `#/crm/contatti/${c.id}` },
-    h('span.crm-ico', icon('user', { size: 15 })),
-    h('div.grow', h('div.crm-line-t', personName(c)), h('div.t-meta', [c.job, c.is_primary && 'principale', c.date_to && `fino al ${day(c.date_to)}`].filter(Boolean).join(' · '))),
-    h('span.small.muted', c.email || c.mobile || c.phone || ''));
+  const row = c => listRow({ lead: av(personName(c), c.date_to ? '' : 'bl'), title: personName(c), href: `#/crm/contatti/${c.id}`,
+    meta: dots([c.job, c.is_primary && 'principale', c.date_to && `fino al ${day(c.date_to)}`, c.email || c.mobile || c.phone]) });
   const proposals = await get(`/api/crm/subjects/${s.id}/proposals`).catch(() => []);
-  fill(box, h('div.crm-grid',
-    h('section.card.crm-pad', h('div.en-detail',
-      h('div.crm-sec-row', h('h3.crm-h3', 'Persone'),
-        h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ preset: { subject_id: s.id }, onSaved: refresh }) } }, icon('plus', { size: 15 }), 'Nuovo contatto')),
-      current.length ? h('div.crm-lines', current.map(row)) : h('p.muted.small', 'Nessun contatto. Aggiungi le persone da conoscere, con la loro qualifica.'),
-      past.length ? h('section.en-sec', h('h3', 'Non ci lavorano più'), h('div.crm-lines', past.map(row))) : null)),
-    proposals.length ? h('section.card.crm-pad.crm-dashed', h('h3.crm-h3', 'Proposti dagli incontri'),
-      h('p.small.muted', 'Indirizzi di quest\'azienda visti negli incontri di Outlook, non ancora tra i contatti.'),
-      h('div.crm-lines', proposals.map(p => h('div.crm-line', h('span.crm-ico', icon('user', { size: 15 })),
-        h('div.grow', h('div.crm-line-t', p.name || p.email), h('div.t-meta', `${p.email}${p.meeting_subject ? ` · «${p.meeting_subject}»` : ''}`)),
-        h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => {
+  fill(box, h('div.cv-cols.w420',
+    h('div.cv-stack',
+      card({ title: 'Persone', count: current.length, right: h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ preset: { subject_id: s.id }, onSaved: refresh }) } }, ic('plus', 14), 'Nuovo contatto') },
+        current.length ? current.map(row) : emptyState('users', 'Nessun contatto. Aggiungi le persone da conoscere, con la loro qualifica.')),
+      past.length ? card({ title: 'Non ci lavorano più', count: past.length }, past.map(row)) : null),
+    proposals.length ? card({ title: 'Proposti dagli incontri', count: proposals.length },
+      h('p.cv-small.cv-muted', { style: { padding: '0 24px 8px' } }, 'Indirizzi di quest\'azienda visti negli incontri di Outlook, non ancora tra i contatti.'),
+      proposals.map(p => listRow({ icon: 'user', title: p.name || p.email, meta: dots([p.email, p.meeting_subject && `«${p.meeting_subject}»`]),
+        actions: [h('button.btn.btn-sm', { type: 'button', on: { click: () => {
           const [first, ...rest] = (p.name && !p.name.includes('@') ? p.name : '').split(' ');
           contactForm({ preset: { subject_id: s.id, email: p.email, first_name: rest.length ? first : '', last_name: rest.length ? rest.join(' ') : first || p.email.split('@')[0] }, onSaved: refresh });
-        } } }, 'Crea contatto'),
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/proposals/${p.id}/dismiss`); refresh(); } } }, 'Ignora'))))) : null));
+        } } }, 'Crea'),
+        h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/proposals/${p.id}/dismiss`); refresh(); } } }, 'Ignora')] })))
+      : h('div')));
 }
 
 // ── modulo del soggetto (con gli elenchi da cui scegliere) ──────────────────
@@ -539,7 +709,7 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
     h('div.en-row3', field('Codice BOSS', input({ 'data-k': 'boss_code', value: s.boss_code || '' })), field('Codice contabile (Target)', input({ 'data-k': 'accounting_code', value: s.accounting_code || '' })),
       field('Codice Zoho', input({ 'data-k': 'zoho_id', value: s.zoho_id || '' }))),
     field('Note', textarea(s.notes, { 'data-k': 'notes' })));
-  m = modal({
+  m = cvModal({
     wide: true, title: subject ? `Modifica ${subject.name}` : 'Nuova anagrafica', body: form,
     actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
       const f = read(form);
@@ -580,7 +750,7 @@ async function linkDialog(s, onDone) {
       h('div.grow', h('div.crm-line-t', x.name), h('div.t-meta', [x.roles.map(r => data.meta.roles[r]).join(', '), x.vat && `P.IVA ${x.vat}`, `${x.contacts} contatti`].filter(Boolean).join(' · '))))));
   };
   search.addEventListener('input', debounce(draw, 150));
-  const m = modal({
+  const m = cvModal({
     title: 'Collega a',
     body: h('div.en-form',
       h('p.small.muted', 'La stessa azienda ha più ruoli: resta una sola scheda, e se cambi un dato cambia dappertutto.'),
@@ -607,7 +777,7 @@ function transformDialog(s, onDone) {
   const opts = Object.entries(data.meta.roles).filter(([k]) => !s.roles.includes(k));
   const roles = chipSet(opts, [], { disabled: k => (k === 'cliente' && s.roles.includes('lead') && !data.admin ? 'Un lead diventa cliente da solo alla prima commessa in BOSS' : false) });
   const note = textarea('', { placeholder: 'Perché (facoltativo): «da gennaio facciamo le gare in ATI con loro»', maxlength: 300 });
-  const m = modal({
+  const m = cvModal({
     title: 'Trasforma in',
     body: h('div.en-form',
       h('p.small.muted', 'Il ruolo cambia: la scheda resta la stessa, con tutta la sua storia; il ruolo vecchio sparisce. I dati del ruolo vecchio (categorie, zone, SOA) restano nella scheda.'),
@@ -626,7 +796,7 @@ function transformDialog(s, onDone) {
 async function mergeForm(s) {
   const { subjects } = await get('/api/crm/subjects');
   const target = select([['', 'Scegli la scheda buona…'], ...subjects.filter(x => x.id !== s.id).map(x => [x.id, `${x.name}${x.vat ? ` · ${x.vat}` : ''}`])], '');
-  const m = modal({
+  const m = cvModal({
     title: `Unisci «${s.name}»`,
     body: h('div.en-form', h('p', 'Contatti, email, incontri, note e progetti passano alla scheda buona; questa resta come rimando, così i collegamenti di BOSS non si rompono.'), field('Scheda buona', target)),
     actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
@@ -639,27 +809,94 @@ async function mergeForm(s) {
   });
 }
 
-// ── contatti ────────────────────────────────────────────────────────────────
-async function contactsTab(box) {
-  const state = { q: '', owner: ownerDefault() };
-  const list = h('div', loading());
+// ── contatti (design v2, artboard «Contatti») ──────────────────────────────
+// Card larghe in due colonne (nome, ruolo, azienda, email e telefono cliccabili), avviso per i dati sporchi con
+// «Sistema», a destra l'anteprima del contatto con la storia lavorativa e le ultime attività.
+const dirty = c => /\d{6,}/.test(`${c.first_name || ''} ${c.last_name || ''}`) || !(c.last_name || c.first_name);
+async function contactsTab(box, again) {
+  const state = { q: '', owner: ownerDefault(), fn: '', noCompany: false, bad: false, limit: 60, pick: null };
+  const list = h('div.cv-cardlist');
+  const side = h('div.cv-stack.cv-hide-m');
+  const sub = h('p.cv-sub');
+  const pills = h('div.cv-row.cv-wrap', { style: { gap: '8px' } });
+  let all = [];
   fill(box,
-    h('div.toolbar',
-      h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome o email…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
-      ownerFunctionFilters(state, () => load())[0],
-      h('button.btn.btn-primary', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, icon('plus', { size: 16 }), 'Nuovo contatto')),
-    list);
+    pageTop({ eyebrow: 'Alma CRM · persone', heading: title('', 'Contatti'), sub,
+      actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, ic('plus', 15), 'Nuovo contatto')] }),
+    h('div.cv-filters', filterRow(state, () => load(), { search: 'Cerca per nome, email o azienda', fn: false, again }), pills),
+    h('div.cv-cols.w420', h('div', list), side));
+  const showMore = h('div');
+  list.after(showMore);
   async function load() {
     const { contacts } = await get(`/api/crm/contacts${qs({ q: state.q, asa: asaQuery(), owner: state.owner })}`);
-    if (!contacts.length) return fill(list, h('div.card.empty', state.q ? 'Nessun contatto con questa ricerca.' : 'Ancora nessun contatto. Le persone si aggiungono di solito dalla scheda della loro azienda.'));
-    fill(list, h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', ['Persona', 'Dove lavora', 'Email', 'Telefono', 'Owner'].map(t => h('th', t)))),
-      h('tbody', contacts.map(c => h('tr', { on: { click: () => { location.hash = `#/crm/contatti/${c.id}`; } } },
-        h('td', h('div.t-title', personName(c)), c.status !== 'attivo' ? h('div.t-meta', data.meta.contactStatus[c.status]) : null),
-        h('td', c.links.filter(l => !l.date_to).map(l => h('div', l.name, l.job ? h('span.t-meta', ` · ${l.job}`) : null))),
-        h('td', c.email || '—'), h('td', c.mobile || c.phone || '—'), h('td', c.owner_name || '—')))))));
+    all = contacts;
+    const noCo = contacts.filter(c => !c.links.some(l => !l.date_to));
+    const bad = contacts.filter(dirty);
+    sub.textContent = `${contacts.length.toLocaleString('it-IT')} contatti · ${(contacts.length - noCo.length).toLocaleString('it-IT')} collegati a un'azienda`;
+    const toggle = (k, text, n, tone) => h('button.cv-pill.big', { type: 'button', class: state[k] ? tone || 'or' : 'line', 'aria-pressed': String(state[k]), on: { click: () => { state[k] = !state[k]; state.limit = 60; draw(); drawPills(); } } }, `${text} · ${n}`);
+    const drawPills = () => fill(pills, noCo.length ? toggle('noCompany', 'Senza azienda', noCo.length) : null, bad.length ? toggle('bad', 'Da sistemare', bad.length, 'am') : null);
+    drawPills();
+    draw();
+  }
+  function draw() {
+    const shown = all.filter(c => (!state.noCompany || !c.links.some(l => !l.date_to)) && (!state.bad || dirty(c)));
+    if (!shown.length) {
+      fill(list, h('section.cv-card', { style: { gridColumn: '1 / -1' } }, emptyState('users', state.q ? 'Nessun contatto con questa ricerca.' : 'Ancora nessun contatto. Le persone si aggiungono di solito dalla scheda della loro azienda.')));
+      fill(showMore);
+      return fill(side);
+    }
+    fill(list, shown.slice(0, state.limit).map(contactCard));
+    fill(showMore, shown.length > state.limit ? h('div.cv-more-row', { style: { borderTop: 0 } }, link(`Mostra altri ${Math.min(60, shown.length - state.limit)} di ${shown.length - state.limit}`, { on: { click: () => { state.limit += 60; draw(); } } })) : null);
+    preview(shown.find(c => c.id === state.pick) || shown[0]);
+  }
+  function contactCard(c) {
+    const bad = dirty(c);
+    const work = c.links.find(l => l.is_primary && !l.date_to) || c.links.find(l => !l.date_to);
+    const select = () => { if (window.matchMedia('(min-width: 1181px)').matches) { state.pick = c.id; preview(c); } else location.hash = `#/crm/contatti/${c.id}`; };
+    return h('section.cv-card.pad.cv-contact', { class: bad ? 'bad' : '' },
+      h('div.cv-row', av(personName(c) || c.email, bad ? '' : 'bl'),
+        h('button.cv-li-main', { type: 'button', on: { click: select } }, h('div.cv-li-t', h('span.cv-ell', personName(c) || c.email || 'Senza nome')),
+          h('div.cv-li-m.cv-ell', bad ? `Dati da sistemare: «${personName(c)}»` : (work?.job || data.meta.contactStatus[c.status] || '—'))),
+        bad ? h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ contact: c, onSaved: () => load() }) } }, 'Sistema')
+          : h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `#/crm/contatti/${c.id}`, 'aria-label': `Apri ${personName(c)}` }, ic('chevron-right', 16))),
+      bad ? null : [
+        h('div.cv-row.cv-small', { style: { gap: '6px' } }, ic('building', 13), work ? h('a.cv-t5.cv-ell', { href: `#/crm/scheda/${work.subject_id}` }, work.name) : h('span.cv-muted', 'Senza azienda')),
+        c.email || c.mobile || c.phone ? h('div.cv-row.cv-small.cv-muted.cv-wrap', { style: { gap: '4px 14px' } },
+          c.email ? h('a.cv-row.cv-ell', { href: `mailto:${c.email}`, style: { gap: '5px' } }, ic('mail', 13), h('span.cv-ell', c.email)) : null,
+          c.mobile || c.phone ? h('a.cv-row', { href: `tel:${c.mobile || c.phone}`, style: { gap: '5px' } }, ic('phone', 13), c.mobile || c.phone) : null) : null]);
+  }
+  async function preview(c) {
+    if (!c) return fill(side);
+    const work = c.links.filter(l => !l.date_to);
+    const main = work.find(l => l.is_primary) || work[0];
+    fill(side, h('section.cv-card.pad', { style: { gap: '14px' } },
+      h('div.cv-row', h('span.cv-av.bl', { style: { width: '52px', height: '52px', fontSize: '16px' }, 'aria-hidden': 'true' }, initialsOf(personName(c) || c.email || '?')),
+        h('div.cv-grow', h('div.cv-t5', { style: { fontSize: '18px', lineHeight: '24px' } }, personName(c) || c.email), h('div.cv-small.cv-muted', dots([main?.job, main?.name]) || '—'))),
+      h('div.cv-row.cv-wrap', { style: { gap: '8px' } },
+        c.mobile || c.phone ? h('a.btn.btn-sm', { href: `tel:${c.mobile || c.phone}` }, ic('phone', 14), 'Chiama') : null,
+        c.email ? h('a.btn.btn-sm', { href: `mailto:${c.email}` }, ic('mail', 14), 'Email') : null,
+        h('a.btn.btn-sm', { href: `#/crm/contatti/${c.id}/note` }, ic('file-text', 14), 'Nuova nota'),
+        h('a.cv-lnk', { href: `#/crm/contatti/${c.id}` }, 'Apri la scheda')),
+      workHistory(c.links),
+      h('div.cv-lbl.cv-row', { style: { gap: '8px' } }, 'Ultime attività', main ? pill(`anche su ${main.name}`, 'bl') : null),
+      h('div', { 'data-tl': '' }, h('div.cv-small.cv-muted', 'Carico…'))));
+    const box2 = side.querySelector('[data-tl]');
+    const { items } = await get(`/api/crm/contacts/${c.id}/timeline`).catch(() => ({ items: [] }));
+    if (!box2.isConnected) return;
+    fill(box2, items.length ? items.slice(0, 4).map(i => listRow({ icon: i.type === 'email' ? 'mail' : i.type === 'meeting' ? 'calendar' : 'file-text', tone: i.missing ? 'rd' : i.type === 'email' ? 'bl' : i.type === 'meeting' ? 'or' : 'gr',
+      title: i.title || '(senza titolo)', meta: dots([fmtDate(String(i.date || '').slice(0, 10)), i.missing && 'mancano le note']), cls: 'flat' }))
+      : emptyState('clock', 'Ancora niente: email, incontri e note compariranno qui.'));
   }
   await load();
+}
+// «Dove ha lavorato»: storia lavorativa come linea del tempo
+function workHistory(links) {
+  if (!links.length) return h('div', h('div.cv-lbl', 'Dove ha lavorato'), h('p.cv-small.cv-muted', { style: { marginTop: '6px' } }, 'Non è collegato a nessuna azienda.'));
+  const when = l => (l.date_to ? `${l.date_from ? String(l.date_from).slice(0, 4) : '…'} – ${String(l.date_to).slice(0, 4)}` : l.date_from ? `dal ${String(l.date_from).slice(0, 4)}` : 'adesso');
+  return h('div', { style: { display: 'grid', gap: '10px' } }, h('div.cv-lbl', 'Dove ha lavorato'),
+    links.map(l => h('div.cv-row', { style: { alignItems: 'flex-start' } }, h('span.cv-timeline-dot', { class: l.date_to ? '' : 'on' }),
+      h('div.cv-grow', h('a.cv-t5', { href: `#/crm/scheda/${l.subject_id}`, style: { textDecoration: 'none', color: 'inherit' } }, l.name),
+        h('div.cv-small.cv-muted', dots([l.job, when(l), l.is_primary && !l.date_to && 'principale']))))));
 }
 
 // Scheda del contatto: stessi tab dell'azienda; quello che si collega qui ricade sulle aziende dove lavora
@@ -667,43 +904,46 @@ async function contactPage(container, id, tabKey) {
   const c = await get(`/api/crm/contacts/${id}`);
   const base = `/api/crm/contacts/${id}`;
   const n = await counts(base);
-  const tabs = [['panoramica', 'Panoramica'], ['email', label('Email', n.email)], ['incontri', label('Incontri', n.incontri, n.missing)], ['note', label('Note', n.note)], ['progetti', label('Progetti', n.progetti)]];
+  const tabs = [['panoramica', 'Panoramica'], ['email', 'Email', n.email], ['incontri', 'Incontri', n.incontri, n.missing], ['note', 'Note', n.note], ['progetti', 'Progetti', n.progetti]];
   const tab = tabs.some(([k]) => k === tabKey) ? tabKey : 'panoramica';
   const refresh = (k = tab) => contactPage(container, id, k);
   const go = k => { history.replaceState(null, '', `#/crm/contatti/${id}/${k}`); refresh(k); };
-  const body = h('div');
+  const body = h('div.cv-stack');
   const primary = c.links.find(l => l.is_primary && !l.date_to) || c.links.find(l => !l.date_to);
-  fill(container,
-    h('nav.pj-top', { 'aria-label': 'Percorso' }, h('a.pj-crumb', { href: '#/crm/contatti' }, icon('chevron-left', { size: 16 }), 'Contatti')),
-    h('div.page-head.crm-head',
-      h('div', h('div.en-eyebrow', ['Contatto', primary?.job, primary?.name].filter(Boolean).join(' · ')), h('h1', personName(c)),
-        h('div.en-head-pills', c.email ? h('a.pill', { href: `mailto:${c.email}` }, c.email) : null, c.mobile ? h('a.pill', { href: `tel:${c.mobile}` }, c.mobile) : null,
-          c.status !== 'attivo' ? h('span.pill.en-lost', data.meta.contactStatus[c.status]) : null)),
-      h('div.crm-actions',
-        h('button.btn', { type: 'button', on: { click: () => contactForm({ contact: c, onSaved: () => refresh() }) } }, icon('pencil', { size: 15 }), 'Modifica'),
-        data.admin || c.created_by === store.me.id ? h('button.btn.btn-ghost.danger', { type: 'button', on: { click: async () => {
-          if (!await confirmDialog(`Cancellare ${personName(c)} dal CRM?`, { ok: 'Cancella', danger: true })) return;
-          await del(base);
-          location.hash = '#/crm/contatti';
-        } } }, 'Cancella') : null)),
-    tabsBar(container, tabs, tab, go),
-    body);
+  const menu = moreMenu([['Modifica', () => contactForm({ contact: c, onSaved: () => refresh() })],
+    data.admin || c.created_by === store.me.id ? ['Cancella', async () => {
+      if (!await confirmDialog(`Cancellare ${personName(c)} dal CRM?`, { ok: 'Cancella', danger: true })) return;
+      await del(base);
+      location.hash = '#/crm/contatti';
+    }, true] : null]);
+  fill(container, h('div.cv',
+    h('a.cv-crumb', { href: '#/crm/contatti' }, ic('chevron-left', 14), 'Contatti'),
+    h('section.cv-card.pad.cv-head.visible', h('div.cv-head-main',
+      h('span.cv-mono', { 'aria-hidden': 'true', style: { borderRadius: '50%' } }, initialsOf(personName(c) || '?')),
+      h('div.cv-grow', h('div.cv-row.cv-wrap', { style: { gap: '8px 10px' } }, h('h1.cv-head-name', personName(c)), c.status !== 'attivo' ? pill(data.meta.contactStatus[c.status], 'rd') : null,
+        primary ? pill(`anche su ${primary.name}`, 'bl', { title: 'Quello che colleghi qui ricade sull\'azienda dove lavora' }) : null),
+      h('div.cv-head-meta', h('span', dots([primary?.job, primary?.name]) || 'Contatto senza azienda'), c.owner_name ? h('span', av(c.owner_name, 'bl'), `Owner ${c.owner_name}`) : null)),
+      h('div.cv-head-acts',
+        c.mobile || c.phone ? h('a.btn', { href: `tel:${c.mobile || c.phone}` }, ic('phone', 15), 'Chiama') : null,
+        c.email ? h('a.btn', { href: `mailto:${c.email}` }, ic('mail', 15), 'Email') : null,
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => go('note') } }, ic('file-text', 15), 'Nuova nota'),
+        menu))),
+    cvTabs(tabs, tab, go),
+    body));
   if (tab === 'email') return emailsTab(body, base, {});
   if (tab === 'incontri') return meetingsTab(body, base, { people: [{ name: personName(c), email: c.email, preset: true }], label: 'questo contatto' });
   if (tab === 'note') return notesTab(body, base, {});
   if (tab === 'progetti') return projectsTab(body, base, { newName: personName(c) });
-  fill(body, h('div.crm-cols',
-    h('div.crm-col', sec('Persona', dlist([
-      ['Nome', personName(c)], ['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : '—'],
-      ['Cellulare · telefono', [c.mobile && h('a', { href: `tel:${c.mobile}` }, c.mobile), c.phone].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x])).length ? h('span', [c.mobile && h('a', { href: `tel:${c.mobile}` }, c.mobile), c.phone].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))) : '—'],
-      ['LinkedIn', c.linkedin || '—'], ['Lingua', c.language || '—'], ['Owner', c.owner_name || '—'], ['Stato', data.meta.contactStatus[c.status]],
-      ['Privacy', `${data.meta.legalBasis[c.legal_basis]}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`]]), c.notes ? h('p.en-notes.crm-notes', c.notes) : null)),
-    h('div.crm-col', sec('Dove lavora', c.links.length ? h('div.crm-lines', c.links.map(l => h('a.crm-line.crm-linkline', { href: `#/crm/scheda/${l.subject_id}`, class: l.date_to ? 'past' : '' },
-      h('span.crm-ico', icon('building', { size: 15 })),
-      h('div.grow', h('div.crm-line-t', l.name), h('div.t-meta', [l.job, l.is_primary && 'principale', l.roles.map(r => data.meta.roles[r]).join(', '),
-        l.date_to ? `fino al ${day(l.date_to)}` : l.date_from ? `dal ${day(l.date_from)}` : ''].filter(Boolean).join(' · ')))))) : h('p.muted.small', 'Non è collegato a nessuna anagrafica.'))),
-    h('div.crm-col')));
-  body.lastChild.lastChild.append(await timelineCard(base, { onOpenTab: go }));
+  const kv = pairs => h('dl.cv-kv', pairs.filter(p => p[1]).flatMap(([k, val]) => [h('dt', k), h('dd', val)]));
+  fill(body, h('div.cv-cols.w420',
+    h('div.cv-stack', await timelineCard(base, { onOpenTab: go })),
+    h('div.cv-stack',
+      h('section.cv-card.pad', h('div.cv-lbl', 'Persona'),
+        kv([['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : ''], ['Cellulare', c.mobile ? h('a', { href: `tel:${c.mobile}` }, c.mobile) : ''], ['Telefono', c.phone],
+          ['LinkedIn', c.linkedin], ['Lingua', c.language], ['Owner', c.owner_name], ['Privacy', `${data.meta.legalBasis[c.legal_basis]}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`]]),
+        c.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, c.notes) : null,
+        link('Modifica', { on: { click: () => contactForm({ contact: c, onSaved: () => refresh() }) } })),
+      h('section.cv-card.pad', workHistory(c.links)))));
 }
 
 async function contactForm({ contact = null, preset = {}, onSaved }) {
@@ -752,7 +992,7 @@ async function contactForm({ contact = null, preset = {}, onSaved }) {
       field('Base giuridica (privacy)', select(Object.entries(data.meta.legalBasis), c.legal_basis || 'legittimo_interesse', { 'data-k': 'legal_basis' })),
       h('label.en-check.crm-check', h('input', { type: 'checkbox', 'data-k': 'newsletter', checked: Boolean(c.newsletter) }), 'Consenso alle comunicazioni')),
     field('Note', textarea(c.notes, { 'data-k': 'notes' })));
-  m = modal({
+  m = cvModal({
     wide: true, title: contact ? `Modifica ${personName(contact)}` : 'Nuovo contatto', body: form,
     actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
       const f = read(form);
@@ -773,99 +1013,119 @@ async function contactForm({ contact = null, preset = {}, onSaved }) {
   });
 }
 
-// ── ASA e accessi (direzione) ───────────────────────────────────────────────
+// ── ASA e accessi (direzione), dentro le Impostazioni (design v2, artboard «Imp-asa») ─────────
+// ASA come schede con le persone in avatar e «+ persona» dalla rubrica, con quanti clienti e lead ha ognuna.
 async function asaTab(box) {
   const { asa } = await get('/api/crm/asa');
+  const again = () => asaTab(box);
   const emails = h('datalist', { id: 'crm-users' }, store.users.map(u => h('option', { value: u.email }, u.name)));
-  fill(box,
-    h('p.muted', 'Chi è di un\'ASA vede nel CRM solo le anagrafiche della sua ASA; la direzione (amministratori di Alma Planet) le vede tutte. I membri di Alma Energy sono dell\'ASA Energy.'),
-    emails,
-    h('div.crm-asa-grid', asa.map(a => {
-      const mail = input({ type: 'email', placeholder: 'email@almacis.it', list: 'crm-users' });
-      return h('section.card.crm-pad.crm-asa-card',
-        h('div.en-sec-head', h('h3.crm-h3', a.label), a.boss_label ? h('span.small.muted', `in BOSS: ${a.boss_label}`) : null),
-        a.key === 'energy' && a.energyMembers.length ? h('div.small.muted', `Da Alma Energy: ${a.energyMembers.map(x => x.name || x.email).join(', ')}`) : null,
-        h('div.en-chips', a.members.map(x => h('span.pill.crm-member', x.name || x.email,
-          h('button.crm-x', { type: 'button', 'aria-label': `Togli ${x.name || x.email}`, on: { click: async () => {
-            await del(`/api/crm/asa/${a.key}/members/${encodeURIComponent(x.email)}`);
-            asaTab(box);
-          } } }, icon('x', { size: 13 }))))),
-        h('form.crm-add', { on: { submit: async e => {
-          e.preventDefault();
-          await post(`/api/crm/asa/${a.key}/members`, { email: mail.value });
-          asaTab(box);
-        } } }, mail, h('button.btn.btn-sm', { type: 'submit' }, icon('plus', { size: 15 }), 'Aggiungi')));
-    })),
-    importCard(),
-    h('form.card.crm-pad.crm-add', { on: { submit: async e => {
+  const asaCard = a => {
+    const mail = input({ type: 'email', placeholder: 'email@almacis.it', list: 'crm-users', 'aria-label': `Aggiungi una persona a ${a.label}` });
+    const form = h('form.cv-row', { hidden: true, style: { gap: '8px' }, on: { submit: async e => {
       e.preventDefault();
-      await post('/api/crm/asa', { label: e.currentTarget.querySelector('input').value });
+      await post(`/api/crm/asa/${a.key}/members`, { email: mail.value });
+      toast('Persona aggiunta');
+      again();
+    } } }, mail, h('button.btn.btn-sm', { type: 'submit' }, 'Aggiungi'));
+    const people = [...a.members, ...(a.key === 'energy' ? a.energyMembers.map(x => ({ ...x, energy: true })) : [])];
+    return h('section.cv-card.pad.visible', { style: { gap: '10px' } },
+      h('div.cv-row', h('span.cv-t5.cv-grow', { style: { fontSize: '15px' } }, a.label), a.boss_label ? h('span.cv-hint', `in BOSS: ${a.boss_label}`) : null),
+      h('div.cv-row.cv-small.cv-muted', { style: { gap: '12px' } }, h('span', `${a.clients} clienti`), h('span', `${a.leads} lead`)),
+      h('div.cv-row.cv-wrap', { style: { gap: '6px' } },
+        people.map(x => h('span.cv-pill.line.big', { title: x.energy ? 'Da Alma Energy' : x.email }, av(x.name || x.email, 'bl'), x.name || x.email,
+          x.energy ? null : h('button.crm-x', { type: 'button', 'aria-label': `Togli ${x.name || x.email}`, on: { click: async () => {
+            await del(`/api/crm/asa/${a.key}/members/${encodeURIComponent(x.email)}`);
+            again();
+          } } }, ic('x', 12)))),
+        h('button.cv-pill.or.big', { type: 'button', on: { click: () => { form.hidden = !form.hidden; if (!form.hidden) mail.focus(); } } }, ic('plus', 12), 'persona')),
+      !people.length ? h('p.cv-small', { style: { color: 'var(--cv-rd)' } }, 'Nessuno in quest\'ASA.') : null,
+      form);
+  };
+  const newAsa = input({ placeholder: 'Nome della nuova ASA', maxlength: 60, 'aria-label': 'Nome della nuova ASA' });
+  fill(box,
+    emails,
+    h('p.cv-small.cv-muted', 'Tutti vedono tutte le anagrafiche: l\'ASA serve per i filtri e per chi riceve segnali e promemoria. I membri di Alma Energy sono dell\'ASA Energy.'),
+    h('div.cv-grid3', asa.map(asaCard)),
+    h('form.cv-card.pad', { on: { submit: async e => {
+      e.preventDefault();
+      await post('/api/crm/asa', { label: newAsa.value });
       toast('ASA creata');
-      asaTab(box);
-    } } }, input({ placeholder: 'Nome della nuova ASA', maxlength: 60 }), h('button.btn', { type: 'submit' }, icon('plus', { size: 15 }), 'Nuova ASA')));
+      again();
+    } } }, h('div.cv-row', newAsa, h('button.btn', { type: 'submit' }, ic('plus', 15), 'Nuova ASA'))));
 }
 
-// Primo caricamento da Zoho: export «Aziende» così com'è, oppure l'Excel di controllo corretto a mano
+// Primo caricamento da Zoho in 3 passi (File → Controlla → Carica): export «Aziende» così com'è, l'Excel di controllo
+// corretto a mano, l'export «Contatti» o quello «Commesse». Quello che c'è già non si tocca.
 function importCard() {
-  const file = h('input', { type: 'file', accept: '.xlsx,.csv' });
-  const out = h('div');
+  const file = h('input', { type: 'file', accept: '.xlsx,.csv', 'aria-label': 'File di Zoho' });
+  const out = h('div', { style: { display: 'grid', gap: '14px' } });
+  const stepper = h('div.cv-stepper');
+  const drawStep = n => fill(stepper, ['File', 'Controlla', 'Carica'].map((l, i) => [i ? h('span.ln') : null,
+    h('span.s', { class: i + 1 < n ? 'done' : i + 1 === n ? 'on' : '' }, h('b', i + 1 < n ? ic('check', 12) : String(i + 1)), l)]));
+  drawStep(1);
+  const drop = h('label.cv-drop', file, h('span.cv-ib.or', ic('upload', 18)), h('span.cv-t5', 'Scegli o trascina qui il file di Zoho'), h('span.cv-small.cv-muted', 'Excel o CSV: Aziende, Contatti o Commesse'));
+  drop.addEventListener('dragover', () => drop.classList.add('over'));
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', () => drop.classList.remove('over'));
   const send = async (path, buf) => {
     const res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: buf });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'Errore');
     return body;
   };
+  const box = (n, l, s, warn) => h('div.cv-box', { style: warn ? { borderColor: 'var(--cv-am-line)', background: 'var(--cv-am-bg)' } : {} },
+    h('div.cv-row', { style: { gap: '6px', alignItems: 'baseline' } }, h('span', { style: { fontSize: '24px', color: 'var(--cv-ink)' } }, String(n)), h('span.cv-small.cv-muted', l)), s ? h('div.cv-hint', s) : null);
+  const table = (head, rows) => h('div.cv-box', { style: { padding: 0, overflow: 'hidden' } }, h('div.cv-tblwrap', h('table.cv-tbl', h('thead', h('tr', head.map(t => h('th', t)))), h('tbody', rows))));
   const roleText = r => Object.entries(r).map(([k, n]) => `${data.meta.roles[k]} ${n}`).join(' · ');
   file.addEventListener('change', async () => {
     const f = file.files[0];
     if (!f) return;
     const buf = await f.arrayBuffer();
+    drop.querySelector('.cv-t5').textContent = f.name;
+    drop.querySelector('.cv-small').textContent = 'Scegli un altro file per sostituirlo';
     fill(out, loading());
     let pre;
-    try { pre = await send('/api/crm/import/anteprima', buf); } catch (err) { return fill(out, h('p.small', { style: { color: 'var(--red)' } }, err.message)); }
+    try { pre = await send('/api/crm/import/anteprima', buf); } catch (err) { drawStep(1); return fill(out, h('p.cv-small', { style: { color: 'var(--cv-rd)' } }, err.message)); }
+    drawStep(2);
     const st = pre.stats;
-    const missing = Object.entries(st.ownersMissing || {}); // le commesse non hanno owner
-    const go = label => h('div', h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
-      e.currentTarget.disabled = true;
-      try {
-        const r = await send('/api/crm/import', buf);
-        toast(`Caricati ${r.created} ${label}`);
-        fill(out, h('p', `Caricati ${r.created} ${label}. Li trovi nel CRM.`));
-      } catch (err) { toast(err.message, 'err'); }
-    } } }, `Carica ${st.toLoad} ${label}`));
-    if (st.commesse) {
-      return fill(out, h('div.en-detail',
-        h('p', `${st.total} commesse, ${st.withClient} con il committente · ${st.newClients} aziende diventano clienti, ${st.alreadyClients} lo erano già · ${st.vatAdded} P.IVA e ${st.taxAdded} codici fiscali da aggiungere`),
-        st.notFound.length ? h('p.small.muted', `Committenti non trovati tra le anagrafiche: ${st.notFound.join(', ')}`) : null,
-        h('div.card.table-wrap', h('table.list', h('thead', h('tr', ['Azienda', 'Diventa cliente', 'P.IVA', 'Commesse', 'Prima'].map(t => h('th', t)))),
-          h('tbody', pre.sample.map(x => h('tr', h('td', x.name), h('td', x.becomesClient ? 'sì' : 'è già cliente'), h('td', x.vat || '—'), h('td.num', String(x.commesse)), h('td', x.first ? fmtDate(x.first, { year: true }) : '—')))))),
-        go('aziende dai committenti')));
-    }
-    if (st.contacts) {
-      return fill(out, h('div.en-detail',
-        h('p', `${st.toLoad} contatti da caricare: ${st.linked} collegati alla loro azienda, ${st.unlinked} senza azienda · ${st.existing} già presenti · ${st.colleagues} colleghi Almacis esclusi`),
-        missing.length ? h('p.small.muted', `Owner non trovati (i loro contatti vanno a te): ${missing.map(([n, c]) => `${n} (${c})`).join(', ')}`) : null,
-        h('div.card.table-wrap', h('table.list', h('thead', h('tr', ['Persona', 'Qualifica', 'Azienda', 'Owner'].map(t => h('th', t)))),
-          h('tbody', pre.sample.map(x => h('tr', h('td', x.name), h('td', x.job || '—'), h('td', x.company), h('td', x.owner)))))),
-        go('contatti')));
-    }
-    fill(out, h('div.en-detail',
-      h('p', `${st.toLoad} da caricare · ${st.existing} già presenti · ${st.duplicates} doppioni · ${st.skipped} escluse`),
-      h('p.small.muted', roleText(st.roles)),
-      missing.length ? h('p.small.muted', `Owner di Zoho non trovati tra i colleghi (le loro aziende vanno a te): ${missing.map(([n, c]) => `${n} (${c})`).join(', ')}`) : null,
-      h('div.card.table-wrap', h('table.list', h('thead', h('tr', ['Azienda', 'Tipo', 'Ruolo', 'ASA', 'Owner', 'Perché'].map(t => h('th', t)))),
-        h('tbody', pre.sample.map(x => h('tr', h('td', x.name), h('td', data.meta.kinds[x.kind] || x.kind), h('td', x.roles.map(r => data.meta.roles[r]).join(', ')),
-          h('td', x.asa.map(asaLabel).join(', ')), h('td', h('div', x.owner, x.function_name ? h('div.t-meta', x.function_name) : null)), h('td.small', x.why)))))),
-      h('div', h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
+    const missing = Object.entries(st.ownersMissing || {});
+    const go = (label, count) => h('div.cv-row', h('span.cv-grow.cv-small.cv-muted', 'Le schede già presenti non si duplicano: P.IVA, codice fiscale e codice Zoho.'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
         e.currentTarget.disabled = true;
         try {
           const r = await send('/api/crm/import', buf);
-          toast(`Caricate ${r.created} aziende`);
-          fill(out, h('p', `Caricate ${r.created} aziende. Le trovi nelle liste del CRM.`));
+          drawStep(4);
+          toast(`Caricati ${r.created} ${label}`);
+          fill(out, emptyState('check', `Caricati ${r.created} ${label}. Li trovi nel CRM.`));
         } catch (err) { toast(err.message, 'err'); }
-      } } }, `Carica ${st.toLoad} aziende`))));
+      } } }, `Carica ${count} ${label}`));
+    const owners = missing.length ? h('div.cv-row.cv-wrap', { style: { gap: '8px' } }, h('span.cv-small.cv-t5', 'Owner non trovati (vanno a chi carica):'), missing.map(([n, c]) => pill(`${n} (${c})`, 'am'))) : null;
+    if (st.commesse) {
+      return fill(out,
+        h('div.cv-grid3', { style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, box(st.total, 'commesse', `${st.withClient} con il committente`), box(st.newClients, 'nuovi clienti', `${st.alreadyClients} lo erano già`),
+          box(st.vatAdded, 'P.IVA da aggiungere', `${st.taxAdded} codici fiscali`), box(st.notFound.length, 'non trovati', 'committenti senza scheda', st.notFound.length > 0)),
+        st.notFound.length ? h('p.cv-small.cv-muted', `Committenti non trovati: ${st.notFound.join(', ')}`) : null,
+        table(['Azienda', 'Diventa cliente', 'P.IVA', 'Commesse', 'Prima'], pre.sample.map(x => h('tr', h('td', x.name), h('td', x.becomesClient ? 'sì' : 'è già cliente'), h('td', x.vat || '—'), h('td.num', String(x.commesse)), h('td', x.first ? fmtDate(x.first, { year: true }) : '—')))),
+        go('aziende dai committenti', st.toLoad));
+    }
+    if (st.contacts) {
+      return fill(out,
+        h('div.cv-grid3', { style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, box(st.toLoad, 'contatti', `${st.linked} collegati a un'azienda`), box(st.unlinked, 'senza azienda'),
+          box(st.existing, 'già presenti', `${st.colleagues} colleghi esclusi`), box(missing.length, 'owner non trovati', 'vanno a chi carica', missing.length > 0)),
+        owners,
+        table(['Persona', 'Qualifica', 'Azienda', 'Owner'], pre.sample.map(x => h('tr', h('td', x.name), h('td', x.job || '—'), h('td', x.company), h('td', x.owner)))),
+        go('contatti', st.toLoad));
+    }
+    fill(out,
+      h('div.cv-grid3', { style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, box(st.toLoad, 'aziende', roleText(st.roles)), box(st.existing, 'già presenti', `${st.duplicates} doppioni`),
+        box(st.skipped, 'escluse'), box(missing.length, 'owner non trovati', 'vanno a chi carica', missing.length > 0)),
+      owners,
+      table(['Azienda', 'Tipo', 'Ruolo', 'ASA', 'Owner', 'Perché'], pre.sample.map(x => h('tr', h('td', x.name), h('td', data.meta.kinds[x.kind] || x.kind), h('td', x.roles.map(r => data.meta.roles[r]).join(', ')),
+        h('td', x.asa.map(asaLabel).join(', ')), h('td', h('div', x.owner, x.function_name ? h('div.cv-small.cv-muted', x.function_name) : null)), h('td.cv-small', x.why)))),
+      go('aziende', st.toLoad));
   });
-  return h('section.card.crm-pad.crm-import', h('h3.crm-h3', 'Carica le aziende da Zoho'),
-    h('p.small.muted', 'L\'export «Aziende» di Zoho così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano; poi l\'export «Contatti», che si collegano da soli alla loro azienda, e l\'export «Commesse» (CSV), che fa diventare clienti i committenti con P.IVA e codice fiscale. Prima vedi l\'anteprima; quello che c\'è già non si tocca.'),
-    file, out);
+  return h('section.cv-card.pad', { style: { gap: '14px' } },
+    h('div.cv-row.cv-wrap', h('div.cv-t5.cv-grow', { style: { fontSize: '15px' } }, 'Caricamento da Zoho'), stepper),
+    h('p.cv-small.cv-muted', 'L\'export «Aziende» così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano; poi l\'export «Contatti», che si collegano da soli alla loro azienda, e l\'export «Commesse» (CSV), che fa diventare clienti i committenti. Prima vedi il riepilogo; quello che c\'è già non si tocca.'),
+    drop, out);
 }

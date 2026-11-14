@@ -212,12 +212,16 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   const adminOnly = req => { if (!req.crm.admin) throw new HttpError(403, 'Solo la direzione gestisce ASA e accessi'); };
   app.get('/api/crm/asa', async (req, res) => {
     adminOnly(req);
-    const [asa, { rows: members }, { rows: energy }] = await Promise.all([
+    const [asa, { rows: members }, { rows: energy }, { rows: counts }] = await Promise.all([
       allAsa(),
       db.query(`SELECT m.asa_key, m.email, u.id AS user_id, u.name FROM crm_asa_members m LEFT JOIN users u ON lower(u.email) = m.email ORDER BY u.name NULLS LAST, m.email`),
       db.query(`SELECT em.email, u.id AS user_id, u.name FROM energy_members em LEFT JOIN users u ON lower(u.email) = em.email ORDER BY u.name NULLS LAST`),
+      // clienti e lead per ASA (design v2: si vede subito dove mancano persone)
+      db.query(`SELECT a AS asa_key, COUNT(*) FILTER (WHERE 'cliente' = ANY(s.roles))::int AS clients, COUNT(*) FILTER (WHERE 'lead' = ANY(s.roles))::int AS leads
+                  FROM crm_subjects s, unnest(s.asa) a WHERE s.merged_into IS NULL GROUP BY a`),
     ]);
-    res.json({ asa: asa.map(a => ({ ...a, members: members.filter(m => m.asa_key === a.key), energyMembers: a.key === 'energy' ? energy : [] })) });
+    res.json({ asa: asa.map(a => ({ ...a, members: members.filter(m => m.asa_key === a.key), energyMembers: a.key === 'energy' ? energy : [],
+      clients: counts.find(x => x.asa_key === a.key)?.clients || 0, leads: counts.find(x => x.asa_key === a.key)?.leads || 0 })) });
   });
   app.post('/api/crm/asa', async (req, res) => {
     adminOnly(req);
@@ -250,6 +254,18 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   });
 
   // ── soggetti ─────────────────────────────────────────────────────────────────────────────
+  // Lead «vivo» (design v2 del 14/11, artboard «Lead»): ha un passo aperto, oppure è stato lavorato (fase oltre
+  // «Da contattare», o «Non interessato» con il motivo), oppure è stato toccato negli ultimi 90 giorni: fase cambiata (non la
+  // riga di nascita che scrive anche il caricamento di Zoho),
+  // passo scritto o fatto, nota, email o incontro collegati, oppure creato a mano (non dal caricamento di Zoho).
+  // Gli altri, quasi tutti arrivati da Zoho senza un passo e mai lavorati, vanno in «Da riordinare».
+  const LIVE_SQL = `(s.lead_stage <> 'da_contattare'
+    OR EXISTS (SELECT 1 FROM crm_steps st WHERE st.subject_id = s.id AND (st.done_at IS NULL OR st.done_at >= now() - interval '90 days' OR st.created_at >= now() - interval '90 days'))
+    OR EXISTS (SELECT 1 FROM crm_stage_history h WHERE h.subject_id = s.id AND h.from_stage IS NOT NULL AND h.at >= now() - interval '90 days')
+    OR EXISTS (SELECT 1 FROM crm_notes n WHERE n.subject_id = s.id AND n.deleted_at IS NULL AND n.created_at >= now() - interval '90 days')
+    OR EXISTS (SELECT 1 FROM crm_email_links el WHERE el.subject_id = s.id AND el.created_at >= now() - interval '90 days')
+    OR EXISTS (SELECT 1 FROM crm_meeting_links ml JOIN crm_meetings m ON m.id = ml.meeting_id WHERE ml.subject_id = s.id AND NOT ml.removed AND m.start_at >= (now() - interval '90 days')::timestamp)
+    OR (COALESCE(s.zoho_id, '') = '' AND s.created_at >= now() - interval '90 days'))`;
   app.get('/api/crm/subjects', async (req, res) => {
     const params = [];
     const where = ['s.merged_into IS NULL', seeSql(req, 's', params)];
@@ -260,6 +276,8 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     if (req.query.category) add('? = ANY(s.supplier_categories)', String(req.query.category));
     if (req.query.owner) add('s.owner_id = ?', Number(req.query.owner) || 0);
     if (req.query.function) add('s.function_name = ?', String(req.query.function));
+    if (req.query.live === '1') where.push(LIVE_SQL);
+    else if (req.query.live === '0') where.push(`NOT ${LIVE_SQL}`);
     if (req.query.q) {
       params.push(`%${String(req.query.q).trim()}%`);
       const n = params.length;
@@ -267,7 +285,8 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     }
     const { rows } = await db.query(
       `SELECT s.id, s.name, s.short_name, s.kind, s.vat, s.city, s.province, s.roles, s.asa, s.status, s.lead_stage, s.priority, s.potential_value,
-              s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.function_name, s.updated_at,
+              s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.function_name, s.updated_at, s.key_account,
+              s.lost_reason, s.retry_date, s.lead_why, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
               (SELECT COUNT(*)::int FROM crm_contact_links l WHERE l.subject_id = s.id AND l.date_to IS NULL) AS contacts,
               (SELECT COUNT(*)::int FROM crm_meeting_links ml JOIN crm_meetings m ON m.id = ml.meeting_id
                  WHERE NOT ml.removed AND (ml.subject_id = s.id OR ml.contact_id IN (SELECT cl.contact_id FROM crm_contact_links cl WHERE cl.subject_id = s.id
@@ -363,6 +382,34 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
       'UPDATE crm_subjects SET lead_stage = $2, lost_reason = $3, retry_date = $4, updated_at = now() WHERE id = $1 RETURNING *', [id, stage, lost, retry]);
     await history(id, cur.lead_stage, stage, [lost, note].filter(Boolean).join(' · '), req.user.id);
     res.json(s);
+  });
+
+  // «Da riordinare» (design v2, artboard «Lead»): più lead insieme, assegnati a un owner o chiusi come «Non interessato»
+  // con il motivo. La direzione su tutti; gli altri solo sui lead di cui sono owner.
+  app.post('/api/crm/subjects/bulk', async (req, res) => {
+    const action = v.oneOf(req.body.action, 'Azione', ['assign', 'close']);
+    const ids = Array.isArray(req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(n => Number.isInteger(n) && n > 0))] : [];
+    if (!ids.length) throw new HttpError(400, 'Scegli almeno un lead');
+    if (ids.length > 2000) throw new HttpError(400, 'Al massimo 2000 lead alla volta');
+    const { rows: found } = await db.query('SELECT id, roles, lead_stage, owner_id FROM crm_subjects WHERE id = ANY($1::int[]) AND merged_into IS NULL', [ids]);
+    if (found.length !== ids.length) throw new HttpError(404, 'Alcuni lead non ci sono più: ricarica la pagina');
+    if (found.some(s => !s.roles.includes('lead'))) throw new HttpError(400, 'Si riordinano solo i lead');
+    if (!req.crm.admin && found.some(s => s.owner_id !== req.user.id)) throw new HttpError(403, 'Puoi riordinare solo i lead di cui sei owner');
+    if (action === 'assign') {
+      const owner = v.int(req.body.owner_id, 'Owner', { min: 1 });
+      if (!(await db.query('SELECT 1 FROM users WHERE id = $1', [owner])).rowCount) throw new HttpError(400, 'Owner non trovato');
+      const { rowCount } = await db.query('UPDATE crm_subjects SET owner_id = $2, updated_at = now() WHERE id = ANY($1::int[])', [ids, owner]);
+      return res.json({ updated: rowCount });
+    }
+    const reason = v.text(req.body.reason, 'Motivo', { max: 200, required: true });
+    const note = v.text(req.body.note, 'Nota', { max: 500 }) || '';
+    const retry = v.date(req.body.retry_date, 'Riprovare il') ?? null;
+    const open = found.filter(s => s.lead_stage !== 'non_interessato');
+    for (const s of open) {
+      await db.query("UPDATE crm_subjects SET lead_stage = 'non_interessato', lost_reason = $2, retry_date = $3, updated_at = now() WHERE id = $1", [s.id, reason, retry]);
+      await history(s.id, s.lead_stage, 'non_interessato', [reason, note || 'chiuso da «Da riordinare»'].filter(Boolean).join(' · '), req.user.id);
+    }
+    res.json({ updated: open.length });
   });
 
   // Prima commessa in BOSS: il lead diventa cliente. Lo chiamerà BOSS; per ora lo può fare la direzione.

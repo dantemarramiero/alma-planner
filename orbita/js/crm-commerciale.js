@@ -1,4 +1,5 @@
-// Lavoro commerciale del CRM (Dante 14/11/2026; canvas «Lavoro commerciale · Radar AI · Piani d'azione»):
+// Lavoro commerciale del CRM (Dante 14/11/2026; canvas «Lavoro commerciale · Radar AI · Piani d'azione»), con il
+// design v2 dello stesso giorno (artboard «Settimana», «Telefono», «Dialoghi», «Imp-*»):
 // «La mia settimana» del responsabile di BU, prossimi passi sulla scheda, key account, impostazioni modificabili.
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading } from './ui.js';
 import { get, post, put, patch, del } from './api.js';
@@ -6,417 +7,623 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { openCrmMeeting } from './crm-tabs.js';
 import { signalRow, newSignalDialog, openPlan } from './crm-radar.js';
+import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, seg, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
+const DAYS = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 const todayIso = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const plusDays = n => { const d = new Date(`${todayIso()}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '—');
-const field = (label, control, hint) => h('label.field', h('span', label), control, hint ? h('small.muted', hint) : null);
+const longDay = iso => { const d = new Date(`${iso}T12:00:00Z`); return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`; };
+const day = d => (d ? fmtDate(String(d).slice(0, 10)) : '—');
 const input = (attrs = {}) => h('input.input', attrs);
 const select = (options, value, attrs = {}) => h('select.select', attrs, options.map(([k, label]) => h('option', { value: k, selected: String(k) === String(value ?? '') }, label)));
 const textarea = (value, attrs = {}) => h('textarea.input', { rows: 3, ...attrs }, value || '');
+const fld = (label, control, hint) => h('label.cv-fld', h('span', label), control, hint ? h('span.cv-hint', hint) : null);
 const userOptions = (empty = '—') => [['', empty], ...store.users.filter(u => u.active !== false).map(u => [u.id, u.name])];
+const userName = id => store.users.find(u => u.id === Number(id))?.name || '';
 const personName = p => [p.title, p.first_name, p.last_name].filter(Boolean).join(' ');
-const card = (title, extra, ...body) => h('section.card.crm-pad', h('div.crm-card-head', h('h3.crm-h3', title), extra || null), ...body);
-const empty = text => h('p.small.muted', text);
-const ico = name => h('span.crm-ico', icon(name, { size: 15 }));
 
 function chipSet(options, selected, { onChange } = {}) {
   const values = new Set(selected);
-  const el = h('div.en-chips', options.map(([k, label]) => h('button.pill.en-chip', {
+  const el = h('div.cv-chips', options.map(([k, label]) => h('button.cv-chip', {
     type: 'button', class: values.has(k) ? 'on' : '', 'aria-pressed': String(values.has(k)),
     on: { click: e => {
       values.has(k) ? values.delete(k) : values.add(k);
       e.currentTarget.classList.toggle('on', values.has(k));
       e.currentTarget.setAttribute('aria-pressed', String(values.has(k)));
+      e.currentTarget.dispatchEvent(new Event('input', { bubbles: true }));
       onChange?.(values);
     } },
   }, label)));
   return { el, values };
 }
 // elenco di righe modificabili: aggiungi, togli, sposta su e giù
-function lineList(values, { placeholder = '', max = 300 } = {}) {
+function lineList(values, { placeholder = '', max = 300, numbered = false } = {}) {
   const rows = h('div.crm-lineedit');
+  const renumber = () => numbered && [...rows.children].forEach((r, i) => { r.querySelector('.crm-plan-n').textContent = String(i + 1); });
   const add = (val = '') => {
-    const row = h('div.crm-lineedit-row',
+    const row = h('div.crm-lineedit-row', numbered ? h('span.crm-plan-n') : null,
       input({ value: val, placeholder, maxlength: max, 'aria-label': placeholder || 'Voce' }),
-      h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Sposta su', on: { click: () => row.previousElementSibling && rows.insertBefore(row, row.previousElementSibling) } }, icon('chevron-up', { size: 14 })),
-      h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Sposta giù', on: { click: () => row.nextElementSibling && rows.insertBefore(row.nextElementSibling, row) } }, icon('chevron-down', { size: 14 })),
-      h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Togli', on: { click: () => row.remove() } }, icon('x', { size: 14 })));
+      h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Sposta su', on: { click: () => { if (row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling); renumber(); rows.dispatchEvent(new Event('input', { bubbles: true })); } } }, ic('chevron-up', 14)),
+      h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Sposta giù', on: { click: () => { if (row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row); renumber(); rows.dispatchEvent(new Event('input', { bubbles: true })); } } }, ic('chevron-down', 14)),
+      h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Togli', on: { click: () => { rows.dispatchEvent(new Event('input', { bubbles: true })); row.remove(); renumber(); } } }, ic('x', 14)));
     rows.append(row);
+    renumber();
     return row;
   };
   values.forEach(x => add(x));
   return {
-    el: h('div', rows, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => add().querySelector('input').focus() } }, icon('plus', { size: 14 }), 'Aggiungi')),
+    el: h('div', rows, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => add().querySelector('input').focus() } }, ic('plus', 14), 'Aggiungi')),
     value: () => [...rows.querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean),
   };
 }
-const words = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
+// parole come pillole con la ×, più un campo per aggiungerne
+function tagEditor(values, { placeholder = 'parola', max = 80 } = {}) {
+  const list = [...values];
+  const el = h('div.cv-chips');
+  const add = h('input.cv-tagin', { placeholder: `+ ${placeholder}`, maxlength: max, 'aria-label': `Aggiungi ${placeholder}` });
+  const draw = () => {
+    fill(el, list.map((w, i) => h('span.cv-chip.on', w, h('button.crm-x', { type: 'button', 'aria-label': `Togli ${w}`, on: { click: () => { list.splice(i, 1); draw(); el.dispatchEvent(new Event('input', { bubbles: true })); } } }, ic('x', 11)))),
+      h('span.cv-chip', add));
+    add.focus({ preventScroll: true });
+  };
+  add.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const w = add.value.trim();
+    if (w && !list.includes(w)) list.push(w);
+    add.value = '';
+    draw();
+  });
+  fill(el, list.map((w, i) => h('span.cv-chip.on', w, h('button.crm-x', { type: 'button', 'aria-label': `Togli ${w}`, on: { click: () => { list.splice(i, 1); draw(); } } }, ic('x', 11)))), h('span.cv-chip', add));
+  return { el, value: () => { const w = add.value.trim(); return w && !list.includes(w) ? [...list, w] : [...list]; } };
+}
 
 // ── prossimi passi ─────────────────────────────────────────────────────────────────────────────
-// nuovo passo o modifica; contacts = persone dell'azienda
+// Nuovo passo (artboard «Dialoghi»): date rapide come pillole sopra il calendario, «Come» con le icone, chi e con chi,
+// la bozza del messaggio solo se serve.
 export function stepDialog({ subjectId, subjectName, step = null, contacts = [], defaultOwner = null, onSaved }) {
-  const title = input({ value: step?.title || '', placeholder: 'Cosa fare: chiamare l\'ing. Rossi, mandare le referenze…', maxlength: 300 });
-  const due = input({ type: 'date', value: step?.due_date?.slice(0, 10) || plusDays(2) });
-  const owner = select(userOptions(), step ? step.owner_id : (defaultOwner || store.me.id));
-  const channel = select([['', '—'], ...Object.entries(CHANNELS)], step?.channel || '');
-  const contact = select([['', 'Nessuno in particolare'], ...contacts.map(c => [c.id, personName(c) + (c.job ? ` · ${c.job}` : '')])], step?.contact_id || '');
-  const draft = textarea(step?.draft || '', { rows: 4, placeholder: 'Facoltativa: il testo dell\'email o cosa dire al telefono' });
-  const quick = h('div.en-chips', [['Domani', 1], ['Fra 3 giorni', 3], ['Fra una settimana', 7], ['Fra un mese', 30]].map(([l, n]) =>
-    h('button.pill.en-chip', { type: 'button', on: { click: () => { due.value = plusDays(n); } } }, l)));
-  const m = modal({
-    title: step ? 'Modifica il passo' : `Prossimo passo${subjectName ? ` · ${subjectName}` : ''}`,
-    body: h('div.en-form', field('Cosa fare', title), field('Entro quando', h('div', due, quick)),
-      h('div.en-row2', field('Chi lo fa', owner), field('Come', channel)),
-      contacts.length ? field('Con chi', contact) : null, field('Bozza', draft)),
-    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-      if (!title.value.trim()) return toast('Scrivi cosa fare', 'err');
-      if (!due.value) return toast('Scegli entro quando', 'err');
-      const body = { title: title.value, due_date: due.value, owner_id: owner.value ? Number(owner.value) : null, channel: channel.value, draft: draft.value,
-        ...(contacts.length ? { contact_id: contact.value ? Number(contact.value) : null } : {}) };
-      if (step) await patch(`/api/crm/steps/${step.id}`, body);
-      else await post(`/api/crm/subjects/${subjectId}/steps`, body);
-      m.close();
-      toast('Passo salvato');
-      onSaved?.();
-    } } }, 'Salva')],
+  const titleIn = input({ value: step?.title || '', placeholder: 'Cosa fare: chiamare l\'ing. Rossi, mandare le referenze…', maxlength: 300 });
+  const due = input({ type: 'date', value: step?.due_date?.slice(0, 10) || plusDays(3), 'aria-label': 'Entro quando' });
+  const quickOpts = [['1', 'Domani'], ['3', 'Fra 3 giorni'], ['7', 'Fra una settimana'], ['30', 'Fra un mese']];
+  const quick = choiceChips(quickOpts, step ? '' : '3', { label: 'Date rapide', onChange: n => { due.value = plusDays(Number(n)); } });
+  due.addEventListener('input', () => quick.set(quickOpts.find(([n]) => plusDays(Number(n)) === due.value)?.[0] || ''));
+  let channel = step?.channel || 'telefonata';
+  const picks = h('div.cv-picks', { role: 'radiogroup', 'aria-label': 'Come' });
+  const drawPicks = () => fill(picks, ['telefonata', 'email', 'incontro', 'sopralluogo'].map(k => h('button.cv-pick', {
+    type: 'button', role: 'radio', class: channel === k ? 'on' : '', 'aria-checked': String(channel === k), on: { click: () => { channel = channel === k ? '' : k; drawPicks(); } },
+  }, ic(CH_ICON[k], 18), CHANNELS[k])));
+  drawPicks();
+  const owner = select(userOptions(), step ? step.owner_id : (defaultOwner || store.me.id), { 'aria-label': 'Chi lo fa' });
+  const contact = select([['', 'Nessuno in particolare'], ...contacts.map(c => [c.id, personName(c) + (c.job ? ` · ${c.job}` : '')])], step?.contact_id || '', { 'aria-label': 'Con chi' });
+  const draft = textarea(step?.draft || '', { rows: 4, placeholder: 'Il testo dell\'email o cosa dire al telefono' });
+  const draftBox = h('div', { hidden: !step?.draft }, fld('Bozza del messaggio', draft));
+  const draftLink = link([ic('plus', 14), 'Aggiungi una bozza del messaggio'], { hidden: Boolean(step?.draft), on: { click: () => { draftBox.hidden = false; draftLink.hidden = true; draft.focus(); } } });
+  const m = cvModal({
+    size: 'md',
+    title: h('div', h('h2', step ? 'Modifica il passo' : 'Nuovo passo'), subjectName ? h('div.cv-subh', subjectName) : null),
+    body: h('div.en-form', fld('Cosa fare', titleIn), h('div.cv-fld', h('span', 'Entro quando'), quick.el, due),
+      h('div.cv-fld', h('span', 'Come'), picks),
+      h('div.cv-grid2', { style: { gap: '10px' } }, fld('Chi lo fa', owner), contacts.length ? fld('Con chi', contact) : null),
+      draftLink, draftBox),
+    actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        if (!titleIn.value.trim()) return toast('Scrivi cosa fare', 'err');
+        if (!due.value) return toast('Scegli entro quando', 'err');
+        const body = { title: titleIn.value, due_date: due.value, owner_id: owner.value ? Number(owner.value) : null, channel, draft: draft.value,
+          ...(contacts.length ? { contact_id: contact.value ? Number(contact.value) : null } : {}) };
+        if (step) await patch(`/api/crm/steps/${step.id}`, body);
+        else await post(`/api/crm/subjects/${subjectId}/steps`, body);
+        m.close();
+        toast('Passo salvato');
+        onSaved?.();
+      } } }, 'Salva il passo')],
   });
-  setTimeout(() => title.focus(), 50);
+  setTimeout(() => titleIn.focus(), 50);
 }
-// «Fatto»: com'è andata e, se serve, il passo dopo (un lead senza passo aperto non è vivo)
-export function doneDialog(step, { otherOpen = 0, onSaved } = {}) {
-  const outcome = textarea('', { placeholder: 'Com\'è andata (facoltativo)' });
-  const nextTitle = input({ placeholder: 'Il passo dopo (consigliato)', maxlength: 300, class: 'crm-grow' });
-  const nextDue = input({ type: 'date', value: plusDays(7) });
-  const m = modal({
-    title: 'Passo fatto',
-    body: h('div.en-form', h('p', h('strong', step.title), step.subject_name ? h('span.muted', ` · ${step.subject_name}`) : null),
-      field('Esito', outcome),
-      field('E adesso?', h('div.crm-composer-row', nextTitle, nextDue), otherOpen ? `Ci sono già altri ${otherOpen} passi aperti su quest'azienda.` : 'Senza un passo aperto l\'azienda finisce tra i lead senza prossimo passo.')),
-    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-      const next = nextTitle.value.trim() ? { title: nextTitle.value, due_date: nextDue.value } : null;
-      if (next && !next.due_date) return toast('Scegli la data del passo dopo', 'err');
-      await post(`/api/crm/steps/${step.id}/done`, { outcome: outcome.value, next });
-      m.close();
-      toast('Fatto');
-      onSaved?.();
-    } } }, 'Segna come fatto')],
+// «Fatto» (artboard «Dialoghi»): com'è andata e «E adesso?» con il passo dopo; un lead senza passo aperto non è vivo
+export function doneDialog(step, { otherOpen = 0, nextFromPlan = null, onSaved } = {}) {
+  const outcome = textarea('', { placeholder: 'Interessati, vogliono un sopralluogo la settimana prossima…', 'aria-label': 'Com\'è andata' });
+  const nextTitle = input({ placeholder: 'Il passo dopo (consigliato)', maxlength: 300, 'aria-label': 'Il passo dopo' });
+  const nextDue = input({ type: 'date', value: plusDays(7), 'aria-label': 'Entro quando' });
+  const when = h('span.cv-small.cv-muted', `· ${longDay(nextDue.value)}`);
+  const quick = choiceChips([['3', 'Fra 3 giorni'], ['7', 'Fra una settimana']], '7', { label: 'Date rapide', onChange: n => { nextDue.value = plusDays(Number(n)); when.textContent = `· ${longDay(nextDue.value)}`; } });
+  nextDue.addEventListener('input', () => { when.textContent = nextDue.value ? `· ${longDay(nextDue.value)}` : ''; quick.set(''); });
+  const save = async withNext => {
+    const next = withNext && nextTitle.value.trim() ? { title: nextTitle.value, due_date: nextDue.value } : null;
+    if (next && !next.due_date) return toast('Scegli la data del passo dopo', 'err');
+    await post(`/api/crm/steps/${step.id}/done`, { outcome: outcome.value, next });
+    m.close();
+    toast('Fatto');
+    onSaved?.();
+  };
+  const m = cvModal({
+    size: 'sm',
+    title: h('div', h('h2', 'Passo fatto'), h('div.cv-subh', dots([step.title, step.subject_name]))),
+    body: h('div.en-form',
+      fld('Com\'è andata?', outcome),
+      nextFromPlan ? h('div.cv-box.big', h('div.cv-row', h('span.cv-lbl.cv-grow', 'E adesso?'), pill('dal piano', 'bl')),
+        h('div.cv-small', `Il passo dopo è già in agenda: «${nextFromPlan.title}» entro ${day(nextFromPlan.due_date)}.`))
+        : h('div.cv-box.big', h('div.cv-lbl', 'E adesso?'), nextTitle, h('div.cv-row.cv-wrap', { style: { gap: '6px' } }, quick.el, when), h('details', h('summary.cv-hint', { style: { cursor: 'pointer' } }, 'Scegli un\'altra data'), nextDue)),
+      h('p.cv-hint', otherOpen ? `Ci sono già altri ${otherOpen} passi aperti su quest'azienda.` : 'Senza un passo aperto l\'azienda torna tra i lead senza prossimo passo.')),
+    left: nextFromPlan ? [] : [h('button.btn.btn-ghost', { type: 'button', on: { click: () => save(false) } }, 'Fatto, senza passo dopo')],
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => save(true) } }, ic('check', 15), 'Salva')],
   });
   setTimeout(() => outcome.focus(), 50);
 }
-function stepRow(st, { showSubject = false, onChange, contacts = [], otherOpen = 0 } = {}) {
+// riga di un passo: cerchio «Fatto» a sinistra, data a destra (rossa se scaduto)
+export function stepRow(st, { showSubject = false, onChange, contacts = [], otherOpen = 0, siblings = [] } = {}) {
   const late = String(st.due_date).slice(0, 10) < todayIso();
-  const meta = [showSubject ? null : st.owner_name, st.contact_name, st.channel && CHANNELS[st.channel]].filter(Boolean).join(' · ');
-  return h('div.crm-step', { class: late ? 'late' : '' },
-    h('button.crm-step-check', { type: 'button', title: 'Segna come fatto', 'aria-label': `Segna come fatto: ${st.title}`, on: { click: () => doneDialog(st, { otherOpen, onSaved: onChange }) } }, icon('check', { size: 14 })),
-    h('div.grow',
-      h('div.crm-line-t', st.title, late ? h('span.crm-bang', { title: 'Scaduto' }, '!') : null),
-      showSubject ? h('a.t-meta', { href: `#/crm/scheda/${st.subject_id}` }, st.subject_name) : null,
-      meta ? h('div.t-meta', st.channel ? icon(CH_ICON[st.channel], { size: 12 }) : null, ' ', meta) : null,
-      st.draft ? h('details.crm-draft', h('summary.t-meta', 'Bozza'), h('p.en-notes', st.draft)) : null),
-    h('span.crm-step-date', { class: late ? 'due-late' : '' }, day(st.due_date)),
-    showSubject ? null : h('div.crm-step-acts',
-      h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Modifica', on: { click: () => stepDialog({ subjectId: st.subject_id, step: st, contacts, onSaved: onChange }) } }, icon('pencil', { size: 14 })),
-      h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Cancella', on: { click: async () => {
+  const nextFromPlan = st.plan_id ? siblings.find(x => x.plan_id === st.plan_id && x.id !== st.id) : null;
+  const meta = [showSubject ? h('a', { href: `#/crm/scheda/${st.subject_id}` }, st.subject_name) : st.owner_name,
+    st.channel ? CHANNELS[st.channel].toLowerCase() : null, st.contact_name, st.plan_id ? 'dal piano d\'azione' : null].filter(Boolean);
+  return h('div.cv-step', { class: showSubject ? '' : 'acts' },
+    h('button.cv-ck', { type: 'button', class: late ? 'late' : '', title: 'Segna come fatto', 'aria-label': `Segna come fatto: ${st.title}`, on: { click: () => doneDialog(st, { otherOpen, nextFromPlan, onSaved: onChange }) } }, ic('check', 13)),
+    h('div', { style: { minWidth: 0 } },
+      h('div.cv-step-t', st.title),
+      meta.length || st.draft ? h('div.cv-step-m', meta.flatMap((x, i) => (i ? [' · ', x] : [x])), st.draft ? pill('bozza pronta', 'bl') : null) : null,
+      st.draft ? h('details.cv-draft', h('summary', 'Bozza del messaggio'), h('p', st.draft)) : null),
+    h('span.cv-date', { class: late ? 'late' : '' }, late && String(st.due_date).slice(0, 10) === plusDays(-1) ? 'ieri' : String(st.due_date).slice(0, 10) === todayIso() ? 'oggi' : day(st.due_date)),
+    showSubject ? null : h('div.cv-acts',
+      h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Modifica ${st.title}`, on: { click: () => stepDialog({ subjectId: st.subject_id, step: st, contacts, onSaved: onChange }) } }, ic('pencil', 14)),
+      h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Cancella ${st.title}`, on: { click: async () => {
         if (!await confirmDialog(`Cancellare il passo «${st.title}»?`, { ok: 'Cancella', danger: true })) return;
         await del(`/api/crm/steps/${st.id}`);
         onChange?.();
-      } } }, icon('trash', { size: 14 }))));
+      } } }, ic('trash', 14))));
 }
 
-// sulla scheda dell'azienda, sempre in alto (al posto del vecchio «Prossimo passo» unico)
-export function stepsCard(s, refresh) {
-  const box = h('section.card.crm-pad.crm-steps', loading());
+// sulla scheda dell'azienda, nell'intestazione: il prossimo passo è una riga; «Tutti i passi» apre l'elenco
+export function stepsCard(s, refresh, { onNew } = {}) {
+  const box = h('div', { 'aria-live': 'polite' }, h('div.cv-small.cv-muted', 'Prossimi passi…'));
   const contacts = s.contacts.filter(c => !c.date_to);
+  let expanded = false;
   const draw = async () => {
     const { open, done } = await get(`/api/crm/subjects/${s.id}/steps`);
-    const add = h('button.btn.btn-sm', { type: 'button', on: { click: () => stepDialog({ subjectId: s.id, subjectName: s.name, contacts, defaultOwner: s.owner_id, onSaved: refresh }) } }, icon('plus', { size: 14 }), 'Aggiungi passo');
     const isLead = s.roles.includes('lead') && s.lead_stage !== 'non_interessato';
+    const first = open[0];
+    const late = first && String(first.due_date).slice(0, 10) < todayIso();
+    const toggleAll = open.length + done.length > 1 || done.length ? link(expanded ? 'Chiudi l\'elenco' : `Tutti i passi (${open.length + done.length})`, { 'aria-expanded': String(expanded), on: { click: () => { expanded = !expanded; draw(); } } }) : null;
     fill(box,
-      h('div.crm-card-head', h('h3.crm-h3', icon('alarm-clock', { size: 14 }), ' Prossimi passi'), add),
-      open.length ? h('div.crm-steplist', open.map(st => stepRow(st, { onChange: refresh, contacts, otherOpen: open.length - 1 })))
-        : h('p.small', { class: isLead ? 'due-late' : 'muted' }, isLead ? 'Nessun passo aperto: senza un prossimo passo il lead non è vivo.' : 'Nessun passo aperto.'),
-      done.length ? h('details.crm-done', h('summary.small.muted', `Fatti (${done.length})`),
-        h('div.crm-lines', done.map(st => h('div.crm-line', ico('check'), h('div.grow', h('div.crm-line-t', st.title),
-          h('div.t-meta', [day(st.done_at), st.done_by_name, st.outcome].filter(Boolean).join(' · '))),
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/steps/${st.id}/reopen`); refresh(); } } }, 'Riapri'))))) : null);
+      first ? h('div.cv-next', h('span.cv-ib', { class: late ? 'rd' : 'or' }, ic('alarm-clock', 16)),
+        h('div.cv-grow', h('span.cv-t5', 'Prossimo passo: '), h('span', dots([first.title, first.channel && CHANNELS[first.channel].toLowerCase(), first.contact_name || (first.owner_id !== s.owner_id ? first.owner_name : '')]))),
+        h('span.cv-date', { class: late ? 'late' : '' }, late ? `scaduto il ${day(first.due_date)}` : `entro ${day(first.due_date)}`),
+        h('button.btn.btn-sm.cv-ok', { type: 'button', on: { click: () => doneDialog({ ...first, subject_name: s.name }, { otherOpen: open.length - 1, nextFromPlan: first.plan_id ? open.find(x => x.plan_id === first.plan_id && x.id !== first.id) : null, onSaved: refresh }) } }, ic('check', 14), 'Fatto'),
+        toggleAll)
+        : h('div.cv-next', h('span.cv-ib', ic('alarm-clock', 16)),
+          h('div.cv-grow', h('span.cv-t5', 'Nessun passo aperto'), isLead ? h('span.cv-muted', ' · senza un prossimo passo il lead non è vivo') : null),
+          h('button.btn.btn-sm', { type: 'button', on: { click: onNew } }, ic('plus', 14), 'Aggiungi'), toggleAll),
+      expanded ? h('div', { style: { margin: '6px -28px -24px' } },
+        open.map(st => stepRow(st, { onChange: refresh, contacts, otherOpen: open.length - 1, siblings: open })),
+        done.length ? [h('div.cv-sect', `Fatti · ${done.length}`), done.map(st => h('div.cv-step', { class: 'acts' }, h('span.cv-ck.done', ic('check', 13)),
+          h('div', { style: { minWidth: 0 } }, h('div.cv-step-t', { style: { color: 'var(--cv-faint)', textDecoration: 'line-through' } }, st.title), h('div.cv-step-m', dots([`fatto il ${day(st.done_at)}`, st.done_by_name, st.outcome && `«${st.outcome}»`]))),
+          h('span'), h('div.cv-acts', h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/steps/${st.id}/reopen`); refresh(); } } }, 'Riapri'))))] : null) : null);
   };
-  draw().catch(() => fill(box, empty('Prossimi passi non disponibili.')));
+  draw().catch(() => fill(box, h('div.cv-small.cv-muted', 'Prossimi passi non disponibili.')));
   return box;
 }
 
-// key account: pillola nell'intestazione, si cambia al clic
+// key account (artboard «Dialoghi»): interruttore e ritmo come pillole 30 / 60 / 90 giorni, con l'anteprima
+export function keyAccountDialog(s, refresh, defaultRhythm = 90) {
+  const on = toggle(true, 'È un key account della BU'); // si apre per segnarlo; per toglierlo si spegne
+  const cur = s.key_rhythm_days || defaultRhythm;
+  const preset = ['30', '60', '90'].includes(String(cur)) ? String(cur) : 'altro';
+  const other = input({ type: 'number', min: 7, max: 730, value: preset === 'altro' ? cur : '', placeholder: 'giorni', 'aria-label': 'Ogni quanti giorni', style: { width: '120px' }, hidden: preset !== 'altro' });
+  const preview = h('div.cv-small');
+  const days = () => (rhythm.value === 'altro' ? Number(other.value) || defaultRhythm : Number(rhythm.value));
+  const drawPreview = () => fill(preview, on.input.checked ? ['Se nessuno lo sente per ', h('b', `${days()} giorni`), ', compare in «La mia settimana» di chi lo segue. Oggi vorrebbe dire: entro ', h('b', longDay(plusDays(days()))), '.'] : 'Non è un key account: niente promemoria.');
+  const rhythm = choiceChips([['30', '30 giorni'], ['60', '60 giorni'], ['90', '90 giorni'], ['altro', 'Altro…']], preset, { label: 'Sentirlo almeno ogni', onChange: k => { other.hidden = k !== 'altro'; drawPreview(); } });
+  other.addEventListener('input', drawPreview);
+  on.input.addEventListener('change', drawPreview);
+  drawPreview();
+  const m = cvModal({
+    size: 'sm',
+    title: h('div', h('h2', 'Key account'), h('div.cv-subh', s.name)),
+    body: h('div.en-form', h('div.cv-row', { style: { justifyContent: 'space-between' } }, on.el),
+      h('div.cv-fld', h('span', 'Sentirlo almeno ogni'), rhythm.el, other),
+      h('div.cv-row.cv-soft', h('span.cv-ib', ic('clock', 16)), preview)),
+    actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
+      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        const n = days();
+        await post(`/api/crm/subjects/${s.id}/key-account`, { key_account: on.input.checked, key_rhythm_days: n === defaultRhythm ? null : n });
+        m.close();
+        refresh();
+      } } }, 'Salva')],
+  });
+}
+// pillola nell'intestazione della scheda: grafite se è key account, tratteggiata se no
 export function keyAccountPill(s, refresh, defaultRhythm = 90) {
-  return h('button.pill.crm-key', {
-    type: 'button', class: s.key_account ? 'on' : '', title: 'Key account: azienda su cui la BU punta, con un ritmo di contatto',
-    on: { click: () => {
-      const on = h('input', { type: 'checkbox', checked: s.key_account });
-      const rhythm = input({ type: 'number', min: 7, max: 730, value: s.key_rhythm_days || '', placeholder: String(defaultRhythm) });
-      const m = modal({
-        title: 'Key account',
-        body: h('div.en-form', h('label.crm-check', on, h('span', `${s.name} è un key account`)),
-          field('Sentirlo almeno ogni (giorni)', rhythm, `Vuoto = ${defaultRhythm} giorni, come nelle impostazioni. Oltre il ritmo compare in «La mia settimana».`)),
-        actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-          await post(`/api/crm/subjects/${s.id}/key-account`, { key_account: on.checked, key_rhythm_days: rhythm.value || null });
-          m.close();
-          refresh();
-        } } }, 'Salva')],
-      });
-    } },
-  }, icon('star', { size: 12 }), s.key_account ? `Key account · ogni ${s.key_rhythm_days || defaultRhythm} gg` : 'Key account?');
+  return h('button.cv-pill', { type: 'button', class: s.key_account ? 'dark' : 'line', title: 'Key account: azienda su cui la BU punta, con un ritmo di contatto',
+    style: s.key_account ? {} : { borderStyle: 'dashed', color: 'var(--cv-muted)' },
+    on: { click: () => keyAccountDialog(s, refresh, defaultRhythm) } },
+  ic('star', 11), s.key_account ? `Key account · ogni ${s.key_rhythm_days || defaultRhythm} gg` : 'Key account?');
 }
 
-// ── la mia settimana ───────────────────────────────────────────────────────────────────────────
+// ── la mia settimana (artboard «Settimana» e «Telefono») ──────────────────────────────────────
 export async function weekTab(box, data, { userId = null } = {}) {
+  fill(box, loading());
   const w = await get(`/api/crm/settimana${userId ? `?user=${userId}` : ''}`);
   const again = () => weekTab(box, data, { userId });
+  const today = todayIso();
+  const sunday = (() => { const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + ((7 - d.getUTCDay()) % 7)); return d.toISOString().slice(0, 10); })();
   const late = w.steps.filter(s => s.late);
-  const soon = w.steps.filter(s => !s.late);
-  const kpi = (n, label, warn) => h('div.crm-wk-kpi', { class: warn && n ? 'warn' : '' }, h('strong', String(n)), h('span', label));
-  const who = data.admin ? select(userOptions('Io'), userId || '', { 'aria-label': 'Settimana di', on: { change: e => weekTab(box, data, { userId: Number(e.target.value) || null }) } }) : null;
   const asaName = k => data.asa.find(a => a.key === k)?.label || k;
-  const stepsList = list => h('div.crm-steplist', list.map(st => stepRow(st, { showSubject: true, onChange: again })));
-  // segnali e piani da accettare: quelli di chi guarda (la settimana di un altro li mostra solo a lui)
   const self = w.user.id === store.me.id;
+  // segnali e piani da accettare: quelli di chi guarda (la settimana di un altro li mostra solo a lui)
   const [sig, plans, gare] = self ? await Promise.all([
     get('/api/crm/radar/signals').catch(() => null), get('/api/crm/radar/plans').catch(() => ({ plans: [] })),
     data.gare ? get('/api/crm/radar/signals?view=gare').catch(() => null) : null]) : [null, { plans: [] }, null];
-  const radarCard = card('Segnali del radar', sig?.signals?.length ? h('span.t-meta', `${sig.signals.length} da decidere`) : null,
-    sig?.signals?.length ? h('div.crm-steplist', sig.signals.slice(0, 15).map(g => signalRow(g, { highlight: sig.highlight, reasons: sig.discardReasons, onChange: again, data })))
-      : w.radar.on.length ? empty(`Nessun segnale da decidere per ${w.radar.on.map(asaName).join(', ')}. Il radar legge le fonti ogni notte; puoi anche segnalare tu un'occasione.`)
-        : w.bus.length ? empty(`Il radar di ${w.bus.map(asaName).join(', ')} è spento: nel pilota sono accese ${w.radar.pilot.map(asaName).join(', ')}. Si accende da Impostazioni.`)
-          : empty('I segnali del radar arrivano ai responsabili di BU. Il responsabile di ogni BU si sceglie in Impostazioni → Profili BU.'),
-    self && w.bus.length ? h('a.small', { href: '#/crm/sottosoglia' }, 'Vedi anche i segnali sotto soglia') : null);
-  const plansCard = plans.plans.length ? card('Piani d\'azione da accettare', null, h('div.crm-lines', plans.plans.map(p => h('button.crm-line.crm-linkline', { type: 'button', on: { click: () => openPlan(p.id, again) } },
-    ico('list'), h('div.grow', h('div.crm-line-t', p.title), h('div.t-meta', `${p.subject_name} · ${p.steps.length} passi proposti`)), h('span.pill.crm-r-lead', 'da accettare'))))) : null;
-  const businessCard = w.business?.length ? card('Nuovi business', h('a.t-meta', { href: '#/crm/business' }, 'Tutte le iniziative'), h('div.crm-steplist', w.business.map(t => h('div.crm-step', { class: t.late ? 'late' : '' },
-    h('button.crm-step-check', { type: 'button', title: 'Segna come fatto', 'aria-label': `Segna come fatto: ${t.title}`, on: { click: async () => { await patch(`/api/crm/business/tasks/${t.id}`, { done: true }); toast('Fatto'); again(); } } }, icon('check', { size: 14 })),
-    h('div.grow', h('div.crm-line-t', t.title, t.late ? h('span.crm-bang', { title: 'Scaduto' }, '!') : null), h('a.t-meta', { href: `#/crm/business/${t.initiative_id}` }, t.initiative_name)),
-    h('span.crm-step-date', { class: t.late ? 'due-late' : '' }, t.due_date ? day(t.due_date) : 'senza data'))))) : null;
-  const gareCard = gare?.signals?.length ? card('Ufficio gare', null, h('a.crm-line.crm-linkline', { href: '#/crm/gare' }, ico('inbox'), h('div.grow', h('div.crm-line-t', `${gare.signals.length} gare proposte dal radar`), h('div.t-meta', 'da guardare prima della riunione del mercoledì')))) : null;
+  const signals = sig?.signals || [];
+  const hi = sig?.highlight ?? 70;
+  const toAccept = plans.plans.filter(p => p.status === 'proposto');
+  const strong = signals.filter(g => g.score >= hi).length;
+
+  // la frase in alto: cosa fare oggi
+  const hour = Number(new Date().toLocaleString('it-IT', { hour: 'numeric', hour12: false, timeZone: 'Europe/Rome' }));
+  const hello = hour < 13 ? 'Buongiorno' : hour < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  const first = (w.user.name || '').split(' ')[0];
+  const bits = [late.length ? h('b.rd', `${late.length} ${late.length === 1 ? 'passo scaduto' : 'passi scaduti'}`) : null,
+    strong ? `${strong} ${strong === 1 ? 'segnale in evidenza' : 'segnali in evidenza'} da decidere` : null,
+    toAccept.length ? `${toAccept.length} ${toAccept.length === 1 ? 'piano' : 'piani'} da accettare` : null].filter(Boolean);
+  const sentence = self ? [`${hello} ${first}: `, ...(bits.length ? bits.flatMap((b, i) => (i ? [i === bits.length - 1 ? ' e ' : ', ', b] : [b])) : ['niente di urgente oggi']), '.']
+    : [`La settimana di ${w.user.name}: `, ...(bits.length ? bits.flatMap((b, i) => (i ? [', ', b] : [b])) : ['niente di urgente']), '.'];
+
+  const who = data.admin ? h('label.btn', { style: { paddingLeft: '8px', gap: '8px' } }, av(w.user.name, 'or'), h('span.cv-sr', 'Settimana di'),
+    select(userOptions('Io').map(([k, l]) => [k, k === '' ? store.me.name : l]), userId || '', { style: { border: 0, background: 'transparent', boxShadow: 'none', minHeight: '0', padding: '0 4px', font: 'inherit', fontWeight: '500', color: 'inherit' },
+      on: { change: e => weekTab(box, data, { userId: Number(e.target.value) || null }) } })) : null;
+  const scrollTo = id => () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // segnali: «In evidenza» (≥ soglia) e «Altri», filtro per BU, un solo rigo di dettagli
+  let buFilter = '';
+  let showAll = false;
+  const sigBody = h('div');
+  const drawSignals = () => {
+    const list = signals.filter(g => !buFilter || g.bu === buFilter);
+    if (!list.length) {
+      return fill(sigBody, w.radar.on.length ? emptyState('radar', `Nessun segnale da decidere per ${w.radar.on.map(asaName).join(', ')}. Il radar legge le fonti ogni notte; puoi anche segnalare tu un'occasione.`, h('button.btn.btn-sm', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, 'Segnala'))
+        : w.bus.length ? emptyState('radar', `Il radar di ${w.bus.map(asaName).join(', ')} è spento: nel pilota sono accese ${w.radar.pilot.map(asaName).join(', ')}.`, data.admin ? h('a.btn.btn-sm', { href: '#/crm/impostazioni/radar' }, 'Accendi') : null)
+          : emptyState('radar', 'I segnali del radar arrivano ai responsabili di BU, scelti in Impostazioni → Profili BU.'));
+    }
+    const top = list.filter(g => g.score >= hi);
+    const rest = list.filter(g => g.score < hi);
+    const cap = showAll ? Infinity : 5;
+    const shownTop = top.slice(0, cap);
+    const shownRest = rest.slice(0, Math.max(0, cap - shownTop.length));
+    const row = g => signalRow(g, { highlight: hi, reasons: sig.discardReasons, onChange: again, data, list });
+    fill(sigBody,
+      shownTop.length ? [h('div.cv-sect', `In evidenza · ${hi} e oltre`), shownTop.map(row)] : null,
+      shownRest.length ? [h('div.cv-sect', 'Altri'), shownRest.map(row)] : null,
+      list.length > shownTop.length + shownRest.length ? h('div.cv-more-row', link([`Mostra altri ${list.length - shownTop.length - shownRest.length} segnali`, ic('chevron-down', 14)], { on: { click: () => { showAll = true; drawSignals(); } } })) : null);
+  };
+  const bus = [...new Set(signals.map(g => g.bu).filter(Boolean))];
+  const radarCard = card({ title: 'Segnali del radar', icon: 'radar', count: signals.length, attrs: { id: 'cv-wk-signals' },
+    right: [bus.length > 1 ? seg([['', 'Tutte le BU'], ...bus.map(b => [b, asaName(b), signals.filter(g => g.bu === b).length])], '', k => { buFilter = k; drawSignals(); }, { label: 'BU' }) : null,
+      self && w.bus.length ? h('a.cv-lnk', { href: '#/crm/sottosoglia' }, 'Sotto soglia') : null] }, sigBody);
+  drawSignals();
+
+  // prossimi passi raggruppati: Scaduti / Oggi / Questa settimana / Più avanti
+  const groups = [['Scaduti', w.steps.filter(s => s.late), true], ['Oggi', w.steps.filter(s => s.due_date === today)],
+    ['Questa settimana', w.steps.filter(s => !s.late && s.due_date > today && s.due_date <= sunday)], ['Più avanti', w.steps.filter(s => s.due_date > sunday)]].filter(g => g[1].length);
+  const stepsCardEl = card({ title: 'Prossimi passi', icon: 'alarm-clock', count: w.steps.length, attrs: { id: 'cv-wk-steps' } },
+    w.steps.length ? groups.map(([l, list, red]) => [sect(l, red), list.map(st => stepRow(st, { showSubject: true, onChange: again, siblings: w.steps }))])
+      : emptyState('alarm-clock', `Niente in scadenza fino al ${day(w.until)}. Ogni lead e cliente attivo dovrebbe avere un prossimo passo.`));
+
+  const side = [];
+  if (toAccept.length) {
+    side.push(card({ title: 'Da accettare', icon: 'list', count: toAccept.length, attrs: { id: 'cv-wk-plans' } }, toAccept.map(p => listRow({ icon: 'list', tone: 'or', title: p.title,
+      meta: dots([p.subject_name, `${p.steps.length} passi proposti`]), onClick: () => openPlan(p.id, again),
+      actions: [h('button.btn.btn-sm', { type: 'button', on: { click: () => openPlan(p.id, again) } }, 'Apri')] }))));
+  }
+  if (gare?.signals?.length) {
+    side.push(card({ title: 'Ufficio gare', icon: 'inbox', count: gare.signals.length, right: h('a.cv-lnk', { href: '#/crm/gare' }, 'Apri la coda') },
+      listRow({ icon: 'inbox', tone: 'bl', title: `${gare.signals.length} gare proposte dal radar`, meta: 'da guardare prima della riunione del mercoledì', href: '#/crm/gare' })));
+  }
+  if (w.business?.length) {
+    side.push(card({ title: 'Nuovi business', icon: 'zap', count: w.business.length, right: h('a.cv-lnk', { href: '#/crm/business' }, 'Iniziative') },
+      w.business.map(t => h('div.cv-step',
+        h('button.cv-ck', { type: 'button', class: t.late ? 'late' : '', title: 'Segna come fatto', 'aria-label': `Segna come fatto: ${t.title}`, on: { click: async () => { await patch(`/api/crm/business/tasks/${t.id}`, { done: true }); toast('Fatto'); again(); } } }, ic('check', 13)),
+        h('div', { style: { minWidth: 0 } }, h('div.cv-step-t', t.title), h('div.cv-step-m', h('a', { href: `#/crm/business/${t.initiative_id}` }, t.initiative_name))),
+        h('span.cv-date', { class: t.late ? 'late' : '' }, t.due_date ? (t.late && t.due_date === plusDays(-1) ? 'ieri' : day(t.due_date)) : 'senza data')))));
+  }
+  let allMeetings = false;
+  const meetBody = h('div');
+  const drawMeetings = () => fill(meetBody, w.missingNotes.length ? w.missingNotes.slice(0, allMeetings ? 50 : 3).map(m => listRow({ icon: 'calendar', tone: 'rd', title: m.subject || 'Incontro',
+    meta: dots([day(m.start_at), m.who]), onClick: () => openCrmMeeting(m.id, again),
+    actions: [h('button.btn.btn-sm', { type: 'button', on: { click: () => openCrmMeeting(m.id, again) } }, ic('pencil', 14), 'Nota')] })) : emptyState('calendar', 'Nessun incontro da completare.'));
+  drawMeetings();
+  side.push(card({ title: 'Incontri senza note', icon: 'calendar', count: w.missingNotes.length || null, attrs: { id: 'cv-wk-meetings' },
+    right: w.missingNotes.length > 3 ? link('Tutti', { on: { click: e => { allMeetings = !allMeetings; e.currentTarget.textContent = allMeetings ? 'Meno' : 'Tutti'; drawMeetings(); } } }) : null }, meetBody));
+  side.push(card({ title: 'Key account da sentire', icon: 'star', count: w.keyAccounts.silent.length || null, attrs: { id: 'cv-wk-keys' } },
+    w.keyAccounts.silent.length ? w.keyAccounts.silent.map(k => listRow({ icon: 'star', tone: 'or', title: k.name, href: `#/crm/scheda/${k.id}`,
+      meta: k.last_contact ? `ultimo contatto ${day(k.last_contact)} · ${k.days} giorni fa` : 'mai sentito da quando è nel CRM', actions: [h('span.cv-date.late', `ritmo ${k.rhythm} gg`)] }))
+      : emptyState('star', w.keyAccounts.total ? 'Tutti sentiti nel loro ritmo.' : 'Nessun key account. Si segnano dalla scheda dell\'azienda.')));
+  side.push(card({ title: 'Lead senza prossimo passo', icon: 'target', count: w.leadsWithoutStep.total || null, attrs: { id: 'cv-wk-leads' } },
+    w.leadsWithoutStep.total ? listRow({ title: h('span.cv-small.cv-muted', { style: { whiteSpace: 'normal', fontWeight: 400 } }, 'Quasi tutti arrivano dal caricamento di Zoho: assegnali ai responsabili di BU o chiudili.'),
+      actions: [h('a.btn.btn-sm', { href: '#/crm/lead/riordina' }, 'Assegna o chiudi')] })
+      : emptyState('check', 'Tutti i tuoi lead hanno un prossimo passo.')));
+
   fill(box,
-    h('div.crm-wk-head', h('p.muted', `${self ? 'Le tue cose' : `Le cose di ${w.user.name}`} fino al ${day(w.until)}${w.bus.length ? ` · responsabile di ${w.bus.map(asaName).join(', ')}` : ''}`),
-      h('div.crm-wk-actions', h('button.btn', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, icon('plus', { size: 15 }), 'Segnala un\'occasione'), who)),
-    h('div.crm-wk-kpis', kpi(late.length, 'passi scaduti', true), kpi(soon.length, 'passi in scadenza'), kpi(w.keyAccounts.silent.length, 'key account da sentire', true),
-      kpi(w.missingNotes.length, 'incontri senza note', true), kpi(w.leadsWithoutStep.total, 'lead senza passo', true)),
-    h('div.crm-grid',
-      h('div.crm-side',
-        plansCard,
-        radarCard,
-        card('Prossimi passi', null, w.steps.length ? [late.length ? h('div.crm-wk-sub.due-late', 'Scaduti') : null, late.length ? stepsList(late) : null,
-          soon.length ? h('div.crm-wk-sub', 'Da fare') : null, soon.length ? stepsList(soon) : null] : empty('Niente in scadenza. Ogni lead e cliente attivo dovrebbe avere un prossimo passo.')),
-        card('Lead senza prossimo passo', w.leadsWithoutStep.total > w.leadsWithoutStep.list.length ? h('span.t-meta', `${w.leadsWithoutStep.list.length} di ${w.leadsWithoutStep.total}`) : null,
-          w.leadsWithoutStep.list.length ? h('div.crm-lines', w.leadsWithoutStep.list.map(l => h('div.crm-line', ico('building'),
-            h('a.grow.crm-line-t', { href: `#/crm/scheda/${l.id}` }, l.name),
-            h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
-              const s = await get(`/api/crm/subjects/${l.id}`);
-              stepDialog({ subjectId: l.id, subjectName: l.name, contacts: s.contacts.filter(c => !c.date_to), defaultOwner: w.user.id, onSaved: again });
-            } } }, icon('plus', { size: 14 }), 'Passo'))))
-            : empty('Tutti i tuoi lead hanno un prossimo passo.'))),
-      h('div.crm-side',
-        businessCard,
-        gareCard,
-        card('Key account da sentire', h('span.t-meta', `${w.keyAccounts.total} key account`),
-          w.keyAccounts.silent.length ? h('div.crm-lines', w.keyAccounts.silent.map(k => h('a.crm-line.crm-linkline', { href: `#/crm/scheda/${k.id}` }, ico('star'),
-            h('div.grow', h('div.crm-line-t', k.name), h('div.t-meta', k.last_contact ? `Ultimo contatto ${day(k.last_contact)} · ${k.days} giorni fa` : 'Mai sentito da quando è nel CRM')),
-            h('span.t-meta.due-late', `ritmo ${k.rhythm} gg`))))
-            : empty(w.keyAccounts.total ? 'Tutti sentiti nel loro ritmo.' : 'Nessun key account: si segnano dalla scheda dell\'azienda con la pillola «Key account?».')),
-        card('Incontri senza note', null, w.missingNotes.length ? h('div.crm-lines', w.missingNotes.map(m => h('button.crm-line.crm-linkline', { type: 'button', on: { click: () => openCrmMeeting(m.id, again) } },
-          ico('calendar'), h('div.grow', h('div.crm-line-t', m.subject || 'Incontro', h('span.crm-bang', '!')), h('div.t-meta', [day(m.start_at), m.who].filter(Boolean).join(' · '))))))
-          : empty('Nessun incontro da completare.')))));
+    pageTop({ eyebrow: ['Alma CRM', pill(longDay(today), 'line')], heading: title('La mia', 'settimana'), sub: h('span', sentence),
+      actions: [who, h('button.btn.btn-primary', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, ic('plus', 15), 'Segnala un\'occasione')] }),
+    kpiRow([
+      { icon: 'alarm-clock', n: late.length, label: ['passi', 'scaduti'], tone: 'hot', onClick: scrollTo('cv-wk-steps') },
+      self ? { icon: 'radar', n: signals.length, label: ['segnali', 'da decidere'], tone: 'or', onClick: scrollTo('cv-wk-signals') } : null,
+      self ? { icon: 'list', n: toAccept.length, label: [toAccept.length === 1 ? 'piano' : 'piani', 'da accettare'], onClick: scrollTo('cv-wk-plans') } : null,
+      { icon: 'calendar', n: w.missingNotes.length, label: ['incontri', 'senza note'], onClick: scrollTo('cv-wk-meetings') },
+      { icon: 'target', n: w.leadsWithoutStep.total, label: ['lead senza', 'prossimo passo'], href: '#/crm/lead/riordina' },
+      { icon: 'star', n: w.keyAccounts.silent.length, label: ['key account', 'da sentire'], onClick: scrollTo('cv-wk-keys') },
+    ]),
+    h('div.cv-cols', h('div.cv-stack', radarCard, stepsCardEl), h('div.cv-stack', side)));
 }
 
-// ── impostazioni del lavoro commerciale (solo direzione) ───────────────────────────────────────
-const SECTIONS = [['radar', 'Radar'], ['scoring', 'Punteggio'], ['profiles', 'Profili BU'], ['sources', 'Fonti'], ['playbooks', 'Playbook'], ['rules', 'Regole e tempi']];
-const WEIGHTS = [['fit', 'Coerenza con la BU', 'Tipo di lavoro, SOA, fascia d\'importo e zona rispetto al profilo'],
-  ['concreteness', 'Concretezza', 'Atto ufficiale o fondi concessi · delibera o permesso · notizia di stampa · indiscrezione'],
-  ['timing', 'Tempi', 'Lavori entro 12 mesi · tra 12 e 24 mesi · oltre'],
-  ['relationship', 'Rapporto', 'Cliente attuale · lead, partner o contatto noto · sconosciuto'],
-  ['value', 'Valore', 'Importo dentro la fascia della BU · sotto la fascia']];
+// ── impostazioni del lavoro commerciale (solo direzione; artboard «Imp-radar», «Imp-punteggio», «Imp-regole», «Imp-asa») ─
+// Menu a sinistra con una riga di spiegazione, interruttori al posto delle caselle, barra scura «Modifiche non salvate».
+const SECTIONS = [['radar', 'Radar', 'BU accese, budget, giro notturno', 'radar'], ['scoring', 'Punteggio', 'pesi e soglie', 'target'], ['profiles', 'Profili BU', 'cosa cerca ogni BU', 'users'],
+  ['sources', 'Fonti', 'Infordat, ANAC, stampa…', 'inbox'], ['playbooks', 'Playbook', 'passi per tipo di segnale', 'list'], ['rules', 'Regole e tempi', 'procedure, Go/No-Go, motivi', 'clock'],
+  ['asa', 'ASA e accessi', 'chi è di quale ASA', 'key-round'], ['zoho', 'Caricamento Zoho', 'primo caricamento', 'upload']];
+const WEIGHTS = [['fit', 'Coerenza con la BU', 'lavoro, SOA, importo, zona'], ['concreteness', 'Concretezza', 'atto ufficiale → indiscrezione'],
+  ['timing', 'Tempi', 'entro 12 mesi → oltre 24'], ['relationship', 'Rapporto', 'cliente → sconosciuto'], ['value', 'Valore', 'dentro la fascia della BU']];
 
-export async function settingsTab(box, data, section = 'radar') {
+export async function settingsTab(box, data, section = 'radar', { asaTab, importCard } = {}) {
+  if (!SECTIONS.some(([k]) => k === section)) section = 'radar';
+  fill(box, loading());
   const view = await get('/api/crm/commerciale');
   const st = view.settings;
-  const asaName = k => view.asa.find(a => a.key === k)?.label || k;
   const asaOpts = view.asa.map(a => [a.key, a.label]);
-  const go = k => settingsTab(box, data, k);
+  const go = k => { history.replaceState(null, '', `#/crm/impostazioni/${k}`); settingsTab(box, data, k, { asaTab, importCard }); };
+  let onSave = null;
+  let changes = 0;
+  const changeText = h('span.cv-grow.cv-small');
+  const bar = h('div.cv-savebar', { hidden: true, role: 'status' }, changeText,
+    h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => go(section) } }, 'Annulla'),
+    h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => onSave?.() } }, 'Salva'));
+  const dirty = () => { if (!onSave) return; changes += 1; bar.hidden = false; changeText.textContent = 'Modifiche non salvate'; };
   const save = async (key, value) => { await put(`/api/crm/commerciale/${key}`, { value }); toast('Impostazioni salvate'); go(section); };
-  const reset = key => h('button.btn.btn-ghost', { type: 'button', on: { click: async () => {
+  const reset = key => h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => {
     if (!await confirmDialog('Tornare ai valori di partenza per questa sezione? Le modifiche salvate si perdono.', { ok: 'Torna ai valori di partenza' })) return;
     await del(`/api/crm/commerciale/${key}`);
     toast('Valori di partenza');
     go(section);
   } } }, 'Valori di partenza');
-  const savedLine = key => (st.saved?.[key] ? h('span.t-meta', `Modificato il ${day(st.saved[key].at)}${st.saved[key].by ? ` da ${store.users.find(u => u.id === st.saved[key].by)?.name || '—'}` : ''}`) : h('span.t-meta', 'Valori di partenza del documento'));
-  const foot = (key, onSave) => h('div.crm-set-foot', savedLine(key), h('div.grow'), reset(key), h('button.btn.btn-primary', { type: 'button', on: { click: onSave } }, 'Salva'));
-  const nav = h('nav.profile-tabs.crm-tabs', { role: 'tablist' }, SECTIONS.map(([k, l]) => h('button', { type: 'button', role: 'tab', class: k === section ? 'on' : '', 'aria-selected': String(k === section), on: { click: () => go(k) } }, l)));
-  const body = h('div');
-  fill(box, h('p.small.muted', 'Tutto quello che decide come lavora il CRM commerciale: si cambia qui, senza toccare il codice. I promemoria cambiano subito, il radar dal giorno dopo.'), nav, body);
+  const savedLine = key => h('div.cv-row.cv-small.cv-muted', { style: { gap: '8px' } },
+    h('span.cv-grow', st.saved?.[key] ? `Modificato il ${day(st.saved[key].at)}${st.saved[key].by ? ` da ${userName(st.saved[key].by) || '—'}` : ''}` : 'Valori di partenza del documento «Approccio commerciale Almacis»'),
+    st.saved?.[key] ? reset(key) : null);
+  const nav = h('nav.cv-snav', { 'aria-label': 'Sezioni delle impostazioni' }, SECTIONS.map(([k, l, s2, i]) => h('button', { type: 'button', class: k === section ? 'on' : '', 'aria-current': k === section ? 'page' : undefined, on: { click: () => go(k) } },
+    ic(i, 17), h('span', h('span', l), h('span.s2', s2)))));
+  const body = h('div.cv-sbody');
+  body.addEventListener('input', dirty);
+  body.addEventListener('change', dirty);
+  fill(box,
+    pageTop({ eyebrow: 'Alma CRM · direzione', heading: title('', 'Impostazioni'), sub: 'Tutto quello che decide come lavora il CRM commerciale. I promemoria cambiano subito, il radar dal giorno dopo.' }),
+    h('div.cv-settings', nav, h('div.cv-sbody', body, bar)));
+
+  if (section === 'asa') { onSave = null; return asaTab?.(body); }
+  if (section === 'zoho') { onSave = null; return fill(body, importCard?.()); }
 
   if (section === 'radar') {
     const r = st.radar;
-    const budget = input({ type: 'number', min: 0, max: 10000, value: r.budget_eur });
-    const hour = input({ type: 'number', min: 0, max: 23, value: r.run_hour });
-    const alert = h('input', { type: 'checkbox', checked: r.alert_admins_on_budget });
-    const gare = new Set(r.gare_users || []);
-    const gareBox = h('div.en-chips');
-    const drawGare = () => fill(gareBox, [...gare].map(id => h('span.pill.crm-member', store.users.find(u => u.id === id)?.name || '—',
-      h('button.crm-x', { type: 'button', 'aria-label': 'Togli', on: { click: () => { gare.delete(id); drawGare(); } } }, icon('x', { size: 12 })))));
-    const addGare = select(userOptions('Aggiungi una persona…'), '', { 'aria-label': 'Aggiungi all’ufficio gare', on: { change: e => { if (e.target.value) gare.add(Number(e.target.value)); e.target.value = ''; drawGare(); } } });
-    drawGare();
-    const sum = h('strong');
     const status = await get('/api/crm/radar/status').catch(() => ({ ai: false, spend: [], runs: [] }));
     const spent = k => Number(status.spend.find(x => x.bu === k)?.eur || 0);
+    const budget = input({ type: 'number', min: 0, max: 10000, value: r.budget_eur, 'aria-label': 'Budget mensile (€)' });
+    const hour = input({ type: 'number', min: 0, max: 23, value: r.run_hour, 'aria-label': 'Ora del giro notturno' });
+    const alert = toggle(r.alert_admins_on_budget, 'Avvisa la direzione quando una BU finisce la quota');
+    const gare = new Set(r.gare_users || []);
+    const gareBox = h('div.cv-chips');
+    const drawGare = () => fill(gareBox, [...gare].map(id => h('span.cv-pill.line.big', av(userName(id), 'or'), userName(id) || '—',
+      h('button.crm-x', { type: 'button', 'aria-label': `Togli ${userName(id)}`, on: { click: () => { gare.delete(id); drawGare(); dirty(); } } }, ic('x', 12)))),
+    select(userOptions('+ Aggiungi'), '', { 'aria-label': 'Aggiungi all’ufficio gare', style: { width: 'auto', minHeight: '30px', height: '30px', borderRadius: '999px', fontSize: '12.5px' },
+      on: { change: e => { if (e.target.value) gare.add(Number(e.target.value)); drawGare(); } } }));
+    drawGare();
+    const total = view.asa.reduce((t, a) => t + spent(a.key), 0);
     const rows = view.asa.map(a => {
       const b = r.bu[a.key] || { on: false, quota_eur: 0 };
-      const on = h('input', { type: 'checkbox', checked: b.on, 'aria-label': `Radar acceso per ${a.label}` });
-      const quota = input({ type: 'number', min: 0, max: 10000, value: b.quota_eur, 'aria-label': `Quota di ${a.label}` });
-      return { key: a.key, on, quota, tr: h('tr', h('td', h('label.crm-check', on, h('span', a.label))), h('td', view.pilot.includes(a.key) ? h('span.pill.crm-r-lead', 'pilota') : ''),
-        h('td', st.profiles[a.key]?.manager?.name || st.profiles[a.key]?.manager_name || h('span.muted', 'da assegnare')), h('td.num', spent(a.key) ? `${spent(a.key).toLocaleString('it-IT', { maximumFractionDigits: 2 })} €` : '—'), h('td.num', quota)) };
+      const on = toggle(b.on, null, { 'aria-label': `Radar acceso per ${a.label}` });
+      const quota = input({ type: 'number', min: 0, max: 10000, value: b.quota_eur, 'aria-label': `Quota di ${a.label} (€)`, style: { width: '84px', minHeight: '32px', height: '32px', textAlign: 'right' } });
+      const mgr = st.profiles[a.key]?.manager?.name || '';
+      const s = spent(a.key);
+      const pct = b.quota_eur ? Math.min(100, Math.round((100 * s) / b.quota_eur)) : 0;
+      return { key: a.key, on: on.input, quota, tr: h('tr',
+        h('td', h('div.cv-row', { style: { gap: '10px' } }, on.el, h('span.cv-t5', a.label), view.pilot.includes(a.key) ? pill('pilota', 'or') : null)),
+        h('td', mgr ? h('div.cv-row', { style: { gap: '8px' } }, av(mgr, 'bl'), h('span.cv-small', mgr)) : h('span.cv-small.cv-muted', st.profiles[a.key]?.manager_name || 'da assegnare')),
+        h('td.cv-hide-m', { style: { width: '240px' } }, h('div.cv-row', { style: { gap: '8px' } }, h('span.cv-bar.cv-grow', { class: b.quota_eur && s >= b.quota_eur ? 'rd' : '' }, h('i', { style: { width: `${pct}%` } })),
+          h('span.cv-small.cv-muted', { style: { width: '64px' } }, `${s.toLocaleString('it-IT', { maximumFractionDigits: 2 })} €`))),
+        h('td.num', quota)) };
     });
-    const total = () => { const n = rows.reduce((s, x) => s + (Number(x.quota.value) || 0), 0); sum.textContent = `${n} € di ${budget.value || 0} €`; sum.classList.toggle('due-late', n > Number(budget.value || 0)); };
-    rows.forEach(x => x.quota.addEventListener('input', total));
-    budget.addEventListener('input', total);
-    total();
-    const asaLab = k => view.asa.find(a => a.key === k)?.label || k;
     const finished = status.spend.filter(x => x.alerted_at);
     const last = status.runs[0];
-    const aiCard = h('section.card.crm-pad.crm-ai',
-      h('div.crm-card-head', h('h3.crm-h3', 'Lettura delle notizie con l’AI'),
-        status.ai ? h('button.btn.btn-sm', { type: 'button', on: { click: async e => {
-          e.currentTarget.disabled = true;
-          const out = await post('/api/crm/radar/run', {}).catch(() => null);
-          if (out) toast(out.runs.map(x => `${asaLab(x.bu)}: ${x.skipped || `${x.added} segnali nuovi${x.error ? ' (errore)' : ''}`}`).join(' · ') || 'Nessuna BU accesa');
-          go(section);
-        } } }, icon('refresh', { size: 14 }), 'Avvia adesso') : null),
-      status.ai ? h('p.small', `Accesa (OpenAI, ${status.model}). Ultimo giro: ${last ? `${day(last.at)} · ${asaLab(last.bu)}${last.error ? ` · errore: ${last.error}` : ''}` : 'non ancora'}.`)
-        : h('p.small.due-late', 'Spenta: manca la chiave OpenAI. Va messa su Railway, nel servizio di Alma Planet, con il nome OPENAI_API_KEY. Senza chiave il radar lavora con l’export di Infordat e le segnalazioni a mano.'),
-      finished.map(x => h('div.crm-budget-alert', icon('alert-triangle', { size: 15 }),
-        h('span.grow', `${asaLab(x.bu)} ha finito il budget del radar (${r.bu[x.bu]?.quota_eur ?? 0} €). Fino a quando non decidi riceve solo i segnali dai dati pubblici.`),
-        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/crm/radar/budget/${x.bu}`, { eur: 10 }); toast('Quota aumentata di 10 €'); go(section); } } }, 'Aumenta di 10 €'),
-        h('button.btn.btn-sm', { type: 'button', on: { click: e => e.currentTarget.closest('.crm-budget-alert').remove() } }, 'Lascia così'))));
-    fill(body, aiCard, h('section.card.crm-pad.en-form',
-      h('div.en-row2', field('Budget mensile dell\'AI (€)', budget, 'Arrivato al tetto, il radar si ferma fino al mese dopo.'), field('Ora del giro notturno', hour, 'Il radar legge le fonti una volta al giorno.')),
-      h('label.crm-check', alert, h('span', 'Quando una BU finisce la sua quota, avvisa gli amministratori con «Aumenta» o «Lascia così». Finché nessuno decide riceve solo i segnali dai dati pubblici.')),
-      h('div.en-table-wrap', h('table.en-table', h('thead', h('tr', h('th', 'BU (acceso / spento)'), h('th', ''), h('th', 'Responsabile'), h('th.num', 'Speso questo mese'), h('th.num', 'Quota (€/mese)'))), h('tbody', rows.map(x => x.tr)))),
-      h('p.small', 'Quote assegnate: ', sum),
-      field('Ufficio gare', h('div', gareBox, addGare), 'Vedono la coda «Proposte dal radar» e caricano l’export di Infordat. La direzione la vede sempre.'),
-      foot('radar', () => save('radar', { budget_eur: Number(budget.value), run_hour: Number(hour.value), alert_admins_on_budget: alert.checked, gare_users: [...gare],
-        bu: Object.fromEntries(rows.map(x => [x.key, { on: x.on.checked, quota_eur: Number(x.quota.value) || 0 }])) }))));
+    fill(body,
+      h('section.cv-card.pad', { style: { gap: '12px' } },
+        h('div.cv-row', h('span.cv-ib', { class: status.ai ? 'gr' : 'rd' }, ic('sparkles', 16)),
+          h('div.cv-grow', h('div.cv-t5', `Lettura delle notizie con l'AI · ${status.ai ? 'accesa' : 'spenta'}`),
+            h('div.cv-small.cv-muted', status.ai ? dots([`OpenAI ${status.model || ''}`.trim(), last ? `ultimo giro ${day(last.at)}${last.bu ? ` (${view.asa.find(a => a.key === last.bu)?.label || last.bu})` : ''}${last.error ? ` · errore: ${last.error}` : ''}` : 'nessun giro ancora', `prossimo stanotte alle ${r.run_hour}`])
+              : 'Manca la chiave OpenAI (OPENAI_API_KEY su Railway). Senza chiave il radar lavora con l’export di Infordat e le segnalazioni a mano.')),
+          status.ai ? h('button.btn', { type: 'button', on: { click: async e => {
+            e.currentTarget.disabled = true;
+            const out = await post('/api/crm/radar/run', {}).catch(() => null);
+            if (out) toast(out.runs.map(x => `${view.asa.find(a => a.key === x.bu)?.label || x.bu}: ${x.skipped || `${x.added} segnali nuovi${x.error ? ' (errore)' : ''}`}`).join(' · ') || 'Nessuna BU accesa');
+            go(section);
+          } } }, ic('refresh', 15), 'Avvia adesso') : null),
+        finished.map(x => h('div.cv-row.cv-wrap', { style: { background: 'var(--cv-or-t)', borderRadius: '14px', padding: '12px 14px' } }, h('span.cv-ib.or', ic('alert-triangle', 16)),
+          h('div.cv-grow.cv-small', h('b', `${view.asa.find(a => a.key === x.bu)?.label || x.bu} ha finito il budget del radar (${r.bu[x.bu]?.quota_eur ?? 0} €).`), ' Fino a quando non decidi riceve solo i segnali dai dati pubblici.'),
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: e => e.currentTarget.parentElement.remove() } }, 'Lascia così'),
+          h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/radar/budget/${x.bu}`, { eur: 10 }); toast('Quota aumentata di 10 €'); go(section); } } }, 'Aumenta di 10 €')))),
+      card({ title: 'BU del radar', right: h('span.cv-small.cv-muted', `${MONTHS[new Date().getMonth()].replace(/^./, c => c.toUpperCase())} · speso `, h('b', { style: { color: 'var(--cv-ink)' } }, `${total.toLocaleString('it-IT', { maximumFractionDigits: 2 })} €`), ` di ${r.budget_eur} €`) },
+        h('div.cv-tblwrap', h('table.cv-tbl', h('thead', h('tr', h('th', 'BU'), h('th', 'Responsabile'), h('th.cv-hide-m', 'Speso / quota'), h('th.num', 'Quota'))), h('tbody', rows.map(x => x.tr))))),
+      h('section.cv-card.pad', h('div.cv-grid3', fld('Budget mensile (€)', budget, 'Arrivato al tetto il radar si ferma fino al mese dopo.'), fld('Ora del giro notturno', hour, 'Il radar legge le fonti una volta al giorno.'),
+        h('div.cv-fld', h('span', 'Ufficio gare'), gareBox, h('span.cv-hint', 'Vedono «Proposte dal radar» e caricano l’export di Infordat.'))), alert.el),
+      savedLine('radar'));
+    onSave = () => save('radar', { budget_eur: Number(budget.value), run_hour: Number(hour.value), alert_admins_on_budget: alert.input.checked, gare_users: [...gare],
+      bu: Object.fromEntries(rows.map(x => [x.key, { on: x.on.checked, quota_eur: Number(x.quota.value) || 0 }])) });
   } else if (section === 'scoring') {
     const sc = st.scoring;
-    const ws = WEIGHTS.map(([k, l, hint]) => ({ k, el: input({ type: 'number', min: 0, max: 100, value: sc.weights[k], 'aria-label': l }), l, hint }));
-    const tot = h('strong');
-    const total = () => { const n = ws.reduce((s, w) => s + (Number(w.el.value) || 0), 0); tot.textContent = String(n); tot.classList.toggle('due-late', n !== 100); };
-    ws.forEach(w => w.el.addEventListener('input', total));
-    total();
-    const min = input({ type: 'number', min: 0, max: 100, value: sc.min });
-    const hi = input({ type: 'number', min: 0, max: 100, value: sc.highlight });
-    fill(body, h('section.card.crm-pad.en-form',
-      h('p', 'Ogni segnale prende da 0 a 100 punti: quanto vale la pena che il responsabile di BU ci perda tempo. È la somma di cinque criteri.'),
-      h('div.en-table-wrap', h('table.en-table', h('thead', h('tr', h('th', 'Criterio'), h('th', 'Come si assegnano i punti'), h('th.num', 'Peso'))),
-        h('tbody', ws.map(w => h('tr', h('td', h('strong', w.l)), h('td.small', w.hint), h('td.num', w.el))), h('tr', h('td', h('strong', 'Totale')), h('td.small.muted', 'deve fare 100'), h('td.num', tot))))),
-      h('div.en-row2', field('In evidenza da', hi, 'Sopra questa soglia il segnale sta in cima a «La mia settimana».'), field('Punteggio minimo', min, 'Sotto non arriva al responsabile, ma resta in «Sotto soglia».')),
-      foot('scoring', () => save('scoring', { weights: Object.fromEntries(ws.map(w => [w.k, Number(w.el.value) || 0])), min: Number(min.value), highlight: Number(hi.value) }))));
+    const totalPill = h('span');
+    const ex = h('div');
+    const sample = await get('/api/crm/radar/signals').then(r => r.signals[0]).catch(() => null);
+    const sampleFull = sample ? await get(`/api/crm/radar/signals/${sample.id}`).catch(() => null) : null;
+    const ws = WEIGHTS.map(([k, l, hint]) => {
+      const range = h('input', { type: 'range', min: 0, max: 60, step: 1, value: sc.weights[k], 'aria-label': l });
+      const val = h('b', String(sc.weights[k]));
+      range.addEventListener('input', () => { val.textContent = range.value; draw(); });
+      return { k, range, el: h('div.cv-slider', h('div', h('div.cv-t5.cv-small', l), h('div.cv-hint', hint)), range, val) };
+    });
+    const hiIn = input({ type: 'number', min: 0, max: 100, value: sc.highlight, 'aria-label': 'In evidenza da' });
+    const minIn = input({ type: 'number', min: 0, max: 100, value: sc.min, 'aria-label': 'Punteggio minimo' });
+    const draw = () => {
+      const tot = ws.reduce((t, w) => t + Number(w.range.value), 0);
+      fill(totalPill, pill(`totale ${tot}`, tot === 100 ? 'gr' : 'rd'));
+      if (!sampleFull) return fill(ex, emptyState('radar', 'L\'esempio dal vivo compare quando c\'è almeno un segnale da decidere.'));
+      const parts = sampleFull.score_parts || {};
+      const old = sampleFull.weights || {};
+      const score = Math.round(ws.reduce((t, w) => t + (old[w.k] ? (Number(parts[w.k] || 0) / old[w.k]) * Number(w.range.value) : 0), 0));
+      const hiN = Number(hiIn.value) || 70;
+      fill(ex, h('div.cv-row', scoreRing(score, { size: 'lg', hi: hiN }), h('div.cv-grow', h('div.cv-t5', sampleFull.title), h('div.cv-small.cv-muted', dots([sampleFull.bu_label, sampleFull.amount ? `${Number(sampleFull.amount).toLocaleString('it-IT')} €` : null])))),
+        h('div.cv-small.cv-muted', 'Con questi pesi ', h('b', { style: { color: 'var(--cv-ink)' } }, score >= hiN ? 'resta in evidenza' : score >= (Number(minIn.value) || 0) ? 'arriva fra gli «Altri»' : 'finisce sotto soglia'), ` (oggi vale ${sampleFull.score}).`));
+    };
+    hiIn.addEventListener('input', draw);
+    minIn.addEventListener('input', draw);
+    draw();
+    fill(body,
+      h('div.cv-cols', { style: { gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)' } },
+        h('section.cv-card.pad', h('div.cv-row', h('div.cv-t5.cv-grow', { style: { fontSize: '15px' } }, 'Pesi del punteggio'), totalPill),
+          h('p.cv-small.cv-muted', 'Ogni segnale prende da 0 a 100 punti: la somma di cinque criteri. I pesi devono fare 100.'),
+          ws.map(w => w.el), h('div.cv-hr'),
+          h('div.cv-grid2', { style: { gap: '12px' } }, fld('In evidenza da', hiIn, 'Sopra sta in cima a «La mia settimana».'), fld('Punteggio minimo', minIn, 'Sotto resta in «Sotto soglia».'))),
+        h('section.cv-card.pad', { style: { background: 'var(--cv-head)' } }, h('div.cv-lbl', 'Esempio dal vivo'), ex)),
+      savedLine('scoring'));
+    onSave = () => {
+      const tot = ws.reduce((t, w) => t + Number(w.range.value), 0);
+      if (tot !== 100) return toast(`I pesi fanno ${tot}: devono fare 100`, 'err');
+      return save('scoring', { weights: Object.fromEntries(ws.map(w => [w.k, Number(w.range.value)])), min: Number(minIn.value), highlight: Number(hiIn.value) });
+    };
   } else if (section === 'profiles') {
-    const pick = select(asaOpts, view.asa[0]?.key, { 'aria-label': 'BU' });
-    const form = h('div');
+    let k = view.asa.find(a => st.profiles[a.key])?.key || view.asa[0]?.key;
+    const picker = h('div');
+    const form = h('div', { style: { display: 'grid', gap: '14px' } });
+    let read = () => ({});
     const drawProfile = () => {
-      const k = pick.value;
+      fill(picker, choiceChips(asaOpts, k, { label: 'BU', onChange: async x => { if (changes && !await confirmDialog('Ci sono modifiche non salvate: cambiare BU le perde. Continuare?', { ok: 'Cambia BU' })) { drawProfile(); return; } changes = 0; bar.hidden = true; k = x; drawProfile(); } }).el);
       const p = st.profiles[k] || {};
-      const manager = select(userOptions('da assegnare'), p.manager?.id || '');
-      const desc = textarea(p.description, { rows: 3, placeholder: 'Cosa fa la BU, in due righe' });
+      const manager = select(userOptions('da assegnare'), p.manager?.id || '', { 'aria-label': 'Responsabile' });
+      const desc = textarea(p.description, { rows: 3, placeholder: 'Cosa fa la BU, in due righe', 'aria-label': 'Cosa fa' });
       const works = lineList(p.works || [], { placeholder: 'Lavoro tipico' });
       const soa = chipSet(data.meta.soaCategories.map(([c]) => [c, c]), p.soa || []);
-      const amin = input({ type: 'number', min: 0, value: p.amount_min ?? '', placeholder: 'minimo €' });
-      const amax = input({ type: 'number', min: 0, value: p.amount_max ?? '', placeholder: 'massimo €' });
+      const amin = input({ type: 'number', min: 0, value: p.amount_min ?? '', placeholder: 'minimo €', 'aria-label': 'Importo minimo (€)' });
+      const amax = input({ type: 'number', min: 0, value: p.amount_max ?? '', placeholder: 'massimo €', 'aria-label': 'Importo massimo (€)' });
       const regions = chipSet(data.meta.regions.map(r => [r.name, r.name]), p.regions || []);
-      const kw = textarea((p.keywords || []).join(', '), { rows: 2, placeholder: 'separate da virgole' });
-      const ex = textarea((p.exclude || []).join(', '), { rows: 2, placeholder: 'separate da virgole' });
-      fill(form, h('div.en-form',
-        h('div.en-row2', field('Responsabile', manager, p.manager || !p.manager_name ? null : `Nel documento: ${p.manager_name} (non ancora tra le persone di Alma Planet)`), field('Fascia d\'importo (€)', h('div.crm-composer-row', amin, amax))),
-        field('Cosa fa', desc), field('Lavori tipici', works.el), field('Categorie SOA', h('details.crm-soa-pick', h('summary.small', (p.soa || []).join(' · ') || 'Scegli…'), soa.el)),
-        field('Zone', h('details.crm-soa-pick', h('summary.small', (p.regions || []).length ? p.regions.join(' · ') : 'Tutta Italia'), regions.el), 'Nessuna regione scelta = tutta Italia.'),
-        h('div.en-row2', field('Parole da cercare', kw), field('Parole da escludere', ex)),
-        field('Clienti attuali', p.clients?.length ? h('div.en-links', p.clients.slice(0, 40).map(c => h('a.en-link', { href: `#/crm/scheda/${c.id}` }, c.name)), p.clients.length > 40 ? h('span.t-meta', `e altri ${p.clients.length - 40}`) : null)
-          : empty('Nessun cliente con questa ASA.'), 'Non si scrivono a mano: arrivano dalle anagrafiche con ruolo Cliente e questa ASA (commesse).'),
-        foot('profiles', () => save('profiles', { [k]: { ...p, manager_id: manager.value ? Number(manager.value) : null, description: desc.value, works: works.value(), soa: [...soa.values],
-          amount_min: amin.value === '' ? null : Number(amin.value), amount_max: amax.value === '' ? null : Number(amax.value), regions: [...regions.values], keywords: words(kw.value), exclude: words(ex.value) } }))));
+      const kw = tagEditor(p.keywords || []);
+      const exc = tagEditor(p.exclude || []);
+      fill(form,
+        h('div.cv-grid2', fld('Responsabile', manager, p.manager || !p.manager_name ? null : `Nel documento: ${p.manager_name} (non ancora tra le persone di Alma Planet)`),
+          h('div.cv-fld', h('span', 'Fascia d\'importo'), h('div.cv-row', { style: { gap: '8px' } }, amin, h('span.cv-muted', '–'), amax))),
+        fld('Cosa fa', desc),
+        h('div.cv-grid2', h('div.cv-fld', h('span', 'Parole da cercare'), kw.el, h('span.cv-hint', 'Invio per aggiungere')), h('div.cv-fld', h('span', 'Parole da escludere'), exc.el)),
+        h('div.cv-fld', h('span', 'Lavori tipici'), works.el),
+        h('div.cv-grid2', h('div.cv-fld', h('span', 'SOA'), h('details', h('summary.cv-chip', { style: { listStyle: 'none', display: 'inline-flex' } }, (p.soa || []).join(' · ') || 'Scegli…', ic('chevron-down', 12)), h('div', { style: { marginTop: '8px' } }, soa.el))),
+          h('div.cv-fld', h('span', 'Zone'), h('details', h('summary.cv-chip', { style: { listStyle: 'none', display: 'inline-flex' } }, (p.regions || []).length ? p.regions.join(' · ') : 'Tutta Italia', ic('chevron-down', 12)), h('div', { style: { marginTop: '8px' } }, regions.el)), h('span.cv-hint', 'Nessuna regione = tutta Italia.'))),
+        h('div.cv-fld', h('span', 'Clienti attuali ', h('span.cv-hint', '· dalle anagrafiche con ruolo Cliente e questa ASA')),
+          p.clients?.length ? h('div.cv-chips', p.clients.slice(0, 24).map(c => h('a.cv-pill', { href: `#/crm/scheda/${c.id}`, style: { textDecoration: 'none' } }, c.name)), p.clients.length > 24 ? pill(`+ altri ${p.clients.length - 24}`) : null)
+            : h('span.cv-small.cv-muted', 'Nessun cliente con questa ASA.')));
+      read = () => ({ [k]: { ...p, manager_id: manager.value ? Number(manager.value) : null, description: desc.value, works: works.value(), soa: [...soa.values],
+        amount_min: amin.value === '' ? null : Number(amin.value), amount_max: amax.value === '' ? null : Number(amax.value), regions: [...regions.values], keywords: kw.value(), exclude: exc.value() } });
     };
-    pick.addEventListener('change', drawProfile);
-    fill(body, h('section.card.crm-pad', field('BU', pick), form));
     drawProfile();
+    fill(body, h('section.cv-card.pad', h('div.cv-row', h('div.cv-t5.cv-grow', { style: { fontSize: '15px' } }, 'Profili BU'), h('span.cv-small.cv-muted', 'cosa cerca il radar per ogni BU')), picker, form), savedLine('profiles'));
+    onSave = () => save('profiles', read());
   } else if (section === 'sources') {
-    const list = h('div.crm-set-list');
-    const add = (s = { name: '', what: '', on: true, bu: [] }) => {
-      const on = h('input', { type: 'checkbox', checked: s.on, 'aria-label': 'Accesa' });
-      const name = input({ value: s.name, placeholder: 'Nome della fonte', maxlength: 120 });
-      const what = input({ value: s.what, placeholder: 'Cosa porta', maxlength: 300 });
+    const list = h('div');
+    const items = [];
+    const add = (s = { name: '', what: '', on: true, bu: [] }, openEdit = false) => {
+      const on = toggle(s.on, null, { 'aria-label': `Fonte accesa: ${s.name || 'nuova'}` });
+      const name = input({ value: s.name, placeholder: 'Nome della fonte', maxlength: 120, 'aria-label': 'Nome della fonte' });
+      const what = input({ value: s.what, placeholder: 'Cosa porta', maxlength: 300, 'aria-label': 'Cosa porta' });
       const bu = chipSet(asaOpts, s.bu || []);
-      const gare = h('input', { type: 'checkbox', checked: Boolean(s.to_gare) });
-      const row = h('div.card.crm-pad.crm-set-item', h('div.crm-composer-row', h('label.crm-check', on, h('span', 'Accesa')), name,
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Togli la fonte', on: { click: () => row.remove() } }, icon('trash', { size: 14 }))),
-      what, field('Porta segnali a (nessuna = tutte le BU)', bu.el), h('label.crm-check', gare, h('span', 'Le gare già bandite vanno all\'ufficio gare (coda «Proposte dal radar»)')));
-      row.read = () => ({ id: s.id, name: name.value, what: what.value, on: on.checked, bu: [...bu.values], to_gare: gare.checked });
+      const gareT = toggle(Boolean(s.to_gare), 'Le gare già bandite vanno all\'ufficio gare');
+      const edit = h('div', { hidden: !openEdit, style: { display: 'grid', gap: '10px', padding: '0 24px 16px 72px' } }, h('div.cv-grid2', { style: { gap: '10px' } }, name, what), fld('Porta segnali a (nessuna = tutte le BU)', bu.el), gareT.el);
+      const label = (s.bu || []).length ? (s.bu || []).map(b => view.asa.find(a => a.key === b)?.label || b).join(', ') : s.to_gare ? 'ufficio gare' : 'tutte le BU';
+      const row = h('div', { style: { borderTop: '1px solid var(--cv-line-2)' } },
+        listRow({ icon: s.to_gare ? 'inbox' : s.id === 'stampa' ? 'sparkles' : 'file', tone: s.to_gare ? 'bl' : s.id === 'stampa' ? 'or' : '', title: s.name || 'Nuova fonte', meta: dots([s.what, `porta a ${label}`]),
+          actions: [h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Modifica ${s.name || 'la fonte'}`, 'aria-expanded': String(openEdit), on: { click: e => { edit.hidden = !edit.hidden; e.currentTarget.setAttribute('aria-expanded', String(!edit.hidden)); } } }, ic('pencil', 14)),
+            h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Togli ${s.name || 'la fonte'}`, on: { click: () => { row.remove(); items.splice(items.indexOf(item), 1); dirty(); } } }, ic('trash', 14)), on.el], cls: '' }), edit);
+      row.firstChild.style.borderTop = '0';
+      const item = { read: () => ({ id: s.id, name: name.value, what: what.value, on: on.input.checked, bu: [...bu.values], to_gare: gareT.input.checked }) };
+      items.push(item);
       list.append(row);
+      if (openEdit) name.focus();
     };
-    st.sources.forEach(add);
-    const mode = select([['email', 'Avvisi email su una casella dedicata'], ['export', 'File esportato'], ['api', 'Accesso API']], st.infordat_mode);
-    fill(body, h('div.en-form', list, h('button.btn', { type: 'button', on: { click: () => add() } }, icon('plus', { size: 14 }), 'Aggiungi una fonte'),
-      h('section.card.crm-pad', field('Come si legge Infordat', mode, 'Da decidere con l\'ufficio gare.'),
-        h('div.crm-set-foot', h('div.grow'), h('button.btn', { type: 'button', on: { click: () => save('infordat_mode', mode.value) } }, 'Salva il modo'))),
-      foot('sources', () => save('sources', [...list.children].map(r => r.read())))));
+    st.sources.forEach(x => add(x));
+    const mode = select([['export', 'File esportato (scelta del 14/11)'], ['email', 'Avvisi email su una casella dedicata'], ['api', 'Accesso API']], st.infordat_mode, { 'aria-label': 'Come si legge Infordat' });
+    fill(body,
+      card({ title: 'Fonti', count: st.sources.length, right: h('button.btn.btn-sm', { type: 'button', on: { click: () => { add(undefined, true); dirty(); } } }, ic('plus', 14), 'Aggiungi') }, list),
+      h('section.cv-card.pad', h('div.cv-row.cv-wrap', fld('Come si legge Infordat', mode), h('span.cv-grow'),
+        h('button.btn', { type: 'button', on: { click: () => save('infordat_mode', mode.value) } }, 'Salva il modo'))),
+      savedLine('sources'));
+    onSave = () => save('sources', items.map(x => x.read()));
   } else if (section === 'playbooks') {
-    const list = h('div.crm-set-list');
-    const add = (p = { name: '', bu: [], steps: [''], check: '' }) => {
-      const name = input({ value: p.name, placeholder: 'Tipo di segnale', maxlength: 200 });
+    const pbs = st.playbooks.map(p => ({ ...p }));
+    let cur = 0;
+    const picker = h('div');
+    const form = h('div', { style: { display: 'grid', gap: '12px' } });
+    let readCur = () => {};
+    const draw = () => {
+      readCur();
+      fill(picker, h('div.cv-chips', pbs.map((p, i) => h('button.cv-chip', { type: 'button', class: i === cur ? 'on' : '', 'aria-pressed': String(i === cur), on: { click: () => { readCur(); cur = i; readCur = () => {}; draw(); } } }, p.name.split(' (')[0] || 'Nuovo playbook'))));
+      const p = pbs[cur];
+      if (!p) return fill(form, emptyState('list', 'Nessun playbook.'));
+      const name = input({ value: p.name, placeholder: 'Tipo di segnale', maxlength: 200, 'aria-label': 'Tipo di segnale' });
       const bu = chipSet(asaOpts, p.bu || []);
-      const steps = lineList(p.steps || [], { placeholder: 'Passo' });
-      const check = input({ value: p.check, placeholder: 'Domanda di verifica (c\'è una trattativa?)', maxlength: 300 });
-      const row = h('div.card.crm-pad.crm-set-item', h('div.crm-composer-row', name,
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Togli il playbook', on: { click: () => row.remove() } }, icon('trash', { size: 14 }))),
-      field('Vale per (nessuna = tutte le BU)', bu.el), field('Passi, in ordine', steps.el), field('Verifica', check));
-      row.read = () => ({ id: p.id, name: name.value, bu: [...bu.values], steps: steps.value(), check: check.value });
-      list.append(row);
+      const steps = lineList(p.steps || [], { placeholder: 'Passo', numbered: true });
+      const check = input({ value: p.check, placeholder: 'Domanda di verifica (c\'è una trattativa?)', maxlength: 300, 'aria-label': 'Domanda di verifica' });
+      readCur = () => Object.assign(p, { name: name.value, bu: [...bu.values], steps: steps.value(), check: check.value });
+      fill(form, fld('Tipo di segnale', name), fld('Vale per (nessuna = tutte le BU)', bu.el), h('div.cv-fld', h('span', 'Passi, in ordine'), steps.el),
+        h('div.cv-row', { style: { border: '1px dashed var(--cv-line-strong)', borderRadius: '12px', padding: '8px 10px' } },
+          h('span', { style: { width: '24px', height: '24px', borderRadius: '50%', background: 'var(--cv-dark)', color: 'var(--cv-on-dark)', fontWeight: 700, display: 'grid', placeItems: 'center', fontSize: '12px', flex: 'none' } }, '?'), check),
+        h('div', h('button.btn.btn-ghost.btn-sm.danger', { type: 'button', on: { click: () => { pbs.splice(cur, 1); cur = 0; readCur = () => {}; draw(); dirty(); } } }, ic('trash', 14), 'Togli questo playbook')));
     };
-    st.playbooks.forEach(add);
-    fill(body, h('div.en-form', h('p.small.muted', 'Dopo «Interessa» il CRM propone un piano d\'azione partendo dal playbook del tipo di segnale, adattato ai contatti e alle commesse simili.'),
-      list, h('button.btn', { type: 'button', on: { click: () => add() } }, icon('plus', { size: 14 }), 'Aggiungi un playbook'),
-      foot('playbooks', () => save('playbooks', [...list.children].map(r => r.read())))));
+    draw();
+    fill(body, h('section.cv-card.pad', h('div.cv-row', h('div.cv-t5.cv-grow', { style: { fontSize: '15px' } }, 'Playbook'),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => { readCur(); pbs.push({ name: '', bu: [], steps: [''], check: '' }); cur = pbs.length - 1; readCur = () => {}; draw(); dirty(); } } }, ic('plus', 14), 'Nuovo')),
+    h('p.cv-small.cv-muted', 'Dopo «Interessa» il CRM propone un piano d\'azione partendo dal playbook del tipo di segnale, adattato ai contatti e alle commesse simili.'), picker, form), savedLine('playbooks'));
+    onSave = () => { readCur(); return save('playbooks', pbs.map(p => ({ id: p.id, name: p.name, bu: p.bu, steps: p.steps, check: p.check }))); };
   } else if (section === 'rules') {
     const r = st.rules;
-    const num = (k, min, max) => input({ type: 'number', min, max, value: r[k] ?? '', 'data-k': k });
-    const nums = { meeting_note_hours: num('meeting_note_hours', 1, 720), lead_qualify_hours: num('lead_qualify_hours', 1, 720), signal_decide_days: num('signal_decide_days', 1, 90),
-      plan_accept_hours: num('plan_accept_hours', 1, 720), key_rhythm_days: num('key_rhythm_days', 7, 730), week_ahead_days: num('week_ahead_days', 1, 60) };
-    const threshold = input({ type: 'number', min: 0, value: r.gonogo_threshold_eur ?? '', placeholder: 'da decidere' });
-    const gmin = input({ type: 'number', min: 0, max: 100, value: r.gonogo_min_score });
-    const qs = h('div.crm-lineedit');
+    const nums = [['meeting_note_hours', 'ore', 'Nota dell\'incontro', 'PC-02', 1, 720], ['lead_qualify_hours', 'ore', 'Qualifica del lead', 'PC-01', 1, 720], ['signal_decide_days', 'giorni', 'Decisione sul segnale', 'PC-08', 1, 90],
+      ['plan_accept_hours', 'ore', 'Accettare il piano', 'PC-10', 1, 720], ['key_rhythm_days', 'giorni', 'Ritmo key account', 'PC-03', 7, 730], ['week_ahead_days', 'giorni', '«La mia settimana» guarda avanti', '', 1, 60]]
+      .map(([k, u, l, c, min, max]) => ({ k, el: h('input', { type: 'number', min, max, value: r[k] ?? '', 'aria-label': `${l} (${u})` }), u, l, c }));
+    const threshold = input({ type: 'number', min: 0, value: r.gonogo_threshold_eur ?? '', placeholder: 'da decidere', 'aria-label': 'Sopra quest\'importo decide la direzione (€)' });
+    const gmin = input({ type: 'number', min: 0, max: 100, value: r.gonogo_min_score, 'aria-label': 'Punteggio minimo per il Go', style: { width: '90px' } });
+    const qs = h('div', { style: { display: 'grid', gap: '6px' } });
+    const qTot = h('span');
+    const sumQ = () => { const t = [...qs.querySelectorAll('[data-q="weight"]')].reduce((a, i) => a + (Number(i.value) || 0), 0); fill(qTot, pill(`totale ${t}`, t === 100 ? 'gr' : 'rd')); };
     const addQ = (q = { text: '', weight: 0 }) => {
-      const row = h('div.crm-lineedit-row', input({ value: q.text, placeholder: 'Domanda', maxlength: 200, 'data-q': 'text' }),
-        input({ type: 'number', min: 0, max: 100, value: q.weight, 'data-q': 'weight', 'aria-label': 'Peso', class: 'crm-w' }),
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Togli', on: { click: () => row.remove() } }, icon('x', { size: 14 })));
+      const w = input({ type: 'number', min: 0, max: 100, value: q.weight, 'data-q': 'weight', 'aria-label': 'Peso', style: { width: '70px', minHeight: '32px', height: '32px', textAlign: 'right' } });
+      w.addEventListener('input', sumQ);
+      const row = h('div.cv-row', { style: { gap: '8px' } }, input({ value: q.text, placeholder: 'Domanda', maxlength: 200, 'data-q': 'text', 'aria-label': 'Domanda', style: { minHeight: '32px', height: '32px' } }), w,
+        h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Togli la domanda', on: { click: () => { row.remove(); sumQ(); dirty(); } } }, ic('x', 14)));
       qs.append(row);
+      sumQ();
     };
     r.gonogo_questions.forEach(addQ);
-    const discard = lineList(r.discard_reasons, { placeholder: 'Motivo di scarto', max: 120 });
-    const lost = lineList(r.lost_reasons, { placeholder: 'Motivo di perdita', max: 120 });
-    fill(body, h('div.en-form',
-      h('section.card.crm-pad.en-form', h('h3.crm-h3', 'Tempi delle procedure'),
-        h('div.crm-set-grid', field('Nota dell\'incontro (ore) · PC-02', nums.meeting_note_hours), field('Qualifica del lead (ore) · PC-01', nums.lead_qualify_hours),
-          field('Decisione sui segnali (giorni) · PC-08', nums.signal_decide_days), field('Accettare il piano d\'azione (ore) · PC-10', nums.plan_accept_hours),
-          field('Ritmo dei key account (giorni) · PC-03', nums.key_rhythm_days), field('«La mia settimana» guarda avanti (giorni)', nums.week_ahead_days))),
-      h('section.card.crm-pad.en-form', h('h3.crm-h3', 'Go/No-Go delle trattative private · PC-04'),
-        h('p.small.due-late', 'Da ridiscutere: Dante non è convinto delle 6 domande (14/11). Resta così finché non si decide.'),
-        h('div.en-row2', field('Sopra quest\'importo decide la direzione (€)', threshold), field('Punteggio minimo per il Go', gmin)),
-        field('Domande e pesi (totale 100)', h('div', qs, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => addQ() } }, icon('plus', { size: 14 }), 'Aggiungi una domanda')))),
-      h('div.en-row2', h('section.card.crm-pad', field('Motivi di scarto dei segnali', discard.el)), h('section.card.crm-pad', field('Motivi di perdita', lost.el))),
-      foot('rules', () => save('rules', {
-        ...Object.fromEntries(Object.entries(nums).map(([k, el]) => [k, Number(el.value)])),
-        gonogo_threshold_eur: threshold.value === '' ? null : Number(threshold.value), gonogo_min_score: Number(gmin.value),
-        gonogo_questions: [...qs.children].map(row => ({ text: row.querySelector('[data-q="text"]').value, weight: Number(row.querySelector('[data-q="weight"]').value) || 0 })).filter(q => q.text.trim()),
-        discard_reasons: discard.value(), lost_reasons: lost.value(),
-      }))));
+    const discard = tagEditor(r.discard_reasons, { placeholder: 'motivo', max: 120 });
+    const lost = tagEditor(r.lost_reasons, { placeholder: 'motivo', max: 120 });
+    fill(body,
+      h('section.cv-card.pad', h('div.cv-t5', { style: { fontSize: '15px' } }, 'Regole e tempi'),
+        h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' } }, nums.map(n => h('label.cv-num', h('div.cv-row', { style: { gap: '4px', alignItems: 'baseline' } }, n.el, h('span.cv-small.cv-muted', n.u)),
+          h('div.cv-small.cv-t5', n.l), n.c ? h('div.cv-hint', n.c) : null))),
+        h('div.cv-cols', { style: { gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '16px' } },
+          h('div.cv-box.big', h('div.cv-row', h('span.cv-t5.cv-grow', 'Go/No-Go delle trattative private · PC-04'), pill('da ridiscutere', 'am')),
+            h('div.cv-hint', 'Dante non è convinto delle 6 domande (14/11): resta così finché non si decide.'),
+            h('div.cv-row', h('span.cv-small.cv-grow', 'Domande e pesi'), qTot), qs,
+            h('div', h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => { addQ(); dirty(); } } }, ic('plus', 14), 'Aggiungi una domanda')),
+            h('div.cv-grid2', { style: { gap: '10px' } }, fld('Sopra quest\'importo decide la direzione (€)', threshold), fld('Punteggio minimo per il Go', gmin))),
+          h('div', { style: { display: 'grid', gap: '12px', alignContent: 'start' } }, h('div.cv-fld', h('span', 'Motivi di scarto dei segnali'), discard.el), h('div.cv-fld', h('span', 'Motivi di perdita'), lost.el)))),
+      savedLine('rules'));
+    onSave = () => save('rules', {
+      ...Object.fromEntries(nums.map(n => [n.k, Number(n.el.value)])),
+      gonogo_threshold_eur: threshold.value === '' ? null : Number(threshold.value), gonogo_min_score: Number(gmin.value),
+      gonogo_questions: [...qs.children].map(row => ({ text: row.querySelector('[data-q="text"]').value, weight: Number(row.querySelector('[data-q="weight"]').value) || 0 })).filter(q => q.text.trim()),
+      discard_reasons: discard.value(), lost_reasons: lost.value(),
+    });
   }
 }
