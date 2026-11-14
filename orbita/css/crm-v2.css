@@ -470,3 +470,11 @@ button.cv-li-main:hover .cv-li-t, a.cv-li-main:hover .cv-li-t { color: var(--cv-
 .cv-li.flat { padding: 8px 0; border-top: 0; }
 .cv-li.tight { padding: 9px 12px; }
 .cv-box > .cv-li.tight:first-child { border-top: 0; }
+.cv-bulkbar .select { color: var(--cv-ink); background-color: var(--cv-card); }
+.cv-stepper .ln { width: 24px; margin-right: 10px; }
+@media (max-width: 760px) {
+  .cv-head-acts { flex-wrap: nowrap; gap: 6px; }
+  .cv-head-acts .btn { height: 32px; min-height: 32px; padding: 0 11px; font-size: 13px; border-radius: 10px; }
+  .cv-head-acts .btn.cv-ico { width: 32px; }
+  .cv-fc-l { white-space: nowrap; }
+}

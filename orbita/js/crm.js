@@ -295,7 +295,7 @@ function reorderView(list, reload) {
   const tbody = h('tbody', list.map(s => h('tr',
     h('td', h('input', { type: 'checkbox', 'aria-label': `Seleziona ${s.name}`, disabled: !canPick(s) || undefined, title: canPick(s) ? undefined : 'Solo l\'owner o la direzione',
       on: { change: e => { e.target.checked ? picked.add(s.id) : picked.delete(s.id); sync(); } } })),
-    h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', s.name.slice(0, 2).toUpperCase()), h('div', h('div.cv-t5.cv-ell', { style: { maxWidth: '360px' } }, s.name), h('div.cv-small.cv-muted', dots([data.meta.kinds[s.kind], s.city]) || '—')))),
+    h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', initialsOf(s.name)), h('div', h('div.cv-t5.cv-ell', { style: { maxWidth: '360px' } }, s.name), h('div.cv-small.cv-muted', dots([data.meta.kinds[s.kind], s.city]) || '—')))),
     h('td.cv-hide-m', asaCell(s.asa)),
     h('td.cv-hide-m', ownerCell(s)),
     h('td.cv-hide-m.cv-small.cv-muted', s.updated_at ? `fermo dal ${day(s.updated_at)}` : '—'))));
@@ -409,7 +409,7 @@ function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () 
     h('div.cv-tblwrap', h('table.cv-tbl',
       h('thead', h('tr', h('th', 'Azienda'), h('th.cv-hide-m', 'ASA'), h('th.cv-hide-m', 'Owner · funzione'), h(`th${col4[2] ? '.num' : ''}.cv-hide-m`, col4[0]), h('th', 'Prossimo passo'), h('th', h('span.cv-sr', 'Azioni')))),
       h('tbody', shown.map(s => h('tr.cv-click', { on: { click: e => { if (!e.target.closest('.cv-more, a, button')) open(s); } } },
-        h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', (s.short_name || s.name).slice(0, 2).toUpperCase()),
+        h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', initialsOf(s.short_name || s.name)),
           h('div', h('div.cv-t5.cv-row', { style: { gap: '6px' } }, h('span.cv-ell', { style: { maxWidth: '300px' } }, s.name), s.key_account ? h('span', { title: 'Key account', style: { color: 'var(--cv-orange-d)', display: 'inline-flex' } }, ic('star', 13)) : null, s.missing_notes ? bang() : null),
             h('div.cv-small.cv-muted.cv-ell', { style: { maxWidth: '300px' } }, dots([data.meta.kinds[s.kind], s.city, s.status !== 'attivo' && data.meta.status[s.status]]) || '—')))),
         h('td.cv-hide-m', asaCell(s.asa)),
@@ -501,7 +501,7 @@ async function subjectPage(container, id, tabKey) {
         h('div.cv-head-acts',
           phone ? h('a.btn', { href: `tel:${phone}` }, ic('phone', 15), 'Chiama') : h('button.btn', { type: 'button', disabled: true, title: 'Nessun telefono: aggiungilo nei dati o ai contatti' }, ic('phone', 15), 'Chiama'),
           mail ? h('a.btn', { href: `mailto:${mail}` }, ic('mail', 15), 'Email') : h('button.btn', { type: 'button', disabled: true, title: 'Nessuna email' }, ic('mail', 15), 'Email'),
-          h('button.btn.btn-primary', { type: 'button', on: { click: newStep } }, ic('plus', 15), 'Nuovo passo'),
+          h('button.btn.btn-primary', { type: 'button', on: { click: newStep }, 'aria-label': 'Nuovo passo' }, ic('plus', 15), h('span.cv-hide-m', 'Nuovo passo'), h('span.cv-only-m', 'Passo')),
           menu)),
       s.roles.includes('lead') ? [h('div.cv-hr'), stageBar(s, () => refresh())] : null,
       h('div.cv-hr'),
@@ -1038,7 +1038,7 @@ async function asaTab(box) {
             again();
           } } }, ic('x', 12)))),
         h('button.cv-pill.or.big', { type: 'button', on: { click: () => { form.hidden = !form.hidden; if (!form.hidden) mail.focus(); } } }, ic('plus', 12), 'persona')),
-      !people.length ? h('p.cv-small', { style: { color: 'var(--cv-rd)' } }, 'Nessuno in quest\'ASA.') : null,
+      !people.length ? h('p.cv-small.cv-muted', 'Nessuno in quest\'ASA: aggiungi chi riceve segnali e promemoria.') : null,
       form);
   };
   const newAsa = input({ placeholder: 'Nome della nuova ASA', maxlength: 60, 'aria-label': 'Nome della nuova ASA' });

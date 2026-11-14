@@ -599,7 +599,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
     const addQ = (q = { text: '', weight: 0 }) => {
       const w = input({ type: 'number', min: 0, max: 100, value: q.weight, 'data-q': 'weight', 'aria-label': 'Peso', style: { width: '70px', minHeight: '32px', height: '32px', textAlign: 'right' } });
       w.addEventListener('input', sumQ);
-      const row = h('div.cv-row', { style: { gap: '8px' } }, input({ value: q.text, placeholder: 'Domanda', maxlength: 200, 'data-q': 'text', 'aria-label': 'Domanda', style: { minHeight: '32px', height: '32px' } }), w,
+      const row = h('div.cv-row', { style: { gap: '8px' } }, input({ value: q.text, placeholder: 'Domanda', maxlength: 200, 'data-q': 'text', 'aria-label': 'Domanda', style: { minHeight: '32px', height: '32px', flex: '1', minWidth: '0', width: 'auto' } }), w,
         h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Togli la domanda', on: { click: () => { row.remove(); sumQ(); dirty(); } } }, ic('x', 14)));
       qs.append(row);
       sumQ();
@@ -609,7 +609,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
     const lost = tagEditor(r.lost_reasons, { placeholder: 'motivo', max: 120 });
     fill(body,
       h('section.cv-card.pad', h('div.cv-t5', { style: { fontSize: '15px' } }, 'Regole e tempi'),
-        h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' } }, nums.map(n => h('label.cv-num', h('div.cv-row', { style: { gap: '4px', alignItems: 'baseline' } }, n.el, h('span.cv-small.cv-muted', n.u)),
+        h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(124px, 1fr))', gap: '10px' } }, nums.map(n => h('label.cv-num', h('div.cv-row', { style: { gap: '4px', alignItems: 'baseline' } }, n.el, h('span.cv-small.cv-muted', n.u)),
           h('div.cv-small.cv-t5', n.l), n.c ? h('div.cv-hint', n.c) : null))),
         h('div.cv-cols', { style: { gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '16px' } },
           h('div.cv-box.big', h('div.cv-row', h('span.cv-t5.cv-grow', 'Go/No-Go delle trattative private · PC-04'), pill('da ridiscutere', 'am')),

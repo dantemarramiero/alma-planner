@@ -31,7 +31,7 @@ export function pageTop({ eyebrow, heading, sub, actions = [] }) {
 export function kpiRow(items) {
   return h('div.cv-focus', items.filter(Boolean).map(k => {
     const attrs = { class: k.n ? (k.tone || '') : 'zero', 'aria-label': `${k.n} ${k.label.join(' ')}` };
-    const inner = [h('span.cv-fc-ic', ic(k.icon, 17)), h('span.cv-fc-n', String(k.n)), h('span.cv-fc-l', k.label[0], h('br'), k.label[1] || '')];
+    const inner = [h('span.cv-fc-ic', ic(k.icon, 17)), h('span.cv-fc-n', String(k.n)), h('span.cv-fc-l', k.label[0], h('br'), ' ', k.label[1] || '')];
     if (k.href) return h('a.cv-fc', { ...attrs, href: k.href }, inner);
     if (k.onClick) return h('button.cv-fc', { ...attrs, type: 'button', on: { click: k.onClick } }, inner);
     return h('div.cv-fc', attrs, inner);
