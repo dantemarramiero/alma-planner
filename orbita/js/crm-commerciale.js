@@ -431,6 +431,8 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
           h('span.cv-small.cv-muted', { style: { width: '64px' } }, `${s.toLocaleString('it-IT', { maximumFractionDigits: 2 })} €`))),
         h('td.num', quota)) };
     });
+    const radarValue = () => ({ budget_eur: Number(budget.value), run_hour: Number(hour.value), alert_admins_on_budget: alert.input.checked, gare_users: [...gare],
+      bu: Object.fromEntries(rows.map(x => [x.key, { on: x.on.checked, quota_eur: Number(x.quota.value) || 0 }])) });
     const finished = status.spend.filter(x => x.alerted_at);
     const last = status.runs[0];
     fill(body,
@@ -441,6 +443,8 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
               : 'Manca la chiave OpenAI (OPENAI_API_KEY su Railway). Senza chiave il radar lavora con l’export di Infordat e le segnalazioni a mano.')),
           status.ai ? h('button.btn', { type: 'button', on: { click: async e => {
             e.currentTarget.disabled = true;
+            // gli interruttori cambiati e non ancora salvati valgono già per questo giro (14/11: tornavano spenti)
+            if (changes) { try { await put('/api/crm/commerciale/radar', { value: radarValue() }); changes = 0; bar.hidden = true; } catch { e.currentTarget.disabled = false; return; } }
             const out = await post('/api/crm/radar/run', {}).catch(() => null);
             if (out) toast(out.runs.map(x => `${view.asa.find(a => a.key === x.bu)?.label || x.bu}: ${x.skipped || `${x.added} segnali nuovi${x.error ? ' (errore)' : ''}`}`).join(' · ') || 'Nessuna BU accesa');
             go(section);
@@ -454,8 +458,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
       h('section.cv-card.pad', h('div.cv-grid3', fld('Budget mensile (€)', budget, 'Arrivato al tetto il radar si ferma fino al mese dopo.'), fld('Ora del giro notturno', hour, 'Il radar legge le fonti una volta al giorno.'),
         h('div.cv-fld', h('span', 'Ufficio gare'), gareBox, h('span.cv-hint', 'Vedono «Proposte dal radar» e caricano l’export di Infordat.'))), alert.el),
       savedLine('radar'));
-    onSave = () => save('radar', { budget_eur: Number(budget.value), run_hour: Number(hour.value), alert_admins_on_budget: alert.input.checked, gare_users: [...gare],
-      bu: Object.fromEntries(rows.map(x => [x.key, { on: x.on.checked, quota_eur: Number(x.quota.value) || 0 }])) });
+    onSave = () => save('radar', radarValue());
   } else if (section === 'scoring') {
     const sc = st.scoring;
     const totalPill = h('span');

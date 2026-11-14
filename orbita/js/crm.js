@@ -10,13 +10,13 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
 import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
-import { gareTab, belowTab, plansTab } from './crm-radar.js';
+import { gareTab, belowTab, radarTab, plansTab } from './crm-radar.js';
 import { businessView } from './crm-business.js';
 import { ic, dots, pill, av, pageTop, title, card, link, listRow, emptyState, seg, tabsBar as cvTabs, moreMenu, cvModal, choiceChips } from './crm-v2.js';
 
-const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia']];
+const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia'], ['radar', 'Radar']];
 const ADMIN_TABS = ['asa', 'impostazioni'];
-const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana', 'gare', 'sottosoglia'];
+const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana', 'gare', 'sottosoglia', 'radar'];
 const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' };
 const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner' };
 
@@ -137,6 +137,7 @@ export async function crmView(container, parts = []) {
   else if (tab === 'asa') await settingsTab(body, data, 'asa', { asaTab, importCard }); // ASA e accessi ora stanno nelle Impostazioni (artboard «Imp-asa»)
   else if (tab === 'gare') await gareTab(body, data);
   else if (tab === 'sottosoglia') await belowTab(body, data);
+  else if (tab === 'radar') await radarTab(body, data);
   else if (tab === 'lead') await leadTab(body, parts[2], again);
   else if (tab === 'contatti') await contactsTab(body, again);
   else await subjectsTab(body, tab, again);

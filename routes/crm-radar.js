@@ -73,8 +73,9 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       add('g.status = ANY(?::text[])', req.query.all ? ['nuovo', 'boss', 'gara_scartata'] : ['nuovo']);
     } else {
       where.push('NOT g.to_gare');
-      add('g.status = ANY(?::text[])', req.query.all ? ['nuovo', 'interessa', 'scartato'] : ['nuovo']);
-      const bus = req.query.bu ? String(req.query.bu).split(',') : c.myBus.length || !req.crm.admin ? c.myBus : Object.keys(c.settings.profiles);
+      const STATES = ['nuovo', 'interessa', 'scartato'];
+      add('g.status = ANY(?::text[])', req.query.status && STATES.includes(String(req.query.status)) ? [String(req.query.status)] : req.query.all || view === 'tutti' ? STATES : ['nuovo']);
+      const bus = req.query.bu ? String(req.query.bu).split(',') : c.myBus.length && !(req.crm.admin && view === 'tutti') || !req.crm.admin ? c.myBus : Object.keys(c.settings.profiles);
       if (req.query.bu && !req.crm.admin && bus.some(b => !c.myBus.includes(b))) throw new HttpError(403, 'Vedi i segnali delle tue BU');
       add('g.bu = ANY(?::text[])', bus);
       if (view === 'sotto') add('g.score < ?', min);

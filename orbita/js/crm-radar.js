@@ -412,3 +412,35 @@ export async function belowTab(box, data) {
       return [sect(`${b} · ${list.length}`), list.map(g => signalRow(g, { highlight: r.highlight, reasons: r.discardReasons, onChange: again, data, list: r.signals, weak: weakest(g) }))];
     }) : emptyState('radar', r.bus.length ? 'Nessun segnale sotto soglia: il radar non ha scartato niente.' : 'Non sei responsabile di nessuna BU.')));
 }
+
+// «Radar»: tutti i segnali delle mie BU (la direzione: di tutte), con i filtri per BU e stato (Dante 14/11)
+const STATI = [['nuovo', 'Da decidere'], ['interessa', 'Interessa'], ['scartato', 'Scartati'], ['', 'Tutti']];
+export async function radarTab(box, data, state = { bu: '', status: 'nuovo', q: '' }) {
+  fill(box, loading());
+  const again = () => radarTab(box, data, state);
+  const r = await get(`/api/crm/radar/signals?view=tutti${state.status ? `&status=${state.status}` : ''}`);
+  const asaName = k => data.asa.find(a => a.key === k)?.label || k || 'Senza BU';
+  const bus = [...new Set(r.signals.map(g => g.bu).filter(Boolean))].sort((a, b) => asaName(a).localeCompare(asaName(b), 'it'));
+  const list = h('section.cv-card');
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca nel titolo o nell\u2019ente…', value: state.q, 'aria-label': 'Cerca', style: { maxWidth: '280px' } });
+  const draw = () => {
+    const q = state.q.trim().toLowerCase();
+    const shown = r.signals.filter(g => (!state.bu || g.bu === state.bu) && (!q || `${g.title} ${g.entity} ${g.subject_name || ''}`.toLowerCase().includes(q)));
+    const groups = state.bu ? [state.bu] : [...new Set(shown.map(g => g.bu || ''))];
+    fill(list, shown.length ? groups.map(b => {
+      const items = shown.filter(g => (g.bu || '') === b);
+      return items.length ? [sect(`${asaName(b)} · ${items.length}`), items.map(g => signalRow(g, { highlight: r.highlight, reasons: r.discardReasons, onChange: again, data, list: shown }))] : null;
+    }) : emptyState('radar', r.signals.length ? 'Nessun segnale con questi filtri.' : 'Nessun segnale in questo stato.'));
+  };
+  search.addEventListener('input', () => { state.q = search.value; draw(); });
+  const buChips = choiceChips([['', `Tutte le BU · ${r.signals.length}`], ...bus.map(b => [b, `${asaName(b)} · ${r.signals.filter(g => g.bu === b).length}`])], state.bu, { label: 'BU', onChange: k => { state.bu = k; draw(); } });
+  const stChips = choiceChips(STATI, state.status, { label: 'Stato', onChange: k => { state.status = k; state.bu = ''; radarTab(box, data, state); } });
+  fill(box,
+    pageTop({ eyebrow: 'Alma CRM · radar', heading: title('Segnali del', 'radar'),
+      sub: 'Tutti i segnali delle tue BU, anche quelli già decisi o sotto soglia. Le gare già bandite sono in «Proposte dal radar».',
+      actions: [h('a.btn', { href: '#/crm/sottosoglia' }, 'Sotto soglia'), data.gare ? h('a.btn', { href: '#/crm/gare' }, 'Proposte dal radar') : null] }),
+    h('div.cv-row.cv-wrap', { style: { gap: '12px', marginBottom: '16px' } }, stChips.el, h('span.cv-grow'), search),
+    bus.length > 1 ? h('div', { style: { marginBottom: '16px' } }, buChips.el) : null,
+    list);
+  draw();
+}

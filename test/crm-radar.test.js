@@ -209,3 +209,14 @@ test('risposta dell\'AI con le citazioni dopo il JSON: si legge solo l\'array', 
   assert.equal(out[0].amount, 440300000);
   assert.equal(parseSignals('[{"title":"A","url":"https://a.it"}] e poi ([a.it](https://a.it))').length, 1);
 });
+
+test('pagina Radar: tutti gli stati, filtro per stato; la direzione vede tutte le BU', async () => {
+  const all = (await D('GET', '/api/crm/radar/signals?view=tutti')).body.signals;
+  assert.ok(all.some(g => g.status === 'interessa') && all.some(g => g.status === 'scartato'));
+  assert.ok(all.every(g => !g.to_gare));
+  const scartati = (await D('GET', '/api/crm/radar/signals?view=tutti&status=scartato')).body.signals;
+  assert.ok(scartati.length && scartati.every(g => g.status === 'scartato'));
+  assert.ok(new Set(all.map(g => g.bu)).size >= 2); // edilizia e facility: la direzione le vede tutte
+  const mine = (await E('GET', '/api/crm/radar/signals?view=tutti')).body.signals;
+  assert.ok(mine.every(g => g.bu === 'edilizia'));
+});
