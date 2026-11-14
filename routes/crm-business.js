@@ -162,13 +162,18 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     const { rows } = await db.query(
       `SELECT i.*, o.name AS owner_name, s.name AS sponsor_name FROM crm_initiatives i LEFT JOIN users o ON o.id = i.owner_id
          LEFT JOIN users s ON s.id = i.sponsor_id ORDER BY (i.phase = 'abbandonata'), i.updated_at DESC`);
-    const list = await Promise.all(rows.map(async i => ({ ...i, started_on: dayOf(i.started_on), ...(await stats(i)) })));
+    const list = await Promise.all(rows.map(async i => {
+      const { rows: [n] } = await db.query('SELECT title, due_date FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL ORDER BY due_date NULLS LAST, id LIMIT 1', [i.id]);
+      return { ...i, started_on: dayOf(i.started_on), nextTask: n ? `${n.title}${n.due_date ? ` · ${dayOf(n.due_date).split('-').reverse().slice(0, 2).join('/')}` : ''}` : null, ...(await stats(i)) };
+    }));
     const open = list.filter(i => i.phase !== 'abbandonata');
     res.json({
       initiatives: list, ai: Boolean(aiKey()), meta: meta(),
       kpis: {
         open: open.length, targets: open.reduce((s, i) => s + i.funnel.individuati, 0), contacted: open.reduce((s, i) => s + i.funnel.contattati, 0),
         lateGates: open.filter(i => i.gate?.late).length, spent: open.reduce((s, i) => s + i.spent, 0), budget: open.reduce((s, i) => s + Number(i.budget_eur), 0),
+        gapsOk: open.reduce((s, i) => s + i.gaps.ok, 0), gapsTotal: open.reduce((s, i) => s + i.gaps.total, 0),
+        aiMonth: Number((await db.query('SELECT COALESCE(SUM(eur), 0) AS eur FROM crm_initiative_spend WHERE month = $1', [month()])).rows[0].eur),
       },
     });
   });
@@ -195,18 +200,30 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       if (typeof b.periods !== 'object' || !b.periods) throw new HttpError(400, 'Periodi non validi');
       f.periods = JSON.stringify(Object.fromEntries(B.PHASE_KEYS.map(k => [k, String(b.periods[k] || '').slice(0, 60)]).filter(([, x]) => x)));
     }
+    if (b.phase_dates !== undefined) {
+      if (typeof b.phase_dates !== 'object' || !b.phase_dates) throw new HttpError(400, 'Date delle fasi non valide');
+      const out = {};
+      for (const k of B.PHASE_KEYS) {
+        const x = b.phase_dates[k] || {};
+        const from = v.date(x.from || null, 'Inizio fase'); const to = v.date(x.to || null, 'Fine fase');
+        if (from && to && from > to) throw new HttpError(400, 'Una fase finisce prima di cominciare');
+        if (from || to) out[k] = { from, to };
+      }
+      f.phase_dates = JSON.stringify(out);
+    }
     if (!partial && !f.owner_id) throw new HttpError(400, 'Scegli il responsabile');
     return f;
   }
 
   app.post('/api/crm/business', async (req, res) => {
     const f = await fields(req.body, { partial: false });
+    const g0 = v.date(req.body.gate0_due || null, 'Data del gate G0') || addDays(todayRome(), 14);
     f.created_by = req.user.id;
     if (!f.sponsor_id && req.crm.admin) f.sponsor_id = req.user.id;
     const c = Object.keys(f);
     const { rows: [i] } = await db.query(`INSERT INTO crm_initiatives (${c.join(', ')}) VALUES (${c.map((_, k) => `$${k + 1}`).join(', ')}) RETURNING *`, Object.values(f));
     // G0 fra due settimane (aprire l'iniziativa dopo l'esplorazione), gli altri senza data finché non c'è il piano
-    for (let n = 0; n < 5; n++) await db.query('INSERT INTO crm_initiative_gates (initiative_id, n, question, due_date) VALUES ($1, $2, $3, $4)', [i.id, n, B.GATES[n], n === 0 ? addDays(todayRome(), 14) : null]);
+    for (let n = 0; n < 5; n++) await db.query('INSERT INTO crm_initiative_gates (initiative_id, n, question, due_date) VALUES ($1, $2, $3, $4)', [i.id, n, B.GATES[n], n === 0 ? g0 : null]);
     res.status(201).json(i);
   });
 
@@ -378,7 +395,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
   });
 
   // ── piano: passi per fase ───────────────────────────────────────────────────────────────────
-  const TASK_SELECT = `SELECT t.*, u.name AS owner_name FROM crm_initiative_tasks t LEFT JOIN users u ON u.id = t.owner_id`;
+  const TASK_SELECT = `SELECT t.*, u.name AS owner_name, tg.name AS target_name, gp.title AS gap_title FROM crm_initiative_tasks t LEFT JOIN users u ON u.id = t.owner_id
+    LEFT JOIN crm_initiative_targets tg ON tg.id = t.target_id LEFT JOIN crm_initiative_gaps gp ON gp.id = t.gap_id`;
   const taskOut = t => ({ ...t, due_date: dayOf(t.due_date), late: !t.done_at && t.due_date && dayOf(t.due_date) < todayRome() });
   app.get('/api/crm/business/:id/tasks', async (req, res) => {
     const i = await byId(iid(req));
@@ -391,6 +409,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       phase: b.phase === undefined ? undefined : v.oneOf(b.phase, 'Fase', B.PHASE_KEYS),
       owner_id: b.owner_id === undefined ? undefined : await userOk(b.owner_id ? v.int(b.owner_id, 'Chi lo fa', { min: 1 }) : null),
       due_date: b.due_date === undefined ? undefined : v.date(b.due_date, 'Entro quando'),
+      target_id: b.target_id === undefined ? undefined : (b.target_id ? v.int(b.target_id, 'Cliente target', { min: 1 }) : null),
+      gap_id: b.gap_id === undefined ? undefined : (b.gap_id ? v.int(b.gap_id, 'Requisito', { min: 1 }) : null),
     });
   }
   async function insertTask(i, f, userId) {
@@ -437,6 +457,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       check_status: b.check_status === undefined ? undefined : (b.check_status ? v.oneOf(b.check_status, 'Verifica', ['da_verificare', 'confermata', 'smentita']) : ''),
       level: b.level === undefined ? undefined : (b.level ? v.oneOf(b.level, 'Livello', ['alto', 'medio', 'basso']) : ''),
       mitigation: v.text(b.mitigation, 'Mitigazione', { max: 500 }),
+      probability: b.probability === undefined ? undefined : (b.probability ? v.oneOf(b.probability, 'Probabilità', ['poco', 'possibile', 'probabile']) : ''),
+      before_gate: b.before_gate === undefined ? undefined : (b.before_gate === null || b.before_gate === '' ? null : v.int(b.before_gate, 'Gate', { min: 0, max: 4 })),
     });
     if (!partial && !f.title && !f.body) throw new HttpError(400, 'Scrivi la riflessione');
     if (!partial && f.kind === 'ipotesi' && !f.check_status) f.check_status = 'da_verificare';
@@ -525,7 +547,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     }
     return out;
   };
-  async function chat(req, i) {
+  // silent: la sintesi per la direzione non va nella chat (conta solo la spesa)
+  async function chat(req, i, { silent = false } = {}) {
     const question = v.text(req.body.question, 'Domanda', { max: 4000, required: true });
     const key = aiKey();
     if (!key) throw new HttpError(503, 'L\'assistente si accende quando c\'è OPENAI_API_KEY su Railway');
@@ -533,14 +556,15 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     const { rows: hist } = await db.query(
       `SELECT role, body FROM (SELECT role, body, id FROM crm_initiative_messages WHERE initiative_id IS NOT DISTINCT FROM $1 AND ($1::int IS NOT NULL OR author_id = $2) ORDER BY id DESC LIMIT 10) x ORDER BY id`, [id, req.user.id]);
     const system = B.systemPrompt({ today: todayRome(), almacis: await almacisContext(), initiative: i ? await initiativeContext(i) : '' });
-    await db.query(`INSERT INTO crm_initiative_messages (initiative_id, role, body, author_id) VALUES ($1, 'user', $2, $3)`, [id, question, req.user.id]);
+    if (!silent) await db.query(`INSERT INTO crm_initiative_messages (initiative_id, role, body, author_id) VALUES ($1, 'user', $2, $3)`, [id, question, req.user.id]);
     let r;
     try {
       r = await B.ask({ apiKey: key, system, history: hist, question, fetchImpl: fetchImpl() });
     } catch (err) {
       throw new HttpError(502, `L'assistente non ha risposto: ${String(err.message || err).slice(0, 200)}`);
     }
-    const proposals = { targets: r.targets, gaps: r.gaps, steps: r.steps, plan: r.plan, crm: r.crm };
+    if (silent) { if (id) await addSpend(id, r.costEur); return { body: r.answer, cost_eur: r.costEur }; }
+    const proposals = { targets: r.targets, gaps: r.gaps, steps: r.steps, plan: r.plan, crm: r.crm, ideas: r.ideas || [] };
     const { rows: [m] } = await db.query(
       `INSERT INTO crm_initiative_messages (initiative_id, role, body, sources, proposals, cost_eur, author_id) VALUES ($1, 'assistant', $2, $3, $4, $5, $6) RETURNING *`,
       [id, r.answer, JSON.stringify(r.sources), JSON.stringify(proposals), r.costEur, req.user.id]);
@@ -605,8 +629,13 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
   // ── radar dell'iniziativa: stesso punteggio delle BU, profilo dell'iniziativa come una BU in più ──────
   app.get('/api/crm/business/:id/radar', async (req, res) => {
     const i = await byId(iid(req));
-    const { rows } = await db.query(`SELECT * FROM crm_initiative_signals WHERE initiative_id = $1 AND status = 'nuovo' ORDER BY score DESC, created_at DESC LIMIT 60`, [i.id]);
-    res.json({ profile: i.profile, signals: rows.map(s => ({ ...s, published_on: dayOf(s.published_on), deadline: dayOf(s.deadline) })), ai: Boolean(aiKey()) });
+    const status = ['nuovo', 'target', 'scartato'].includes(req.query.status) ? req.query.status : 'nuovo';
+    const [{ rows }, { rows: counts }] = await Promise.all([
+      db.query('SELECT * FROM crm_initiative_signals WHERE initiative_id = $1 AND status = $2 ORDER BY score DESC, created_at DESC LIMIT 60', [i.id, status]),
+      db.query('SELECT status, COUNT(*)::int AS n FROM crm_initiative_signals WHERE initiative_id = $1 GROUP BY status', [i.id]),
+    ]);
+    res.json({ profile: i.profile, status, counts: Object.fromEntries(counts.map(r => [r.status, r.n])), last: i.radar_last || {},
+      signals: rows.map(s => ({ ...s, published_on: dayOf(s.published_on), deadline: dayOf(s.deadline) })), ai: Boolean(aiKey()) });
   });
   app.put('/api/crm/business/:id/profile', async (req, res) => {
     const i = await editable(req, iid(req));
@@ -644,6 +673,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       added += rowCount;
     }
     await addSpend(i.id, r.costEur);
+    await db.query('UPDATE crm_initiatives SET radar_last = $2 WHERE id = $1', [i.id, JSON.stringify({ at: new Date().toISOString(), found: r.signals.length, added, cost: r.costEur })]);
     res.json({ found: r.signals.length, added, cost: r.costEur });
   });
   app.post('/api/crm/business/signals/:sid/:action', async (req, res) => {
@@ -686,12 +716,13 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       db.query(`${TASK_SELECT} WHERE t.initiative_id = $1 AND t.done_at IS NULL ORDER BY t.due_date NULLS LAST, t.id LIMIT 8`, [i.id]),
       db.query(`SELECT * FROM crm_initiative_notes WHERE initiative_id = $1 AND kind = 'rischio' AND deleted_at IS NULL ORDER BY CASE level WHEN 'alto' THEN 0 WHEN 'medio' THEN 1 ELSE 2 END, id`, [i.id]),
     ]);
-    res.json({ ...st, weeks, next: next.map(taskOut), risks, owner_name: i.owner_name, phase: i.phase, budget: Number(i.budget_eur) });
+    res.json({ ...st, weeks, next: next.map(taskOut), risks, owner_name: i.owner_name, phase: i.phase, budget: Number(i.budget_eur), summary: i.summary, summary_at: i.summary_at });
   });
   app.post('/api/crm/business/:id/sintesi', async (req, res) => { // sintesi dell'assistente per la riunione di direzione
     const i = await byId(iid(req));
     req.body = { question: 'Scrivi la sintesi per la riunione di direzione: cosa ha fatto il responsabile nelle ultime 4 settimane, a che punto è l\'iniziativa, cosa manca per il prossimo gate, le sinergie più forti con il CRM e una proposta di decisione. Massimo 8 righe. Liste targets, gaps, steps e plan vuote.' };
-    const m = await chat(req, i);
+    const m = await chat(req, i, { silent: true });
+    await db.query('UPDATE crm_initiatives SET summary = $2, summary_at = now() WHERE id = $1', [i.id, m.body.slice(0, 4000)]);
     res.status(201).json(m);
   });
 }
