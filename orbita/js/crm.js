@@ -12,11 +12,12 @@ import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMee
 import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
 import { gareTab, belowTab, radarTab, plansTab } from './crm-radar.js';
 import { businessView } from './crm-business.js';
+import { esitiTab, relazioniTab } from './crm-esiti.js';
 import { ic, dots, pill, av, pageTop, title, card, link, listRow, emptyState, seg, tabsBar as cvTabs, moreMenu, cvModal, choiceChips } from './crm-v2.js';
 
-const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia'], ['radar', 'Radar']];
+const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia'], ['radar', 'Radar'], ['esiti', 'Vinte e perse'], ['relazioni', 'Chi conosciamo']];
 const ADMIN_TABS = ['asa', 'impostazioni'];
-const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana', 'gare', 'sottosoglia', 'radar'];
+const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana', 'gare', 'sottosoglia', 'radar', 'esiti', 'relazioni'];
 const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' };
 const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner' };
 
@@ -120,6 +121,7 @@ const soaText = soa => (soa?.length ? soa.map(x => `${x.cat} ${x.cls}`).join(' �
 
 export async function crmView(container, parts = []) {
   data = await get('/api/crm');
+  store.crmData = data; // BU e ASA per «Registra esito» aperto da altre pagine
   if (parts[1] === 'business') return businessView(container, parts.slice(2), data); // Nuovi business
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
@@ -138,6 +140,8 @@ export async function crmView(container, parts = []) {
   else if (tab === 'gare') await gareTab(body, data);
   else if (tab === 'sottosoglia') await belowTab(body, data);
   else if (tab === 'radar') await radarTab(body, data);
+  else if (tab === 'esiti') await esitiTab(body, data);
+  else if (tab === 'relazioni') await relazioniTab(body, data);
   else if (tab === 'lead') await leadTab(body, parts[2], again);
   else if (tab === 'contatti') await contactsTab(body, again);
   else await subjectsTab(body, tab, again);

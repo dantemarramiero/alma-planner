@@ -478,3 +478,46 @@ button.cv-li-main:hover .cv-li-t, a.cv-li-main:hover .cv-li-t { color: var(--cv-
   .cv-head-acts .btn.cv-ico { width: 32px; }
   .cv-fc-l { white-space: nowrap; }
 }
+
+/* ── v3 · win ratio (16/11/2026): forza dei rapporti, probabilità, primo passo, esiti ───────────────────── */
+.cv-warm { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--cv-soft); color: var(--cv-muted); }
+.cv-warm.f { background: var(--cv-or-t); color: var(--cv-or-ink); }
+.cv-warm.m { background: var(--cv-am-t); color: var(--cv-am); }
+.cv-warm.c { background: var(--cv-bl-t); color: var(--cv-bl); }
+.cv-prob { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 16px; background: var(--cv-gr-t); border: 1px solid var(--cv-gr-line); }
+.cv-prob.learn { background: var(--cv-soft); border-color: var(--cv-line); color: var(--cv-muted); }
+.cv-prob-n { font-size: 28px; line-height: 32px; font-weight: 700; color: var(--cv-gr); font-variant-numeric: tabular-nums; }
+.cv-path { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--cv-line); border-radius: 14px; }
+.cv-path.best { border-color: var(--cv-or-mid); background: var(--cv-or-t); }
+.cv-chain { display: flex; align-items: center; gap: 6px; font-size: 13px; flex-wrap: wrap; min-width: 0; }
+.cv-ar { color: var(--cv-faint); display: inline-flex; }
+.cv-mail { border: 1px solid var(--cv-line); border-radius: 14px; overflow: hidden; background: var(--cv-card); }
+.cv-mail-h { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--cv-line-2); font-size: 13px; }
+.cv-mail-h > span { color: var(--cv-muted); }
+.cv-mail .input { border: 0; box-shadow: none; min-height: 32px; padding: 0 4px; background: transparent; }
+.cv-mail textarea.input { width: 100%; border-radius: 0; padding: 12px 14px; resize: vertical; font-size: 13.5px; min-height: 160px; }
+.cv-choice3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cv-choice { display: grid; gap: 8px; justify-items: start; padding: 14px; border: 1px solid var(--cv-line); border-radius: 16px; background: var(--cv-card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cv-choice.on { border: 2px solid var(--cv-orange); padding: 13px; }
+.cv-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.cv-kpi { background: var(--cv-card); border: 1px solid var(--cv-line); border-radius: 18px; padding: 18px 20px; display: grid; gap: 4px; min-width: 0; }
+.cv-kpi-l { font-size: 13px; color: var(--cv-text-2); }
+.cv-kpi-n { font-size: 30px; line-height: 36px; font-weight: 300; color: var(--cv-ink); font-variant-numeric: tabular-nums; }
+.cv-kpi-n b { font-weight: 700; }
+.cv-kpi-d { font-size: 12px; color: var(--cv-muted); }
+.cv-kpi-d.rd { color: var(--cv-rd); }
+.cv-wr { display: grid; grid-template-columns: 170px minmax(0, 1fr) 110px; gap: 14px; align-items: center; padding: 11px 24px; border-top: 1px solid var(--cv-line-2); font-size: 13.5px; }
+.cv-wr-b { height: 10px; border-radius: 999px; background: var(--cv-soft); position: relative; }
+.cv-wr-b i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--cv-gr); border-radius: 999px; }
+.cv-wr-b u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--cv-ink); }
+.cv-wr-v { text-align: right; font-variant-numeric: tabular-nums; color: var(--cv-ink); font-weight: 500; white-space: nowrap; }
+.cv-wr-v small { color: var(--cv-muted); font-weight: 400; margin-left: 6px; font-size: 12px; }
+.cv-sig.cv-sig-warm { grid-template-columns: 44px minmax(0, 1fr) minmax(0, 280px) auto; }
+.cv-li.cv-ready { align-items: flex-start; }
+@media (max-width: 760px) {
+  .cv-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cv-choice3 { grid-template-columns: 1fr; }
+  .cv-wr { grid-template-columns: 110px minmax(0, 1fr) 84px; padding: 10px 16px; }
+  .cv-sig.cv-sig-warm { grid-template-columns: 34px minmax(0, 1fr); }
+  .cv-sig.cv-sig-warm > .cv-chain, .cv-sig.cv-sig-warm > div:last-child { grid-column: 2; justify-items: start !important; }
+}

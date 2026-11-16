@@ -5,6 +5,7 @@ import { h, fill, confirmDialog, toast, fmtDate, loading } from './ui.js';
 import { get, post, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
+import { probabilityBox, pathsBox, firstMoveBox, registraEsito } from './crm-esiti.js';
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
@@ -47,10 +48,11 @@ export function discardDialog(sig, reasons, onDone) {
       } } }, 'Scarta')],
   });
 }
-export async function interessa(sig, onDone) {
-  const out = await post(`/api/crm/radar/signals/${sig.id}/interessa`, {});
-  toast('Interessa: ecco il piano d\'azione proposto');
+export async function interessa(sig, onDone, { move = null, approve = false } = {}) {
+  const out = await post(`/api/crm/radar/signals/${sig.id}/interessa`, { ...(move ? { first_move: move } : {}), approve });
   onDone?.();
+  if (approve) { toast('Piano partito: il primo passo è in «La mia settimana»'); return; }
+  toast('Interessa: ecco il piano d\'azione proposto');
   openPlan(out.plan.id, onDone);
 }
 // Il segnale nel riquadro a destra: punteggio grande, titolo, fonte; tre fatti; il punteggio spiegato; chi conosciamo.
@@ -71,9 +73,10 @@ export async function openSignal(id, onDone, data, list = []) {
   };
   const facts = [['Chi', g.subject_id ? h('a', { href: `#/crm/scheda/${g.subject_id}`, on: { click: () => m.close() } }, g.subject_name || g.entity) : (g.entity || '—'), 'building'],
     ['Quanto', eur(g.amount), 'euro'], ['Quando', g.deadline ? (g.to_gare ? `scade il ${day(g.deadline)}` : day(g.deadline)) : '—', 'calendar']];
-  const known = h('div');
+  const known = h('div', { style: { display: 'grid', gap: '18px' } }, h('div.loading', h('span.spinner')));
+  let fm = null;
   const decided = g.status !== 'nuovo';
-  const buSel = data && !g.to_gare && !decided ? select([['', 'Manda a un\'altra BU…'], ...data.asa.filter(a => a.key !== g.bu).map(a => [a.key, a.label])], '', { 'aria-label': 'Manda a un\'altra BU', style: { width: 'auto' } }) : null;
+  const buSel = data && !g.to_gare && !decided ? select([['', 'Altra BU…'], ...data.asa.filter(a => a.key !== g.bu).map(a => [a.key, a.label])], '', { 'aria-label': 'Manda a un\'altra BU', style: { width: 'auto' } }) : null;
   buSel?.addEventListener('change', async () => {
     if (!buSel.value) return;
     await post(`/api/crm/radar/signals/${g.id}/bu`, { bu: buSel.value });
@@ -103,21 +106,29 @@ export async function openSignal(id, onDone, data, list = []) {
       decided ? h('div.cv-soft.cv-small', `Deciso: ${({ interessa: 'Interessa', scartato: `scartato (${g.discard_reason})`, boss: 'portato su BOSS', gara_scartata: `gara scartata (${g.discard_reason})` })[g.status]} · ${dots([g.decided_by_name, day(g.decided_at)])}`) : null),
     left: decided ? [] : g.to_gare ? [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta')]
       : [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta'), buSel],
-    actions: decided ? [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')]
+    actions: decided ? [['interessa', 'boss'].includes(g.status) ? h('button.btn', { type: 'button', on: { click: () => { m.close(); registraEsito({ signal_id: g.id }, onDone); } } }, ic('trophy', 15), 'Registra esito') : null,
+      h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')]
       : g.to_gare ? [h('button.btn.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/crm/radar/signals/${g.id}/gare`, { action: 'boss' }); toast('Da portare su BOSS'); done(); } } }, 'Porta su BOSS')]
-        : [h('button.btn.btn-primary', { type: 'button', on: { click: () => { m.close(); interessa(g, onDone); } } }, ic('check', 15), 'Interessa')],
+        : [h('button.btn', { type: 'button', on: { click: () => { const move = fm?.value(); m.close(); interessa(g, onDone, { move }); } } }, fm?.el ? 'Solo interessa' : [ic('check', 15), 'Interessa']),
+          h('button.btn.btn-primary', { type: 'button', 'data-approve': '', hidden: true, on: { click: () => { const move = fm?.value(); m.close(); interessa(g, onDone, { move, approve: true }); } } }, ic('check', 15), 'Interessa e approva')],
   });
   const keys = e => { if (e.target.closest('input, textarea, select')) return; if (e.key === 'ArrowLeft') move(-1); if (e.key === 'ArrowRight') move(1); };
   m.box.addEventListener('keydown', keys);
-  // chi conosciamo: l'azienda nel CRM, il suo owner e le persone
-  if (g.subject_id) {
-    const s = await get(`/api/crm/subjects/${g.subject_id}`).catch(() => null);
-    if (s && known.isConnected) {
-      const people = s.contacts.filter(c => !c.date_to);
-      fill(known, h('div.cv-lbl', 'Chi conosciamo'), listRow({ icon: 'users', tone: 'gr', cls: 'flat', href: `#/crm/scheda/${s.id}`,
-        title: s.name, meta: dots([s.roles.includes('cliente') ? 'cliente' : s.roles.map(r => r).join(', '), s.owner_name && `owner ${s.owner_name}`, people.length ? `${people.length} contatti${people[0] ? `: ${personName(people[0])}${people.length > 1 ? '…' : ''}` : ''}` : 'nessun contatto']) }));
-    }
-  } else fill(known, h('div.cv-lbl', 'Chi conosciamo'), h('p.cv-small.cv-muted', { style: { margin: '6px 0 0' } }, `«${g.entity || 'Questo ente'}» non è ancora nel CRM: con «Interessa» diventa un lead.`));
+  // probabilità di vittoria, chi conosciamo (strade calde) e primo passo pronto (canvas «v3 · Segnale», 16/11)
+  const drawKnown = async fresh => {
+    const pp = await get(`/api/crm/radar/signals/${g.id}/primo-passo${fresh ? '?fresh=1' : ''}`).catch(() => null);
+    if (!known.isConnected) return;
+    if (!pp) { fill(known); return; }
+    fm = !decided && pp.move ? firstMoveBox(pp.move, { onRewrite: () => { fill(known, h('div.loading', h('span.spinner'))); drawKnown(true); } }) : null;
+    fill(known, probabilityBox(pp.probability), pathsBox(pp.paths, { entity: g.entity }),
+      !g.subject_id && !pp.paths.length ? h('p.cv-small.cv-muted', { style: { margin: '-10px 0 0' } }, `«${g.entity || 'Questo ente'}» non è ancora nel CRM: con «Interessa» diventa un lead.`) : null,
+      fm?.el || null);
+    const approve = m.box.querySelector('[data-approve]');
+    if (approve) approve.hidden = !fm?.el;
+    const only = approve?.previousElementSibling;
+    if (only) fill(only, ...(fm?.el ? ['Solo interessa'] : [ic('check', 15), 'Interessa']));
+  };
+  drawKnown(false);
 }
 // riga di un segnale: anello, titolo su 2 righe, un rigo di dettagli con il perché in pillola, Scarta · Interessa
 export function signalRow(sig, { highlight = 70, reasons, onChange, data, list = [], weak = null }) {

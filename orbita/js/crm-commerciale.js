@@ -8,6 +8,7 @@ import { icon } from './icons.js';
 import { openCrmMeeting } from './crm-tabs.js';
 import { signalRow, newSignalDialog, openPlan } from './crm-radar.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, seg, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
+import { todoRows } from './crm-esiti.js';
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
@@ -252,9 +253,10 @@ export async function weekTab(box, data, { userId = null } = {}) {
   const asaName = k => data.asa.find(a => a.key === k)?.label || k;
   const self = w.user.id === store.me.id;
   // segnali e piani da accettare: quelli di chi guarda (la settimana di un altro li mostra solo a lui)
-  const [sig, plans, gare] = self ? await Promise.all([
+  const [sig, plans, gare, todoOut] = self ? await Promise.all([
     get('/api/crm/radar/signals').catch(() => null), get('/api/crm/radar/plans').catch(() => ({ plans: [] })),
-    data.gare ? get('/api/crm/radar/signals?view=gare').catch(() => null) : null]) : [null, { plans: [] }, null];
+    data.gare ? get('/api/crm/radar/signals?view=gare').catch(() => null) : null,
+    get('/api/crm/esiti/da-registrare?mine=1').catch(() => ({ items: [] }))]) : [null, { plans: [] }, null, { items: [] }];
   const signals = sig?.signals || [];
   const hi = sig?.highlight ?? 70;
   const toAccept = plans.plans.filter(p => p.status === 'proposto');
@@ -266,7 +268,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
   const first = (w.user.name || '').split(' ')[0];
   const bits = [late.length ? h('b.rd', `${late.length} ${late.length === 1 ? 'passo scaduto' : 'passi scaduti'}`) : null,
     strong ? `${strong} ${strong === 1 ? 'segnale in evidenza' : 'segnali in evidenza'} da decidere` : null,
-    toAccept.length ? `${toAccept.length} ${toAccept.length === 1 ? 'piano' : 'piani'} da accettare` : null].filter(Boolean);
+    toAccept.length ? `${toAccept.length} ${toAccept.length === 1 ? 'primo passo pronto' : 'primi passi pronti'} da approvare` : null].filter(Boolean);
   const sentence = self ? [`${hello} ${first}: `, ...(bits.length ? bits.flatMap((b, i) => (i ? [i === bits.length - 1 ? ' e ' : ', ', b] : [b])) : ['niente di urgente oggi']), '.']
     : [`La settimana di ${w.user.name}: `, ...(bits.length ? bits.flatMap((b, i) => (i ? [', ', b] : [b])) : ['niente di urgente']), '.'];
 
@@ -311,10 +313,26 @@ export async function weekTab(box, data, { userId = null } = {}) {
       : emptyState('alarm-clock', `Niente in scadenza fino al ${day(w.until)}. Ogni lead e cliente attivo dovrebbe avere un prossimo passo.`));
 
   const side = [];
-  if (toAccept.length) {
-    side.push(card({ title: 'Da accettare', icon: 'list', count: toAccept.length, attrs: { id: 'cv-wk-plans' } }, toAccept.map(p => listRow({ icon: 'list', tone: 'or', title: p.title,
-      meta: dots([p.subject_name, `${p.steps.length} passi proposti`]), onClick: () => openPlan(p.id, again),
-      actions: [h('button.btn.btn-sm', { type: 'button', on: { click: () => openPlan(p.id, again) } }, 'Apri')] }))));
+  const CH_VERB = { telefonata: 'telefonata', email: 'email', incontro: 'incontro', sopralluogo: 'sopralluogo' };
+  const readyCard = toAccept.length ? card({ title: 'Pronti da approvare', icon: 'sparkles', count: toAccept.length, attrs: { id: 'cv-wk-plans' }, right: h('span.cv-small.cv-muted', 'scritti dal CRM, li cambi come vuoi') },
+    toAccept.map(p => {
+      const s0 = p.steps[0] || {};
+      const prob = p.probability && !p.probability.learning ? pill(`${p.probability.p}% di vittoria`, 'gr') : null;
+      return h('div.cv-li.cv-ready',
+        h('span.cv-ib.or', { 'aria-hidden': 'true' }, ic('sparkles', 16)),
+        h('button.cv-li-main', { type: 'button', on: { click: () => openPlan(p.id, again) } },
+          h('div.cv-li-t', h('span.cv-ell', s0.title || p.title)),
+          h('div.cv-li-m', dots([p.subject_name, p.signal_title || p.title])),
+          h('div.cv-row.cv-wrap.cv-small', { style: { gap: '10px', marginTop: '6px' } },
+            p.level === 'forte' || p.level === 'media' ? h('span.cv-warm', { class: p.level === 'forte' ? 'f' : 'm' }, p.level === 'forte' ? ic('flame', 12) : null, 'li conosciamo') : null,
+            s0.channel ? h('span.cv-row.cv-muted', { style: { gap: '4px' } }, ic(s0.channel === 'telefonata' ? 'phone' : s0.channel === 'email' ? 'mail' : 'users', 13), CH_VERB[s0.channel] || s0.channel) : null,
+            s0.due_date ? h('span.cv-row.cv-muted', { style: { gap: '4px' } }, ic('calendar', 13), day(s0.due_date)) : null, prob)),
+        h('div.cv-acts',
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => openPlan(p.id, again) } }, s0.draft ? [ic('mail', 14), 'Vedi email'] : 'Apri'),
+          h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; await post(`/api/crm/plans/${p.id}/accept`, {}); toast('Approvato: il primo passo è nei prossimi passi'); again(); } } }, ic('check', 14), 'Approva')));
+    })) : null;
+  if (todoOut.items.length) {
+    side.push(card({ title: 'Esiti da registrare', icon: 'trophy', count: todoOut.items.length, right: h('a.cv-lnk', { href: '#/crm/esiti' }, 'Vinte e perse') }, todoRows(todoOut.items.slice(0, 5), again)));
   }
   if (gare?.signals?.length) {
     side.push(card({ title: 'Ufficio gare', icon: 'inbox', count: gare.signals.length, right: h('a.cv-lnk', { href: '#/crm/gare' }, 'Apri la coda') },
@@ -350,21 +368,23 @@ export async function weekTab(box, data, { userId = null } = {}) {
     kpiRow([
       { icon: 'alarm-clock', n: late.length, label: ['passi', 'scaduti'], tone: 'hot', onClick: scrollTo('cv-wk-steps') },
       self ? { icon: 'radar', n: signals.length, label: ['segnali', 'da decidere'], tone: 'or', onClick: scrollTo('cv-wk-signals') } : null,
-      self ? { icon: 'list', n: toAccept.length, label: [toAccept.length === 1 ? 'piano' : 'piani', 'da accettare'], onClick: scrollTo('cv-wk-plans') } : null,
+      self ? { icon: 'sparkles', n: toAccept.length, label: [toAccept.length === 1 ? 'primo passo' : 'primi passi', 'da approvare'], onClick: scrollTo('cv-wk-plans') } : null,
       { icon: 'calendar', n: w.missingNotes.length, label: ['incontri', 'senza note'], onClick: scrollTo('cv-wk-meetings') },
       { icon: 'target', n: w.leadsWithoutStep.total, label: ['lead senza', 'prossimo passo'], href: '#/crm/lead/riordina' },
       { icon: 'star', n: w.keyAccounts.silent.length, label: ['key account', 'da sentire'], onClick: scrollTo('cv-wk-keys') },
     ]),
-    h('div.cv-cols', h('div.cv-stack', radarCard, stepsCardEl), h('div.cv-stack', side)));
+    h('div.cv-cols', h('div.cv-stack', readyCard, radarCard, stepsCardEl), h('div.cv-stack', side)));
 }
 
 // ── impostazioni del lavoro commerciale (solo direzione; artboard «Imp-radar», «Imp-punteggio», «Imp-regole», «Imp-asa») ─
 // Menu a sinistra con una riga di spiegazione, interruttori al posto delle caselle, barra scura «Modifiche non salvate».
-const SECTIONS = [['radar', 'Radar', 'BU accese, budget, giro notturno', 'radar'], ['scoring', 'Punteggio', 'pesi e soglie', 'target'], ['profiles', 'Profili BU', 'cosa cerca ogni BU', 'users'],
+const SECTIONS = [['radar', 'Radar', 'BU accese, budget, giro notturno', 'radar'], ['scoring', 'Punteggio', 'pesi e soglie', 'target'],
+  ['primo_passo', 'Primo passo', 'tono, firma, quando prepararlo', 'sparkles'], ['relazioni', 'Relazioni', 'come si misura la forza', 'users'], ['esiti', 'Esiti', 'motivi, probabilità, BOSS', 'trophy'],
+  ['profiles', 'Profili BU', 'cosa cerca ogni BU', 'users'],
   ['sources', 'Fonti', 'Infordat, ANAC, stampa…', 'inbox'], ['playbooks', 'Playbook', 'passi per tipo di segnale', 'list'], ['rules', 'Regole e tempi', 'procedure, Go/No-Go, motivi', 'clock'],
   ['asa', 'ASA e accessi', 'chi è di quale ASA', 'key-round'], ['zoho', 'Caricamento Zoho', 'primo caricamento', 'upload']];
 const WEIGHTS = [['fit', 'Coerenza con la BU', 'lavoro, SOA, importo, zona'], ['concreteness', 'Concretezza', 'atto ufficiale → indiscrezione'],
-  ['timing', 'Tempi', 'entro 12 mesi → oltre 24'], ['relationship', 'Rapporto', 'cliente → sconosciuto'], ['value', 'Valore', 'dentro la fascia della BU']];
+  ['timing', 'Tempi', 'entro 12 mesi → oltre 24'], ['relationship', 'Rapporto', 'rapporto forte o cliente → sconosciuto'], ['value', 'Valore', 'dentro la fascia della BU']];
 
 export async function settingsTab(box, data, section = 'radar', { asaTab, importCard } = {}) {
   if (!SECTIONS.some(([k]) => k === section)) section = 'radar';
@@ -628,5 +648,48 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
       gonogo_questions: [...qs.children].map(row => ({ text: row.querySelector('[data-q="text"]').value, weight: Number(row.querySelector('[data-q="weight"]').value) || 0 })).filter(q => q.text.trim()),
       discard_reasons: discard.value(), lost_reasons: lost.value(),
     });
+  } else if (section === 'primo_passo') { // canvas «v3 · Impostazioni» (16/11)
+    const p = st.primo_passo;
+    const on = toggle(p.on, '');
+    const ai = toggle(p.ai, '');
+    const tone = select([['cordiale', 'Cordiale'], ['formale', 'Formale']], p.tone, { 'aria-label': 'Tono' });
+    const within = input({ type: 'number', min: 0, max: 30, value: p.within_days, 'aria-label': 'Contatto entro' });
+    const sig = textarea(p.signature, { rows: 3, 'aria-label': 'Firma' });
+    const tg = (t, d, x) => h('div.cv-row', { style: { alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('div.cv-grow', h('div.cv-t5', t), h('div.cv-small.cv-muted', d)), x.el);
+    fill(body, h('section.cv-card.pad', { style: { maxWidth: '760px' } }, h('div.cv-lbl', 'Primo passo pronto'),
+      tg('Prepara il primo passo', 'Quando si apre un segnale: chi chiama chi, quando, e l\'email già scritta.', on),
+      tg('Scrivi l\'email con l\'AI', 'Circa 1 cent a segnale, nel budget della BU. Spento = modello fisso del playbook.', ai),
+      h('div.cv-grid2', { style: { gap: '12px', paddingTop: '12px', borderTop: '1px solid var(--cv-line-2)' } }, fld('Tono', tone), fld('Contatto entro (giorni lavorativi)', within)),
+      h('div', { style: { marginTop: '12px' } }, fld('Firma', sig, '{nome} diventa il nome di chi manda l\'email.'))), savedLine('primo_passo'));
+    onSave = () => save('primo_passo', { on: on.input.checked, ai: ai.input.checked, tone: tone.value, within_days: Number(within.value), signature: sig.value });
+  } else if (section === 'relazioni') {
+    const r = st.relazioni;
+    const F = [['meeting', 'Punti per un incontro'], ['email', 'Punti per un\'email'], ['email_max', 'Punti massimi dalle email (per persona)'], ['project', 'Punti per una commessa'], ['key', 'Punti per un key account'],
+      ['strong', 'Rapporto forte da (punti)'], ['medium', 'Rapporto medio da (punti)'], ['cool_days', 'Si raffredda dopo (giorni senza contatti)'], ['months', 'Mesi di incontri ed email considerati']];
+    const nums = F.map(([k, l]) => ({ k, el: input({ type: 'number', min: 0, value: r[k], 'aria-label': l, style: { width: '120px' } }), l }));
+    fill(body, h('section.cv-card.pad', { style: { maxWidth: '760px' } }, h('div.cv-lbl', 'Come si misura la forza di un rapporto'),
+      h('p.cv-small.cv-muted', 'Per ogni persona: incontri ed email con qualcuno di noi; per l\'azienda si aggiungono commesse e key account. La forza decide anche il «Rapporto» del punteggio del radar.'),
+      nums.map(n => h('div.cv-row', { style: { padding: '10px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('span.cv-grow', n.l), n.el))), savedLine('relazioni'));
+    onSave = () => save('relazioni', Object.fromEntries(nums.map(n => [n.k, Number(n.el.value)])));
+  } else if (section === 'esiti') {
+    const e = st.esiti;
+    const prob = toggle(e.prob_on, '');
+    const boss = toggle(e.boss_on, '');
+    const pmin = input({ type: 'number', min: 3, value: e.prob_min, 'aria-label': 'Esiti minimi per BU', style: { width: '120px' } });
+    const months = input({ type: 'number', min: 3, value: e.months, 'aria-label': 'Mesi di esiti', style: { width: '120px' } });
+    const alert = input({ type: 'number', min: 1, value: e.alert_days, 'aria-label': 'Avviso dopo', style: { width: '120px' } });
+    const reasons = tagEditor(e.reasons, { placeholder: 'motivo', max: 120 });
+    const tg = (t, d, x) => h('div.cv-row', { style: { alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('div.cv-grow', h('div.cv-t5', t), h('div.cv-small.cv-muted', d)), x.el);
+    const row = (l, x) => h('div.cv-row', { style: { padding: '10px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('span.cv-grow', l), x);
+    fill(body, h('div.cv-grid2', { style: { gap: '24px', alignItems: 'start' } },
+      h('section.cv-card.pad', h('div.cv-lbl', 'Esiti'),
+        tg('Esiti da BOSS', 'Si accende con l\'integrazione: vincitore, ribasso e offerenti arriveranno da soli.', boss),
+        row('Avvisa se manca l\'esito dopo (giorni)', alert),
+        h('div.cv-fld', { style: { paddingTop: '12px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', 'Motivi di sconfitta'), reasons.el)),
+      h('section.cv-card.pad', h('div.cv-lbl', 'Probabilità di vittoria'),
+        tg('Mostra la probabilità sui segnali', 'Imparata dagli esiti: si parte dal win ratio della BU e si aggiunge l\'effetto di contatto caldo, provenienza, tipo di ente e importo.', prob),
+        row('Esiti minimi per BU', pmin), row('Mesi di esiti usati', months),
+        h('p.cv-hint', 'Sotto il minimo la BU vede «in apprendimento» invece di un numero.'))), savedLine('esiti'));
+    onSave = () => save('esiti', { reasons: reasons.value(), alert_days: Number(alert.value), prob_on: prob.input.checked, prob_min: Number(pmin.value), months: Number(months.value), boss_on: boss.input.checked });
   }
 }
