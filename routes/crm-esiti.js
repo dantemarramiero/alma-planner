@@ -85,7 +85,7 @@ function registerCrmEsiti(app, { db, subjectById }) {
   // campi già compilati per «Registra esito» da un segnale, un piano o un'azienda
   app.get('/api/crm/esiti/nuovo', async (req, res) => {
     const c = await ctx(req);
-    const out = { result: '', title: '', bu: null, subject_id: null, subject_name: '', signal_id: null, plan_id: null, cig: '', amount: null, origin: 'altro', decided_on: todayRome() };
+    const out = { result: '', title: '', bu: null, subject_id: null, subject_name: '', signal_id: null, plan_id: null, initiative_id: null, cig: '', amount: null, origin: 'altro', decided_on: todayRome() };
     let g = null;
     if (req.query.plan_id) {
       const { rows: [p] } = await db.query('SELECT p.*, s.name AS subject_name, s.asa FROM crm_plans p JOIN crm_subjects s ON s.id = p.subject_id WHERE p.id = $1', [v.int(req.query.plan_id, 'Piano', { min: 1 })]);
@@ -99,11 +99,16 @@ function registerCrmEsiti(app, { db, subjectById }) {
       Object.assign(out, { signal_id: g.id, plan_id: out.plan_id || p?.id || null, title: out.title || g.title, bu: g.bu || out.bu, subject_id: out.subject_id || g.subject_id,
         cig: g.cig || '', amount: g.amount === null ? null : Number(g.amount), origin: g.to_gare ? 'gare' : g.source === 'manuale' ? 'relazione' : 'radar' });
     }
+    if (req.query.initiative_id) { // «Registra un esito» dalla scheda di un'iniziativa di Nuovi business
+      const { rows: [i] } = await db.query('SELECT id, name, asa FROM crm_initiatives WHERE id = $1', [v.int(req.query.initiative_id, 'Iniziativa', { min: 1 })]);
+      if (!i) throw new HttpError(404, 'Iniziativa non trovata');
+      Object.assign(out, { initiative_id: i.id, title: out.title || i.name, origin: 'business', bu: out.bu || (c.settings.profiles[i.asa] ? i.asa : null) });
+    }
     if (req.query.subject_id && !out.subject_id) out.subject_id = v.int(req.query.subject_id, 'Azienda', { min: 1 });
     if (out.subject_id) {
       const s = await subjectById(req, out.subject_id);
       out.subject_name = s.name;
-      out.bu = out.bu || s.asa?.[0] || null;
+      out.bu = out.bu || (c.settings.profiles[s.asa?.[0]] ? s.asa[0] : null);
       if (out.origin === 'altro' && s.roles.includes('cliente')) out.origin = 'cliente';
       out.entity_kind = s.kind;
     }
@@ -134,6 +139,7 @@ function registerCrmEsiti(app, { db, subjectById }) {
       title: v.text(b.title ?? before.title, 'Gara o lavoro', { max: 500, required: true }),
       signal_id: b.signal_id === undefined ? before.signal_id || null : b.signal_id ? v.int(b.signal_id, 'Segnale', { min: 1 }) : null,
       plan_id: b.plan_id === undefined ? before.plan_id || null : b.plan_id ? v.int(b.plan_id, 'Piano', { min: 1 }) : null,
+      initiative_id: b.initiative_id === undefined ? before.initiative_id || null : b.initiative_id ? v.int(b.initiative_id, 'Iniziativa', { min: 1 }) : null,
       cig: v.text(b.cig ?? before.cig, 'CIG', { max: 40 }) || '',
       origin: b.origin ? v.oneOf(b.origin, 'Provenienza', Object.keys(ORIGINS)) : before.origin || 'altro',
       reason: result === 'persa' ? v.text(b.reason ?? before.reason, 'Motivo', { max: 120 }) || '' : result === 'non_partecipato' ? v.text(b.reason ?? before.reason, 'Motivo', { max: 120 }) || '' : '',
@@ -148,7 +154,7 @@ function registerCrmEsiti(app, { db, subjectById }) {
       warm: await warmOf(subjectId),
     };
   }
-  const FIELDS = ['result', 'bu', 'subject_id', 'title', 'signal_id', 'plan_id', 'cig', 'origin', 'reason', 'amount', 'our_discount', 'winner_discount', 'winner_subject_id', 'winner_name', 'bidders', 'decided_on', 'lesson', 'entity_kind', 'warm'];
+  const FIELDS = ['result', 'bu', 'subject_id', 'title', 'signal_id', 'plan_id', 'initiative_id', 'cig', 'origin', 'reason', 'amount', 'our_discount', 'winner_discount', 'winner_subject_id', 'winner_name', 'bidders', 'decided_on', 'lesson', 'entity_kind', 'warm'];
   app.post('/api/crm/esiti', async (req, res) => {
     const c = await ctx(req);
     const x = await readBody(req, c);

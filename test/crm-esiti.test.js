@@ -157,3 +157,17 @@ test('esiti: registra, numeri, vincitore che diventa concorrente, da registrare'
   assert.ok(!(await E('GET', '/api/crm/esiti/da-registrare?mine=1')).body.items.some(x => x.plan_id === plan.id));
   assert.equal((await E('POST', '/api/crm/esiti', { ...fromPlan.body, result: 'vinta' })).status, 409); // un esito per gara
 });
+
+test('esito da un\'iniziativa di Nuovi business: precompilato e collegato', async () => {
+  const ini = await db.query(`INSERT INTO crm_initiatives (name, asa) VALUES ('Data center in Abruzzo', 'edilizia') RETURNING id`);
+  const pre = (await E('GET', `/api/crm/esiti/nuovo?initiative_id=${ini.rows[0].id}`)).body;
+  assert.equal(pre.initiative_id, ini.rows[0].id);
+  assert.equal(pre.origin, 'business');
+  assert.equal(pre.bu, 'edilizia');
+  assert.equal(pre.title, 'Data center in Abruzzo');
+  const r = await E('POST', '/api/crm/esiti', { result: 'vinta', title: pre.title, bu: pre.bu, origin: pre.origin, initiative_id: pre.initiative_id });
+  assert.equal(r.status, 201);
+  const row = (await db.query('SELECT initiative_id FROM crm_outcomes WHERE id = $1', [r.body.id])).rows[0];
+  assert.equal(row.initiative_id, ini.rows[0].id);
+  assert.equal((await E('GET', '/api/crm/esiti/nuovo?initiative_id=999999')).status, 404);
+});

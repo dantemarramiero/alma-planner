@@ -135,7 +135,7 @@ export async function registraEsito(query = {}, onDone, existing = null) {
         e.currentTarget.disabled = true;
         const body = { result, title: titleIn.value, bu: buSel.value || null, origin: origin.value, amount: amount.value, cig: cig.value, reason: reasonChips.value || '',
           winner_name: winner.value, winner_discount: theirs.value, our_discount: ours.value, bidders: bidders.value, decided_on: when.value, lesson: lesson.value,
-          subject_id: pre.subject_id || null, signal_id: pre.signal_id || null, plan_id: pre.plan_id || null };
+          subject_id: pre.subject_id || null, signal_id: pre.signal_id || null, plan_id: pre.plan_id || null, initiative_id: pre.initiative_id || null };
         try {
           if (existing) await put(`/api/crm/esiti/${existing.id}`, body); else await post('/api/crm/esiti', body);
         } catch { e.currentTarget.disabled = false; return; }
