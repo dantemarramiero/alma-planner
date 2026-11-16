@@ -9,11 +9,13 @@ const { HttpError, v } = require('../lib/http');
 const { readXlsx } = require('../lib/xlsx');
 const { loadSettings, managerOf, CHANNELS } = require('../lib/crm-commerciale');
 const { scoreSignal, bestBu, parseDelimited, readInfordat, proposePlan, pickPlaybook, norm } = require('../lib/crm-radar');
+const { relationsFor, pathsOf, relationshipLevel } = require('../lib/crm-relazioni');
+const { draftTemplate, draftAI, moveFrom } = require('../lib/crm-primo-passo');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const KINDS = ['gara', 'opera_finanziata', 'scadenza', 'permesso', 'nuovo_gestore', 'investimento', 'cliente', 'notizia', 'indiscrezione'];
 
-function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails = [], radarFetch }) {
+function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails = [], radarFetch, esiti = null }) {
   const raw = express.raw({ type: () => true, limit: '20mb' });
   async function ctx(req) {
     const [settings, { rows: users }] = await Promise.all([loadSettings(db), db.query('SELECT id, name, email FROM users')]);
@@ -37,7 +39,8 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   async function addSignal(sig, c, userId) {
     const subject = sig.subject_id ? (await db.query('SELECT id, name, roles FROM crm_subjects WHERE id = $1', [sig.subject_id])).rows[0] : sig.entity ? await matchSubject(sig.entity) : null;
     const bu = sig.bu || bestBu(sig, c.settings.profiles);
-    const relationship = subject ? (subject.roles.includes('cliente') ? 'client' : 'known') : 'unknown';
+    const rel = subject ? (await relationsFor(db, [subject.id], c.settings.relazioni))[subject.id] : null;
+    const relationship = subject ? relationshipLevel(rel, subject.roles) : 'unknown';
     const { score, parts, why } = scoreSignal(sig, bu ? c.settings.profiles[bu] : null, c.settings.scoring, { relationship, today: todayRome() });
     const { rows: [row] } = await db.query(
       `INSERT INTO crm_signals (source, external_id, kind, bu, title, summary, why, entity, subject_id, amount, region, place, url, published_on, deadline, cig, soa,
@@ -107,13 +110,65 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     if (sig.url && !/^https?:\/\//i.test(sig.url)) throw new HttpError(400, 'Il link deve iniziare con http');
     res.status(201).json(await addSignal(sig, c, req.user.id));
   });
+  // «Primo passo pronto» (16/11): strade calde, chi chiama chi e quando, email già scritta; probabilità di vittoria.
+  // Si prepara la prima volta che si apre il segnale e resta salvato; «Riscrivi» (fresh) lo rifà.
+  async function firstMove(g, c, { fresh = false, userId } = {}) {
+    const rel = g.subject_id ? (await relationsFor(db, [g.subject_id], c.settings.relazioni))[g.subject_id] : null;
+    const paths = pathsOf(rel);
+    const probability = esiti ? await esiti.probabilityFor({ bu: g.bu, subjectId: g.subject_id, origin: g.to_gare ? 'gare' : 'radar', amount: g.amount, settings: c.settings }) : null;
+    const pp = c.settings.primo_passo;
+    if (!pp.on || g.to_gare) return { paths, probability, move: null, level: rel?.level || '' };
+    if (g.first_move && !fresh) return { paths, probability, move: g.first_move, level: rel?.level || '' };
+    const { rows: [contact] } = g.subject_id ? await db.query(
+      `SELECT c.id, c.title, c.first_name, c.last_name, c.email, l.job FROM crm_contact_links l JOIN crm_contacts c ON c.id = l.contact_id
+        WHERE l.subject_id = $1 AND l.date_to IS NULL ORDER BY l.is_primary DESC, c.id LIMIT 1`, [g.subject_id]) : { rows: [] };
+    const managerId = c.managerId(g.bu) || userId;
+    const owner = c.users.find(u => u.id === managerId) || null;
+    const move = moveFrom({ paths, fallbackContact: contact ? { id: contact.id, name: [contact.title, contact.first_name, contact.last_name].filter(Boolean).join(' '), job: contact.job } : null,
+      ownerFallback: owner, today: todayRome(), withinDays: pp.within_days });
+    if (move.contact_id) move.contact_email = (await db.query('SELECT email FROM crm_contacts WHERE id = $1', [move.contact_id])).rows[0]?.email || '';
+    const sender = c.users.find(u => u.id === move.owner_id) || owner;
+    const { rows: refs } = await db.query(
+      `SELECT name FROM crm_subjects WHERE merged_into IS NULL AND 'cliente' = ANY(roles) AND $1 = ANY(asa) AND id <> COALESCE($2, 0) ORDER BY client_since NULLS LAST LIMIT 3`, [g.bu || '', g.subject_id]);
+    const ctxDraft = { signal: g, path: paths[0] || (move.contact ? { contact: move.contact, job: move.job, level: '' } : null), refs: refs.map(r => r.name), tone: pp.tone, signature: pp.signature, sender, buLabel: g.bu_label };
+    let draft = null;
+    const apiKey = process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
+    if (pp.ai && apiKey) {
+      try {
+        draft = await draftAI({ apiKey, fetchImpl: radarFetch || fetch, ...ctxDraft });
+        if (draft.costEur && g.bu) await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, $2, $3) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [todayRome().slice(0, 7), g.bu, draft.costEur]);
+      } catch (err) { console.error('[crm] primo passo AI:', err.message); draft = null; }
+    }
+    const ai = Boolean(draft);
+    if (!draft) draft = draftTemplate(ctxDraft);
+    const saved = { ...move, subject: draft.subject, body: draft.body, ai, generated_at: new Date().toISOString() };
+    await db.query('UPDATE crm_signals SET first_move = $2 WHERE id = $1', [g.id, JSON.stringify(saved)]);
+    return { paths, probability, move: saved, level: rel?.level || '' };
+  }
+  app.get('/api/crm/radar/signals/:id/primo-passo', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const c = await ctx(req);
+    res.json(await firstMove(g, c, { fresh: Boolean(req.query.fresh), userId: req.user.id }));
+  });
+  // il primo passo cambiato a mano (chi, chi chiama, quando, email) prima di approvarlo
+  function cleanMove(m, before = {}) {
+    if (!m || typeof m !== 'object') return null;
+    return {
+      ...before,
+      contact_id: m.contact_id ? v.int(m.contact_id, 'Contatto', { min: 1 }) : null, contact: v.text(m.contact, 'Contatto', { max: 200 }) || '',
+      contact_email: v.text(m.contact_email, 'Email del contatto', { max: 200 }) || '',
+      owner_id: m.owner_id ? v.int(m.owner_id, 'Chi lo fa', { min: 1 }) : before.owner_id || null,
+      channel: CHANNELS[m.channel] ? m.channel : before.channel || 'email', due_date: v.date(m.due_date, 'Data') || before.due_date || todayRome(),
+      subject: v.text(m.subject, 'Oggetto', { max: 300 }) || '', body: v.text(m.body, 'Email', { max: 5000 }) || '',
+    };
+  }
   async function decideCheck(req, g, c) {
     if (g.status !== 'nuovo') throw new HttpError(409, 'Su questo segnale si è già deciso');
     if (g.to_gare) throw new HttpError(409, 'Le gare già bandite le decide l\'ufficio gare');
     if (!req.crm.admin && !c.myBus.includes(g.bu)) throw new HttpError(403, 'Decide il responsabile della BU');
   }
   // proposta di piano per un'azienda (dal segnale o a mano)
-  async function makePlan(subjectId, { signal = null, playbookId = null, c, userId }) {
+  async function makePlan(subjectId, { signal = null, playbookId = null, c, userId, move = null }) {
     const s = await subjectById(null, subjectId);
     const bu = signal?.bu || s.asa[0];
     const playbook = playbookId ? c.settings.playbooks.find(p => p.id === playbookId) : pickPlaybook(c.settings.playbooks, { kind: signal?.kind, bu, isClient: s.roles.includes('cliente') });
@@ -125,6 +180,12 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       `SELECT name FROM crm_subjects WHERE merged_into IS NULL AND 'cliente' = ANY(roles) AND $1 = ANY(asa) AND id <> $2 ORDER BY client_since NULLS LAST LIMIT 3`, [bu || '', subjectId]);
     const ownerId = (bu && c.managerId(bu)) || s.owner_id || userId;
     const p = proposePlan({ playbook, signal, subject: s, contact, ownerId, refs: refs.map(r => r.name), today: todayRome() });
+    if (move && p.steps[0]) { // il primo passo pronto prende il posto del primo passo del playbook
+      const verb = move.channel === 'telefonata' ? 'Chiama' : move.channel === 'incontro' ? 'Incontra' : 'Scrivi a';
+      p.steps[0] = { ...p.steps[0], title: move.contact ? `${verb} ${move.contact}${move.job ? ` (${move.job})` : ''}`.slice(0, 300) : p.steps[0].title,
+        contact_id: move.contact_id || p.steps[0].contact_id, owner_id: move.owner_id || p.steps[0].owner_id, channel: move.channel || p.steps[0].channel,
+        due_date: move.due_date || p.steps[0].due_date, draft: move.body ? `${move.subject ? `Oggetto: ${move.subject}\n\n` : ''}${move.body}` : p.steps[0].draft };
+    }
     const { rows: [plan] } = await db.query(
       `INSERT INTO crm_plans (subject_id, signal_id, playbook_id, title, check_question, refs, steps, owner_id, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
@@ -147,7 +208,10 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     }
     await db.query(`UPDATE crm_signals SET status = 'interessa', subject_id = $2, decided_by = $3, decided_at = now(), note = $4 WHERE id = $1`,
       [g.id, subjectId, req.user.id, v.text(req.body.note, 'Nota', { max: 2000 }) || '']);
-    const plan = await makePlan(subjectId, { signal: { ...g, subject_id: subjectId }, c, userId: req.user.id });
+    const move = req.body.first_move ? cleanMove(req.body.first_move, g.first_move || {}) : g.first_move || null;
+    if (move) await db.query('UPDATE crm_signals SET first_move = $2 WHERE id = $1', [g.id, JSON.stringify(move)]);
+    let plan = await makePlan(subjectId, { signal: { ...g, subject_id: subjectId }, c, userId: req.user.id, move });
+    if (req.body.approve) plan = await acceptPlan(plan, plan.steps, req.user.id);
     res.json({ subject_id: subjectId, plan });
   });
   app.post('/api/crm/radar/signals/:id/scarta', async (req, res) => {
@@ -221,7 +285,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   });
 
   // ── piani d'azione ─────────────────────────────────────────────────────────────────────────
-  const PLAN_SELECT = `SELECT p.*, s.name AS subject_name, u.name AS owner_name, g.title AS signal_title, g.url AS signal_url
+  const PLAN_SELECT = `SELECT p.*, s.name AS subject_name, u.name AS owner_name, g.title AS signal_title, g.url AS signal_url, g.bu AS signal_bu, g.amount AS signal_amount, g.first_move AS first_move
                          FROM crm_plans p JOIN crm_subjects s ON s.id = p.subject_id LEFT JOIN users u ON u.id = p.owner_id
                          LEFT JOIN crm_signals g ON g.id = p.signal_id`;
   async function planById(id) {
@@ -248,6 +312,11 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   app.get('/api/crm/radar/plans', async (req, res) => { // piani da accettare o aperti di chi guarda
     const status = String(req.query.status || 'proposto');
     const { rows } = await db.query(`${PLAN_SELECT} WHERE p.status = $1 AND p.owner_id = $2 ORDER BY p.created_at DESC LIMIT 100`, [status, req.user.id]);
+    const c = esiti && rows.length ? await ctx(req) : null;
+    for (const p of rows) {
+      p.probability = c && p.signal_bu ? await esiti.probabilityFor({ bu: p.signal_bu, subjectId: p.subject_id, origin: 'radar', amount: p.signal_amount, settings: c.settings }) : null;
+      p.level = c ? (await relationsFor(db, [p.subject_id], c.settings.relazioni))[p.subject_id]?.level || '' : '';
+    }
     res.json({ plans: await withSteps(rows) });
   });
   app.get('/api/crm/plans/:id', async (req, res) => {
@@ -265,8 +334,10 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   // «Accetta piano»: i passi (anche modificati) diventano prossimi passi dell'azienda
   app.post('/api/crm/plans/:id/accept', async (req, res) => {
     const p = await planById(v.int(req.params.id, 'id', { min: 1 }));
+    res.json(await acceptPlan(p, Array.isArray(req.body.steps) ? req.body.steps : p.steps, req.user.id, v.text(req.body.title, 'Titolo', { max: 500 }) || ''));
+  });
+  async function acceptPlan(p, steps, userId, title = '') {
     if (p.status !== 'proposto') throw new HttpError(409, 'Il piano è già stato accettato');
-    const steps = Array.isArray(req.body.steps) ? req.body.steps : p.steps;
     if (!steps.length || steps.length > 15) throw new HttpError(400, 'Il piano deve avere da 1 a 15 passi');
     const clean = [];
     for (const st of steps) {
@@ -282,14 +353,14 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     await db.tx(async q => {
       for (const [i, st] of clean.entries()) {
         await q.query(`INSERT INTO crm_steps (subject_id, contact_id, title, channel, due_date, owner_id, draft, plan_id, sort, created_by)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [p.subject_id, st.contact, st.title, st.channel, st.due, st.owner || p.owner_id, st.draft, p.id, i, req.user.id]);
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [p.subject_id, st.contact, st.title, st.channel, st.due, st.owner || p.owner_id, st.draft, p.id, i, userId]);
       }
       await q.query(`UPDATE crm_plans SET status = 'accettato', steps = $2, accepted_by = $3, accepted_at = now(), title = COALESCE(NULLIF($4, ''), title) WHERE id = $1`,
-        [p.id, JSON.stringify(clean), req.user.id, v.text(req.body.title, 'Titolo', { max: 500 }) || '']);
+        [p.id, JSON.stringify(clean), userId, title]);
     });
     await syncNext(p.subject_id);
-    res.json(await planById(p.id));
-  });
+    return planById(p.id);
+  }
   app.post('/api/crm/plans/:id/close', async (req, res) => {
     const p = await planById(v.int(req.params.id, 'id', { min: 1 }));
     if (p.status === 'chiuso') throw new HttpError(409, 'Il piano è già chiuso');

@@ -7,6 +7,7 @@
 const { HttpError, v } = require('../lib/http');
 const { CHANNELS, PILOT, SECTIONS, clean, loadSettings, managerOf } = require('../lib/crm-commerciale');
 const { registerCrmRadar } = require('./crm-radar');
+const { registerCrmEsiti } = require('./crm-esiti');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const nowRome = () => new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Rome' }).replace(' ', 'T').slice(0, 19);
@@ -237,7 +238,8 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
     });
   });
 
-  registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails, radarFetch });
+  const esiti = registerCrmEsiti(app, { db, subjectById }); // vinte e perse, chi conosciamo (16/11)
+  registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails, radarFetch, esiti });
   return { syncNext };
 }
 
