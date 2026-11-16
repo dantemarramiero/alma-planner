@@ -5,6 +5,7 @@ import { h, fill, modal, confirmDialog, toast, fmtDate, loading, initials } from
 import { get, post, put, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
+import { warmPill, pathsBox, registraEsito } from './crm-esiti.js'; // forza dei rapporti e vinte/perse (win ratio, 16/11)
 
 const PHASES = [['esplorazione', 'Esplorazione'], ['analisi', 'Analisi'], ['piano', 'Piano'], ['ingresso', 'Ingresso'], ['consolidamento', 'Consolidamento']];
 const PHASE_KEYS = PHASES.map(([k]) => k);
@@ -469,7 +470,7 @@ function targetPanel(i, t, done) {
   const m = dlg(modal({
     drawer: true,
     title: h('div', h('h2', t ? t.name : 'Aggiungi cliente target'), h('div.nb-small.muted', t ? (t.subject_id ? 'cliente target collegato al CRM' : 'cliente target non ancora nel CRM') : 'se è già nel CRM la collego da sola')),
-    body: h('div.nb-form', syn, t ? null : field('Azienda o ente', name), h('div.nb-two', field('Segmento', segment), field('Priorità', pr)), field('Stato', status), field('Perché', why), field('Nota', note)),
+    body: h('div.nb-form', t?.subject_id ? h('div.nb-prop', pathsBox(t.relation?.paths || [], { entity: t.name })) : null, syn, t ? null : field('Azienda o ente', name), h('div.nb-two', field('Segmento', segment), field('Priorità', pr)), field('Stato', status), field('Perché', why), field('Nota', note)),
     left: t ? [btn('Togli dai clienti target', async () => { if (!await confirmDialog(`Togliere «${t.name}» dai clienti target?`, { ok: 'Togli', danger: true })) return; await del(`/api/crm/business/targets/${t.id}`); m.close(); done(); }, { ghost: true, danger: true })] : [btn('Annulla', () => m.close(), { ghost: true })],
     actions: [t?.subject_id ? btn('Apri nel CRM', () => { m.close(); location.hash = `#/crm/scheda/${t.subject_id}`; }) : null,
       btn('Salva', async () => {
@@ -490,12 +491,20 @@ async function targetsTab(ctx) {
   const content = h('div');
   const setStatus = async (t, s) => { await patch(`/api/crm/business/targets/${t.id}`, { status: s }); refresh(); };
   const leadBtn = t => btn('Crea il lead', async () => { const out = await post(`/api/crm/business/targets/${t.id}/lead`, {}); toast(out.existed ? 'Collegata all\'azienda già nel CRM' : 'Lead creato nel CRM'); refresh(); }, { small: true });
-  const synLines = t => (t.synergies.length ? t.synergies.filter(x => !/^nessun contatto/.test(x)).slice(0, 3).map(x => h('div.nb-icn', ic(synIcon(x), 14), x)) : h('span.nb-small.muted', 'nessuna: non è nel CRM'));
+  const bestPath = t => t.relation?.paths?.[0];
+  const synLines = t => {
+    const p0 = bestPath(t);
+    const rest = t.synergies.filter(x => !/^nessun contatto|l'ha incontrata|email collegate/.test(x)).slice(0, p0 ? 1 : 2);
+    if (!t.subject_id) return h('span.nb-small.muted', 'nessuna: non è nel CRM');
+    return [h('div.nb-row', warmPill(t.relation?.level, { cooling: t.relation?.cooling }) || h('span.nb-small.muted', 'nessun rapporto')),
+      p0 ? h('div.nb-icn', ic('users', 14), `${p0.us?.name || '—'} → ${p0.contact}${p0.why ? ` · ${p0.why}` : ''}`) : null,
+      rest.map(x => h('div.nb-icn', ic(synIcon(x), 14), x))];
+  };
   const draw = () => {
     const rows = d.targets.filter(t => !filter || (t.segment || 'Altro') === filter);
     if (!rows.length) return content.replaceChildren(h('section.nb-card', empty('Nessun cliente target. Chiedili all\'assistente nella chat o aggiungili a mano.', 'target', i.canEdit ? btn('Aggiungi cliente', () => targetPanel(i, null, refresh), { small: true }) : null)));
     if (view === 'elenco') {
-      content.replaceChildren(h('section.nb-card.nb-tablecard', h('div.nb-scroll', h('table.nb-tbl', h('thead', h('tr', ['Azienda', 'Perché', 'Priorità', 'Stato', 'Sinergie dal CRM', ''].map(x => h('th', x)))),
+      content.replaceChildren(h('section.nb-card.nb-tablecard', h('div.nb-scroll', h('table.nb-tbl', h('thead', h('tr', ['Azienda', 'Perché', 'Priorità', 'Stato', 'Chi conosciamo', ''].map(x => h('th', x)))),
         h('tbody', rows.map(t => h('tr', { class: t.status === 'scartato' ? 'off' : '', on: { click: e => { if (!e.target.closest('button,select,a,label') && i.canEdit) targetPanel(i, t, refresh); } } },
           h('td', h('div.nb-t', t.name), t.segment ? h('div.nb-small.muted', t.segment) : null),
           h('td.nb-small', t.why || '—'),
@@ -508,7 +517,7 @@ async function targetsTab(ctx) {
         const col = rows.filter(t => t.status === k);
         return h('div.nb-kcol', h('h4', l, h('span', String(col.length))), col.map(t => h('button.nb-tc', { type: 'button', on: { click: () => i.canEdit && targetPanel(i, t, refresh) } },
           h('div.nb-t', t.name), t.segment ? h('div.nb-small.muted', t.segment) : null,
-          h('div.nb-row-sb', prio(t.priority), t.subject_id ? h('span.nb-icn', ic('users', 14), String(t.synergies.length)) : null))));
+          h('div.nb-row-sb', prio(t.priority), t.subject_id ? warmPill(t.relation?.level, { cooling: t.relation?.cooling }) : null))));
       })));
     }
   };
@@ -913,8 +922,29 @@ async function analysisTab(ctx) {
       card('Rischi', i.canEdit ? h('button.nb-link', { type: 'button', on: { click: () => noteDialog(i, null, refresh, 'rischio') } }, ic('plus', 14), 'Rischio') : null,
         a.risks.length ? [matrix, unplaced.length ? h('div.nb-small.muted.nb-mt12', `Senza impatto o probabilità: ${unplaced.map(r => r.title).join(' · ')}`) : null]
           : empty('Nessun rischio scritto. Si aggiungono dalle Riflessioni (tipo «Rischio»).', 'alert-triangle'))),
+    outcomesCard(i, a.outcomes, refresh),
     printSheet(i, a, gl));
   if (crmData.print) { delete crmData.print; setTimeout(() => window.print(), 300); }
+}
+
+// gare vinte e perse dell'iniziativa (crm_outcomes, «Vinte e perse» del CRM): collegate all'iniziativa o con
+// committente tra i clienti target dalla data di avvio
+function outcomesCard(i, o, refresh) {
+  const RES = { vinta: ['Vinta', 'ok'], persa: ['Persa', 'red'], non_partecipato: ['Non partecipato', 'off'] };
+  const reg = i.canEdit ? h('button.nb-link', { type: 'button', on: { click: () => registraEsito({ initiative_id: i.id }, refresh) } }, ic('plus', 14), 'Registra un esito') : null;
+  if (!o || !(o.won + o.lost + o.skipped)) {
+    return card('Gare vinte e perse', reg, empty('Nessun esito ancora. Quando partecipiamo a una gara o a un\'offerta di questa iniziativa, registra se l\'abbiamo vinta o persa: serve a capire se l\'ingresso funziona.', 'trophy'));
+  }
+  return card('Gare vinte e perse', reg,
+    h('div.nb-fcs',
+      counter('trophy', o.ratio === null ? '—' : `${o.ratio}%`, 'win ratio', 'or'),
+      counter('square-check', o.won, o.won === 1 ? 'vinta' : 'vinte', o.won ? '' : 'zero'),
+      counter('x', o.lost, o.lost === 1 ? 'persa' : 'perse', o.lost ? '' : 'zero'),
+      counter('calculator', eur(o.value_won), `vinti su ${eur(o.value_bid)}`)),
+    o.last.map(x => h('div.nb-line', pill(RES[x.result][0], RES[x.result][1]),
+      h('div.grow', h('div.nb-t', x.title), h('div.nb-small.muted', [x.subject_name, x.amount ? eur(x.amount) : null, day(x.decided_on), x.reason].filter(Boolean).join(' · '))))),
+    o.winners.length ? h('div.nb-small.muted.nb-mt12', `Chi ci batte: ${o.winners.map(w => `${w.name} (${w.times})`).join(' · ')}`) : null,
+    h('a.nb-via.nb-mt12', { href: '#/crm/esiti' }, ic('link', 14), 'Tutte le vinte e perse del CRM'));
 }
 
 // foglio A4 per la riunione (si vede solo in stampa)
