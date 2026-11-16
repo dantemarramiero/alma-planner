@@ -73,6 +73,7 @@
 /* pillole per significato */
 .nb-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: var(--ap-fw-medium, 500); background: var(--nb-soft); color: var(--nb-text); white-space: nowrap; }
 .nb-pill.off { background: var(--nb-soft); color: var(--nb-muted); }
+.nb-pill.ok { background: var(--nb-green-t); color: var(--nb-green); } .nb-pill.red { background: var(--nb-red-t); color: var(--nb-red); }
 .nb-pill.sol { background: var(--nb-or-t); color: var(--nb-or-d); margin-right: 6px; }
 .nb-pill.s0, .nb-sel.s0 { background: var(--nb-soft); color: var(--nb-text); }
 .nb-pill.s3, .nb-sel.s3 { background: var(--nb-green-t); color: var(--nb-green); }

@@ -11,6 +11,8 @@ const { HttpError, v } = require('../lib/http');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { scoreSignal, norm } = require('../lib/crm-radar');
 const B = require('../lib/crm-business');
+const { relationsFor, pathsOf } = require('../lib/crm-relazioni'); // forza dei rapporti (win ratio, 16/11)
+const { stats: outcomeStats } = require('../lib/crm-esiti');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const month = () => todayRome().slice(0, 7);
@@ -310,7 +312,14 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     const { rows } = await db.query(
       `SELECT t.*, s.name AS subject_name, s.roles AS subject_roles FROM crm_initiative_targets t LEFT JOIN crm_subjects s ON s.id = t.subject_id
         WHERE t.initiative_id = $1 ORDER BY (t.status = 'scartato'), CASE t.priority WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, t.name`, [i.id]);
-    res.json({ targets: await Promise.all(rows.map(async t => ({ ...t, synergies: await synergies(t.subject_id) }))) });
+    // forza del rapporto e strade calde (chi di noi → quale persona) dal calcolo comune di «Chi conosciamo»
+    const settings = await loadSettings(db);
+    const rel = await relationsFor(db, rows.map(t => t.subject_id), settings.relazioni);
+    res.json({ targets: await Promise.all(rows.map(async t => {
+      const r = t.subject_id ? rel[t.subject_id] : null;
+      return { ...t, synergies: await synergies(t.subject_id),
+        relation: r ? { level: r.level, points: r.points, cooling: r.cooling, last_at: r.last_at, paths: pathsOf(r).slice(0, 3) } : null };
+    })) });
   });
   app.post('/api/crm/business/:id/targets', async (req, res) => {
     const i = await editable(req, iid(req));
@@ -716,7 +725,16 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       db.query(`${TASK_SELECT} WHERE t.initiative_id = $1 AND t.done_at IS NULL ORDER BY t.due_date NULLS LAST, t.id LIMIT 8`, [i.id]),
       db.query(`SELECT * FROM crm_initiative_notes WHERE initiative_id = $1 AND kind = 'rischio' AND deleted_at IS NULL ORDER BY CASE level WHEN 'alto' THEN 0 WHEN 'medio' THEN 1 ELSE 2 END, id`, [i.id]),
     ]);
-    res.json({ ...st, weeks, next: next.map(taskOut), risks, owner_name: i.owner_name, phase: i.phase, budget: Number(i.budget_eur), summary: i.summary, summary_at: i.summary_at });
+    // gare vinte e perse dell'iniziativa: collegate all'iniziativa o con committente tra i clienti target, dalla data di avvio
+    const { rows: outs } = await db.query(
+      `SELECT o.*, s.name AS subject_name, w.name AS winner_display FROM crm_outcomes o
+         LEFT JOIN crm_subjects s ON s.id = o.subject_id LEFT JOIN crm_subjects w ON w.id = o.winner_subject_id
+        WHERE o.initiative_id = $1 OR (o.subject_id IN (SELECT subject_id FROM crm_initiative_targets WHERE initiative_id = $1 AND subject_id IS NOT NULL) AND o.decided_on >= $2)
+        ORDER BY o.decided_on DESC, o.id DESC`, [i.id, dayOf(i.started_on)]);
+    const os = outcomeStats(outs);
+    const outcomes = { ratio: os.ratio, won: os.won, lost: os.lost, skipped: os.skipped, value_won: os.value_won, value_bid: os.value_bid, reasons: os.by.reason.slice(0, 3),
+      winners: os.winners.slice(0, 3), last: outs.slice(0, 5).map(o => ({ id: o.id, title: o.title, result: o.result, subject_name: o.subject_name, amount: o.amount === null ? null : Number(o.amount), decided_on: dayOf(o.decided_on), reason: o.reason })) };
+    res.json({ ...st, outcomes, weeks, next: next.map(taskOut), risks, owner_name: i.owner_name, phase: i.phase, budget: Number(i.budget_eur), summary: i.summary, summary_at: i.summary_at });
   });
   app.post('/api/crm/business/:id/sintesi', async (req, res) => { // sintesi dell'assistente per la riunione di direzione
     const i = await byId(iid(req));

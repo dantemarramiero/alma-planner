@@ -198,3 +198,24 @@ test('v2: G0 scelto alla creazione, date delle fasi, passi collegati, rischi con
   // spesa dell'AI del mese nell'elenco
   assert.ok((await D('GET', '/api/crm/business')).body.kpis.aiMonth > 0);
 });
+
+test('win ratio: forza del rapporto sui clienti target e gare vinte/perse in Analisi', async () => {
+  const recchia = await meId(E);
+  const asa = (await D('GET', '/api/crm')).body.asa[0].key;
+  const c = await D('POST', '/api/crm/business', { name: 'Illuminazione pubblica', owner_id: recchia, asa, budget_eur: 1000 });
+  const id = c.body.id;
+  const s = await D('POST', '/api/crm/subjects', { name: 'Comune di Prova Win', roles: ['lead'], asa: [asa], owner_id: recchia });
+  assert.equal((await E('POST', `/api/crm/business/${id}/targets`, { name: 'Comune di Prova Win' })).status, 201);
+  const t = (await E('GET', `/api/crm/business/${id}/targets`)).body.targets[0];
+  assert.equal(t.subject_id, s.body.id);
+  assert.ok(t.relation && Array.isArray(t.relation.paths)); // calcolo comune di «Chi conosciamo»
+  // esito con committente tra i clienti target: conta nell'iniziativa
+  const o = await D('POST', '/api/crm/esiti', { result: 'vinta', title: 'Lotto 1 illuminazione', subject_id: s.body.id, amount: 200000, origin: 'business' });
+  assert.equal(o.status, 201, JSON.stringify(o.body));
+  await D('POST', '/api/crm/esiti', { result: 'persa', title: 'Lotto 2 illuminazione', subject_id: s.body.id, amount: 100000, reason: 'Prezzo', origin: 'business' });
+  const a = (await D('GET', `/api/crm/business/${id}/analisi`)).body;
+  assert.equal(a.outcomes.won, 1);
+  assert.equal(a.outcomes.lost, 1);
+  assert.equal(a.outcomes.ratio, 50);
+  assert.equal(a.outcomes.last.length, 2);
+});
