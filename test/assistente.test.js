@@ -53,7 +53,8 @@ async function stream(cookie, body) {
 let eCookie;
 const sentMail = []; // email «partite» (Outlook finto)
 let mailFail = null;
-const heard = [], spoken = []; // voce finta: audio ricevuti, testi letti
+const heard = [], spoken = [];
+let rtSession = null; const hung = []; // voce in tempo reale finta // voce finta: audio ricevuti, testi letti
 
 before(async () => {
   db = await createDb({});
@@ -61,6 +62,8 @@ before(async () => {
     almaMailer: async (userId, e) => { if (mailFail) throw new Error(mailFail); sentMail.push({ userId, to: e.to_email, subject: e.subject, body: e.body }); },
     almaTranscriber: async a => { heard.push(a); return 'quanti ticket ho in ritardo?'; },
     almaSpeaker: async t => { spoken.push(t); return Buffer.from('ID3-mp3-finto'); },
+    almaRealtime: { secret: async session => { rtSession = session; return { value: 'ek_prova', expires_at: Math.floor(Date.now() / 1000) + 120 }; },
+      connect: async (sdp, secret) => { assert.equal(secret, 'ek_prova'); return { sdp: 'v=0 risposta', call_id: 'rtc_1' }; }, hangup: async id => { hung.push(id); } },
     almaMailReader: async (userId, email) => (email === 'g.verdi@provincia.teramo.it' ? [{ data: '2026-10-02T09:00:00Z', oggetto: 'Sopralluogo', testo: 'Ciao Giulia,\nti mando il verbale.\nUn caro saluto, Dante' }] : []) });
   alma = out.alma;
   server = out.app.listen(0);
@@ -539,4 +542,64 @@ test('grafici: il server disegna dai risultati di una ricerca; errori chiari; «
   assert.equal((await E('DELETE', '/api/alma/dashboard/' + add.body.id)).status, 404);
   assert.equal((await D('DELETE', '/api/alma/dashboard/' + add.body.id)).status, 200);
   assert.equal((await D('GET', '/api/alma/dashboard')).body.grafici.length, 0);
+});
+
+test('voce in tempo reale: sessione con le ricerche, collegamento una volta, numeri controllati, «sì» controllato dal server, chiusura con il costo', async () => {
+  alma.voice.setYesWait(0);
+  const st = await D('GET', '/api/alma/status');
+  assert.equal(st.body.voce_live, true);
+  const ses = await D('POST', '/api/alma/voce/sessione', {});
+  assert.equal(ses.status, 200);
+  const conv = ses.body.conversation_id;
+  assert.ok(ses.body.max_seconds >= 30);
+  const names = rtSession.tools.map(t => t.name);
+  for (const n of ['ticket_elenco', 'proponi_ticket', 'mostra_numeri', 'conferma_proposta', 'modifica_proposta']) assert.ok(names.includes(n), n);
+  assert.match(rtSession.instructions, /MODALITÀ VOCE/);
+  assert.equal((await E('POST', '/api/alma/voce/collega', { conversation_id: conv, sdp: 'v=0 offerta' })).status, 404); // solo chi l'ha aperta
+  const link = await D('POST', '/api/alma/voce/collega', { conversation_id: conv, sdp: 'v=0 offerta' });
+  assert.equal(link.body.sdp, 'v=0 risposta');
+  assert.equal((await D('POST', '/api/alma/voce/collega', { conversation_id: conv, sdp: 'v=0 offerta' })).status, 409);
+  // ricerca a voce con la sua fonte, poi i numeri sullo schermo: quello vero ok, quello inventato no
+  const t = await D('POST', '/api/alma/voce/strumento', { conversation_id: conv, name: 'ticket_elenco', arguments: JSON.stringify({ persona: 'io' }) });
+  const out = JSON.parse(t.body.output);
+  assert.equal(out.fonte_id, 'f1');
+  const num = await D('POST', '/api/alma/voce/strumento', { conversation_id: conv, name: 'mostra_numeri', arguments: { numeri: [{ etichetta: 'ticket aperti', valore: out.aperti, fonte_id: 'f1' }, { etichetta: 'inventato', valore: 98765 }] } });
+  assert.equal(num.body.silent, true);
+  assert.deepEqual(num.body.numeri.map(n => n.ok), [true, false]);
+  await D('POST', '/api/alma/voce/trascritto', { conversation_id: conv, role: 'assistant', text: 'Hai ' + out.aperti + ' ticket aperti.' });
+  const msgs = (await D('GET', '/api/alma/conversations/' + conv)).body.messages;
+  assert.equal(msgs.length, 1);
+  // proposta a voce: «sì però domani» non salva, «sì, confermo» sì
+  const p = await D('POST', '/api/alma/voce/strumento', { conversation_id: conv, name: 'proponi_ticket', arguments: { titolo: 'Richiamare il RUP di Ortona', assegnati: ['io'] }, gruppo: 'r1' });
+  assert.equal(p.body.proposals.length, 1);
+  await D('POST', '/api/alma/voce/trascritto', { conversation_id: conv, role: 'assistant', text: 'Preparo il ticket «Richiamare il RUP di Ortona». Confermi?' });
+  await D('POST', '/api/alma/voce/trascritto', { conversation_id: conv, role: 'user', text: 'sì però per domani' });
+  const no = await D('POST', '/api/alma/voce/strumento', { conversation_id: conv, name: 'conferma_proposta', arguments: {} });
+  assert.equal(no.body.yes_missing, true);
+  assert.match(JSON.parse(no.body.output).error, /ho sentito: «sì però per domani»/);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM tickets WHERE title = 'Richiamare il RUP di Ortona'")).rows[0].n, 0);
+  await D('POST', '/api/alma/voce/trascritto', { conversation_id: conv, role: 'assistant', text: 'Va bene, lo lascio così. Confermi?' });
+  await D('POST', '/api/alma/voce/trascritto', { conversation_id: conv, role: 'user', text: 'sì, confermo' });
+  const yes = await D('POST', '/api/alma/voce/strumento', { conversation_id: conv, name: 'conferma_proposta', arguments: {} });
+  assert.match(JSON.parse(yes.body.output).esito, /Fatto: ticket «Richiamare il RUP di Ortona» creato/);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM tickets WHERE title = 'Richiamare il RUP di Ortona'")).rows[0].n, 1);
+  assert.equal((await db.query('SELECT confirmed_via FROM assistant_actions WHERE id = $1', [p.body.proposals[0].id])).rows[0].confirmed_via.text, 'sì, confermo');
+  // battito e chiusura: costo una volta, hangup a OpenAI
+  assert.equal((await D('POST', '/api/alma/voce/battito', { conversation_id: conv })).body.closed, false);
+  const end = await D('POST', '/api/alma/voce/fine', { conversation_id: conv });
+  assert.equal(end.body.voce.closed, true);
+  assert.equal(end.body.voce.reason, 'fine');
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM assistant_usage WHERE model = 'gpt-realtime-2.1-mini' AND conversation_id = $1", [conv])).rows[0].n, 1);
+  await new Promise(r => setTimeout(r, 20));
+  assert.deepEqual(hung, ['rtc_1']);
+  assert.equal((await D('POST', '/api/alma/voce/strumento', { conversation_id: conv, name: 'ticket_elenco', arguments: {} })).body.voce.closed, true);
+  // una chiamata senza frasi non lascia una conversazione vuota
+  const empty = await D('POST', '/api/alma/voce/sessione', {});
+  await D('POST', '/api/alma/voce/fine', { conversation_id: empty.body.conversation_id });
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM assistant_conversations WHERE id = $1', [empty.body.conversation_id])).rows[0].n, 0);
+  // il «sì» controllato
+  const { isYes } = require('../lib/assistente-voce-live');
+  assert.equal(isYes('Sì, confermo grazie'), true);
+  assert.equal(isYes('sì ma cambia la data'), false);
+  assert.equal(isYes('ok mandala pure'), true);
 });
