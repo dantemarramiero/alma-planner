@@ -239,7 +239,7 @@ test('regole della direzione: vanno nelle istruzioni di Alma', async () => {
   assert.equal((await D('DELETE', `/api/alma/regole/${r.body.id}`)).status, 200);
 });
 
-test('senza ANTHROPIC_API_KEY Alma è spenta: 503 e il messaggio giusto', async () => {
+test('senza OPENAI_API_KEY Alma è spenta: 503 e il messaggio giusto', async () => {
   alma.setClient(null); // torna il Claude vero, ma la chiave non c'è
   try {
     const st = await E('GET', '/api/alma/status');
@@ -249,7 +249,7 @@ test('senza ANTHROPIC_API_KEY Alma è spenta: 503 e il messaggio giusto', async 
     assert.equal(r.body.error, 'Alma non è ancora attiva.');
     const a = await D('POST', '/api/alma/chat', { text: 'ciao' });
     assert.equal(a.status, 503);
-    assert.equal(a.body.error, 'Alma è spenta: manca la chiave ANTHROPIC_API_KEY su Railway.');
+    assert.equal(a.body.error, 'Alma è spenta: manca la chiave OPENAI_API_KEY su Railway.');
   } finally { alma.setClient(fakeClaude); }
 });
 

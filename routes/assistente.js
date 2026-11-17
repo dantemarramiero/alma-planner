@@ -15,7 +15,7 @@
 //   POST /azioni/:id/conferma | annulla | modifica | scegli | disfa   proposte (lib/assistente-bozze.js)
 //   GET|PUT /settings, GET /risposte, GET|POST /regole, PATCH|DELETE /regole/:id   solo amministratori
 //
-// Senza ANTHROPIC_API_KEY: /status dice configured: false (la pagina spiega cosa manca), la chat risponde 503.
+// Senza OPENAI_API_KEY: /status dice configured: false (la pagina spiega cosa manca), la chat risponde 503.
 const { HttpError } = require('../lib/http');
 const { getSetting, saveSetting } = require('../lib/settings');
 const TOOLS = require('../lib/assistente-strumenti');
@@ -24,7 +24,7 @@ const RICEVUTE = require('../lib/assistente-ricevute');
 const BLOCCHI = require('../lib/assistente-blocchi');
 const DIFESA = require('../lib/assistente-difesa');
 const CONTESTO = require('../lib/assistente-contesto');
-const CLAUDE = require('../lib/assistente-claude');
+const CLAUDE = require('../lib/assistente-openai'); // il modello: OpenAI (Dante 17/11/2026)
 const { fakeClaude } = require('../lib/assistente-finto');
 
 const BASE = '/api/alma';
@@ -79,13 +79,13 @@ ${BLOCCHI.PROMPT}`;
 }
 const todayBlock = () => ({ type: 'text', text: `Oggi è ${today().split('-').reverse().join('/')} (ora italiana).` });
 
-function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, anthropicKey = null, almaFake = false }) {
-  let call = assistantClient || (almaFake ? fakeClaude : CLAUDE.claudeCall);
+function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, openaiKey = null, almaFake = false }) {
+  let call = assistantClient || (almaFake ? fakeClaude : CLAUDE.openaiCall);
   // Classificatore Haiku solo con il Claude vero; con un Claude finto (test, modalità finta) resta la regola sulle parole.
-  let route = assistantRouter !== undefined ? assistantRouter : (assistantClient || almaFake ? null : CLAUDE.claudeRoute);
+  let route = assistantRouter !== undefined ? assistantRouter : (assistantClient || almaFake ? null : CLAUDE.openaiRoute);
   let routerPausedUntil = 0;
   let streamTimeoutMs = 90 * 1000;
-  const configured = () => call !== CLAUDE.claudeCall || Boolean(anthropicKey);
+  const configured = () => call !== CLAUDE.openaiCall || Boolean(openaiKey);
   const admin = req => Boolean(isAdmin(req));
   const deps = { crmAccess, energyAccess };
 
@@ -294,7 +294,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
     const text = String(req.body?.text || '').trim();
     if (!text) throw new HttpError(400, 'Scrivi una domanda.');
     if (text.length > MAX_TEXT) throw new HttpError(400, `La domanda è troppo lunga (al massimo ${MAX_TEXT} caratteri).`);
-    if (!configured()) throw new HttpError(503, admin(req) ? 'Alma è spenta: manca la chiave ANTHROPIC_API_KEY su Railway.' : 'Alma non è ancora attiva.', 'not_configured');
+    if (!configured()) throw new HttpError(503, admin(req) ? 'Alma è spenta: manca la chiave OPENAI_API_KEY su Railway.' : 'Alma non è ancora attiva.', 'not_configured');
     const s = await settings();
     if (!s.enabled) throw new HttpError(403, 'Alma è spenta. Si accende in Impostazioni → Alma.', 'disabled');
     const month = (await monthCostUsd()) * s.usd_eur;
@@ -592,7 +592,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
         COUNT(*) FILTER (WHERE status = 'errore' AND COALESCE(error, '') <> $2)::int AS errors, COUNT(DISTINCT user_id)::int AS users,
         COUNT(*) FILTER (WHERE numbers_unverified > 0)::int AS unverified, AVG(latency_ms) AS ms, SUM(cost_usd) AS cost
       FROM assistant_traces WHERE created_at >= $1::date`, [from, STOPPED]);
-    const label = m => (m === CLAUDE.MODELS.haiku ? 'Claude Haiku 5.5' : m === CLAUDE.MODELS.sonnet ? 'Claude Sonnet 5.5' : m);
+    const label = m => CLAUDE.LABELS[m] || m;
     const month = byModel.reduce((a, x) => a + Number(x.cost || 0), 0);
     return {
       month: { from, cost_eur: eur(month), answers: q.n, users: q.users, avg_cent: q.n ? r2((Number(month) * s.usd_eur * 100) / q.n) : null },
@@ -673,7 +673,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
   });
 
   return {
-    setClient: fn => { call = fn || CLAUDE.claudeCall; route = fn ? null : CLAUDE.claudeRoute; routerPausedUntil = 0; }, // solo per i test
+    setClient: fn => { call = fn || CLAUDE.openaiCall; route = fn ? null : CLAUDE.openaiRoute; routerPausedUntil = 0; }, // solo per i test
     setStreamTimeout: ms => { streamTimeoutMs = ms || 90 * 1000; }, // solo per i test
     settings, toolsFor,
   };
