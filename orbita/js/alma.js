@@ -248,10 +248,14 @@ function createChat(opts = {}) {
     const draw = q => {
       p = q;
       const card = p.icon === 'id-card'; // biglietto da visita: un campo per riga, come nel canvas V6-Biglietti
-      const summary = card ? '' : (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      const mail = p.icon === 'mail'; // email (canvas V7-Email): campi in righe, gruppo con le spunte
+      const open = p.status === 'proposta' && !p.choices;
+      const summary = card || mail ? '' : (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
       const unsure = card ? ((p.warnings || []).join(' ').match(/letti male dalla foto: ([^.]+)/) || [, ''])[1].split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : [];
       const rows = card ? h('div.al-frows', (p.fields || []).filter(([k]) => k !== 'Persona').map(([k, v]) => h('div.al-frow', { class: unsure.includes(k.toLowerCase()) ? 'unsure' : '' },
-        h('span.al-muted', k), h('span', v), unsure.includes(k.toLowerCase()) ? h('span.al-small.al-unsure', 'da controllare') : null))) : null;
+        h('span.al-muted', k), h('span', v), unsure.includes(k.toLowerCase()) ? h('span.al-small.al-unsure', 'da controllare') : null)))
+        : mail ? h('div.al-frows', (p.fields || []).map(([k, v]) => h('div.al-frow', { class: k === 'Testo' ? 'al-mtext' : '' }, h('span.al-muted', k), h('span', v)))) : null;
+      const items = mail && p.items ? h('div.al-mitems', p.items.map(it => mailItem(it, open))) : null;
       const head = h('div.al-row', { style: { alignItems: 'flex-start' } }, h('span.al-ib.or', ic(p.icon || 'sparkles', 15)),
         h('div.al-grow', h('div.al-t5', p.title), summary ? h('div.al-small.al-muted', summary) : null,
           (p.changed || []).length ? h('div.al-small.al-chg', `Cambiato: ${p.changed.map(c => `${c.label} (prima ${c.before})`).join(', ')}`) : null,
@@ -265,6 +269,17 @@ function createChat(opts = {}) {
         actions = h('div.al-choices', h('div.al-small.al-t5', p.choices.question),
           p.choices.options.map((o, i) => h('button.al-opt', { type: 'button', on: { click: () => act('scegli', { indice: i }) } }, h('span.al-t5', o.label), o.sub ? h('span.al-small.al-muted', o.sub) : null)),
           h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => act('annulla') } }, 'Annulla'));
+      } else if (p.status === 'proposta' && mail) {
+        const when = ((p.fields || []).find(([k]) => k === 'Quando') || [])[1] || 'subito';
+        const now = when.startsWith('subito');
+        const n = p.items ? p.items.filter(x => x.incluso).length : 1;
+        const editable = (p.edit || []).filter(f => !f.hidden && (!p.items || !['oggetto', 'testo'].includes(f.key)));
+        actions = h('div.al-row.al-wrap', { style: { gap: '8px' } },
+          h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => act('conferma', { solo: true }) } }, ic(now ? 'send' : 'clock', 14),
+            now ? (n > 1 ? `Invia le ${n} spuntate` : 'Invia ora') : (n > 1 ? `Programma le ${n}` : 'Programma')),
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => scheduleForm() } }, ic('clock', 14), now ? 'Programma per…' : 'Cambia ora'),
+          editable.some(f => f.key !== 'quando') ? h('button.btn.btn-sm', { type: 'button', on: { click: () => editForm() } }, 'Cambia') : null,
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => act('annulla', { solo: true }) } }, 'Annulla'));
       } else if (p.status === 'proposta') {
         actions = h('div.al-row', { style: { gap: '8px' } },
           h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => act('conferma', { solo: true }) } }, ic('check', 15), p.title.startsWith('Aggiorna ·') ? 'Aggiorna' : 'Conferma'),
@@ -274,8 +289,36 @@ function createChat(opts = {}) {
         actions = h('div.al-row.al-wrap', { style: { gap: '8px' } }, p.link ? h('a.btn.btn-sm', { href: p.link, on: { click: closePanelOnPhone } }, ic('external', 14), 'Apri') : null,
           p.undo_until ? h('button.btn.btn-sm.btn-ghost', { type: 'button', title: 'Per 10 minuti dal salvataggio', on: { click: () => act('disfa') } }, ic('rotate-ccw', 14), 'Annulla il salvataggio') : null);
       } else if (p.status === 'errore') actions = h('div.al-small.al-bad', p.error);
-      fill(box, head, rows, warn, actions);
+      fill(box, head, rows, items, warn, actions);
       box.classList.toggle('done', p.status !== 'proposta');
+    };
+    // Una email del gruppo: spunta (toglie o rimette), a chi, oggetto, testo (si apre al clic).
+    const mailItem = (it, open) => {
+      const text = h('div.al-small.al-mbody', it.testo);
+      text.addEventListener('click', () => text.classList.toggle('full'));
+      const toggle = async () => {
+        const off = (p.items || []).filter(x => (x.n === it.n ? x.incluso : !x.incluso)).map(x => x.n);
+        const r = await post(`/api/alma/azioni/${p.id}/modifica`, { campi: { escludi: off.join(',') } }).catch(() => null);
+        if (r) { draw(r.proposal); if (box.parentNode) syncAll(box.parentNode); }
+      };
+      return h('div.al-mitem', { class: it.incluso ? '' : 'off' },
+        h('div.al-row', { style: { gap: '8px' } },
+          open ? h('button.al-chk', { type: 'button', class: it.incluso ? 'on' : '', 'aria-pressed': String(it.incluso), title: it.incluso ? 'Togli questa email' : 'Rimetti questa email', on: { click: toggle } }, it.incluso ? ic('check', 12) : null) : null,
+          h('span.al-t5.al-small.al-grow', it.nome, it.azienda ? h('span.al-muted', ` · ${it.azienda}`) : null), h('span.al-small.al-muted', it.email)),
+        h('div.al-small', h('b', it.oggetto)), it.incluso ? text : h('div.al-small.al-muted', 'tolta: non parte'));
+    };
+    // «Programma per…»: data e ora (ora italiana); «Invia subito» toglie l'ora.
+    const scheduleForm = () => {
+      const tomorrow = new Date(Date.now() + 864e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+      const inp = h('input.input', { type: 'datetime-local', value: `${tomorrow}T08:30` });
+      const go = async quando => {
+        const r = await post(`/api/alma/azioni/${p.id}/modifica`, { campi: { quando } }).catch(() => null);
+        if (r) draw(r.proposal);
+      };
+      fill(box, h('div.al-t5', p.title), h('label.al-fld', h('span', 'Quando partire (ora italiana)'), inp),
+        h('div.al-row.al-wrap', { style: { gap: '8px' } }, h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => go(String(inp.value).replace('T', ' ')) } }, ic('clock', 14), 'Programma'),
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => go('') } }, 'Invia subito'),
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => draw(p) } }, 'Lascia com\'è')));
     };
     const editForm = () => {
       const inputs = {};
@@ -285,8 +328,8 @@ function createChat(opts = {}) {
         const r = await post(`/api/alma/azioni/${p.id}/modifica`, { campi }).catch(() => null);
         if (r) draw(r.proposal);
       } } },
-      (p.edit || []).map(f => {
-        const ctl = f.type === 'textarea' ? h('textarea.input', { rows: 3 }, f.value)
+      (p.edit || []).filter(f => !f.hidden && f.key !== 'quando' && !(p.items && ['oggetto', 'testo'].includes(f.key))).map(f => {
+        const ctl = f.type === 'textarea' ? h('textarea.input', { rows: p.icon === 'mail' ? 8 : 3 }, f.value)
           : f.type === 'enum' ? h('select.select', f.options.map(o => h('option', { value: o, selected: o === f.value }, o)))
           : h('input.input', { type: f.type === 'date' ? 'date' : 'text', value: f.value, placeholder: f.type === 'people' ? 'Nomi separati da virgola' : '' });
         inputs[f.key] = ctl;
@@ -327,6 +370,7 @@ function createChat(opts = {}) {
     fill(bar, all, h('span.al-small.al-muted', 'niente si salva finché non confermi'));
   }
   function statusPill(p) {
+    if (p.status === 'proposta' && p.icon === 'mail') return pill('bozza', 'or');
     if (p.status === 'proposta' && p.icon === 'id-card') {
       return p.title.startsWith('Aggiorna ·') ? pill('già nel CRM', '') : p.title.includes('nuova azienda') ? pill('azienda nuova', 'or') : pill('azienda trovata', 'gr');
     }
@@ -437,6 +481,54 @@ function createChat(opts = {}) {
   return { el, open, send, focus: () => input.focus(), get id() { return convId; }, get lastQuestion() { return lastQuestion; } };
 }
 
+// ── pagina #/alma/email: email programmate e inviate da Alma (canvas V7-Email) ─────────────────────────────
+const EMAIL_STATE = { inviata: ['inviata', 'gr'], errore: ['non partita', 'rd'], annullata: ['annullata', ''], invio: ['in partenza', 'or'] };
+async function emailView(view) {
+  document.body.classList.remove('on-alma');
+  const box = h('div.al-email');
+  fill(view, h('div.al-epage',
+    h('div.cv-top', h('div', h('div.cv-eyebrow', 'Alma'), h('h1.cv-h1', 'Email di Alma'),
+      h('p.cv-sub', 'Le email che Alma ha preparato e tu hai confermato: partono dalla tua casella Outlook. Le vedi solo tu.')),
+      h('div.cv-top-r', h('a.btn', { href: '#/alma' }, ic('sparkles', 15), 'Chiedi ad Alma'))),
+    box));
+  const draw = async () => {
+    fill(box, loading());
+    const { programmate = [], recenti = [] } = await get('/api/alma/email');
+    const card = e => {
+      const body = h('div.al-small.al-mbody', e.testo);
+      body.addEventListener('click', () => body.classList.toggle('full'));
+      const done = async (pr, ok) => { const r = await pr.catch(() => null); if (r) { if (ok) toast(ok); draw(); } };
+      const editForm = () => {
+        const subj = h('input.input', { type: 'text', value: e.oggetto });
+        const text = h('textarea.input', { rows: 8 }, e.testo);
+        const at = new Date(e.quando).toLocaleString('sv-SE', { timeZone: 'Europe/Rome' }).slice(0, 16).replace(' ', 'T');
+        const when = h('input.input', { type: 'datetime-local', value: at });
+        fill(c, h('label.al-fld', h('span', 'Oggetto'), subj), h('label.al-fld', h('span', 'Testo'), text), h('label.al-fld', h('span', 'Quando (ora italiana)'), when),
+          h('div.al-row', { style: { gap: '8px' } }, h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => done(patch(`/api/alma/email/${e.id}`, { oggetto: subj.value, testo: text.value, quando: String(when.value).replace('T', ' ') }), 'Email cambiata') } }, 'Salva'),
+            h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => draw() } }, 'Lascia com\'è')));
+      };
+      const c = h('div.al-mcard',
+        h('div.al-row', { style: { gap: '8px', alignItems: 'flex-start' } }, h('span.al-ib.or', ic('mail', 15)),
+          h('div.al-grow', h('div.al-t5', e.a), h('div.al-small.al-muted', e.email)),
+          e.stato === 'programmata' ? pill(e.quando_label, 'or') : pill(...(EMAIL_STATE[e.stato] || [e.stato, '']))),
+        h('div.al-small', h('b', e.oggetto)), body,
+        e.errore ? h('div.al-small.al-bad', e.errore) : null,
+        e.stato === 'programmata' ? h('div.al-row.al-wrap', { style: { gap: '8px' } },
+          h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => done(post(`/api/alma/email/${e.id}/invia-ora`, {}), 'Email inviata') } }, ic('send', 14), 'Invia ora'),
+          h('button.btn.btn-sm', { type: 'button', on: { click: editForm } }, 'Cambia'),
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: async () => { if (await confirmDialog('Annullare questa email? Non partirà.', { ok: 'Annulla l\'email' })) done(post(`/api/alma/email/${e.id}/annulla`, {}), 'Email annullata'); } } }, 'Annulla'))
+          : h('div.al-small.al-muted', [e.inviata ? `inviata ${fmtDateTime(e.inviata)}` : null, e.subject_id ? h('a', { href: `#/crm/scheda/${e.subject_id}` }, 'scheda CRM') : null].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))));
+      return c;
+    };
+    fill(box,
+      h('div.al-lbl', { style: { marginTop: '18px' } }, `Programmate (${programmate.length})`),
+      programmate.length ? h('div.al-mlist', programmate.map(card)) : h('p.al-small.al-muted', 'Nessuna email programmata. Chiedi ad Alma, per esempio: «scrivi domani alle 9 all\'ing. Rossi per il sopralluogo».'),
+      h('div.al-lbl', { style: { marginTop: '20px' } }, 'Ultimi 60 giorni'),
+      recenti.length ? h('div.al-mlist', recenti.map(card)) : h('p.al-small.al-muted', 'Ancora nessuna email mandata con Alma.'));
+  };
+  await draw();
+}
+
 // ── pagina #/alma ───────────────────────────────────────────────────────────────────────────────────
 function groupOf(iso) {
   const d = new Date(iso), now = new Date();
@@ -452,11 +544,13 @@ function timeOf(iso) {
 export async function almaView(view, parts = [], params = new URLSearchParams()) {
   await loadStatus();
   if (parts[1] === 'impostazioni') return settingsView(view);
+  if (parts[1] === 'email') return emailView(view);
   document.body.classList.add('on-alma');
   const list = h('div.al-convlist');
   const side = h('aside.al-conv',
     h('button.btn.btn-primary.al-new', { type: 'button', on: { click: () => { chat.open(null); history.replaceState(null, '', '#/alma'); drawList(); if (isMobile()) side.classList.remove('open'); } } }, ic('plus', 15), 'Nuova conversazione'),
     list,
+    h('a.al-setlink', { href: '#/alma/email' }, ic('mail', 15), 'Email di Alma'),
     status?.admin ? h('a.al-setlink', { href: '#/alma/impostazioni' }, ic('settings', 15), 'Impostazioni di Alma') : null);
   const chat = createChat({
     onConversation: (id, title, done) => { if (!done) history.replaceState(null, '', `#/alma?c=${id}`); drawList(); },

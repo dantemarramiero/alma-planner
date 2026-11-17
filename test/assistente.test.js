@@ -51,10 +51,14 @@ async function stream(cookie, body) {
   });
 }
 let eCookie;
+const sentMail = []; // email «partite» (Outlook finto)
+let mailFail = null;
 
 before(async () => {
   db = await createDb({});
-  const out = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, crmFetchEvents: async () => [], assistantClient: fakeClaude });
+  const out = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, crmFetchEvents: async () => [], assistantClient: fakeClaude,
+    almaMailer: async (userId, e) => { if (mailFail) throw new Error(mailFail); sentMail.push({ userId, to: e.to_email, subject: e.subject, body: e.body }); },
+    almaMailReader: async (userId, email) => (email === 'g.verdi@provincia.teramo.it' ? [{ data: '2026-10-02T09:00:00Z', oggetto: 'Sopralluogo', testo: 'Ciao Giulia,\nti mando il verbale.\nUn caro saluto, Dante' }] : []) });
   alma = out.alma;
   server = out.app.listen(0);
   await new Promise(r => server.once('listening', r));
@@ -358,4 +362,97 @@ test('biglietti: foto sbagliate o troppe vengono rifiutate prima di chiamare il 
   const six = Array.from({ length: 6 }, () => 'data:image/png;base64,AAAA');
   assert.equal((await D('POST', '/api/alma/chat', { text: 'ciao', images: six })).status, 400);
   assert.equal(calls.length, before);
+});
+
+test('email: tono delle email passate, chi ricontattare, email singola subito, gruppo programmato con una tolta, Cambia, Invia ora, Annulla, errore', async () => {
+  const asaKey = (await db.query('SELECT key FROM crm_asa ORDER BY sort LIMIT 1')).rows[0].key;
+  await db.query("INSERT INTO crm_subjects (name, kind, roles, asa, city) VALUES ('Provincia di Teramo', 'ente_pubblico', '{cliente}', $1, 'Teramo'), ('ASL Teramo', 'ente_pubblico', '{cliente}', $1, 'Teramo'), ('Comune di Atri', 'ente_pubblico', '{cliente}', $1, 'Atri')", [[asaKey]]);
+  const sid = async n => (await db.query('SELECT id FROM crm_subjects WHERE name = $1', [n])).rows[0].id;
+  const [pt, asl, atri] = [await sid('Provincia di Teramo'), await sid('ASL Teramo'), await sid('Comune di Atri')];
+  const verdi = (await D('POST', '/api/crm/contacts', { title: 'Ing.', first_name: 'Giulia', last_name: 'Verdi', email: 'g.verdi@provincia.teramo.it', links: [{ subject_id: pt }] })).body.id;
+  const rossi = (await D('POST', '/api/crm/contacts', { title: 'Dott.', first_name: 'Elena', last_name: 'Rossetti', email: 'e.rossetti@asl.te.it', links: [{ subject_id: asl }] })).body.id;
+  const noMail = (await D('POST', '/api/crm/contacts', { first_name: 'Piero', last_name: 'Senzamail', links: [{ subject_id: atri }] })).body.id;
+
+  // tono: inizio e fine delle email passate, come dati
+  let tone;
+  queue.push(toolUse('email_tono', { contatti: [`c:${verdi}`, 'Rossetti'] }), params => { tone = lastResult(params); return say('Ok.')(); });
+  await D('POST', '/api/alma/chat', { text: 'come scrivevo a Giulia Verdi e alla Rossetti?' });
+  assert.equal(tone.contatti?.length, 2, JSON.stringify(tone));
+  assert.match(JSON.stringify(tone.contatti[0].esempi), /Ciao Giulia/);
+  assert.equal(tone.contatti[1].email_passate, 0);
+
+  // chi ricontattare: le schede senza contatti, con il contatto che ha l'email
+  let due;
+  queue.push(toolUse('crm_da_ricontattare', { ruolo: 'cliente', asa: asaKey, giorni: 90 }), params => { due = lastResult(params); return say('Ok.')(); });
+  await D('POST', '/api/alma/chat', { text: 'quali clienti non sentiamo da 3 mesi?' });
+  assert.equal(due.aziende.find(a => a.id === pt).contatto.id, verdi);
+  assert.equal(due.aziende.find(a => a.id === atri).nota, 'i contatti non hanno email');
+
+  // email singola, subito: niente parte prima della conferma; poi parte, nota sulla scheda
+  queue.push(toolUse('proponi_email', { email: [{ destinatario: 'Giulia Verdi', oggetto: 'Sopralluogo scuole', testo: 'Ciao Giulia,\nti propongo martedì.\nUn caro saluto, Dante (Almacis)' }] }), say('Ecco la bozza: confermi?'));
+  const r1 = await D('POST', '/api/alma/chat', { text: 'Scrivi a Giulia Verdi per proporre il sopralluogo martedì' });
+  const p1 = r1.body.proposals[0];
+  assert.equal(p1.title, 'Email · Ing. Giulia Verdi');
+  assert.ok(p1.fields.some(([k, v]) => k === 'Quando' && v === 'subito'));
+  assert.equal(sentMail.length, 0);
+  const ok1 = await D('POST', `/api/alma/azioni/${p1.id}/conferma`, { solo: true });
+  assert.match(ok1.body.reply, /email inviata a Ing\. Giulia Verdi/);
+  assert.deepEqual(sentMail.map(m => m.to), ['g.verdi@provincia.teramo.it']);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM crm_notes WHERE subject_id = $1 AND title = 'Email inviata: Sopralluogo scuole'", [pt])).rows[0].n, 1);
+
+  // a chi non è nel CRM non si scrive
+  let notFound;
+  queue.push(toolUse('proponi_email', { email: [{ destinatario: 'Mario Sconosciuto', oggetto: 'Ciao', testo: 'Buongiorno.' }] }), params => { notFound = lastResult(params); return say('Non è nel CRM.')(); });
+  await D('POST', '/api/alma/chat', { text: 'Scrivi a Mario Sconosciuto' });
+  assert.match(notFound.error, /solo ai contatti del CRM/);
+
+  // gruppo programmato domani alle 08:30: chi non ha email si salta, una si toglie con la spunta
+  const tomorrow = new Date(Date.now() + 864e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+  queue.push(toolUse('proponi_email', { criterio: 'clienti senza contatti da 90 giorni', quando: `${tomorrow} 08:30`, email: [
+    { destinatario: `c:${verdi}`, oggetto: 'Aggiornamento', testo: 'Ciao Giulia, un aggiornamento.' },
+    { destinatario: `c:${rossi}`, oggetto: 'Aggiornamento', testo: 'Gentile Dottoressa, un aggiornamento.' },
+    { destinatario: `c:${noMail}`, oggetto: 'Aggiornamento', testo: 'Buongiorno.' }] }), say('Ecco le email.'));
+  const r2 = await D('POST', '/api/alma/chat', { text: 'Manda un aggiornamento ai clienti che non sentiamo da 3 mesi, domani alle 8:30' });
+  let p2 = r2.body.proposals[0];
+  assert.equal(p2.title, '2 email personalizzate');
+  assert.equal(p2.items.length, 2);
+  assert.match(p2.warnings.join(' '), /Non scrivo a: Piero Senzamail \(senza email nel CRM\)/);
+  assert.ok(p2.edit.find(f => f.key === 'escludi').hidden);
+  p2 = (await D('POST', `/api/alma/azioni/${p2.id}/modifica`, { campi: { escludi: '1' } })).body.proposal;
+  assert.equal(p2.title, '1 email personalizzata');
+  assert.deepEqual(p2.items.map(x => x.incluso), [false, true]);
+  const ok2 = await D('POST', `/api/alma/azioni/${p2.id}/conferma`, {});
+  assert.match(ok2.body.reply, /email programmata per .*08:30 \(a Dott\. Elena Rossetti\)/);
+  assert.equal(sentMail.length, 1); // non è ancora partita
+  const list = (await D('GET', '/api/alma/email')).body;
+  assert.equal(list.programmate.length, 1);
+  const em = list.programmate[0];
+  assert.equal(em.email, 'e.rossetti@asl.te.it');
+  // Cambia (oggetto) e Invia ora; solo chi l'ha programmata
+  assert.equal((await D('PATCH', `/api/alma/email/${em.id}`, { oggetto: 'Aggiornamento servizi' })).body.oggetto, 'Aggiornamento servizi');
+  assert.equal((await E('POST', `/api/alma/email/${em.id}/invia-ora`)).status, 404);
+  assert.equal((await D('POST', `/api/alma/email/${em.id}/invia-ora`)).body.stato, 'inviata');
+  assert.equal(sentMail[1].subject, 'Aggiornamento servizi');
+
+  // programmata e poi «Annulla il salvataggio»: non parte più
+  queue.push(toolUse('proponi_email', { quando: `${tomorrow} 09:00`, email: [{ destinatario: `c:${verdi}`, oggetto: 'Promemoria', testo: 'Ciao Giulia.' }] }), say('Ok.'));
+  const r3 = await D('POST', '/api/alma/chat', { text: 'Scrivi a Giulia domani alle 9 per il promemoria' });
+  await D('POST', `/api/alma/azioni/${r3.body.proposals[0].id}/conferma`, {});
+  assert.equal((await D('POST', `/api/alma/azioni/${r3.body.proposals[0].id}/disfa`)).status, 200);
+  assert.equal((await db.query("SELECT status FROM assistant_emails WHERE subject = 'Promemoria'")).rows[0].status, 'annullata');
+
+  // il giro delle programmate: parte all'ora; se Outlook non la prende, errore e avviso nella campanella
+  const later = await D('POST', '/api/alma/email', { items: [{ contact_id: verdi, oggetto: 'Dal giro', testo: 'Ciao.' }], send_at: new Date(Date.now() + 3600e3).toISOString() });
+  assert.equal(later.body.first, 'programmata');
+  await db.query("UPDATE assistant_emails SET send_at = now() - interval '1 minute' WHERE subject = 'Dal giro'");
+  mailFail = 'casella non raggiungibile';
+  await alma.email.tick();
+  mailFail = null;
+  const failed = (await db.query("SELECT status, error FROM assistant_emails WHERE subject = 'Dal giro'")).rows[0];
+  assert.deepEqual([failed.status, failed.error], ['errore', 'casella non raggiungibile']);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM notifications WHERE body LIKE '%«Dal giro»%non è partita%'")).rows[0].n, 1);
+  // l'indirizzo si rilegge sempre dalla scheda del CRM: un indirizzo passato a mano non conta
+  const fake = await D('POST', '/api/alma/email', { items: [{ contact_id: verdi, oggetto: 'x', testo: 'y', to_email: 'altro@esterno.com' }] });
+  assert.equal(fake.status, 201);
+  assert.equal(sentMail[sentMail.length - 1].to, 'g.verdi@provincia.teramo.it');
 });
