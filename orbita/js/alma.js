@@ -100,6 +100,27 @@ function openReceipt(anchor, value, f) {
   setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
 }
 
+function shrink(file, max = 1600) {
+  return new Promise((resolve, reject) => {
+    // FileReader → data: (la CSP della pagina non permette le immagini blob:)
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('foto'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('foto'));
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // ── la chat (pagina e pannello usano la stessa) ────────────────────────────────────────────────────
 // opts: { compact, context(): { route, label } | null, onConversation(id, title), suggestions() }
 function createChat(opts = {}) {
@@ -111,7 +132,36 @@ function createChat(opts = {}) {
   const input = h('textarea.al-input', { rows: 1, placeholder: opts.placeholder || 'Chiedi ad Alma… (progetti, ticket, ore delle RDA, CRM, gare, mezzi)', 'aria-label': 'Domanda per Alma' });
   const sendBtn = h('button.al-send', { type: 'button', 'aria-label': 'Invia' }, ic('send', 16));
   const hint = h('span.al-small.al-muted.al-grow.al-hintkeys', opts.compact ? '' : 'Invio per mandare, Maiusc+Invio per andare a capo');
-  const composer = h('div.al-composer', input, h('div.al-row', hint, sendBtn));
+  // Foto (biglietti da visita): rimpicciolite qui (lato lungo 1600 px, JPEG), al massimo 5; non si salvano.
+  let photos = [];
+  const MAX_PHOTOS = 5;
+  const placeholder = input.placeholder;
+  const photoRow = h('div.al-photos');
+  const pickFile = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+  const takePhoto = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
+  const clipBtn = h('button.al-tool', { type: 'button', title: 'Allega foto (biglietti da visita)', 'aria-label': 'Allega foto' }, ic('paperclip', 16));
+  const camBtn = h('button.btn.btn-sm.btn-primary.al-camera', { type: 'button', 'aria-label': 'Fotografa un biglietto' }, ic('camera', 15), 'Fotografa');
+  clipBtn.addEventListener('click', () => pickFile.click());
+  camBtn.addEventListener('click', () => takePhoto.click());
+  const drawPhotos = () => {
+    fill(photoRow, photos.map((src, i) => h('span.al-photo', h('img', { src, alt: `Foto ${i + 1}` }),
+      h('button', { type: 'button', 'aria-label': 'Togli la foto', on: { click: () => { photos.splice(i, 1); drawPhotos(); } } }, ic('x', 12)))));
+    photoRow.hidden = !photos.length;
+    input.placeholder = photos.length ? 'Dove li hai conosciuti? (facoltativo)' : placeholder;
+  };
+  const addFiles = async files => {
+    for (const f of [...files]) {
+      if (photos.length >= MAX_PHOTOS) { toast(`Al massimo ${MAX_PHOTOS} foto per domanda.`); break; }
+      if (!/^image\//.test(f.type)) { toast('Si possono allegare solo foto.'); continue; }
+      try { photos.push(await shrink(f)); } catch { toast('Questa foto non si riesce ad aprire: prova a fotografarla di nuovo.'); }
+    }
+    drawPhotos();
+    input.focus({ preventScroll: true });
+  };
+  pickFile.addEventListener('change', () => { addFiles(pickFile.files); pickFile.value = ''; });
+  takePhoto.addEventListener('change', () => { addFiles(takePhoto.files); takePhoto.value = ''; });
+  drawPhotos();
+  const composer = h('div.al-composer', photoRow, input, h('div.al-row', camBtn, clipBtn, hint, sendBtn), pickFile, takePhoto);
   const el = h('div.al-chat', { class: opts.compact ? 'compact' : '' }, scroller, composer);
   const scrollDown = () => { scroller.scrollTop = scroller.scrollHeight; };
   const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(160, input.scrollHeight)}px`; };
@@ -136,7 +186,8 @@ function createChat(opts = {}) {
     input.disabled = true; sendBtn.disabled = true;
   }
 
-  const question = text => h('div.al-q', text);
+  const question = (text, foto = []) => h('div.al-qbox', foto.length ? h('div.al-qphotos', foto.map(src => (typeof src === 'string' ? h('img', { src, alt: 'Foto allegata' }) : null)),
+    foto.some(x => typeof x !== 'string') ? h('span.al-small.al-muted', ic('image', 13), `${foto.length} foto (non salvate)`) : null) : null, h('div.al-q', text));
   function answerShell() {
     const steps = h('div.al-steps');
     const body = h('div.al-tx');
@@ -162,6 +213,7 @@ function createChat(opts = {}) {
     const domande = b.domande ? h('div.al-sugg', b.domande.map(d => h('button', { type: 'button', on: { click: () => send(d) } }, d))) : null;
     const props = (m.proposals || []).map(p => proposalCard(p));
     fill(shell.extra, cifre, elenco, props, azioni, domande, footer(m));
+    syncAll(shell.extra);
   }
   function footer(m) {
     if (!m.text) return null;
@@ -195,13 +247,19 @@ function createChat(opts = {}) {
     const box = h('div.al-prop', { 'data-id': p.id });
     const draw = q => {
       p = q;
-      const summary = (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      const card = p.icon === 'id-card'; // biglietto da visita: un campo per riga, come nel canvas V6-Biglietti
+      const summary = card ? '' : (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      const unsure = card ? ((p.warnings || []).join(' ').match(/letti male dalla foto: ([^.]+)/) || [, ''])[1].split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : [];
+      const rows = card ? h('div.al-frows', (p.fields || []).filter(([k]) => k !== 'Persona').map(([k, v]) => h('div.al-frow', { class: unsure.includes(k.toLowerCase()) ? 'unsure' : '' },
+        h('span.al-muted', k), h('span', v), unsure.includes(k.toLowerCase()) ? h('span.al-small.al-unsure', 'da controllare') : null))) : null;
       const head = h('div.al-row', { style: { alignItems: 'flex-start' } }, h('span.al-ib.or', ic(p.icon || 'sparkles', 15)),
         h('div.al-grow', h('div.al-t5', p.title), summary ? h('div.al-small.al-muted', summary) : null,
           (p.changed || []).length ? h('div.al-small.al-chg', `Cambiato: ${p.changed.map(c => `${c.label} (prima ${c.before})`).join(', ')}`) : null,
           p.dai_dati ? h('div.al-small.al-muted', 'Suggerita dai dati: controlla bene.') : null),
         statusPill(p));
-      const warn = (p.warnings || []).length ? h('div.al-warn', p.warnings.map(w => h('div', ic('alert-triangle', 13), w))) : null;
+      box.dataset.open = p.status === 'proposta' && !p.choices ? '1' : '';
+      const warns = (p.warnings || []).filter(w => !(card && /letti male dalla foto/.test(w))); // sul biglietto lo dice già la riga arancione
+      const warn = warns.length ? h('div.al-warn', warns.map(w => h('div', ic('alert-triangle', 13), w))) : null;
       let actions = null;
       if (p.status === 'proposta' && p.choices) {
         actions = h('div.al-choices', h('div.al-small.al-t5', p.choices.question),
@@ -209,14 +267,14 @@ function createChat(opts = {}) {
           h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => act('annulla') } }, 'Annulla'));
       } else if (p.status === 'proposta') {
         actions = h('div.al-row', { style: { gap: '8px' } },
-          h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => act('conferma') } }, ic('check', 15), 'Conferma'),
+          h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => act('conferma', { solo: true }) } }, ic('check', 15), p.title.startsWith('Aggiorna ·') ? 'Aggiorna' : 'Conferma'),
           (p.edit || []).length ? h('button.btn.btn-sm', { type: 'button', on: { click: () => editForm() } }, 'Cambia') : null,
-          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => act('annulla') } }, 'Annulla'));
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => act('annulla', { solo: true }) } }, p.icon === 'id-card' ? (p.title.startsWith('Aggiorna ·') ? 'Lascia così' : 'Salta') : 'Annulla'));
       } else if (p.status === 'fatta') {
         actions = h('div.al-row.al-wrap', { style: { gap: '8px' } }, p.link ? h('a.btn.btn-sm', { href: p.link, on: { click: closePanelOnPhone } }, ic('external', 14), 'Apri') : null,
           p.undo_until ? h('button.btn.btn-sm.btn-ghost', { type: 'button', title: 'Per 10 minuti dal salvataggio', on: { click: () => act('disfa') } }, ic('rotate-ccw', 14), 'Annulla il salvataggio') : null);
       } else if (p.status === 'errore') actions = h('div.al-small.al-bad', p.error);
-      fill(box, head, warn, actions);
+      fill(box, head, rows, warn, actions);
       box.classList.toggle('done', p.status !== 'proposta');
     };
     const editForm = () => {
@@ -243,12 +301,35 @@ function createChat(opts = {}) {
       if (!r) return;
       const mine = (r.proposals || []).find(x => x.id === p.id);
       if (mine) draw(mine);
+      if (box.parentNode) syncAll(box.parentNode);
       if (r.reply) appendNote(r.reply, r.proposals?.filter(x => x.id !== p.id));
     };
     draw(p);
     return box;
   }
+  // Due o più proposte aperte nella stessa risposta → «Conferma tutti (N)» sotto l'ultima.
+  function syncAll(container) {
+    const open = [...container.querySelectorAll(':scope > .al-prop[data-open="1"]')];
+    let bar = container.querySelector(':scope > .al-allbar');
+    if (open.length < 2) { if (bar) bar.remove(); return; }
+    if (!bar) bar = h('div.al-row.al-allbar');
+    const cards = [...container.querySelectorAll(':scope > .al-prop')];
+    cards[cards.length - 1].after(bar);
+    const all = h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async () => {
+      all.disabled = true;
+      const r = await post(`/api/alma/azioni/${open[0].dataset.id}/conferma`, {}).catch(() => null);
+      all.disabled = false;
+      if (!r) return;
+      for (const x of r.proposals || []) { const old = container.querySelector(`:scope > .al-prop[data-id="${x.id}"]`); if (old) old.replaceWith(proposalCard(x)); }
+      syncAll(container);
+      if (r.reply) appendNote(r.reply);
+    } } }, ic('check', 15), `Conferma tutti (${open.length})`);
+    fill(bar, all, h('span.al-small.al-muted', 'niente si salva finché non confermi'));
+  }
   function statusPill(p) {
+    if (p.status === 'proposta' && p.icon === 'id-card') {
+      return p.title.startsWith('Aggiorna ·') ? pill('già nel CRM', '') : p.title.includes('nuova azienda') ? pill('azienda nuova', 'or') : pill('azienda trovata', 'gr');
+    }
     const map = { fatta: ['Salvato', 'gr'], annullata: ['Annullata', ''], superata: ['Sostituita', ''], errore: ['Non salvato', 'rd'], disfatta: ['Tolto dopo il salvataggio', ''] };
     const s = map[p.status];
     return s ? pill(s[0], s[1]) : pill(p.label, 'or');
@@ -261,14 +342,16 @@ function createChat(opts = {}) {
   }
 
   // ── invio con risposta in diretta (Server-Sent Events) ──
-  async function send(textArg, { retry = false } = {}) {
+  async function send(textArg, { retry = false, images = null } = {}) {
     if (busy) return;
-    const text = String(textArg ?? input.value).trim();
+    const imgs = images || (textArg ? [] : photos.slice());
+    const typed = String(textArg ?? input.value).trim();
+    const text = typed || (imgs.length ? (imgs.length === 1 ? 'Crea il contatto da questo biglietto da visita.' : 'Crea i contatti da questi biglietti da visita.') : '');
     if (!text) return;
-    if (!textArg) { input.value = ''; grow(); }
+    if (!textArg) { input.value = ''; grow(); photos = []; drawPhotos(); }
     if (msgs.querySelector('.al-welcome')) clear(msgs);
     lastQuestion = text;
-    if (!retry) msgs.append(question(text));
+    if (!retry) msgs.append(question(text, imgs));
     const shell = answerShell();
     shell.body.append(h('span.al-dots', h('i'), h('i'), h('i')));
     msgs.append(shell.node);
@@ -279,12 +362,12 @@ function createChat(opts = {}) {
     let finished = false;
     const showError = (msg, canRetry = true) => {
       fill(shell.body, h('div.al-err', ic('alert-triangle', 14), msg));
-      if (canRetry) shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true }); } } }, ic('refresh', 14), 'Riprova'));
+      if (canRetry) shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true, images: imgs }); } } }, ic('refresh', 14), 'Riprova'));
     };
     try {
       const res = await fetch('/api/alma/chat/stream', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal,
         headers: { 'Content-Type': 'application/json', 'X-Alma': '1' },
-        body: JSON.stringify({ text, conversation_id: convId || undefined, context: opts.context ? opts.context() : undefined, retry: retry || undefined }) });
+        body: JSON.stringify({ text, conversation_id: convId || undefined, context: opts.context ? opts.context() : undefined, retry: retry || undefined, images: imgs.length ? imgs : undefined }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         showError(data.error || `Errore ${res.status}`, !['daily_limit', 'month_limit', 'not_configured', 'disabled'].includes(data.code));
@@ -302,6 +385,7 @@ function createChat(opts = {}) {
           const old = shell.extra.querySelector(`.al-prop[data-id="${data.proposal.id}"]`);
           const card = proposalCard(data.proposal);
           if (old) old.replaceWith(card); else shell.extra.append(card);
+          syncAll(shell.extra);
           scrollDown();
         } else if (event === 'done') { finished = true; renderAnswer(shell, { ...data, text: data.reply, question: text }); scrollDown(); opts.onConversation?.(convId, data.title, true); }
         else if (event === 'error') { finished = true; showError(data.error, !['daily_limit', 'month_limit'].includes(data.code)); }
@@ -323,7 +407,7 @@ function createChat(opts = {}) {
       if (e.name === 'AbortError') {
         const said = draft.split('```blocchi')[0];
         fill(shell.body, said ? markdown(said, t => h('b', t.replace(/\{f\d+\}/g, ''))) : null, h('div.al-small.al-muted', 'Risposta fermata.'));
-        shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true }); } } }, ic('refresh', 14), 'Riprova'));
+        shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true, images: imgs }); } } }, ic('refresh', 14), 'Riprova'));
       } else showError('Non riesco a raggiungere Alma: controlla la connessione e riprova.');
     } finally { setBusy(null); input.focus({ preventScroll: true }); }
   }
@@ -343,7 +427,7 @@ function createChat(opts = {}) {
     clear(msgs);
     let q = '';
     for (const m of c.messages) {
-      if (m.role === 'user') { q = m.text; msgs.append(question(m.text)); continue; }
+      if (m.role === 'user') { q = m.text; msgs.append(question(m.text, Array.from({ length: m.foto || 0 }, () => null))); continue; }
       const shell = answerShell();
       msgs.append(shell.node);
       renderAnswer(shell, { ...m, question: q });

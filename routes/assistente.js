@@ -32,6 +32,33 @@ const SETTING = 'alma.settings';
 const DEFAULTS = { enabled: true, monthly_eur: 150, daily_eur: 3, actions: true, model_mode: 'auto', usd_eur: 0.92 };
 const MAX_STEPS = 8; // giri di ricerche per una domanda
 const MAX_TEXT = 4000;
+// Foto nella domanda (biglietti da visita, 17/11/2026): al massimo 5, JPEG/PNG/WebP già rimpicciolite dalla pagina.
+// Non si salvano: arrivano al modello solo nei giri di questa domanda; nel messaggio salvato resta «[N foto allegate…]».
+const MAX_IMAGES = 5;
+const MAX_IMAGE_CHARS = 2.5 * 1024 * 1024;
+const IMAGE_RE = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+const PHOTO_MARK = 'foto allegate a questa domanda';
+function imagesOf(body) {
+  const list = Array.isArray(body?.images) ? body.images : [];
+  if (list.length > MAX_IMAGES) throw new HttpError(400, `Al massimo ${MAX_IMAGES} foto per domanda.`);
+  return list.map(x => {
+    const m = typeof x === 'string' && x.length <= MAX_IMAGE_CHARS ? IMAGE_RE.exec(x) : null;
+    if (!m) throw new HttpError(400, 'Una foto non va bene: servono JPEG, PNG o WebP fino a circa 2 MB.');
+    return { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
+  });
+}
+// Le foto vanno nel messaggio della domanda di adesso (quello con il segno «foto allegate…»).
+function withImages(messages, images) {
+  if (!images.length) return messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'user' && Array.isArray(m.content) && m.content.some(b => b.type === 'text' && String(b.text).includes(PHOTO_MARK))) {
+      messages[i] = { ...m, content: [...m.content, ...images] };
+      break;
+    }
+  }
+  return messages;
+}
 const PROPOSAL_TTL_MS = 30 * 60 * 1000; // una proposta non confermata scade dopo 30 minuti
 const MAX_RESULT_CHARS = 14000;
 const STOPPED = 'Fermata da chi chiedeva';
@@ -62,6 +89,7 @@ Come lavori:
 - Le ore registrate in Alma Planet ci sono solo nelle RDA interne (ore stimate, confermate, effettive): se chiedono ore di altro tipo, dillo.
 - Puoi registrare SOLO con gli strumenti «proponi_…» (ticket, nota CRM, prossimo passo CRM, contatto CRM). Non scrivono subito: preparano una scheda che l'utente conferma o annulla. Dopo una proposta dì in una frase cosa hai preparato e che serve la sua conferma: MAI dire che è fatto. Saprai l'esito da un messaggio successivo.
 - Prepara una proposta solo quando chi ti scrive te lo chiede. Se mancano dati obbligatori (titolo, azienda, entro quando), chiedili prima. Più cose dette insieme: chiama tutti i «proponi_…» nella stessa risposta (al massimo 5), arrivano in una sola scheda.
+- Biglietti da visita (foto o dettati): per OGNI biglietto chiama «proponi_biglietto» nella stessa risposta (al massimo 5). Copia nomi, email e numeri esattamente come sono scritti; se un campo non si legge bene mettilo in «incerti» invece di indovinare. Se l'utente dice dove li ha conosciuti, mettilo in «nota» di ognuno. Se nella foto non ci sono biglietti, dillo e chiedi cosa vuole fare.
 - Se l'utente corregge una scheda ancora aperta («la scadenza è lunedì», «assegnalo a Giulia») usa «modifica_proposta». Dopo il salvataggio l'utente ha 10 minuti per «Annulla».
 - Cancellazioni e modifiche a cose già salvate non le fai: indica la pagina dove farle.
 ${CONTESTO.RULE}
@@ -291,7 +319,9 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
     return !!last && last.role === 'user' && last.display === text;
   }
   async function checks(req) {
-    const text = String(req.body?.text || '').trim();
+    const images = imagesOf(req.body);
+    let text = String(req.body?.text || '').trim();
+    if (!text && images.length) text = images.length === 1 ? 'Crea il contatto da questo biglietto da visita.' : 'Crea i contatti da questi biglietti da visita.';
     if (!text) throw new HttpError(400, 'Scrivi una domanda.');
     if (text.length > MAX_TEXT) throw new HttpError(400, `La domanda è troppo lunga (al massimo ${MAX_TEXT} caratteri).`);
     if (!configured()) throw new HttpError(503, admin(req) ? 'Alma è spenta: manca la chiave OPENAI_API_KEY su Railway.' : 'Alma non è ancora attiva.', 'not_configured');
@@ -302,14 +332,14 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
     const mine = (await todayCostUsd(req.user.id)) * s.usd_eur;
     if (mine >= s.daily_eur) throw new HttpError(429, `Per oggi hai usato tutta la tua quota di Alma (${s.daily_eur} €). Puoi tornare a usarla domani dalle 00:00.`, 'daily_limit');
     if (req.body?.conversation_id) await ownConversation(req, req.body.conversation_id);
-    return { text, s };
+    return { text, s, images };
   }
 
   const busy = new Set(); // una risposta alla volta per conversazione
 
   // live (POST /chat/stream): { emit(evento, dati), signal, reason() → 'stop' | 'timeout' }.
   async function chat(req, live = null) {
-    const { text, s } = await checks(req);
+    const { text, s, images } = await checks(req);
     const emit = live ? live.emit : () => {};
     const signal = live ? live.signal : null;
     const reuse = await retrying(req, text);
@@ -334,8 +364,10 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
       const ctx = reuse ? null : await CONTESTO.resolve(CONTESTO.normalize(req.body?.context), getter(req));
       const ctxState = { free: 0, suspicious: 0 };
       if (!reuse) {
-        await addMessage(conv.id, 'user', [...(ctx ? [{ type: 'text', text: CONTESTO.block(ctx, ctxState) }] : []), { type: 'text', text }], text,
-          ctx ? { contesto: { route: ctx.route, label: CONTESTO.label(ctx) } } : null);
+        const photoNote = images.length ? `\n[${images.length} ${PHOTO_MARK}: le vedi solo adesso; i dati che leggi sulle foto valgono come detti dall'utente]` : '';
+        const meta = { ...(ctx ? { contesto: { route: ctx.route, label: CONTESTO.label(ctx) } } : {}), ...(images.length ? { foto: images.length } : {}) };
+        await addMessage(conv.id, 'user', [...(ctx ? [{ type: 'text', text: CONTESTO.block(ctx, ctxState) }] : []), { type: 'text', text: text + photoNote }], text,
+          Object.keys(meta).length ? meta : null);
       }
       // «Sì» / «no» su tutta la scheda aperta, «la seconda» su una scelta, «annulla» subito dopo il salvataggio:
       // si decide subito, senza chiamare Claude.
@@ -364,6 +396,11 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
       // Una proposta passa solo se chi scrive ha chiesto di fare qualcosa: nella frase di adesso se in questo giro sono
       // arrivati testi scritti da altri (note, email, segnali…), altrimenti in una delle sue ultime tre frasi.
       const guardOf = (tool, input) => {
+        // Biglietti dalle foto di chi scrive: mandare le foto è già la richiesta («Fiera Ecomondo» basta), e email e siti
+        // scritti sul biglietto valgono come detti da lui. Se nel giro sono arrivati testi di altri serve un verbo d'azione.
+        if (tool.name === 'proponi_biglietto' && images.length) {
+          return seen.free && !DIFESA.asksAction(text) ? 'Non preparo niente: chi ti scrive non ha chiesto di registrare nulla. Chiedigli se vuole che lo prepari.' : null;
+        }
         if (!seen.free && !said.slice(-3).some(DIFESA.asksAction)) {
           return 'Non preparo niente: chi ti scrive non ha chiesto di registrare nulla. Chiedigli se vuole che lo prepari.';
         }
@@ -379,8 +416,8 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
         }
         return out;
       };
-      let model = CLAUDE.pickModel(text, s.model_mode);
-      if (s.model_mode === 'auto' && route && Date.now() >= routerPausedUntil) {
+      let model = images.length ? CLAUDE.MODELS.sonnet : CLAUDE.pickModel(text, s.model_mode); // le foto le legge il modello più preciso
+      if (!images.length && s.model_mode === 'auto' && route && Date.now() >= routerPausedUntil) {
         const t0 = Date.now();
         try {
           const r = await route(text, prevQuestion);
@@ -426,7 +463,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
           { steps, proposals: await shownProposals(), ...(ricevute ? { ricevute } : {}), ...(b.blocchi ? { blocchi: b.blocchi } : {}) });
       };
       for (let step = 0; step < MAX_STEPS; step++) {
-        const messages = CLAUDE.cacheTail(await history(conv.id));
+        const messages = CLAUDE.cacheTail(withImages(await history(conv.id), images));
         const params = { max_tokens: 8000, system, tools: toolDefs, messages, output_config: { effort: 'medium' }, context_management };
         let response = await ask(params, model);
         // Haiku rifiuta (non ha il fallback lato server): si ripete la stessa richiesta su Sonnet.
@@ -471,7 +508,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
         stopNow();
         if (step === MAX_STEPS - 1) {
           await addMessage(conv.id, 'user', [{ type: 'text', text: 'Fermati qui e rispondi con quello che hai.' }]);
-          const r2 = await ask({ max_tokens: 4000, system, tools: toolDefs, tool_choice: { type: 'none' }, messages: CLAUDE.cacheTail(await history(conv.id)), output_config: { effort: 'low' }, context_management }, model);
+          const r2 = await ask({ max_tokens: 4000, system, tools: toolDefs, tool_choice: { type: 'none' }, messages: CLAUDE.cacheTail(withImages(await history(conv.id), images)), output_config: { effort: 'low' }, context_management }, model);
           const c2 = plainBlocks(r2.content);
           await finish(c2, DIFESA.cleanReply(textOf(c2)) || 'Ci sono volute troppe ricerche: prova a fare una domanda più precisa.');
         }
@@ -547,7 +584,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
     const messages = [];
     for (const m of rows) {
       const meta = m.meta || {};
-      messages.push({ id: m.id, role: m.role, text: m.display, steps: meta.steps || [], proposals: await proposalsById(meta.proposals), created_at: m.created_at,
+      messages.push({ id: m.id, role: m.role, text: m.display, ...(meta.foto ? { foto: meta.foto } : {}), steps: meta.steps || [], proposals: await proposalsById(meta.proposals), created_at: m.created_at,
         ...(meta.stopped ? { stopped: true } : {}), ...(meta.ricevute && meta.ricevute.fonti ? { ricevute: { fonti: meta.ricevute.fonti, numeri: meta.ricevute.numeri } } : {}),
         ...(meta.blocchi ? { blocchi: meta.blocchi } : {}), ...(meta.contesto ? { contesto: meta.contesto } : {}),
         ...(meta.trace_id ? { trace_id: meta.trace_id, rating: ratings.get(meta.trace_id) ?? null } : {}) });
