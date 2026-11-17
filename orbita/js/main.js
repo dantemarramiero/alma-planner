@@ -30,6 +30,7 @@ import { startPwa } from './pwa.js';
 import { notifSettingsView } from './notif-settings.js';
 import { oggiView, lavoroView, inboxView, esploraView, ioView, markPlace, trackRecent, isRoot } from './app2.js';
 import { isMobile } from './ui.js';
+import { almaView, setupAlma } from './alma.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -54,7 +55,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || section === 'alma' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -281,6 +282,9 @@ async function route() {
     case 'crm':
       await crmView(view, parts);
       break;
+    case 'alma': // Alma, l'assistente: chat e (amministratori) impostazioni
+      cleanup = (await almaView(view, parts, params)) || null;
+      break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
@@ -323,6 +327,7 @@ async function start() {
   drawMe();
   setupMobile();
   setupSearch(); // casella di ricerca nella barra laterale, lente sul telefono, «/» e Ctrl+K
+  setupAlma(); // tasto «Alma» in basso a destra: l'assistente da ogni pagina
   document.addEventListener('me-changed', drawMe);
   document.addEventListener('badges-changed', refreshBadges); // es. richiesta di un mezzo appena approvata
   document.getElementById('logout').addEventListener('click', async () => {
