@@ -177,6 +177,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   });
   app.use('/api', (req, res, next) => (['GET', 'HEAD'].includes(req.method) ? apiReads : apiWrites)(req, res, next));
   app.use('/api', audit.middleware);
+  app.use('/api/alma/chat', express.json({ limit: '12mb' })); // Alma: foto dei biglietti da visita (al massimo 5, già rimpicciolite)
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();

@@ -299,3 +299,63 @@ test('nota CRM con due schede dallo stesso nome: Alma chiede quale, poi conferma
   assert.equal((await D('POST', `/api/alma/azioni/${p.id}/disfa`)).status, 200);
   assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM crm_notes WHERE body LIKE 'Il RUP chiede%' AND deleted_at IS NULL")).rows[0].n, 0);
 });
+
+test('biglietti da visita: le foto arrivano al modello e non si salvano; contatto nuovo, azienda nuova, già nel CRM; Conferma su uno, Conferma tutti, Annulla', async () => {
+  await db.query("INSERT INTO crm_subjects (name, kind, roles, asa, city) VALUES ('Terna S.p.A.', 'impresa', '{cliente}', '{}', 'Roma')");
+  const terna = (await db.query("SELECT id FROM crm_subjects WHERE name = 'Terna S.p.A.'")).rows[0].id;
+  const b = await D('POST', '/api/crm/contacts', { first_name: 'Marco', last_name: 'Bianchi', email: 'm.bianchi@snam.it', mobile: '347 551 0021', links: [{ subject_id: terna }] });
+  assert.equal(b.status, 201);
+  const asa = (await db.query('SELECT key, label FROM crm_asa ORDER BY sort LIMIT 1')).rows[0];
+  const img = `data:image/jpeg;base64,${Buffer.from('foto finta del biglietto').toString('base64')}`;
+  let images = 0, mark = '';
+  queue.push(params => {
+    const blocks = params.messages.flatMap(m => (Array.isArray(m.content) ? m.content : []));
+    images = blocks.filter(x => x.type === 'image').length;
+    mark = blocks.filter(x => x.type === 'text').map(x => x.text).join(' ');
+    return { stop_reason: 'tool_use', content: [
+      { type: 'tool_use', id: 'tb1', name: 'proponi_biglietto', input: { titolo: 'Ing.', nome: 'Paolo', cognome: 'Neri', azienda: 'Terna S.p.A.', qualifica: 'Responsabile lavori', email: 'paolo.neri@terna.it', cellulare: '+39 335 618 2290', nota: 'Fiera Ecomondo' } },
+      { type: 'tool_use', id: 'tb2', name: 'proponi_biglietto', input: { titolo: 'Arch.', nome: 'Sara', cognome: 'Conti', azienda: 'Comune di Lanciano', tipo_ente: 'ente_pubblico', email: 's.conti@comune.lanciano.ch.it', bu: asa.key, incerti: ['email'], nota: 'Fiera Ecomondo' } },
+      { type: 'tool_use', id: 'tb3', name: 'proponi_biglietto', input: { nome: 'Marco', cognome: 'Bianchi', azienda: 'Terna S.p.A.', email: 'm.bianchi@snam.it', cellulare: '348 902 7714' } },
+    ] };
+  }, say('Ho letto 3 biglietti: controlla e conferma.'));
+  const r = await D('POST', '/api/alma/chat', { text: 'Fiera Ecomondo', images: [img, img] });
+  assert.equal(r.status, 200);
+  assert.equal(images, 2); // le foto arrivano al modello
+  assert.match(mark, /2 foto allegate/);
+  const saved = (await db.query('SELECT content::text AS c FROM assistant_messages WHERE conversation_id = $1', [r.body.conversation_id])).rows.map(x => x.c).join(' ');
+  assert.ok(!saved.includes(img.split(',')[1]), 'le foto non si salvano');
+  const [neri, conti, bianchi] = r.body.proposals;
+  assert.equal(neri.title, 'Nuovo contatto · Ing. Paolo Neri');
+  assert.ok(neri.fields.some(([k, v]) => k === 'Azienda' && /Terna S\.p\.A\. \(già nel CRM\)/.test(v)));
+  assert.equal(conti.title, 'Nuovo contatto e nuova azienda · Arch. Sara Conti');
+  assert.match(conti.warnings.join(' '), /letti male dalla foto: email/);
+  assert.equal(bianchi.title, 'Aggiorna · Marco Bianchi');
+  assert.ok(bianchi.fields.some(([k, v]) => k === 'Cellulare' && v === '347 551 0021 → 348 902 7714'));
+  // Conferma su uno solo: gli altri restano da confermare
+  const one = await D('POST', `/api/alma/azioni/${neri.id}/conferma`, { solo: true });
+  assert.match(one.body.reply, /Ing\. Paolo Neri aggiunto a «Terna S\.p\.A\.»/);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM crm_contacts WHERE last_name = 'Neri'")).rows[0].n, 1);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM crm_subjects WHERE name = 'Comune di Lanciano'")).rows[0].n, 0);
+  // Conferma tutti: azienda nuova come lead nell'ASA scelta + contatto, cellulare aggiornato
+  const all = await D('POST', `/api/alma/azioni/${conti.id}/conferma`, {});
+  assert.match(all.body.reply, /salvate 2 cose/);
+  const lan = (await db.query("SELECT id, roles, asa, kind, owner_id FROM crm_subjects WHERE name = 'Comune di Lanciano'")).rows[0];
+  assert.deepEqual([lan.roles, lan.asa, lan.kind], [['lead'], [asa.key], 'ente_pubblico']);
+  const sara = (await db.query("SELECT c.email, c.notes, l.subject_id FROM crm_contacts c JOIN crm_contact_links l ON l.contact_id = c.id WHERE c.last_name = 'Conti'")).rows[0];
+  assert.equal(sara.subject_id, lan.id);
+  assert.match(sara.notes, /Fiera Ecomondo/);
+  assert.equal((await db.query("SELECT mobile FROM crm_contacts WHERE last_name = 'Bianchi'")).rows[0].mobile, '348 902 7714');
+  // Annulla (entro 10 minuti): torna tutto com'era
+  assert.equal((await D('POST', `/api/alma/azioni/${bianchi.id}/disfa`)).status, 200);
+  assert.equal((await db.query("SELECT mobile FROM crm_contacts WHERE last_name = 'Bianchi'")).rows[0].mobile, '347 551 0021');
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM crm_subjects WHERE name = 'Comune di Lanciano'")).rows[0].n, 0);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM crm_contacts WHERE last_name IN ('Neri', 'Conti')")).rows[0].n, 0);
+});
+
+test('biglietti: foto sbagliate o troppe vengono rifiutate prima di chiamare il modello', async () => {
+  const before = calls.length;
+  assert.equal((await D('POST', '/api/alma/chat', { text: 'ciao', images: ['data:text/html;base64,PGI+'] })).status, 400);
+  const six = Array.from({ length: 6 }, () => 'data:image/png;base64,AAAA');
+  assert.equal((await D('POST', '/api/alma/chat', { text: 'ciao', images: six })).status, 400);
+  assert.equal(calls.length, before);
+});
