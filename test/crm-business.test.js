@@ -218,4 +218,9 @@ test('win ratio: forza del rapporto sui clienti target e gare vinte/perse in Ana
   assert.equal(a.outcomes.lost, 1);
   assert.equal(a.outcomes.ratio, 50);
   assert.equal(a.outcomes.last.length, 2);
+  // esito collegato all'iniziativa (anche con un committente fuori dai target): precompilato da /esiti/nuovo
+  const pre = (await D('GET', `/api/crm/esiti/nuovo?initiative_id=${id}`)).body;
+  assert.equal(pre.initiative_id, id);
+  assert.equal((await D('POST', '/api/crm/esiti', { result: 'vinta', title: pre.title, initiative_id: id, origin: pre.origin })).status, 201);
+  assert.equal((await D('GET', `/api/crm/business/${id}/analisi`)).body.outcomes.won, 2);
 });
