@@ -76,7 +76,7 @@ function readConfig(env = process.env) {
     // Amministratori dell'intranet (post in evidenza, moderazione): email separate da virgole.
     adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
     // Alma, l'assistente: la chiave di Claude (senza, Alma resta spenta) e la modalità finta per provarla in locale.
-    anthropicKey: env.ANTHROPIC_API_KEY?.trim() || null,
+    openaiKey: env.OPENAI_API_KEY?.trim() || null,
     almaFake: env.ALMA_FAKE === '1',
   };
 }
@@ -228,7 +228,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerWelcome(app, deps); // Alma Planet: dati della nuova pagina di benvenuto (sondaggi, eventi, organigramma, «Grazie a…»)
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
-  const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, anthropicKey: config.anthropicKey, almaFake: config.devLogin && config.almaFake });
+  const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
   registerAudit(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));

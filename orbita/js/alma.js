@@ -334,7 +334,7 @@ function createChat(opts = {}) {
     input.disabled = false; sendBtn.disabled = false;
     if (!status) await loadStatus();
     if (!status) return blocked('Non riesco a raggiungere Alma adesso.');
-    if (!status.configured) return blocked(status.admin ? 'Alma è spenta: manca la chiave ANTHROPIC_API_KEY su Railway.' : 'Alma non è ancora attiva.');
+    if (!status.configured) return blocked(status.admin ? 'Alma è spenta: manca la chiave OPENAI_API_KEY su Railway.' : 'Alma non è ancora attiva.');
     if (!status.enabled) return blocked(status.admin ? 'Alma è spenta. Si riaccende in Impostazioni → Alma.' : 'Alma è spenta in questo momento.');
     if (!convId) return welcome();
     fill(msgs, loading());
@@ -490,13 +490,13 @@ async function settingsView(view) {
     if (r) { toast('Impostazioni di Alma salvate'); status = null; }
   } } }, 'Salva');
   const general = h('section.cv-card.al-setcard', h('div.al-lbl', 'Generale'),
-    !s.configured ? h('div.al-warn', h('div', ic('alert-triangle', 13), 'Manca la chiave ANTHROPIC_API_KEY su Railway: finché non c\'è, Alma resta spenta per tutti.')) : null,
-    s.fake ? h('div.al-warn', h('div', ic('info', 13), 'Modalità finta (solo in locale): Alma risponde senza Claude.')) : null,
+    !s.configured ? h('div.al-warn', h('div', ic('alert-triangle', 13), 'Manca la chiave OPENAI_API_KEY su Railway: finché non c\'è, Alma resta spenta per tutti.')) : null,
+    s.fake ? h('div.al-warn', h('div', ic('info', 13), 'Modalità finta (solo in locale): Alma risponde senza OpenAI.')) : null,
     line('Alma accesa', 'per tutti gli utenti di Alma Planet', on.el),
     line('Quota del mese', 'si ferma da sola quando è finita', h('span.al-eur', monthly, '€')),
     line('Per persona al giorno', null, h('span.al-eur', daily, '€')),
     line('Può preparare ticket, note, passi e contatti', 'sempre da confermare', acts.el),
-    line('Modelli', 'Haiku per le domande semplici, Sonnet per le analisi', mode),
+    line('Modelli', 'Uno veloce per le domande semplici, uno più forte per le analisi', mode),
     h('div.al-row', { style: { marginTop: '12px' } }, save),
     h('p.al-hint', `Questo mese: ${eur(st.month.cost_eur)} · ${st.month.answers} risposte${st.month.avg_cent !== null ? ` · ${String(st.month.avg_cent).replace('.', ',')} cent l'una` : ''} · ${st.month.users} persone`),
     st.by_model.length ? h('p.al-hint', st.by_model.map(m => `${m.label}: ${eur(m.cost_eur)} (${m.calls} chiamate)`).join(' · ')) : null);
