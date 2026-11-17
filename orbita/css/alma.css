@@ -203,3 +203,9 @@ a.al-li:hover .al-t5 { color: var(--cv-orange-d); }
 .al-mlist { display: grid; gap: 12px; margin-top: 8px; }
 .al-mcard { border: 1px solid var(--cv-line); border-radius: 18px; background: var(--cv-card); padding: 14px 16px; display: grid; gap: 8px; overflow-wrap: anywhere; }
 .al-mcard a { color: var(--cv-orange); }
+
+/* Voce (17/11/2026): microfono nel compositore, «Ascolta» nel piede */
+.al-mic.rec { background: var(--cv-orange); color: #fff; animation: al-pulse 1.2s ease-in-out infinite; }
+.al-mictime { color: var(--cv-orange); white-space: nowrap; }
+@keyframes al-pulse { 50% { box-shadow: 0 0 0 6px var(--cv-or-t); } }
+@media (prefers-reduced-motion: reduce) { .al-mic.rec { animation: none; } }

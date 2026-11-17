@@ -25,12 +25,14 @@ const BLOCCHI = require('../lib/assistente-blocchi');
 const DIFESA = require('../lib/assistente-difesa');
 const CONTESTO = require('../lib/assistente-contesto');
 const CLAUDE = require('../lib/assistente-openai');
-const { createAlmaEmail } = require('../lib/assistente-email'); // il modello: OpenAI (Dante 17/11/2026)
+const { createAlmaEmail } = require('../lib/assistente-email');
+const VOCE = require('../lib/assistente-voce');
+const express = require('express'); // il modello: OpenAI (Dante 17/11/2026)
 const { fakeClaude } = require('../lib/assistente-finto');
 
 const BASE = '/api/alma';
 const SETTING = 'alma.settings';
-const DEFAULTS = { enabled: true, monthly_eur: 150, daily_eur: 3, actions: true, model_mode: 'auto', usd_eur: 0.92 };
+const DEFAULTS = { enabled: true, monthly_eur: 150, daily_eur: 3, actions: true, voice: true, model_mode: 'auto', usd_eur: 0.92 };
 const MAX_STEPS = 8; // giri di ricerche per una domanda
 const MAX_TEXT = 4000;
 // Foto nella domanda (biglietti da visita, 17/11/2026): al massimo 5, JPEG/PNG/WebP già rimpicciolite dalla pagina.
@@ -111,7 +113,7 @@ ${BLOCCHI.PROMPT}`;
 // Oggi, l'ora (per programmare le email) e chi scrive (per firmarle).
 const todayBlock = (user = null) => ({ type: 'text', text: `Oggi è ${new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long' })} ${today().split('-').reverse().join('/')}, ore ${new Date().toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' })} (ora italiana).${user && user.name ? ` Ti scrive ${user.name}.` : ''}` });
 
-function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, almaMailer = null, almaMailReader = null, openaiKey = null, almaFake = false }) {
+function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, almaMailer = null, almaMailReader = null, almaTranscriber = null, almaSpeaker = null, openaiKey = null, almaFake = false }) {
   // Email ai contatti del CRM (lib/assistente-email.js): API /api/alma/email e giro ogni minuto per le programmate.
   // in modalità finta (solo locale) le email non partono: si scrivono nel log
   const fakeMailer = almaFake ? async (userId, e) => console.log(`[alma email finta] a ${e.to_email}: ${e.subject}`) : null;
@@ -134,6 +136,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       monthly_eur: Number(s.monthly_eur) > 0 ? Number(s.monthly_eur) : DEFAULTS.monthly_eur,
       daily_eur: Number(s.daily_eur) > 0 ? Number(s.daily_eur) : DEFAULTS.daily_eur,
       actions: s.actions !== false,
+      voice: s.voice !== false,
       model_mode: CLAUDE.MODE_LABELS[s.model_mode] ? s.model_mode : 'auto',
       usd_eur: Number(s.usd_eur) > 0 ? Number(s.usd_eur) : DEFAULTS.usd_eur,
     };
@@ -577,10 +580,45 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
   const adminOnly = req => { if (!admin(req)) throw new HttpError(403, 'Le impostazioni di Alma le gestiscono gli amministratori.'); };
   const r2 = n => Math.round(n * 100) / 100;
 
+  // ── voce (prima parte): dettatura e «Ascolta» (lib/assistente-voce.js) ──
+  let transcribe = almaTranscriber || (a => VOCE.openaiTranscribe(a, openaiKey));
+  let speak = almaSpeaker || (t => VOCE.openaiSpeech(t, openaiKey));
+  const voiceReady = () => Boolean(almaTranscriber || almaSpeaker || openaiKey);
+  async function voiceCheck(req) {
+    const s = await settings();
+    if (!s.enabled) throw new HttpError(403, 'Alma è spenta.', 'disabled');
+    if (!s.voice || !voiceReady()) throw new HttpError(403, 'La voce di Alma è spenta.', 'voice_off');
+    if ((await monthCostUsd()) * s.usd_eur >= s.monthly_eur) throw new HttpError(429, 'Alma ha finito la quota del mese.', 'month_limit');
+    if ((await todayCostUsd(req.user.id)) * s.usd_eur >= s.daily_eur) throw new HttpError(429, 'Per oggi hai usato tutta la tua quota di Alma.', 'daily_limit');
+  }
+  const logVoice = (userId, model, usd) => db.query(`INSERT INTO assistant_usage (user_id, conversation_id, model, input_tokens, output_tokens, cache_read, cache_write, cost_usd, day)
+    VALUES ($1, NULL, $2, 0, 0, 0, 0, $3, $4)`, [userId, model, usd, today()]);
+  // Audio → testo: il corpo è l'audio (Content-Type audio/…), ?secondi= la durata per il costo. L'audio non si salva.
+  app.post(`${BASE}/voce/trascrivi`, express.raw({ type: () => true, limit: VOCE.MAX_AUDIO_BYTES }), async (req, res) => {
+    await voiceCheck(req);
+    const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const ext = VOCE.MIMES[mime];
+    if (!ext) throw new HttpError(415, 'Formato audio non supportato.');
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'Nessun audio ricevuto.');
+    const seconds = Math.min(120, Math.max(1, Number(req.query.secondi) || 10));
+    const text = await transcribe({ buffer: req.body, mime, filename: `voce.${ext}` });
+    await logVoice(req.user.id, VOCE.STT_MODEL, (seconds / 60) * VOCE.STT_USD_PER_MIN);
+    res.json({ text });
+  });
+  // Testo della risposta → mp3 con la voce di Alma (versione «da dire», corta).
+  app.post(`${BASE}/voce/ascolta`, async (req, res) => {
+    await voiceCheck(req);
+    const said = VOCE.speakable(req.body?.text);
+    if (!said) throw new HttpError(400, 'Niente da leggere.');
+    const audio = await speak(said);
+    await logVoice(req.user.id, VOCE.TTS_MODEL, (said.length / 900) * VOCE.TTS_USD_PER_MIN); // ~900 caratteri al minuto
+    res.set('Content-Type', 'audio/mpeg').set('Cache-Control', 'no-store').send(audio);
+  });
+
   app.get(`${BASE}/status`, async (req, res) => {
     const s = await settings();
     const eur = n => r2(n * s.usd_eur);
-    res.json({ configured: configured(), enabled: s.enabled, admin: admin(req), fake: call === fakeClaude, actions: s.actions,
+    res.json({ configured: configured(), enabled: s.enabled, admin: admin(req), fake: call === fakeClaude, actions: s.actions, voce: s.voice && voiceReady(),
       limits: { daily_eur: s.daily_eur, used_today_eur: eur(await todayCostUsd(req.user.id)), month_blocked: (await monthCostUsd()) * s.usd_eur >= s.monthly_eur },
       tools: (await toolsFor(req)).map(t => t.name) });
   });
@@ -662,6 +700,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     const next = { ...before };
     if (b.enabled !== undefined) next.enabled = Boolean(b.enabled);
     if (b.actions !== undefined) next.actions = Boolean(b.actions);
+    if (b.voice !== undefined) next.voice = Boolean(b.voice);
     if (b.model_mode !== undefined) {
       if (!CLAUDE.MODE_LABELS[b.model_mode]) throw new HttpError(400, 'Modelli: auto, sonnet o haiku.');
       next.model_mode = b.model_mode;
@@ -724,6 +763,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
   return {
     setClient: fn => { call = fn || CLAUDE.openaiCall; route = fn ? null : CLAUDE.openaiRoute; routerPausedUntil = 0; }, // solo per i test
     setStreamTimeout: ms => { streamTimeoutMs = ms || 90 * 1000; }, // solo per i test
+    setVoice: (t, s) => { if (t) transcribe = t; if (s) speak = s; }, // solo per i test
     settings, toolsFor, email,
   };
 }
