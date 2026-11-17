@@ -52,6 +52,7 @@ const { createPush } = require('./lib/push');
 const { createAlerts } = require('./lib/alerts');
 const { createTicketMail } = require('./lib/ticket-mail');
 const { registerAlerts } = require('./routes/alerts');
+const { registerAssistente } = require('./routes/assistente');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -74,10 +75,13 @@ function readConfig(env = process.env) {
     devLogin: !production && env.DEV_LOGIN === '1',
     // Amministratori dell'intranet (post in evidenza, moderazione): email separate da virgole.
     adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
+    // Alma, l'assistente: la chiave di Claude (senza, Alma resta spenta) e la modalità finta per provarla in locale.
+    anthropicKey: env.ANTHROPIC_API_KEY?.trim() || null,
+    almaFake: env.ALMA_FAKE === '1',
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, assistantClient, assistantRouter } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -223,6 +227,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto
   registerWelcome(app, deps); // Alma Planet: dati della nuova pagina di benvenuto (sondaggi, eventi, organigramma, «Grazie a…»)
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
+  // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
+  const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, anthropicKey: config.anthropicKey, almaFake: config.devLogin && config.almaFake });
   registerAudit(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
@@ -235,7 +241,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening, crmSync: deps.crmSync };
+  return { app, db, auth, live, audit, alma, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening, crmSync: deps.crmSync };
 }
 
 if (require.main === module) {
