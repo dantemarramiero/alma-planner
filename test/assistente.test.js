@@ -53,11 +53,14 @@ async function stream(cookie, body) {
 let eCookie;
 const sentMail = []; // email «partite» (Outlook finto)
 let mailFail = null;
+const heard = [], spoken = []; // voce finta: audio ricevuti, testi letti
 
 before(async () => {
   db = await createDb({});
   const out = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, crmFetchEvents: async () => [], assistantClient: fakeClaude,
     almaMailer: async (userId, e) => { if (mailFail) throw new Error(mailFail); sentMail.push({ userId, to: e.to_email, subject: e.subject, body: e.body }); },
+    almaTranscriber: async a => { heard.push(a); return 'quanti ticket ho in ritardo?'; },
+    almaSpeaker: async t => { spoken.push(t); return Buffer.from('ID3-mp3-finto'); },
     almaMailReader: async (userId, email) => (email === 'g.verdi@provincia.teramo.it' ? [{ data: '2026-10-02T09:00:00Z', oggetto: 'Sopralluogo', testo: 'Ciao Giulia,\nti mando il verbale.\nUn caro saluto, Dante' }] : []) });
   alma = out.alma;
   server = out.app.listen(0);
@@ -455,4 +458,31 @@ test('email: tono delle email passate, chi ricontattare, email singola subito, g
   const fake = await D('POST', '/api/alma/email', { items: [{ contact_id: verdi, oggetto: 'x', testo: 'y', to_email: 'altro@esterno.com' }] });
   assert.equal(fake.status, 201);
   assert.equal(sentMail[sentMail.length - 1].to, 'g.verdi@provincia.teramo.it');
+});
+
+test('voce: la dettatura manda l\'audio e torna il testo; «Ascolta» legge la versione da dire; voce spenta → 403', async () => {
+  const st = await D('GET', '/api/alma/status');
+  assert.equal(st.body.voce, true);
+  const audio = Buffer.from('webm-audio-finto');
+  const res = await fetch(`${base}/api/alma/voce/trascrivi?secondi=4`, { method: 'POST', headers: { cookie: eCookie, 'X-Alma': '1', 'Content-Type': 'audio/webm;codecs=opus' }, body: audio });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).text, 'quanti ticket ho in ritardo?');
+  assert.equal(heard.at(-1).mime, 'audio/webm');
+  assert.equal(heard.at(-1).buffer.toString(), 'webm-audio-finto');
+  const bad = await fetch(`${base}/api/alma/voce/trascrivi`, { method: 'POST', headers: { cookie: eCookie, 'X-Alma': '1', 'Content-Type': 'text/plain' }, body: 'ciao' });
+  assert.equal(bad.status, 415);
+  // «Ascolta»: niente Markdown, fonti, tabelle o blocchi
+  const tts = await fetch(`${base}/api/alma/voce/ascolta`, { method: 'POST', headers: { cookie: eCookie, 'X-Alma': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Hai **4**{f1} ticket aperti.\n| a | b |\n| 1 | 2 |\n- uno in ritardo\n\n\`\`\`blocchi\n{"domande":["x"]}\n\`\`\`' }) });
+  assert.equal(tts.status, 200);
+  assert.equal(tts.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(spoken.at(-1), 'Hai 4 ticket aperti.. Il dettaglio è nella tabella sullo schermo.. uno in ritardo'.replace(/\.\./g, '.'));
+  const used = (await db.query("SELECT COUNT(*)::int AS n FROM assistant_usage WHERE model IN ('gpt-4o-transcribe', 'gpt-4o-mini-tts')")).rows[0].n;
+  assert.equal(used, 2);
+  // voce spenta dalle impostazioni
+  assert.equal((await D('PUT', '/api/alma/settings', { voice: false })).status, 200);
+  const off = await fetch(`${base}/api/alma/voce/ascolta`, { method: 'POST', headers: { cookie: eCookie, 'X-Alma': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'ciao' }) });
+  assert.equal(off.status, 403);
+  assert.equal((await D('GET', '/api/alma/status')).body.voce, false);
+  await D('PUT', '/api/alma/settings', { voice: true });
 });

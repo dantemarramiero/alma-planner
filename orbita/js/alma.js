@@ -121,6 +121,21 @@ function shrink(file, max = 1600) {
   });
 }
 
+let playing = null; // { audio, btn }
+async function listenTo(text, btn) {
+  if (playing) { playing.audio.pause(); playing.btn.classList.remove('on'); const same = playing.btn === btn; playing = null; if (same) return; }
+  btn.classList.add('on');
+  try {
+    const res = await fetch('/api/alma/voce/ascolta', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Alma': '1' }, body: JSON.stringify({ text }) });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Errore ${res.status}`); }
+    const url = URL.createObjectURL(await res.blob()); // media-src 'self' blob: nella CSP
+    const audio = new Audio(url);
+    playing = { audio, btn };
+    audio.onended = () => { btn.classList.remove('on'); URL.revokeObjectURL(url); if (playing && playing.audio === audio) playing = null; };
+    await audio.play();
+  } catch (e) { btn.classList.remove('on'); playing = null; toast(e.message || 'La voce non è disponibile adesso.'); }
+}
+
 // ── la chat (pagina e pannello usano la stessa) ────────────────────────────────────────────────────
 // opts: { compact, context(): { route, label } | null, onConversation(id, title), suggestions() }
 function createChat(opts = {}) {
@@ -140,6 +155,40 @@ function createChat(opts = {}) {
   const pickFile = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
   const takePhoto = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
   const clipBtn = h('button.al-tool', { type: 'button', title: 'Allega foto (biglietti da visita)', 'aria-label': 'Allega foto' }, ic('paperclip', 16));
+  const micBtn = h('button.al-tool.al-mic', { type: 'button', title: 'Detta la domanda', 'aria-label': 'Detta la domanda', hidden: true }, ic('mic', 16));
+  const micTime = h('span.al-small.al-mictime', { hidden: true });
+  let rec = null;
+  const stopRec = () => { if (rec && rec.state === 'recording') rec.stop(); };
+  micBtn.addEventListener('click', async () => {
+    if (rec && rec.state === 'recording') return stopRec();
+    if (busy) return;
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { toast('Per dettare serve il permesso del microfono.'); return; }
+    const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    const chunks = [];
+    rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const t0 = Date.now();
+    const tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); micTime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} · tocca per mandare`; if (s >= 120) stopRec(); }, 250);
+    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      clearInterval(tick); stream.getTracks().forEach(t => t.stop());
+      micBtn.classList.remove('rec'); micTime.hidden = false; micTime.textContent = 'Trascrivo…';
+      const blob = new Blob(chunks, { type: (rec.mimeType || type || 'audio/webm').split(';')[0] });
+      const secondi = Math.max(1, Math.round((Date.now() - t0) / 1000));
+      try {
+        const res = await fetch(`/api/alma/voce/trascrivi?secondi=${secondi}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': blob.type, 'X-Alma': '1' }, body: blob });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Errore ${res.status}`);
+        const said = String(data.text || '').trim();
+        if (!said) toast('Non ho sentito niente: riprova.');
+        else { input.value = [input.value.trim(), said].filter(Boolean).join(' '); grow(); send(); }
+      } catch (e) { toast(e.message || 'La trascrizione non è riuscita.'); }
+      finally { micTime.hidden = true; rec = null; }
+    };
+    rec.start();
+    micBtn.classList.add('rec'); micTime.hidden = false; micTime.textContent = '0:00 · tocca per mandare';
+  });
+  loadStatus().then(st => { micBtn.hidden = !(st && st.voce && navigator.mediaDevices && window.MediaRecorder); }).catch(() => {});
   const camBtn = h('button.btn.btn-sm.btn-primary.al-camera', { type: 'button', 'aria-label': 'Fotografa un biglietto' }, ic('camera', 15), 'Fotografa');
   clipBtn.addEventListener('click', () => pickFile.click());
   camBtn.addEventListener('click', () => takePhoto.click());
@@ -161,7 +210,7 @@ function createChat(opts = {}) {
   pickFile.addEventListener('change', () => { addFiles(pickFile.files); pickFile.value = ''; });
   takePhoto.addEventListener('change', () => { addFiles(takePhoto.files); takePhoto.value = ''; });
   drawPhotos();
-  const composer = h('div.al-composer', photoRow, input, h('div.al-row', camBtn, clipBtn, hint, sendBtn), pickFile, takePhoto);
+  const composer = h('div.al-composer', photoRow, input, h('div.al-row', camBtn, clipBtn, micBtn, micTime, hint, sendBtn), pickFile, takePhoto);
   const el = h('div.al-chat', { class: opts.compact ? 'compact' : '' }, scroller, composer);
   const scrollDown = () => { scroller.scrollTop = scroller.scrollHeight; };
   const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(160, input.scrollHeight)}px`; };
@@ -239,7 +288,8 @@ function createChat(opts = {}) {
       await navigator.clipboard?.writeText(String(m.text).replace(/\*\*/g, '').replace(/\{f\d+\}/g, '')); toast('Risposta copiata');
     } } }, ic('copy', 15));
     const retry = m.question ? h('button.al-fb', { type: 'button', title: 'Riprova', 'aria-label': 'Riprova', on: { click: () => send(m.question, { retry: false }) } }, ic('refresh', 15)) : null;
-    return h('div.al-foot', copy, retry, m.trace_id ? up : null, m.trace_id ? down : null);
+    const listen = status?.voce ? h('button.al-fb', { type: 'button', title: 'Ascolta', 'aria-label': 'Ascolta la risposta', on: { click: () => listenTo(m.text, listen) } }, ic('volume-2', 15)) : null;
+    return h('div.al-foot', copy, listen, retry, m.trace_id ? up : null, m.trace_id ? down : null);
   }
 
   // ── proposta arancione ──
@@ -658,12 +708,13 @@ async function settingsView(view) {
   const money = v => h('input.input.al-money', { type: 'text', inputmode: 'decimal', value: String(v).replace('.', ',') });
   const on = toggle(s.enabled, null, { 'aria-label': 'Alma accesa' });
   const acts = toggle(s.actions, null, { 'aria-label': 'Può preparare ticket, note e contatti' });
+  const voice = toggle(s.voice, null, { 'aria-label': 'Voce' });
   const monthly = money(s.monthly_eur), daily = money(s.daily_eur);
   const mode = h('select.select', Object.entries(s.modes).map(([k, l]) => h('option', { value: k, selected: k === s.model_mode }, l)));
   const line = (title, sub, ctl) => h('div.al-setrow', h('div.al-grow', h('div.al-t5', title), sub ? h('div.al-small.al-muted', sub) : null), ctl);
   const st = s.stats;
   const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-    const r = await put('/api/alma/settings', { enabled: on.input.checked, actions: acts.input.checked, model_mode: mode.value,
+    const r = await put('/api/alma/settings', { enabled: on.input.checked, actions: acts.input.checked, voice: voice.input.checked, model_mode: mode.value,
       monthly_eur: monthly.value.replace(',', '.'), daily_eur: daily.value.replace(',', '.') }).catch(() => null);
     if (r) { toast('Impostazioni di Alma salvate'); status = null; }
   } } }, 'Salva');
@@ -674,6 +725,7 @@ async function settingsView(view) {
     line('Quota del mese', 'si ferma da sola quando è finita', h('span.al-eur', monthly, '€')),
     line('Per persona al giorno', null, h('span.al-eur', daily, '€')),
     line('Può preparare ticket, note, passi e contatti', 'sempre da confermare', acts.el),
+    line('Voce', 'dettatura con il microfono e «Ascolta» (OpenAI)', voice.el),
     line('Modelli', 'Uno veloce per le domande semplici, uno più forte per le analisi', mode),
     h('div.al-row', { style: { marginTop: '12px' } }, save),
     h('p.al-hint', `Questo mese: ${eur(st.month.cost_eur)} · ${st.month.answers} risposte${st.month.avg_cent !== null ? ` · ${String(st.month.avg_cent).replace('.', ',')} cent l'una` : ''} · ${st.month.users} persone`),
