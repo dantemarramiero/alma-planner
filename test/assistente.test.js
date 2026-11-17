@@ -486,3 +486,57 @@ test('voce: la dettatura manda l\'audio e torna il testo; «Ascolta» legge la v
   assert.equal((await D('GET', '/api/alma/status')).body.voce, false);
   await D('PUT', '/api/alma/settings', { voice: true });
 });
+
+test('grafici: il server disegna dai risultati di una ricerca; errori chiari; «in tabella» senza modello; dashboard tenuta, aggiornata, cambiata e tolta', async () => {
+  const GRAF = require('../lib/assistente-grafici');
+  // build: elenco sbagliato → elenca quelli buoni; torta con troppe voci → barre
+  assert.throws(() => GRAF.build({ progetti: [{ nome: 'A', ticket_totali: 2 }] }, { elenco: 'nope', etichetta: 'nome', valori: ['ticket_totali'] }), /progetti \(campi: nome, ticket_totali\)/);
+  assert.equal(GRAF.build({ r: Array.from({ length: 8 }, (_, i) => ({ n: 'v' + i, x: i })) }, { elenco: 'r', etichetta: 'n', valori: ['x'], tipo: 'torta' }).tipo, 'barre');
+  assert.equal(GRAF.tipoDaTesto('fallo a barre'), 'barre');
+  assert.equal(GRAF.tipoDaTesto('mettilo in tabella per favore'), 'tabella');
+
+  for (const name of ['Grafico Uno', 'Grafico Due']) {
+    const p = await D('POST', '/api/projects', { name });
+    for (let i = 0; i < (name.endsWith('Uno') ? 3 : 1); i++) await D('POST', '/api/tickets', { title: name + ' t' + i, project_id: p.body.id });
+  }
+  let chartResult;
+  queue.push(toolUse('progetti_elenco', { testo: 'Grafico' }), params => {
+    const r = lastResult(params);
+    return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tg1', name: 'grafico', input: { fonte_id: r.fonte_id, elenco: 'progetti', etichetta: 'nome', valori: ['ticket_totali', 'ticket_aperti'], nomi: ['Ticket', 'Aperti'], tipo: 'barre', titolo: 'Ticket per progetto' } }] };
+  }, params => { chartResult = lastResult(params); return say('Grafico Uno ha più ticket.')(); });
+  const r = await D('POST', '/api/alma/chat', { text: 'fammi un grafico dei ticket per progetto' });
+  assert.equal(r.status, 200);
+  assert.equal(chartResult.mostrato, true);
+  assert.equal(r.body.charts.length, 1);
+  const c = r.body.charts[0];
+  assert.equal(c.source, undefined); // la ricerca resta sul server
+  assert.deepEqual(c.serie.map(x => x.nome), ['Ticket', 'Aperti']);
+  const iUno = c.etichette.indexOf('Grafico Uno');
+  assert.equal(c.serie[0].valori[iUno], 3);
+  assert.ok(r.body.message_id);
+  // un fonte_id inventato non disegna niente
+  let bad;
+  queue.push(toolUse('grafico', { fonte_id: 'f99', elenco: 'x', etichetta: 'y', valori: ['z'], titolo: 'no' }), params => { bad = lastResult(params); return say('Ok.')(); });
+  await D('POST', '/api/alma/chat', { conversation_id: r.body.conversation_id, text: 'e un altro grafico?' });
+  assert.match(bad.error, /non è di una ricerca fatta in questa risposta/);
+  // «in tabella»: cambia l'ultimo grafico senza chiamare il modello
+  const before = calls.length;
+  const t = await D('POST', '/api/alma/chat', { conversation_id: r.body.conversation_id, text: 'fallo in tabella' });
+  assert.equal(calls.length, before);
+  assert.equal(t.body.charts[0].tipo, 'tabella');
+  assert.match(t.body.reply, /in tabella/);
+  // dashboard: tieni, aggiorna con i dati di oggi, cambia tipo e titolo, togli; solo chi l'ha tenuto
+  const add = await D('POST', '/api/alma/dashboard', { message_id: r.body.message_id, chart_id: c.id });
+  assert.equal(add.status, 201);
+  assert.equal((await E('POST', '/api/alma/dashboard', { message_id: r.body.message_id, chart_id: c.id })).status, 404);
+  const pUno = (await db.query("SELECT id FROM projects WHERE name = 'Grafico Uno'")).rows[0].id;
+  await D('POST', '/api/tickets', { title: 'Grafico Uno t3', project_id: pUno });
+  const up = await D('POST', '/api/alma/dashboard/' + add.body.id + '/aggiorna');
+  assert.equal(up.body.errore, undefined);
+  assert.equal(up.body.chart.serie[0].valori[up.body.chart.etichette.indexOf('Grafico Uno')], 4);
+  assert.equal((await D('PATCH', '/api/alma/dashboard/' + add.body.id, { tipo: 'linee', titolo: 'Ticket dei progetti grafico' })).body.chart.tipo, 'linee');
+  assert.equal((await D('GET', '/api/alma/dashboard')).body.grafici[0].titolo, 'Ticket dei progetti grafico');
+  assert.equal((await E('DELETE', '/api/alma/dashboard/' + add.body.id)).status, 404);
+  assert.equal((await D('DELETE', '/api/alma/dashboard/' + add.body.id)).status, 200);
+  assert.equal((await D('GET', '/api/alma/dashboard')).body.grafici.length, 0);
+});

@@ -27,6 +27,9 @@ const CONTESTO = require('../lib/assistente-contesto');
 const CLAUDE = require('../lib/assistente-openai');
 const { createAlmaEmail } = require('../lib/assistente-email');
 const VOCE = require('../lib/assistente-voce');
+const GRAF = require('../lib/assistente-grafici');
+// Il grafico come lo vede la pagina: senza la ricerca da cui viene (resta sul server, serve alla dashboard).
+const chartView = ({ source, ...c }) => c;
 const express = require('express'); // il modello: OpenAI (Dante 17/11/2026)
 const { fakeClaude } = require('../lib/assistente-finto');
 
@@ -97,6 +100,7 @@ Come lavori:
 - Biglietti da visita (foto o dettati): per OGNI biglietto chiama «proponi_biglietto» nella stessa risposta (al massimo 5). Copia nomi, email e numeri esattamente come sono scritti; se un campo non si legge bene mettilo in «incerti» invece di indovinare. Se l'utente dice dove li ha conosciuti, mettilo in «nota» di ognuno. Se nella foto non ci sono biglietti, dillo e chiedi cosa vuole fare.
 - Se l'utente corregge una scheda ancora aperta («la scadenza è lunedì», «assegnalo a Giulia») usa «modifica_proposta». Dopo il salvataggio l'utente ha 10 minuti per «Annulla».
 - Cancellazioni e modifiche a cose già salvate non le fai: indica la pagina dove farle.
+- Grafici: quando un confronto, un andamento o una classifica ha 4 o più voci (o l'utente chiede un grafico), dopo la ricerca chiama «grafico» con il fonte_id e i campi dell'elenco; il server lo disegna con i numeri veri. Poi commenta in due frasi cosa si vede, senza ripetere tutti i numeri. L'utente può cambiarlo in barre, linee o tabella e aggiungerlo alla sua dashboard.
 ${CONTESTO.RULE}
 
 Come scrivi:
@@ -392,13 +396,41 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         const traceId = await saveTrace(trace, 'decisa', last?.id);
         return { conversation_id: conv.id, title: conv.title, reply: quick.reply, steps: [], proposals: quick.proposals, trace_id: traceId };
       }
+      // «Fallo a barre», «in tabella»…: si cambia il tipo dell'ultimo grafico, senza chiamare il modello.
+      const newType = req.body?.conversation_id && !images.length ? GRAF.tipoDaTesto(text) : null;
+      if (newType) {
+        const { rows: [lastChart] } = await db.query(`SELECT meta FROM assistant_messages WHERE conversation_id = $1 AND role = 'assistant' AND display IS NOT NULL
+          AND meta ? 'charts' ORDER BY id DESC LIMIT 1`, [conv.id]);
+        if (lastChart) {
+          const charts = lastChart.meta.charts.map(c => ({ ...c, tipo: newType === 'torta' && (c.serie.length > 1 || c.etichette.length > 6) ? 'barre' : newType }));
+          const reply = charts.some(c => c.tipo !== newType) ? 'A torta non si legge bene con tante voci: l\'ho lasciato a barre.' : `Ecco il grafico ${{ barre: 'a barre', linee: 'a linee', tabella: 'in tabella', torta: 'a torta' }[newType]}.`;
+          const id = await addMessage(conv.id, 'assistant', [{ type: 'text', text: reply }], reply, { steps: [], charts });
+          await touchConv(conv.id);
+          const traceId = await saveTrace(trace, 'decisa', id);
+          return { conversation_id: conv.id, title: conv.title, reply, steps: [], proposals: [], trace_id: traceId, message_id: id, charts: charts.map(chartView) };
+        }
+      }
 
       const earlierFonti = await priorFonti(conv.id);
       let nextFonte = earlierFonti.reduce((n, f) => Math.max(n, Number(String(f.id).slice(1)) || 0), 0) + 1;
       const turnFonti = [];
+      const turnOut = new Map(); // fonte_id → { tool, input, out }: i risultati di questa risposta, per i grafici
+      const turnCharts = [];
       const reads = await toolsFor(req);
       const acts = await actionsFor(req, s);
-      const tools = [...reads, ...acts, ...(acts.length ? bozze.TOOLS : [])];
+      const tools = [...reads, ...(reads.length ? [GRAF.TOOL] : []), ...acts, ...(acts.length ? bozze.TOOLS : [])];
+      // Il grafico lo costruisce il server dal risultato di una ricerca di questa risposta (mai numeri scritti dal modello).
+      const makeChart = input => {
+        const src = turnOut.get(String(input?.fonte_id || ''));
+        if (!src) return { error: 'Questo fonte_id non è di una ricerca fatta in questa risposta: rifai la ricerca, poi chiedi il grafico.' };
+        try {
+          const { fonte_id: _f, ...spec } = input;
+          const c = { id: `g${turnCharts.length + 1}`, ...GRAF.build(src.out, spec), source: { tool: src.tool, input: src.input || {}, spec } };
+          turnCharts.push(c);
+          emit('chart', { chart: chartView(c) });
+          return { grafico_id: c.id, mostrato: true, tipo: c.tipo, voci: c.etichette.length, serie: c.serie.map(x => x.nome), ...(c.troncato ? { nota: `mostrate le prime 40 voci su ${c.troncato}` } : {}) };
+        } catch (e) { return { error: e.message }; }
+      };
       const toolDefs = tools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
       if (toolDefs.length) toolDefs[toolDefs.length - 1].cache_control = { type: 'ephemeral' };
       const rules = (await db.query('SELECT text FROM assistant_rules WHERE active ORDER BY id')).rows.map(r => r.text);
@@ -475,7 +507,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         const b = BLOCCHI.split(reply);
         const ricevute = await receiptsFor(conv.id, BLOCCHI.checkText(b.text, b.blocchi), text, [...earlierFonti, ...turnFonti], turnFonti, trace);
         await addMessage(conv.id, 'assistant', content.length ? content : [{ type: 'text', text: reply }], b.text || reply,
-          { steps, proposals: await shownProposals(), ...(ricevute ? { ricevute } : {}), ...(b.blocchi ? { blocchi: b.blocchi } : {}) });
+          { steps, proposals: await shownProposals(), ...(ricevute ? { ricevute } : {}), ...(b.blocchi ? { blocchi: b.blocchi } : {}), ...(turnCharts.length ? { charts: turnCharts } : {}) });
       };
       for (let step = 0; step < MAX_STEPS; step++) {
         const messages = CLAUDE.cacheTail(withImages(await history(conv.id), images));
@@ -509,11 +541,13 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
           } else if (tool && tool.bozza) {
             const p = await bozze.runTool(req, conv.id, tool.name, b.input); out = p.out;
             for (const pr of p.proposals || []) { proposals.push(pr.id); emit('proposal', { proposal: pr }); }
-          } else out = tool ? await runTool(req, tool, b.input) : { error: 'Ricerca non disponibile.' };
+          } else if (tool && tool.grafico) out = makeChart(b.input);
+          else out = tool ? await runTool(req, tool, b.input) : { error: 'Ricerca non disponibile.' };
           traceTool(trace, b.name, Date.now() - t0, out && out.error);
           if (out && !out.error && out.ricevuta) { // fonte_id per Claude, la ricevuta resta per la chat
             const id = `f${nextFonte++}`;
             turnFonti.push({ id, tool_use_id: b.id, ...out.ricevuta });
+            turnOut.set(id, { tool: b.name, input: b.input, out });
             out = { fonte_id: id, ...out };
           }
           if (!(tool && (tool.preview_tool || tool.bozza))) out = DIFESA.wrap(out, seen); // dati, non istruzioni
@@ -533,6 +567,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       const traceId = await saveTrace(trace, 'ok', last?.id);
       const meta = last?.meta || {};
       return { conversation_id: conv.id, title: conv.title, reply: last ? last.display : '', steps: [...new Set(steps)], proposals: await proposalsById(await shownProposals()), trace_id: traceId,
+        message_id: last?.id, ...(meta.charts ? { charts: meta.charts.map(chartView) } : {}),
         ...(meta.ricevute && meta.ricevute.fonti ? { ricevute: { fonti: meta.ricevute.fonti, numeri: meta.ricevute.numeri } } : {}), ...(meta.blocchi ? { blocchi: meta.blocchi } : {}) };
     } catch (e) {
       // Fermata in diretta. Con «Ferma» la parte già scritta resta nella conversazione, segnata come fermata; con il
@@ -615,6 +650,65 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     res.set('Content-Type', 'audio/mpeg').set('Cache-Control', 'no-store').send(audio);
   });
 
+  // ── dashboard di Alma (migrazione 059): grafici tenuti, rifatti con i dati di oggi e i permessi di chi guarda ──
+  const dashView = r => ({ id: r.id, titolo: r.title, chart: { ...r.snapshot, titolo: r.title }, aggiornato: r.refreshed_at, errore: r.refresh_error || undefined });
+  async function ownDash(req) {
+    const { rows: [r] } = await db.query('SELECT * FROM assistant_dashboard WHERE id = $1', [Number(req.params.id) || 0]);
+    if (!r || r.user_id !== req.user.id) throw new HttpError(404, 'Grafico non trovato.');
+    return r;
+  }
+  app.post(`${BASE}/dashboard`, async (req, res) => {
+    const { rows: [m] } = await db.query(`SELECT m.meta FROM assistant_messages m JOIN assistant_conversations c ON c.id = m.conversation_id
+      WHERE m.id = $1 AND c.user_id = $2`, [Number(req.body?.message_id) || 0, req.user.id]);
+    const c = m && Array.isArray(m.meta?.charts) ? m.meta.charts.find(x => x.id === String(req.body?.chart_id || '')) : null;
+    if (!c || !c.source) throw new HttpError(404, 'Grafico non trovato.');
+    const { rows: [n] } = await db.query('SELECT COUNT(*)::int AS n FROM assistant_dashboard WHERE user_id = $1', [req.user.id]);
+    if (n.n >= 24) throw new HttpError(409, 'La dashboard ha già 24 grafici: togline qualcuno.');
+    const { source, ...snapshot } = c;
+    const { rows: [r] } = await db.query(`INSERT INTO assistant_dashboard (user_id, title, tool, tool_input, spec, snapshot, sort)
+      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`, [req.user.id, c.titolo, source.tool, JSON.stringify(source.input || {}), JSON.stringify({ ...source.spec, tipo: c.tipo }), JSON.stringify(snapshot), n.n]);
+    res.status(201).json(dashView(r));
+  });
+  app.get(`${BASE}/dashboard`, async (req, res) => {
+    const { rows } = await db.query('SELECT * FROM assistant_dashboard WHERE user_id = $1 ORDER BY sort, id', [req.user.id]);
+    res.json({ grafici: rows.map(dashView) });
+  });
+  // Rifà la ricerca (stessi permessi di chi guarda: se la ricerca non gli è più permessa, errore) e ricostruisce il grafico.
+  app.post(`${BASE}/dashboard/:id/aggiorna`, async (req, res) => {
+    const r = await ownDash(req);
+    const tool = (await toolsFor(req)).find(t => t.name === r.tool);
+    let snapshot = r.snapshot, error = null;
+    try {
+      if (!tool) throw new Error('Questa ricerca non è più disponibile per te.');
+      const out = await tool.run(r.tool_input || {}, getter(req), ctxOf(req));
+      if (out && out.error) throw new Error(out.error);
+      snapshot = { ...GRAF.build(out, r.spec), id: r.snapshot.id };
+    } catch (e) { error = String(e.message || e).slice(0, 300); }
+    const { rows: [u] } = await db.query(`UPDATE assistant_dashboard SET snapshot = $2, refresh_error = $3, refreshed_at = CASE WHEN $3::text IS NULL THEN now() ELSE refreshed_at END
+      WHERE id = $1 RETURNING *`, [r.id, JSON.stringify(snapshot), error]);
+    res.json(dashView(u));
+  });
+  app.patch(`${BASE}/dashboard/:id`, async (req, res) => {
+    const r = await ownDash(req);
+    const b = req.body || {};
+    const title = b.titolo !== undefined ? String(b.titolo).replace(/\s+/g, ' ').trim().slice(0, 120) : r.title;
+    if (!title) throw new HttpError(400, 'Serve un titolo.');
+    let spec = r.spec, snapshot = r.snapshot;
+    if (b.tipo !== undefined) {
+      if (!GRAF.TIPI.includes(b.tipo)) throw new HttpError(400, 'Tipo: barre, linee, tabella o torta.');
+      spec = { ...spec, tipo: b.tipo };
+      snapshot = { ...snapshot, tipo: b.tipo === 'torta' && (snapshot.serie.length > 1 || snapshot.etichette.length > 6) ? 'barre' : b.tipo };
+    }
+    const { rows: [u] } = await db.query('UPDATE assistant_dashboard SET title = $2, spec = $3, snapshot = $4, sort = COALESCE($5, sort) WHERE id = $1 RETURNING *',
+      [r.id, title, JSON.stringify(spec), JSON.stringify(snapshot), Number.isInteger(b.posizione) ? b.posizione : null]);
+    res.json(dashView(u));
+  });
+  app.delete(`${BASE}/dashboard/:id`, async (req, res) => {
+    const r = await ownDash(req);
+    await db.query('DELETE FROM assistant_dashboard WHERE id = $1', [r.id]);
+    res.json({ ok: true });
+  });
+
   app.get(`${BASE}/status`, async (req, res) => {
     const s = await settings();
     const eur = n => r2(n * s.usd_eur);
@@ -636,7 +730,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       const meta = m.meta || {};
       messages.push({ id: m.id, role: m.role, text: m.display, ...(meta.foto ? { foto: meta.foto } : {}), steps: meta.steps || [], proposals: await proposalsById(meta.proposals), created_at: m.created_at,
         ...(meta.stopped ? { stopped: true } : {}), ...(meta.ricevute && meta.ricevute.fonti ? { ricevute: { fonti: meta.ricevute.fonti, numeri: meta.ricevute.numeri } } : {}),
-        ...(meta.blocchi ? { blocchi: meta.blocchi } : {}), ...(meta.contesto ? { contesto: meta.contesto } : {}),
+        ...(meta.blocchi ? { blocchi: meta.blocchi } : {}), ...(meta.contesto ? { contesto: meta.contesto } : {}), ...(meta.charts ? { charts: meta.charts.map(chartView) } : {}),
         ...(meta.trace_id ? { trace_id: meta.trace_id, rating: ratings.get(meta.trace_id) ?? null } : {}) });
     }
     res.json({ id: c.id, title: c.title, messages });

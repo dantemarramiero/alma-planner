@@ -136,6 +136,117 @@ async function listenTo(text, btn) {
   } catch (e) { btn.classList.remove('on'); playing = null; toast(e.message || 'La voce non è disponibile adesso.'); }
 }
 
+// ── grafici (canvas V5-Alma): barre, linee, tabella, torta; «Aggiungi alla dashboard»; Excel ──
+const SERIE_COLORS = ['var(--cv-orange)', 'var(--cv-ink)', 'var(--cv-or-mid)', 'var(--cv-muted)'];
+const TIPO_LABEL = { barre: 'Barre', linee: 'Linee', tabella: 'Tabella', torta: 'Torta' };
+const SVGNS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs = {}, ...kids) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) el.setAttribute(k, String(v));
+  for (const k of kids.flat()) if (k != null) el.append(typeof k === 'string' ? document.createTextNode(k) : k);
+  return el;
+}
+function fmtVal(v, unita, short = false) {
+  if (v === null || v === undefined) return '—';
+  const n = Number(v);
+  let s;
+  if (short && Math.abs(n) >= 1e6) s = (n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' M';
+  else if (short && Math.abs(n) >= 1e4) s = (n / 1e3).toLocaleString('it-IT', { maximumFractionDigits: 0 }) + ' k';
+  else s = n.toLocaleString('it-IT', { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
+  return unita === '€' ? '€ ' + s : unita === '%' ? s + '%' : unita === 'ore' ? s + ' h' : s;
+}
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  return [1, 2, 2.5, 5, 10].map(m => m * p).find(x => x >= v) || v;
+}
+function drawChart(c) {
+  const narrow = window.innerWidth < 600; // sul telefono un riquadro più stretto: le scritte dell'asse restano leggibili
+  const W = narrow ? 360 : 640, H = narrow ? 230 : 240, L = narrow ? 44 : 56, R = 10, T = 12, B = 34;
+  const n = c.etichette.length, pw = W - L - R, ph = H - T - B;
+  const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'al-chart-svg', role: 'img', 'aria-label': c.titolo });
+  if (c.tipo === 'torta') {
+    const vals = c.serie[0].valori.map(v => Math.max(0, Number(v) || 0));
+    const tot = vals.reduce((a, b) => a + b, 0) || 1;
+    let a0 = -Math.PI / 2;
+    const cx = W / 2, cy = H / 2, r = 96;
+    vals.forEach((v, i) => {
+      const a1 = a0 + (v / tot) * Math.PI * 2;
+      const big = a1 - a0 > Math.PI ? 1 : 0;
+      const d = v >= tot ? 'M ' + cx + ' ' + (cy - r) + ' A ' + r + ' ' + r + ' 0 1 1 ' + (cx - 0.01) + ' ' + (cy - r) + ' Z'
+        : 'M ' + cx + ' ' + cy + ' L ' + (cx + r * Math.cos(a0)) + ' ' + (cy + r * Math.sin(a0)) + ' A ' + r + ' ' + r + ' 0 ' + big + ' 1 ' + (cx + r * Math.cos(a1)) + ' ' + (cy + r * Math.sin(a1)) + ' Z';
+      svg.append(sv('path', { d, style: 'fill:' + ['var(--cv-orange)', 'var(--cv-ink)', 'var(--cv-or-mid)', 'var(--cv-muted)', 'var(--cv-line-strong)', 'var(--cv-or-t)'][i % 6], stroke: 'var(--cv-card)', 'stroke-width': 2 },
+        sv('title', {}, c.etichette[i] + ': ' + fmtVal(v, c.unita) + ' (' + Math.round(v / tot * 100) + '%)')));
+      a0 = a1;
+    });
+    return svg;
+  }
+  const all = c.serie.flatMap(s => s.valori).filter(v => v !== null && v !== undefined).map(Number);
+  const top = niceMax(Math.max(0, ...all)), bot = Math.min(0, ...all);
+  const y = v => T + ph - ((Number(v) - bot) / (top - bot || 1)) * ph;
+  // righe della griglia: con numeri interi tacche intere (5 → 0,1,2,3,4,5 invece di 1,3 e 3,8)
+  const ints = all.every(v => Number.isInteger(v));
+  const span = top - bot;
+  const ticks = ints && span <= 10 ? Math.max(1, span) : [4, 5, 3].find(k => Number.isInteger(span / k) || !ints) || 4;
+  for (let i = 0; i <= ticks; i++) {
+    const v = bot + (span * i) / ticks;
+    svg.append(sv('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'al-grid' }), sv('text', { x: L - 6, y: y(v) + 4, class: 'al-ax', 'text-anchor': 'end' }, fmtVal(v, c.unita, true)));
+  }
+  const step = pw / Math.max(1, n);
+  const every = Math.max(1, Math.ceil(n / (narrow ? 6 : 12)));
+  c.etichette.forEach((l, i) => { if (i % every === 0) svg.append(sv('text', { x: L + step * i + step / 2, y: H - 12, class: 'al-ax', 'text-anchor': 'middle' }, l.length > 11 ? l.slice(0, 10) + '…' : l)); });
+  if (c.tipo === 'linee') {
+    c.serie.forEach((s, k) => {
+      const pts = s.valori.map((v, i) => (v === null || v === undefined ? null : [L + step * i + step / 2, y(v)])).filter(Boolean);
+      svg.append(sv('polyline', { points: pts.map(p => p.join(',')).join(' '), fill: 'none', style: 'stroke:' + SERIE_COLORS[k], 'stroke-width': 2.5, 'stroke-linejoin': 'round' }));
+      s.valori.forEach((v, i) => { if (v !== null && v !== undefined) svg.append(sv('circle', { cx: L + step * i + step / 2, cy: y(v), r: 3.5, style: 'fill:' + SERIE_COLORS[k] }, sv('title', {}, c.etichette[i] + ' · ' + s.nome + ': ' + fmtVal(v, c.unita)))); });
+    });
+  } else {
+    const bw = Math.min(28, (step * 0.78) / c.serie.length);
+    c.serie.forEach((s, k) => s.valori.forEach((v, i) => {
+      if (v === null || v === undefined) return;
+      const x = L + step * i + (step - bw * c.serie.length) / 2 + bw * k;
+      const y0 = y(Math.max(0, bot)), y1 = y(v);
+      svg.append(sv('rect', { x, y: Math.min(y0, y1), width: Math.max(1, bw - 2), height: Math.max(1, Math.abs(y0 - y1)), rx: 3, style: 'fill:' + SERIE_COLORS[k] }, sv('title', {}, c.etichette[i] + ' · ' + s.nome + ': ' + fmtVal(v, c.unita))));
+    }));
+  }
+  return svg;
+}
+function chartTable(c) {
+  return h('div.al-ctable-wrap', h('table.al-ctable', h('thead', h('tr', h('th', ''), c.serie.map(s => h('th', s.nome)))),
+    h('tbody', c.etichette.map((l, i) => h('tr', h('td', l), c.serie.map(s => h('td', fmtVal(s.valori[i], c.unita))))))));
+}
+function chartCsv(c) {
+  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const num = v => (v === null || v === undefined ? '' : String(v).replace('.', ','));
+  const rows = [[q(''), ...c.serie.map(s => q(s.nome))].join(';'), ...c.etichette.map((l, i) => [q(l), ...c.serie.map(s => num(s.valori[i]))].join(';'))];
+  const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: (c.titolo || 'grafico').replace(/[^\w\- àèéìòù]+/gi, '').trim().slice(0, 60) + '.csv' });
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+// opts: { messageId } per «Aggiungi alla dashboard»; { onType, actions } per la dashboard.
+function chartEl(c, opts = {}) {
+  let cur = { ...c };
+  const box = h('section.al-chart');
+  const tipi = ['barre', 'linee', 'tabella', ...(c.serie.length === 1 && c.etichette.length <= 6 ? ['torta'] : [])];
+  const draw = () => {
+    const seg = h('div.al-seg', tipi.map(t => h('button', { type: 'button', class: t === cur.tipo ? 'on' : '', on: { click: () => { cur = { ...cur, tipo: t }; draw(); opts.onType?.(t); } } }, TIPO_LABEL[t])));
+    const legend = cur.tipo !== 'tabella' && (cur.serie.length > 1 || cur.tipo === 'torta')
+      ? h('div.al-legend', (cur.tipo === 'torta' ? cur.etichette : cur.serie.map(s => s.nome)).map((nm, i) => h('span', h('i', { style: { background: (cur.tipo === 'torta' ? ['var(--cv-orange)', 'var(--cv-ink)', 'var(--cv-or-mid)', 'var(--cv-muted)', 'var(--cv-line-strong)', 'var(--cv-or-t)'] : SERIE_COLORS)[i % 6] } }), nm))) : null;
+    const add = opts.messageId && c.id ? h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: async () => {
+      const r = await post('/api/alma/dashboard', { message_id: opts.messageId, chart_id: c.id }).catch(() => null);
+      if (r) toast('Aggiunto alla tua dashboard di Alma');
+    } } }, ic('plus', 14), 'Aggiungi alla dashboard') : null;
+    const xls = h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => chartCsv(cur) } }, ic('download', 14), 'Excel');
+    fill(box, h('div.al-row.al-chead', h('span.al-t5.al-grow', cur.titolo), seg),
+      cur.tipo === 'tabella' ? chartTable(cur) : drawChart(cur), legend,
+      cur.troncato ? h('div.al-small.al-muted', 'Mostrate le prime 40 voci su ' + cur.troncato + '.') : null,
+      h('div.al-row.al-wrap', { style: { gap: '8px' } }, add, xls, ...(opts.actions || [])));
+  };
+  draw();
+  return box;
+}
+
 // ── la chat (pagina e pannello usano la stessa) ────────────────────────────────────────────────────
 // opts: { compact, context(): { route, label } | null, onConversation(id, title), suggestions() }
 function createChat(opts = {}) {
@@ -261,7 +372,8 @@ function createChat(opts = {}) {
       : h('button.btn.btn-sm', { type: 'button', on: { click: () => send(a.chiedi) } }, ic('plus', 14), a.testo)))) : null;
     const domande = b.domande ? h('div.al-sugg', b.domande.map(d => h('button', { type: 'button', on: { click: () => send(d) } }, d))) : null;
     const props = (m.proposals || []).map(p => proposalCard(p));
-    fill(shell.extra, cifre, elenco, props, azioni, domande, footer(m));
+    const charts = (m.charts || []).map(c => chartEl(c, { messageId: m.message_id || m.id }));
+    fill(shell.extra, cifre, charts, elenco, props, azioni, domande, footer(m));
     syncAll(shell.extra);
   }
   function footer(m) {
@@ -475,6 +587,7 @@ function createChat(opts = {}) {
         else if (event === 'step') shell.steps.append(stepChip(data.label));
         else if (event === 'delta') { draft += data.text; fill(shell.body, markdown(draft.split('```blocchi')[0], t => h('b', t.replace(/\{f\d+\}/g, '')))); scrollDown(); }
         else if (event === 'reset') { draft = ''; fill(shell.body, h('span.al-dots', h('i'), h('i'), h('i'))); }
+        else if (event === 'chart') { shell.extra.append(chartEl(data.chart)); scrollDown(); }
         else if (event === 'proposal') {
           const old = shell.extra.querySelector(`.al-prop[data-id="${data.proposal.id}"]`);
           const card = proposalCard(data.proposal);
@@ -529,6 +642,33 @@ function createChat(opts = {}) {
     scrollDown();
   }
   return { el, open, send, focus: () => input.focus(), get id() { return convId; }, get lastQuestion() { return lastQuestion; } };
+}
+
+// ── pagina #/alma/dashboard: i grafici tenuti, rifatti con i dati di oggi (canvas V5-Alma) ─────────────────
+async function dashboardView(view) {
+  document.body.classList.remove('on-alma');
+  const grid = h('div.al-dgrid');
+  fill(view, h('div.al-epage.al-dpage',
+    h('div.cv-top', h('div', h('div.cv-eyebrow', 'Alma'), h('h1.cv-h1', 'Dashboard di Alma'),
+      h('p.cv-sub', 'I grafici che hai tenuto dalle risposte di Alma. Si rifanno con i dati di oggi ogni volta che apri la pagina. La vedi solo tu.')),
+      h('div.cv-top-r', h('a.btn', { href: '#/alma' }, ic('sparkles', 15), 'Chiedi ad Alma'))),
+    grid));
+  fill(grid, loading());
+  const { grafici = [] } = await get('/api/alma/dashboard');
+  if (!grafici.length) return fill(grid, emptyState('bar-chart-3', 'Ancora nessun grafico. Chiedi ad Alma, per esempio «win ratio per BU in un grafico», poi «Aggiungi alla dashboard».'));
+  const card = g => {
+    const wrap = h('div.al-dcard');
+    const paint = x => {
+      const when = h('span.al-small.al-muted', x.errore ? 'Non aggiornato: ' + x.errore : 'aggiornato ' + fmtDateTime(x.aggiornato));
+      const rename = h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: async () => { const t = await promptDialog('Titolo del grafico', { value: x.titolo, ok: 'Salva' }); if (t) { const r = await patch('/api/alma/dashboard/' + x.id, { titolo: t }).catch(() => null); if (r) paint(r); } } } }, 'Rinomina');
+      const remove = h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: async () => { if (await confirmDialog('Togliere questo grafico dalla dashboard?', { ok: 'Togli' })) { await del('/api/alma/dashboard/' + x.id); wrap.remove(); } } } }, 'Togli');
+      fill(wrap, chartEl(x.chart, { onType: t => patch('/api/alma/dashboard/' + x.id, { tipo: t }).catch(() => {}), actions: [rename, remove] }), when);
+    };
+    paint(g);
+    post('/api/alma/dashboard/' + g.id + '/aggiorna', {}).then(paint).catch(() => {});
+    return wrap;
+  };
+  fill(grid, grafici.map(card));
 }
 
 // ── pagina #/alma/email: email programmate e inviate da Alma (canvas V7-Email) ─────────────────────────────
@@ -595,11 +735,13 @@ export async function almaView(view, parts = [], params = new URLSearchParams())
   await loadStatus();
   if (parts[1] === 'impostazioni') return settingsView(view);
   if (parts[1] === 'email') return emailView(view);
+  if (parts[1] === 'dashboard') return dashboardView(view);
   document.body.classList.add('on-alma');
   const list = h('div.al-convlist');
   const side = h('aside.al-conv',
     h('button.btn.btn-primary.al-new', { type: 'button', on: { click: () => { chat.open(null); history.replaceState(null, '', '#/alma'); drawList(); if (isMobile()) side.classList.remove('open'); } } }, ic('plus', 15), 'Nuova conversazione'),
     list,
+    h('a.al-setlink', { href: '#/alma/dashboard' }, ic('layout-dashboard', 15), 'Dashboard di Alma'),
     h('a.al-setlink', { href: '#/alma/email' }, ic('mail', 15), 'Email di Alma'),
     status?.admin ? h('a.al-setlink', { href: '#/alma/impostazioni' }, ic('settings', 15), 'Impostazioni di Alma') : null);
   const chat = createChat({
