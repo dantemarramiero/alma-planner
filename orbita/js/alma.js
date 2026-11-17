@@ -9,6 +9,7 @@ import { h, fill, clear, toast, loading, confirmDialog, promptDialog, isMobile, 
 import { get, post, put, patch, del } from './api.js';
 import { icon } from './icons.js';
 import { pill, toggle, seg, emptyState } from './crm-v2.js';
+import { openVoice, voiceSupported } from './alma-voce.js';
 
 const ic = (name, size = 16) => icon(name, { size });
 const ava = (size = 36) => h('span.al-ava', { style: { width: `${size}px`, height: `${size}px` }, 'aria-hidden': 'true' }, ic('sparkles', Math.round(size / 2)));
@@ -299,7 +300,12 @@ function createChat(opts = {}) {
     rec.start();
     micBtn.classList.add('rec'); micTime.hidden = false; micTime.textContent = '0:00 · tocca per mandare';
   });
-  loadStatus().then(st => { micBtn.hidden = !(st && st.voce && navigator.mediaDevices && window.MediaRecorder); }).catch(() => {});
+  // Modalità voce in tempo reale: si parla e Alma risponde a voce; alla chiusura la conversazione si apre nella chat.
+  const liveBtn = h('button.al-tool.al-live', { type: 'button', title: 'Parla con Alma (modalità voce)', 'aria-label': 'Parla con Alma', hidden: true, on: { click: () => {
+    if (busy) return;
+    openVoice({ chatId: convId, onClose: id => { if (id) { open(id); opts.onConversation?.(id, 'Conversazione a voce', true); } } });
+  } } }, ic('audio-lines', 16));
+  loadStatus().then(st => { micBtn.hidden = !(st && st.voce && navigator.mediaDevices && window.MediaRecorder); liveBtn.hidden = !(st && st.voce_live && voiceSupported()); }).catch(() => {});
   const camBtn = h('button.btn.btn-sm.btn-primary.al-camera', { type: 'button', 'aria-label': 'Fotografa un biglietto' }, ic('camera', 15), 'Fotografa');
   clipBtn.addEventListener('click', () => pickFile.click());
   camBtn.addEventListener('click', () => takePhoto.click());
@@ -321,7 +327,7 @@ function createChat(opts = {}) {
   pickFile.addEventListener('change', () => { addFiles(pickFile.files); pickFile.value = ''; });
   takePhoto.addEventListener('change', () => { addFiles(takePhoto.files); takePhoto.value = ''; });
   drawPhotos();
-  const composer = h('div.al-composer', photoRow, input, h('div.al-row', camBtn, clipBtn, micBtn, micTime, hint, sendBtn), pickFile, takePhoto);
+  const composer = h('div.al-composer', photoRow, input, h('div.al-row', camBtn, clipBtn, micBtn, liveBtn, micTime, hint, sendBtn), pickFile, takePhoto);
   const el = h('div.al-chat', { class: opts.compact ? 'compact' : '' }, scroller, composer);
   const scrollDown = () => { scroller.scrollTop = scroller.scrollHeight; };
   const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(160, input.scrollHeight)}px`; };

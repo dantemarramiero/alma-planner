@@ -117,7 +117,7 @@ ${BLOCCHI.PROMPT}`;
 // Oggi, l'ora (per programmare le email) e chi scrive (per firmarle).
 const todayBlock = (user = null) => ({ type: 'text', text: `Oggi è ${new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long' })} ${today().split('-').reverse().join('/')}, ore ${new Date().toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' })} (ora italiana).${user && user.name ? ` Ti scrive ${user.name}.` : ''}` });
 
-function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, almaMailer = null, almaMailReader = null, almaTranscriber = null, almaSpeaker = null, openaiKey = null, almaFake = false }) {
+function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, almaMailer = null, almaMailReader = null, almaTranscriber = null, almaSpeaker = null, almaRealtime = null, openaiKey = null, almaFake = false }) {
   // Email ai contatti del CRM (lib/assistente-email.js): API /api/alma/email e giro ogni minuto per le programmate.
   // in modalità finta (solo locale) le email non partono: si scrivono nel log
   const fakeMailer = almaFake ? async (userId, e) => console.log(`[alma email finta] a ${e.to_email}: ${e.subject}`) : null;
@@ -650,6 +650,148 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     res.set('Content-Type', 'audio/mpeg').set('Cache-Control', 'no-store').send(audio);
   });
 
+  // ── voce in tempo reale (migrazione 060, lib/assistente-voce-live.js): come la modalità voce di Bacco ──
+  const VOICE_MODEL = process.env.OPENAI_ALMA_VOICE_MODEL || 'gpt-realtime-2.1-mini';
+  const VOICE_USD_PER_MIN = 0.03;
+  const rt = almaRealtime || {
+    secret: async session => {
+      const r = await fetch('https://api.openai.com/v1/realtime/client_secrets', { method: 'POST', headers: { authorization: `Bearer ${openaiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ expires_after: { anchor: 'created_at', seconds: 120 }, session }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 401) throw new HttpError(503, 'La chiave OpenAI (OPENAI_API_KEY) non è valida.');
+      if (!r.ok) throw new HttpError(502, `La voce in tempo reale non si è avviata (${r.status}${d.error?.message ? `: ${d.error.message}` : ''}).`);
+      return { value: d.value || d.client_secret?.value, expires_at: d.expires_at || d.client_secret?.expires_at };
+    },
+    connect: async (sdp, secret) => {
+      const r = await fetch('https://api.openai.com/v1/realtime/calls', { method: 'POST', body: sdp, headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/sdp' } });
+      if (!r.ok) throw new HttpError(502, `Collegamento alla voce rifiutato (${r.status}).`);
+      return { sdp: await r.text(), call_id: ((r.headers.get('location') || '').match(/calls\/([^/?]+)/) || [])[1] || null };
+    },
+    hangup: async callId => { if (callId && openaiKey) await fetch(`https://api.openai.com/v1/realtime/calls/${encodeURIComponent(callId)}/hangup`, { method: 'POST', headers: { authorization: `Bearer ${openaiKey}` } }).catch(() => {}); },
+  };
+  const V = require('../lib/assistente-voce-live')({ db, HttpError, model: VOICE_MODEL, usdPerMin: VOICE_USD_PER_MIN, maxMinutes: 15, today, addMessage,
+    connect: (sdp, secret) => rt.connect(sdp, secret), hangup: id => rt.hangup(id),
+    quota: async req => { const s = await settings(); return { month_left_usd: s.monthly_eur / s.usd_eur - await monthCostUsd(), user_left_usd: s.daily_eur / s.usd_eur - await todayCostUsd(req.user.id) }; } });
+  if (!process.env.NODE_TEST_CONTEXT) V.start();
+  const voiceSeen = new Map(); // conversazione → testi liberi visti dopo l'ultima frase dell'utente (difesa)
+  const CONFIRM_TOOLS = [
+    { type: 'function', name: 'conferma_proposta', description: 'Esegue la scheda aperta: tutte le proposte preparate nell\'ultima risposta (proponi_…). Da chiamare SOLO dopo un sì chiaro dell\'utente.', parameters: { type: 'object', properties: {}, required: [] } },
+    { type: 'function', name: 'annulla_proposta', description: 'Annulla la scheda aperta (non salva niente), se l\'utente dice di no o cambia idea.', parameters: { type: 'object', properties: {}, required: [] } },
+  ];
+  const voiceInstructions = () => `${systemPrompt()}
+
+MODALITÀ VOCE (stai parlando a voce, in tempo reale):
+- Parla SEMPRE e SOLO in italiano. Sei Alma, l'assistente di Almacis: voce calma, chiara e cordiale, professionale, svelta.
+- Frasi brevi e naturali: al massimo due o tre frasi per risposta, poi fermati. Niente elenchi lunghi, tabelle o Markdown: dì i due o tre numeri che contano e offri di continuare («vuoi i dettagli?»).
+- Prima di una ricerca dì una frase breve come «Un attimo che guardo…» e poi chiama lo strumento.
+- Numeri, importi e date in modo parlato («milleduecento euro», «martedì venticinque»).
+- Per registrare qualcosa usa SOLO gli strumenti «proponi_…»: prepara la proposta, riassumila in una frase e chiedi «Confermi?». Chiama «conferma_proposta» SOLO dopo un sì chiaro; con un no o un dubbio chiama «annulla_proposta». Non dire mai che è fatto prima dell'esito di conferma_proposta.
+- Più cose dette insieme: chiama tutti i «proponi_…» nella stessa risposta; conferma_proposta le salva tutte. Correzioni prima del sì: «modifica_proposta». Omonimi: chiedi quale e usa «scegli_opzione».
+- Quando la risposta ha dei numeri presi da una ricerca, chiama anche «mostra_numeri» con i 1–4 numeri chiave e il loro fonte_id: compaiono sullo schermo, tu dilli comunque a voce.
+- La conferma la controlla il server: vale solo un «sì» detto subito dopo la tua domanda, oppure un tocco su Conferma. Se conferma_proposta risponde che il sì non è chiaro, chiedi di nuovo; non dire mai che è salvato.
+- Se l'utente ti interrompe, fermati e ascolta.`;
+  app.post(`${BASE}/voce/sessione`, async (req, res) => {
+    await voiceCheck(req);
+    const s = await settings();
+    const context = await V.chatContext(req, req.body?.chat_id);
+    const { rows: [c] } = await db.query('INSERT INTO assistant_conversations (user_id, title) VALUES ($1, $2) RETURNING id', [req.user.id, `Conversazione a voce · ${today().split('-').reverse().join('/')}`]);
+    const reads = await toolsFor(req), acts = await actionsFor(req, s);
+    const tools = [...reads, ...acts].map(t => ({ type: 'function', name: t.name, description: t.description, parameters: t.input_schema }));
+    if (acts.length) tools.push(...bozze.TOOLS.map(t => ({ type: 'function', name: t.name, description: t.description, parameters: t.input_schema })), ...CONFIRM_TOOLS);
+    tools.push(V.NUMBERS_TOOL);
+    const rules = (await db.query('SELECT text FROM assistant_rules WHERE active ORDER BY id')).rows.map(r => r.text);
+    const session = { type: 'realtime', model: VOICE_MODEL,
+      instructions: [voiceInstructions(), todayBlock(req.user).text, rules.length ? `Regole della direzione di Almacis (seguile sempre):\n${rules.map(r => `- ${r}`).join('\n')}` : '', context].filter(Boolean).join('\n\n'),
+      audio: { input: { noise_reduction: { type: 'near_field' }, transcription: { model: 'gpt-4o-mini-transcribe', language: 'it' }, turn_detection: { type: 'semantic_vad', eagerness: 'low', interrupt_response: false } },
+        output: { voice: process.env.OPENAI_ALMA_VOICE || 'marin' } },
+      tools, tool_choice: 'auto' };
+    let secret, vs;
+    try { secret = await rt.secret(session); vs = await V.create(req, c.id, secret); } catch (e) { await db.query('DELETE FROM assistant_conversations WHERE id = $1', [c.id]); throw e; }
+    res.json({ conversation_id: c.id, model: VOICE_MODEL, max_seconds: vs.max_seconds, beat_ms: V.BEAT_MS, with_context: !!context });
+  });
+  app.post(`${BASE}/voce/collega`, async (req, res) => res.json(await V.link(await ownConversation(req, req.body?.conversation_id), req.body?.sdp)));
+  app.post(`${BASE}/voce/battito`, async (req, res) => { const conv = await ownConversation(req, req.body?.conversation_id); res.json(V.state(await V.seen(conv.id))); });
+  app.post(`${BASE}/voce/strumento`, async (req, res) => {
+    const conv = await ownConversation(req, req.body?.conversation_id);
+    const name = String(req.body?.name || '');
+    let args = req.body?.arguments;
+    if (typeof args === 'string') { try { args = JSON.parse(args || '{}'); } catch { args = {}; } }
+    args = args && typeof args === 'object' ? args : {};
+    const vrow = await V.seen(conv.id);
+    if (!vrow || vrow.ended_at) return res.json({ output: JSON.stringify({ error: 'La chiamata è finita.' }), voce: V.state(vrow) });
+    const s = await settings();
+    if (name === 'mostra_numeri') {
+      const b = await V.showNumbers(conv.id, args);
+      return res.json({ output: JSON.stringify({ mostrati: b.numeri.length, non_verificati: b.numeri.filter(n => !n.ok).map(n => n.testo) }), numeri: b.numeri, fonti: b.fonti, silent: true });
+    }
+    const acts = await actionsFor(req, s);
+    if (name === 'conferma_proposta' || name === 'annulla_proposta') {
+      let open = await openProposal(conv.id);
+      if (open && proposalExpired(open)) { await expireOpen(conv.id); open = null; }
+      if (!open) return res.json({ output: JSON.stringify({ error: 'Non c\'è nessuna proposta aperta da confermare.' }) });
+      const rows = await bozze.groupRows(open);
+      let yes = null;
+      if (name === 'conferma_proposta') {
+        yes = await V.yesFor(conv.id, rows);
+        if (!yes.ok) {
+          return res.json({ output: JSON.stringify({ error: yes.text ? `Non ho sentito un «sì» chiaro (ho sentito: «${yes.text}»): non ho salvato niente. Chiedi di nuovo se conferma, o di toccare Conferma.` : 'Non ho sentito nessun «sì»: non ho salvato niente. Chiedi se conferma, o di toccare Conferma.' }),
+            proposals: await Promise.all(rows.map(x => proposalView(x))), yes_missing: true });
+        }
+      }
+      let r2;
+      try { r2 = await bozze.settleGroup(req, rows, name === 'conferma_proposta' ? null : []); } catch (e) { return res.json({ output: JSON.stringify({ error: e.message }) }); }
+      if (yes) await V.markConfirmed(rows.map(x => x.id), yes);
+      return res.json({ output: JSON.stringify({ esito: r2.reply }), proposals: await proposalsById(rows.map(x => x.id)) });
+    }
+    if (bozze.TOOLS.some(t => t.name === name)) {
+      if (!acts.length) return res.json({ output: JSON.stringify({ error: 'Non disponibile per il tuo profilo.' }) });
+      const p = await bozze.runTool(req, conv.id, name, args);
+      if ((p.proposals || []).length) await V.pend(conv.id, { proposals: p.proposals.map(x => x.id) });
+      return res.json({ output: resultJson(p.out), proposals: p.proposals || [] });
+    }
+    const tool = [...(await toolsFor(req)), ...acts].find(t => t.name === name);
+    if (!tool) return res.json({ output: JSON.stringify({ error: 'Ricerca non disponibile per il tuo profilo.' }) });
+    const seenV = voiceSeen.get(conv.id) || { free: 0 };
+    let out, proposals = [];
+    if (tool.preview_tool) {
+      const no = DIFESA.guard({ tool, input: args, userTexts: await userTexts(conv.id), ctx: seenV, checkAsk: false, contactsAfterDataOnly: true });
+      if (no) out = { error: no };
+      else {
+        const g = voiceGroups.get(conv.id);
+        const group = g && g.key === String(req.body?.gruppo || '') ? g.group : { id: null, size: 0 };
+        voiceGroups.set(conv.id, { key: String(req.body?.gruppo || ''), group });
+        const p = await bozze.propose(req, conv.id, tool, args, group); out = p.out;
+        if (p.id && seenV.free) await flagFromData(p.id);
+        if (p.id) { proposals = await proposalsById((await bozze.groupRows((await db.query('SELECT * FROM assistant_actions WHERE id = $1', [p.id])).rows[0])).map(x => x.id)); await V.pend(conv.id, { proposals: proposals.map(x => x.id) }); }
+      }
+    } else {
+      out = DIFESA.wrap(await V.addFonte(conv.id, await runTool(req, tool, args)), seenV);
+      voiceSeen.set(conv.id, seenV);
+    }
+    await touchConv(conv.id);
+    res.json({ output: resultJson(out), label: tool.label, proposals });
+  });
+  const voiceGroups = new Map(); // conversazione → { key: id della risposta, group } (le proposte di una risposta insieme)
+  app.post(`${BASE}/voce/trascritto`, async (req, res) => {
+    const conv = await ownConversation(req, req.body?.conversation_id);
+    const role = req.body?.role === 'assistant' ? 'assistant' : 'user';
+    const text = String(req.body?.text || '').trim().slice(0, MAX_TEXT);
+    if (!text) return res.json({ ok: true });
+    const st = await V.line(conv, role, role === 'assistant' ? DIFESA.cleanReply(text) : text);
+    if (role === 'user') voiceSeen.delete(conv.id);
+    await touchConv(conv.id);
+    res.json({ ok: true, voce: st });
+  });
+  app.post(`${BASE}/voce/fine`, async (req, res) => {
+    const conv = await ownConversation(req, req.body?.conversation_id);
+    const row = await V.sessionOf(conv.id);
+    const closed = row ? await V.close(row.id, 'fine') : null;
+    const { rows: [n] } = await db.query('SELECT COUNT(*)::int AS n FROM assistant_messages WHERE conversation_id = $1', [conv.id]);
+    if (!n.n) await db.query('DELETE FROM assistant_conversations WHERE id = $1', [conv.id]); // chiamata senza frasi: non resta una conversazione vuota
+    voiceSeen.delete(conv.id); voiceGroups.delete(conv.id);
+    res.json({ ok: true, voce: V.state(closed) });
+  });
+
   // ── dashboard di Alma (migrazione 059): grafici tenuti, rifatti con i dati di oggi e i permessi di chi guarda ──
   const dashView = r => ({ id: r.id, titolo: r.title, chart: { ...r.snapshot, titolo: r.title }, aggiornato: r.refreshed_at, errore: r.refresh_error || undefined });
   async function ownDash(req) {
@@ -712,7 +854,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
   app.get(`${BASE}/status`, async (req, res) => {
     const s = await settings();
     const eur = n => r2(n * s.usd_eur);
-    res.json({ configured: configured(), enabled: s.enabled, admin: admin(req), fake: call === fakeClaude, actions: s.actions, voce: s.voice && voiceReady(),
+    res.json({ configured: configured(), enabled: s.enabled, admin: admin(req), fake: call === fakeClaude, actions: s.actions, voce: s.voice && voiceReady(), voce_live: s.voice && Boolean(almaRealtime || openaiKey),
       limits: { daily_eur: s.daily_eur, used_today_eur: eur(await todayCostUsd(req.user.id)), month_blocked: (await monthCostUsd()) * s.usd_eur >= s.monthly_eur },
       tools: (await toolsFor(req)).map(t => t.name) });
   });
@@ -858,6 +1000,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     setClient: fn => { call = fn || CLAUDE.openaiCall; route = fn ? null : CLAUDE.openaiRoute; routerPausedUntil = 0; }, // solo per i test
     setStreamTimeout: ms => { streamTimeoutMs = ms || 90 * 1000; }, // solo per i test
     setVoice: (t, s) => { if (t) transcribe = t; if (s) speak = s; }, // solo per i test
+    voice: V, // solo per i test
     settings, toolsFor, email,
   };
 }
