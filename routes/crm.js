@@ -144,7 +144,7 @@ function contactFields(b, { partial }) {
   });
 }
 
-function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails = [], radarFetch }) {
+function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails = [], radarFetch, anacFetch }) {
   app.use('/api/crm', (req, _res, next) => {
     crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Accesso richiesto')), next);
   });
@@ -636,7 +636,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
-  commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch }); // prossimi passi, key account, La mia settimana, impostazioni
+  commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 
 module.exports = { registerCrm };

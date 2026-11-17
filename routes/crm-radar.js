@@ -13,7 +13,8 @@ const { relationsFor, pathsOf, relationshipLevel } = require('../lib/crm-relazio
 const { draftTemplate, draftAI, moveFrom } = require('../lib/crm-primo-passo');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
-const KINDS = ['gara', 'opera_finanziata', 'scadenza', 'permesso', 'nuovo_gestore', 'investimento', 'cliente', 'notizia', 'indiscrezione'];
+const KINDS = ['gara', 'opera_finanziata', 'scadenza', 'permesso', 'nuovo_gestore', 'investimento', 'cliente', 'notizia', 'indiscrezione', 'subappalto'];
+const STAGES = ['', 'programmata', 'finanziata', 'progetto', 'determina', 'vinta_altri'];
 
 function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails = [], radarFetch, esiti = null }) {
   const raw = express.raw({ type: () => true, limit: '20mb' });
@@ -44,12 +45,12 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     const { score, parts, why } = scoreSignal(sig, bu ? c.settings.profiles[bu] : null, c.settings.scoring, { relationship, today: todayRome() });
     const { rows: [row] } = await db.query(
       `INSERT INTO crm_signals (source, external_id, kind, bu, title, summary, why, entity, subject_id, amount, region, place, url, published_on, deadline, cig, soa,
-                                score, score_parts, to_gare, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                                score, score_parts, to_gare, created_by, stage, expected_on)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
        ON CONFLICT (source, external_id) WHERE external_id <> '' DO NOTHING RETURNING *`,
       [sig.source, sig.external_id || '', sig.kind || '', bu, sig.title, sig.summary || '', sig.why || why.join(' · '), sig.entity || '', subject?.id || null,
         sig.amount ?? null, sig.region || '', sig.place || '', sig.url || '', sig.published_on || null, sig.deadline || null, sig.cig || '', sig.soa || [],
-        score, JSON.stringify(parts), Boolean(sig.to_gare), userId]);
+        score, JSON.stringify(parts), Boolean(sig.to_gare), userId, STAGES.includes(sig.stage) ? sig.stage : '', sig.expected_on || null]);
     return row || null;
   }
   const SELECT = `SELECT g.*, s.name AS subject_name, s.roles AS subject_roles, a.label AS bu_label, u.name AS decided_by_name
@@ -105,6 +106,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       amount: b.amount === undefined || b.amount === null || b.amount === '' ? null : Number(String(b.amount).replace(/\./g, '').replace(',', '.')),
       url: v.text(b.url, 'Link', { max: 500 }) || '', deadline: v.date(b.deadline || null, 'Quando'), region: v.text(b.region, 'Regione', { max: 60 }) || '',
       soa: Array.isArray(b.soa) ? b.soa.map(String).slice(0, 20) : [], to_gare: Boolean(b.to_gare),
+      cig: (v.text(b.cig, 'CIG', { max: 20 }) || '').toUpperCase(), stage: b.stage ? v.oneOf(b.stage, 'Fase', STAGES.filter(Boolean)) : '', expected_on: v.date(b.expected_on || null, 'Bando atteso'),
     };
     if (sig.amount !== null && !Number.isFinite(sig.amount)) throw new HttpError(400, 'L\'importo non è valido');
     if (sig.url && !/^https?:\/\//i.test(sig.url)) throw new HttpError(400, 'Il link deve iniziare con http');
@@ -411,6 +413,14 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       try {
         const r = await searchBu({ apiKey, buLabel: label, profile, clients: cl.map(x => x.name), today: todayRome(), fetchImpl });
         cost = r.costEur;
+        // secondo giro «Prima del bando» (17/11): atti che vengono prima della gara, con la fase e la data attesa
+        if (settings.prima_bando?.on && (await spendOf(bu)).eur + cost < b.quota_eur) {
+          try {
+            const pre = await searchBu({ apiKey, buLabel: label, profile, clients: [], today: todayRome(), fetchImpl, mode: 'pre' });
+            cost += pre.costEur;
+            r.signals.push(...pre.signals.filter(s => s.stage).map(s => ({ ...s, kind: s.kind === 'gara' ? 'opera_finanziata' : s.kind })));
+          } catch (err) { error = `Prima del bando: ${String(err.message || err).slice(0, 300)}`; }
+        }
         found = r.signals.length;
         if (!found) error = `Nessuna notizia utilizzabile: ${r.raw || 'risposta vuota'}`.slice(0, 900);
         // la stessa notizia da due siti è un doppione: stesso titolo nella BU negli ultimi 60 giorni

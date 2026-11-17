@@ -380,6 +380,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
 // Menu a sinistra con una riga di spiegazione, interruttori al posto delle caselle, barra scura «Modifiche non salvate».
 const SECTIONS = [['radar', 'Radar', 'BU accese, budget, giro notturno', 'radar'], ['scoring', 'Punteggio', 'pesi e soglie', 'target'],
   ['primo_passo', 'Primo passo', 'tono, firma, quando prepararlo', 'sparkles'], ['relazioni', 'Relazioni', 'come si misura la forza', 'users'], ['esiti', 'Esiti', 'motivi, probabilità, BOSS', 'trophy'],
+  ['prima_bando', 'Prima del bando', 'secondo giro del radar, vinte da altri', 'hourglass'], ['concorrenza', 'Concorrenza', 'dati ANAC, CPV, Almacis', 'scale'],
   ['profiles', 'Profili BU', 'cosa cerca ogni BU', 'users'],
   ['sources', 'Fonti', 'Infordat, ANAC, stampa…', 'inbox'], ['playbooks', 'Playbook', 'passi per tipo di segnale', 'list'], ['rules', 'Regole e tempi', 'procedure, Go/No-Go, motivi', 'clock'],
   ['asa', 'ASA e accessi', 'chi è di quale ASA', 'key-round'], ['zoho', 'Caricamento Zoho', 'primo caricamento', 'upload']];
@@ -691,5 +692,42 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
         row('Esiti minimi per BU', pmin), row('Mesi di esiti usati', months),
         h('p.cv-hint', 'Sotto il minimo la BU vede «in apprendimento» invece di un numero.'))), savedLine('esiti'));
     onSave = () => save('esiti', { reasons: reasons.value(), alert_days: Number(alert.value), prob_on: prob.input.checked, prob_min: Number(pmin.value), months: Number(months.value), boss_on: boss.input.checked });
+  } else if (section === 'prima_bando') { // canvas «v4 · Prima del bando» (17/11)
+    const p = st.prima_bando;
+    const on = toggle(p.on, '');
+    const va = toggle(p.vinte_altri, '');
+    const days = input({ type: 'number', min: 7, max: 365, value: p.days, 'aria-label': 'Giorni', style: { width: '120px' } });
+    const max = input({ type: 'number', min: 1, max: 30, value: p.max_per_bu, 'aria-label': 'Gare per BU', style: { width: '120px' } });
+    const tg = (t, d, x) => h('div.cv-row', { style: { alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('div.cv-grow', h('div.cv-t5', t), h('div.cv-small.cv-muted', d)), x.el);
+    const row = (l, x) => h('div.cv-row', { style: { padding: '10px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('span.cv-grow', l), x);
+    fill(body, h('section.cv-card.pad', { style: { maxWidth: '760px' } }, h('div.cv-lbl', 'Prima del bando'),
+      tg('Secondo giro del radar', 'Ogni notte, per ogni BU accesa, cerca programmi triennali, finanziamenti, progetti approvati e determine: le opere prima che diventino gare. Costa come il primo giro, nella quota della BU.', on),
+      tg('Gare vinte da altri', 'Quando escono i dati ANAC del mese: le gare delle nostre categorie e zone vinte da altri diventano segnali per proporre subappalto o ATI.', va),
+      row('Aggiudicate negli ultimi (giorni)', days), row('Al massimo per BU, ogni volta', max)), savedLine('prima_bando'));
+    onSave = () => save('prima_bando', { on: on.input.checked, vinte_altri: va.input.checked, days: Number(days.value), max_per_bu: Number(max.value) });
+  } else if (section === 'concorrenza') { // canvas «v4 · Concorrenza» (17/11)
+    const c = st.concorrenza;
+    const on = toggle(c.on, '');
+    const months = input({ type: 'number', min: 3, max: 36, value: c.months, 'aria-label': 'Mesi di gare', style: { width: '120px' } });
+    const min = input({ type: 'number', min: 0, value: c.min_amount, 'aria-label': 'Importo minimo', style: { width: '160px' } });
+    const cfs = tagEditor(c.our_cf || [], { placeholder: 'P. IVA o codice fiscale', max: 16 });
+    const names = tagEditor(c.our_names || [], { placeholder: 'nome', max: 80 });
+    const extra = tagEditor(c.extra_categories || [], { placeholder: 'es. OS30', max: 10 });
+    const cpvEd = Object.fromEntries(data.asa.map(a => [a.key, tagEditor(c.cpv?.[a.key] || [], { placeholder: 'prefisso CPV', max: 12 })]));
+    const tg = (t, d, x) => h('div.cv-row', { style: { alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('div.cv-grow', h('div.cv-t5', t), h('div.cv-small.cv-muted', d)), x.el);
+    const row = (l, x) => h('div.cv-row', { style: { padding: '10px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('span.cv-grow', l), x);
+    const fldTop = (l, x, hint) => h('div.cv-fld', { style: { paddingTop: '12px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', l), x, hint ? h('span.cv-hint', hint) : null);
+    fill(body, h('div.cv-grid2', { style: { gap: '24px', alignItems: 'start' } },
+      h('section.cv-card.pad', h('div.cv-lbl', 'Dati ANAC'),
+        tg('Carica i dati ANAC', 'Ogni giorno alle 5 controlla se ANAC ha pubblicato il mese nuovo (gare aggiudicate, vincitori, ribassi) e lo carica.', on),
+        row('Mesi di gare da tenere', months), row('Importo minimo (€)', min),
+        fldTop('Categorie in più', extra.el, 'Oltre alle categorie SOA dei profili BU, che si usano già.'),
+        fldTop('Almacis: P. IVA e codici fiscali', cfs.el, 'Per riconoscere le gare vinte da noi (anche dalle società del gruppo).'),
+        fldTop('Almacis: nomi', names.el, 'Se manca la P. IVA, una gara è nostra quando il nome del vincitore contiene uno di questi.')),
+      h('section.cv-card.pad', h('div.cv-lbl', 'BU di servizi: codici CPV'),
+        h('p.cv-small.cv-muted', 'Le gare di servizi non hanno categoria SOA: per queste BU si usano i codici CPV (bastano le prime cifre, es. 507 = manutenzione di impianti).'),
+        data.asa.map(a => h('div.cv-fld', { style: { paddingTop: '10px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', a.label), cpvEd[a.key].el)))), savedLine('concorrenza'));
+    onSave = () => save('concorrenza', { on: on.input.checked, months: Number(months.value), min_amount: Number(min.value), our_cf: cfs.value(), our_names: names.value(), extra_categories: extra.value(),
+      cpv: Object.fromEntries(Object.entries(cpvEd).map(([k, e]) => [k, e.value()]).filter(([, l]) => l.length)) });
   }
 }

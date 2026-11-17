@@ -123,6 +123,7 @@ export async function registraEsito(query = {}, onDone, existing = null) {
       h('div.cv-grid3', fld('Offerenti', bidders), fld('Data dell\'esito', when), fld('Importo', amount)),
       h('div.cv-grid3', fld('BU', buSel), fld('Da dove arriva', origin), fld('CIG', cig)),
       fld('Cosa impariamo', lesson),
+      pre.anac && !existing ? h('div.cv-box.cv-ok.cv-small', h('div.cv-row', { style: { gap: '8px' } }, ic('check', 15), h('span', 'Compilato con l’aggiudicazione pubblicata da ANAC: esito, vincitore, ribasso e offerenti. Controlla e aggiungi il motivo.'))) : null,
       h('div.cv-box.cv-small.cv-muted', h('div.cv-row', { style: { gap: '8px' } }, ic('info', 15), h('span', 'Calcolato da solo: ', h('b', { style: { color: 'var(--cv-ink)' } }, pre.warm ? 'contatto caldo sì' : 'contatto caldo no'),
         pre.subject_name ? ` (rapporti con ${pre.subject_name})` : '', '. Con BOSS esiti, vincitore e ribassi arriveranno da soli.')))),
     left: existing && existing.source !== 'boss' ? [h('button.btn.btn-ghost', { type: 'button', on: { click: async () => {

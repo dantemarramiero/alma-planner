@@ -7,6 +7,7 @@ const { HttpError, v } = require('../lib/http');
 const { loadSettings, managerOf } = require('../lib/crm-commerciale');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 const { stats, probability, ORIGINS, ENTITY } = require('../lib/crm-esiti');
+const { awardByCig, isOurs } = require('../lib/crm-concorrenza');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const RESULTS = ['vinta', 'persa', 'non_partecipato'];
@@ -103,6 +104,18 @@ function registerCrmEsiti(app, { db, subjectById }) {
       const { rows: [i] } = await db.query('SELECT id, name, asa FROM crm_initiatives WHERE id = $1', [v.int(req.query.initiative_id, 'Iniziativa', { min: 1 })]);
       if (!i) throw new HttpError(404, 'Iniziativa non trovata');
       Object.assign(out, { initiative_id: i.id, title: out.title || i.name, origin: 'business', bu: out.bu || (c.settings.profiles[i.asa] ? i.asa : null) });
+    }
+    // ANAC ha già pubblicato l'aggiudicazione di quel CIG (17/11): esito, vincitore, ribasso e offerenti già compilati
+    if (out.cig) {
+      const a = await awardByCig(db, out.cig);
+      if (a) {
+        const ours = isOurs(c.settings, a.winners);
+        const lead = a.winners.find(w => w.role === 'mandataria') || a.winners[0];
+        Object.assign(out, { result: ours ? 'vinta' : 'persa', decided_on: a.awarded_on ? String(a.awarded_on instanceof Date ? a.awarded_on.toISOString() : a.awarded_on).slice(0, 10) : out.decided_on,
+          bidders: a.bidders, amount: out.amount ?? (a.amount === null ? null : Math.round(Number(a.amount))), anac: true });
+        if (ours) out.our_discount = a.discount === null ? null : Number(a.discount);
+        else if (lead) Object.assign(out, { winner_name: lead.name, winner_discount: a.discount === null ? null : Number(a.discount) });
+      }
     }
     if (req.query.subject_id && !out.subject_id) out.subject_id = v.int(req.query.subject_id, 'Azienda', { min: 1 });
     if (out.subject_id) {

@@ -8,13 +8,14 @@ const { HttpError, v } = require('../lib/http');
 const { CHANNELS, PILOT, SECTIONS, clean, loadSettings, managerOf } = require('../lib/crm-commerciale');
 const { registerCrmRadar } = require('./crm-radar');
 const { registerCrmEsiti } = require('./crm-esiti');
+const { registerCrmConcorrenza } = require('./crm-concorrenza');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const nowRome = () => new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Rome' }).replace(' ', 'T').slice(0, 19);
 const addDays = (iso, n) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const dayOf = x => (x ? (x instanceof Date ? x.toISOString() : String(x)).slice(0, 10) : null);
 
-function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch }) {
+function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }) {
   const adminOnly = req => { if (!req.crm.admin) throw new HttpError(403, 'Solo la direzione cambia le impostazioni del lavoro commerciale'); };
 
   // il primo passo aperto torna sulla scheda: le liste e le card lo mostrano con il «!» se è scaduto
@@ -239,8 +240,9 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
   });
 
   const esiti = registerCrmEsiti(app, { db, subjectById }); // vinte e perse, chi conosciamo (16/11)
-  registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails, radarFetch, esiti });
-  return { syncNext };
+  const radar = registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails, radarFetch, esiti });
+  const concorrenza = registerCrmConcorrenza(app, { db, radar, anacFetch }); // concorrenza ANAC e prima del bando (17/11)
+  return { syncNext, concorrenza };
 }
 
 module.exports = { registerCrmCommerciale };
