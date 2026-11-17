@@ -6,6 +6,8 @@ import { get, post, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
 import { probabilityBox, pathsBox, firstMoveBox, registraEsito } from './crm-esiti.js';
+import { garaBox } from './crm-concorrenza.js';
+const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
@@ -72,7 +74,7 @@ export async function openSignal(id, onDone, data, list = []) {
     value: g.amount ? eur(g.amount) : 'importo non indicato',
   };
   const facts = [['Chi', g.subject_id ? h('a', { href: `#/crm/scheda/${g.subject_id}`, on: { click: () => m.close() } }, g.subject_name || g.entity) : (g.entity || '—'), 'building'],
-    ['Quanto', eur(g.amount), 'euro'], ['Quando', g.deadline ? (g.to_gare ? `scade il ${day(g.deadline)}` : day(g.deadline)) : '—', 'calendar']];
+    ['Quanto', eur(g.amount), 'euro'], g.expected_on && !g.deadline ? ['Bando atteso', day(g.expected_on), 'hourglass'] : ['Quando', g.deadline ? (g.to_gare ? `scade il ${day(g.deadline)}` : day(g.deadline)) : '—', 'calendar']];
   const known = h('div', { style: { display: 'grid', gap: '18px' } }, h('div.loading', h('span.spinner')));
   let fm = null;
   const decided = g.status !== 'nuovo';
@@ -87,7 +89,7 @@ export async function openSignal(id, onDone, data, list = []) {
     drawer: true,
     title: h('div.cv-head-row', scoreRing(g.score, { size: 'lg', hi: g.highlight || 70 }),
       h('div.cv-grow',
-        h('div.cv-row.cv-wrap.cv-small.cv-muted', { style: { gap: '6px' } }, pill(KIND_SHORT[g.kind] || g.kind || 'Segnale', 'or'), g.bu_label ? pill(g.bu_label, 'line') : null,
+        h('div.cv-row.cv-wrap.cv-small.cv-muted', { style: { gap: '6px' } }, pill(KIND_SHORT[g.kind] || (g.kind === 'subappalto' ? 'Subappalto o ATI' : g.kind) || 'Segnale', 'or'), g.stage ? pill(STAGE_LABEL[g.stage] || g.stage, 'bl') : null, g.bu_label ? pill(g.bu_label, 'line') : null,
           h('span', dots([g.source === 'infordat' ? 'Infordat' : g.source === 'manuale' ? 'segnalato a mano' : g.source, day(g.published_on || g.created_at)]))),
         h('h2', { style: { marginTop: '6px' } }, g.title),
         g.url ? h('a.cv-lnk', { href: g.url, target: '_blank', rel: 'noopener', style: { marginTop: '4px' } }, ic('external', 13), `Apri la fonte${host(g.url) ? ` · ${host(g.url)}` : ''}`) : null),
@@ -102,6 +104,7 @@ export async function openSignal(id, onDone, data, list = []) {
           why[k] ? h('div.cv-part-why.cv-small.cv-muted', why[k]) : null])),
       g.soa?.length || g.cig || g.place || g.region ? h('dl.cv-kv', [g.place || g.region ? [h('dt', 'Luogo'), h('dd', [g.place, g.region].filter(Boolean).join(', '))] : null,
         g.soa?.length ? [h('dt', 'SOA'), h('dd', g.soa.join(' · '))] : null, g.cig ? [h('dt', 'CIG'), h('dd', g.cig)] : null]) : null,
+      g.soa?.length || g.cig ? garaBox(g, { onDone, close: () => m.close() }) : null, // prezzo e concorrenti dai dati ANAC (17/11)
       known,
       decided ? h('div.cv-soft.cv-small', `Deciso: ${({ interessa: 'Interessa', scartato: `scartato (${g.discard_reason})`, boss: 'portato su BOSS', gara_scartata: `gara scartata (${g.discard_reason})` })[g.status]} · ${dots([g.decided_by_name, day(g.decided_at)])}`) : null),
     left: decided ? [] : g.to_gare ? [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta')]

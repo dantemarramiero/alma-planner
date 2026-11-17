@@ -521,3 +521,27 @@ button.cv-li-main:hover .cv-li-t, a.cv-li-main:hover .cv-li-t { color: var(--cv-
   .cv-sig.cv-sig-warm { grid-template-columns: 34px minmax(0, 1fr); }
   .cv-sig.cv-sig-warm > .cv-chain, .cv-sig.cv-sig-warm > div:last-child { grid-column: 2; justify-items: start !important; }
 }
+
+/* ══ v4 (17/11/2026): Prima del bando, Concorrenza, prezzo e concorrenti nella gara ══════════════════════════════════ */
+.cv-board4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cv-col { background: var(--cv-soft); border-radius: 18px; padding: 12px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.cv-col-h { display: flex; align-items: center; gap: 8px; padding: 4px 6px 0; font-weight: 500; font-size: 14px; color: var(--cv-ink); }
+.cv-col-n { margin-left: auto; color: var(--cv-muted); font-weight: 400; font-size: 13px; }
+.cv-pc { all: unset; box-sizing: border-box; cursor: pointer; background: var(--cv-card); border: 1px solid var(--cv-line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; }
+.cv-pc:hover { border-color: var(--cv-line-strong); }
+.cv-pc:focus-visible { outline: 2px solid var(--cv-orange); outline-offset: 2px; }
+.cv-pc-t { font-weight: 500; font-size: 13.5px; line-height: 19px; color: var(--cv-ink); overflow-wrap: anywhere; }
+.cv-when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--cv-bl); background: var(--cv-bl-t); border-radius: 999px; padding: 0 8px; height: 22px; white-space: nowrap; }
+.cv-band { display: block; position: relative; height: 12px; background: var(--cv-soft); border-radius: 999px; }
+.cv-band i { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: var(--cv-or-mid); }
+.cv-band b { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--cv-orange); }
+.cv-bands { display: grid; gap: 10px; padding: 8px 24px 20px; }
+.cv-bandrow { display: grid; grid-template-columns: 150px minmax(0, 1fr) 84px; gap: 12px; align-items: center; font-size: 13px; }
+.cv-bandrow .num { text-align: right; font-variant-numeric: tabular-nums; }
+.cv-box.cv-ok { background: var(--cv-gr-t); border-color: var(--cv-gr-line); }
+@media (max-width: 1100px) { .cv-board4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .cv-board4 { grid-template-columns: minmax(0, 1fr); }
+  .cv-bandrow { grid-template-columns: 96px minmax(0, 1fr) 70px; }
+  .cv-bands { padding: 8px 16px 16px; }
+}

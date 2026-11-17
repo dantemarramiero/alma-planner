@@ -77,7 +77,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -177,7 +177,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
 
   const live = createLive();
   const isAdmin = req => config.adminEmails.includes(req.user.email);
-  const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, adminEmails: config.adminEmails, radarFetch, notifier: createNotifier({ db, live }) };
+  const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, adminEmails: config.adminEmails, radarFetch, anacFetch, notifier: createNotifier({ db, live }) };
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
