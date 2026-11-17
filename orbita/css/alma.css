@@ -189,3 +189,17 @@ a.al-li:hover .al-t5 { color: var(--cv-orange-d); }
 .al-frow { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 8px; padding: 5px 0; border-top: 1px solid var(--al-prop-line); font-size: 13px; line-height: 19px; align-items: start; }
 .al-frow.unsure > span:nth-child(2) { background: var(--cv-or-t); border-radius: 4px; padding: 0 4px; justify-self: start; }
 .al-unsure { color: var(--cv-or-ink); white-space: nowrap; }
+
+/* Email di Alma (17/11/2026, canvas V7-Email): scheda nella chat, gruppo con le spunte, pagina #/alma/email */
+.al-frow.al-mtext > span:nth-child(2) { white-space: pre-wrap; }
+.al-mitems { display: grid; gap: 8px; }
+.al-mitem { border: 1px solid var(--al-prop-line); border-radius: 14px; background: var(--cv-card); padding: 10px 12px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.al-mitem.off { opacity: .55; }
+.al-chk { width: 20px; height: 20px; flex: none; border-radius: 6px; border: 1.5px solid var(--cv-line-strong); background: var(--cv-card); color: #fff; display: grid; place-items: center; padding: 0; cursor: pointer; }
+.al-chk.on { background: var(--cv-orange); border-color: var(--cv-orange); }
+.al-mbody { color: var(--cv-muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.al-mbody.full { display: block; }
+.al-epage { max-width: 880px; margin: 0 auto; padding: 0 0 40px; }
+.al-mlist { display: grid; gap: 12px; margin-top: 8px; }
+.al-mcard { border: 1px solid var(--cv-line); border-radius: 18px; background: var(--cv-card); padding: 14px 16px; display: grid; gap: 8px; overflow-wrap: anywhere; }
+.al-mcard a { color: var(--cv-orange); }

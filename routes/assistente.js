@@ -24,7 +24,8 @@ const RICEVUTE = require('../lib/assistente-ricevute');
 const BLOCCHI = require('../lib/assistente-blocchi');
 const DIFESA = require('../lib/assistente-difesa');
 const CONTESTO = require('../lib/assistente-contesto');
-const CLAUDE = require('../lib/assistente-openai'); // il modello: OpenAI (Dante 17/11/2026)
+const CLAUDE = require('../lib/assistente-openai');
+const { createAlmaEmail } = require('../lib/assistente-email'); // il modello: OpenAI (Dante 17/11/2026)
 const { fakeClaude } = require('../lib/assistente-finto');
 
 const BASE = '/api/alma';
@@ -89,6 +90,8 @@ Come lavori:
 - Le ore registrate in Alma Planet ci sono solo nelle RDA interne (ore stimate, confermate, effettive): se chiedono ore di altro tipo, dillo.
 - Puoi registrare SOLO con gli strumenti «proponi_…» (ticket, nota CRM, prossimo passo CRM, contatto CRM). Non scrivono subito: preparano una scheda che l'utente conferma o annulla. Dopo una proposta dì in una frase cosa hai preparato e che serve la sua conferma: MAI dire che è fatto. Saprai l'esito da un messaggio successivo.
 - Prepara una proposta solo quando chi ti scrive te lo chiede. Se mancano dati obbligatori (titolo, azienda, entro quando), chiedili prima. Più cose dette insieme: chiama tutti i «proponi_…» nella stessa risposta (al massimo 5), arrivano in una sola scheda.
+- Email: le prepari con «proponi_email» e partono dalla casella Outlook di chi ti scrive solo dopo la sua conferma. Destinatari SOLO contatti del CRM (usa «c:ID» dalle ricerche); a chi non è nel CRM non si scrive: proponi prima di creare il contatto. Prima di scrivere usa «email_tono» per vedere come l'utente scriveva a quella persona (tu o lei, come la chiamava, saluto e firma) e scrivi nello stesso tono; senza email passate usa il «lei». Firma con il nome di chi ti scrive e «Almacis». Nel testo niente indirizzi email né link. Metti «quando» solo se l'utente dice un giorno o un'ora.
+- Email a un gruppo («scrivi ai clienti di Facility che non sentiamo da 3 mesi»): trova i destinatari (crm_da_ricontattare, crm_cerca, crm_scheda), leggi il tono di tutti con una sola «email_tono», poi UNA «proponi_email» con una voce per persona (al massimo 10), ognuna diversa e con i dati veri della sua scheda; in «criterio» scrivi come li hai scelti. Chi non ha email lo salti e lo dici.
 - Biglietti da visita (foto o dettati): per OGNI biglietto chiama «proponi_biglietto» nella stessa risposta (al massimo 5). Copia nomi, email e numeri esattamente come sono scritti; se un campo non si legge bene mettilo in «incerti» invece di indovinare. Se l'utente dice dove li ha conosciuti, mettilo in «nota» di ognuno. Se nella foto non ci sono biglietti, dillo e chiedi cosa vuole fare.
 - Se l'utente corregge una scheda ancora aperta («la scadenza è lunedì», «assegnalo a Giulia») usa «modifica_proposta». Dopo il salvataggio l'utente ha 10 minuti per «Annulla».
 - Cancellazioni e modifiche a cose già salvate non le fai: indica la pagina dove farle.
@@ -105,9 +108,16 @@ ${DIFESA.PROMPT}
 
 ${BLOCCHI.PROMPT}`;
 }
-const todayBlock = () => ({ type: 'text', text: `Oggi è ${today().split('-').reverse().join('/')} (ora italiana).` });
+// Oggi, l'ora (per programmare le email) e chi scrive (per firmarle).
+const todayBlock = (user = null) => ({ type: 'text', text: `Oggi è ${new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long' })} ${today().split('-').reverse().join('/')}, ore ${new Date().toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' })} (ora italiana).${user && user.name ? ` Ti scrive ${user.name}.` : ''}` });
 
-function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, openaiKey = null, almaFake = false }) {
+function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess, energyAccess, assistantClient = null, assistantRouter, almaMailer = null, almaMailReader = null, openaiKey = null, almaFake = false }) {
+  // Email ai contatti del CRM (lib/assistente-email.js): API /api/alma/email e giro ogni minuto per le programmate.
+  // in modalità finta (solo locale) le email non partono: si scrivono nel log
+  const fakeMailer = almaFake ? async (userId, e) => console.log(`[alma email finta] a ${e.to_email}: ${e.subject}`) : null;
+  const email = createAlmaEmail({ db, auth, notifier, crmAccess, mailer: almaMailer || fakeMailer, reader: almaMailReader || (almaFake ? async () => [] : null) });
+  email.register(app, '/api/alma/email');
+  if (!process.env.NODE_TEST_CONTEXT && process.env.ALMA_EMAIL_JOB !== 'off') email.start();
   let call = assistantClient || (almaFake ? fakeClaude : CLAUDE.openaiCall);
   // Classificatore Haiku solo con il Claude vero; con un Claude finto (test, modalità finta) resta la regola sulle parole.
   let route = assistantRouter !== undefined ? assistantRouter : (assistantClient || almaFake ? null : CLAUDE.openaiRoute);
@@ -148,9 +158,11 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
 
   // GET a un'API di Alma Planet con la sessione di chi chiede (stessi permessi delle pagine). Solo /api/…
   const loopback = req => `http://127.0.0.1:${req.socket.localPort}`;
+  // Le API di Alma restano fuori dalle ricerche e dalle azioni, tranne quelle delle email (/api/alma/email…).
+  const ownApi = path => path.startsWith(BASE) && !/^\/api\/alma\/email(\/|\?|$)/.test(path);
   function getter(req) {
     return async path => {
-      if (!/^\/api\/[^?]*$/.test(path.split('?')[0]) || path.includes('..') || path.startsWith(BASE)) throw new Error('Ricerca non valida.');
+      if (!/^\/api\/[^?]*$/.test(path.split('?')[0]) || path.includes('..') || ownApi(path)) throw new Error('Ricerca non valida.');
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 25000);
       try {
@@ -168,7 +180,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
   // Scrittura (solo dopo «Conferma»): API di Alma Planet con la sessione di chi conferma.
   function caller(req) {
     return async (method, path, body) => {
-      if (!/^\/api\/[^?]*$/.test(path.split('?')[0]) || path.includes('..') || path.startsWith(BASE)) throw new Error('Azione non valida.');
+      if (!/^\/api\/[^?]*$/.test(path.split('?')[0]) || path.includes('..') || ownApi(path)) throw new Error('Azione non valida.');
       const res = await fetch(loopback(req) + path, { method, headers: { cookie: req.headers.cookie || '', 'content-type': 'application/json', 'X-Alma': '1' }, body: method === 'DELETE' ? undefined : JSON.stringify(body || {}) });
       const data = await res.json().catch(() => ({}));
       if (res.status === 403) throw new Error((data && data.error) || 'Non hai il permesso per farlo.');
@@ -387,7 +399,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
       const toolDefs = tools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
       if (toolDefs.length) toolDefs[toolDefs.length - 1].cache_control = { type: 'ephemeral' };
       const rules = (await db.query('SELECT text FROM assistant_rules WHERE active ORDER BY id')).rows.map(r => r.text);
-      const system = [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }, todayBlock(),
+      const system = [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }, todayBlock(req.user),
         ...(rules.length ? [{ type: 'text', text: `Regole della direzione di Almacis (seguile sempre):\n${rules.map(r => `- ${r}`).join('\n')}` }] : [])];
       const proposals = [];
       const seen = { free: 0 };
@@ -712,7 +724,7 @@ function registerAssistente(app, { db, audit, isAdmin, crmAccess, energyAccess, 
   return {
     setClient: fn => { call = fn || CLAUDE.openaiCall; route = fn ? null : CLAUDE.openaiRoute; routerPausedUntil = 0; }, // solo per i test
     setStreamTimeout: ms => { streamTimeoutMs = ms || 90 * 1000; }, // solo per i test
-    settings, toolsFor,
+    settings, toolsFor, email,
   };
 }
 
