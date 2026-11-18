@@ -354,8 +354,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       const asa = i.asa || (await db.query('SELECT key FROM crm_asa ORDER BY sort, label LIMIT 1')).rows[0]?.key;
       if (!asa) throw new HttpError(400, 'Scegli l\'ASA dell\'iniziativa (Modifica) prima di creare il lead');
       const { rows: [s] } = await db.query(
-        `INSERT INTO crm_subjects (name, roles, asa, owner_id, lead_why, priority, segment, notes, created_by)
-         VALUES ($1, '{lead}', $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        `INSERT INTO crm_subjects (name, roles, asa, owner_id, lead_why, priority, segment, notes, created_by, created_quick)
+         VALUES ($1, '{lead}', $2, $3, $4, $5, $6, $7, $8, true) RETURNING id`,
         [t.name, [asa], i.owner_id || req.user.id, t.why.slice(0, 500), t.priority, t.segment.slice(0, 80), `Nuovo business: ${i.name}`, req.user.id]);
       subjectId = s.id;
     }

@@ -107,6 +107,7 @@ test('iniziativa: chat, azioni, clienti target con sinergie, lead nel CRM, gap, 
   const s = (await D('GET', `/api/crm/subjects/${lead.body.subject_id}`)).body;
   assert.deepEqual(s.roles, ['lead']);
   assert.equal(s.owner_id, recchia);
+  assert.ok(s.da_completare?.length); // creata solo col nome: «!» da completare (mancano P.IVA e città, V8)
   assert.equal((await E('PATCH', `/api/crm/business/targets/${ed.id}`, { status: 'incontro' })).status, 200);
 
   // gap colmato
