@@ -545,3 +545,16 @@ button.cv-li-main:hover .cv-li-t, a.cv-li-main:hover .cv-li-t { color: var(--cv-
   .cv-bandrow { grid-template-columns: 96px minmax(0, 1fr) 70px; }
   .cv-bands { padding: 8px 16px 16px; }
 }
+
+/* Nuovo contatto semplificato (18/11/2026, canvas «v8 · Nuovo contatto a mano») e «!» da completare */
+button.cv-bang { border: 0; padding: 0; cursor: pointer; }
+.crm-namechips { gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.crm-namechips:empty { display: none; }
+.crm-qcompany { display: grid; gap: 0; }
+.crm-qlist { display: grid; border: 1px solid var(--cv-line-strong); border-top: 0; border-radius: 0 0 12px 12px; overflow: hidden; background: var(--cv-card); }
+.crm-qopt { display: grid; gap: 1px; text-align: left; border: 0; border-top: 1px solid var(--cv-line-2); background: transparent; padding: 8px 12px; cursor: pointer; font: inherit; color: var(--cv-ink); }
+.crm-qopt:first-child { border-top: 0; }
+.crm-qopt:hover { background: var(--cv-soft); }
+.crm-qopt.dom { background: var(--cv-or-t); }
+.crm-qopt.new .cv-t5 { color: var(--cv-or-ink); }
+.crm-qpicked { gap: 8px; border: 1px solid var(--cv-line-strong); border-radius: 12px; padding: 6px 6px 6px 12px; background: var(--cv-card); }

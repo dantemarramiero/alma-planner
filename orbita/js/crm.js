@@ -37,6 +37,9 @@ const ownerDefault = () => { const f = readFilters(); return 'owner' in f ? f.ow
 const day = d => (d ? fmtDate(String(d).slice(0, 10)) : '—');
 const eur = n => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 0 })} €`);
 const personName = p => [p.title, p.first_name, p.last_name].filter(Boolean).join(' ');
+// Azienda creata al volo (v8): «!» rosso «da completare»; al clic dice cosa manca.
+const todoBang = s => (s && s.da_completare ? h('button.cv-bang', { type: 'button', title: `Da completare: ${s.da_completare.join(', ')}`, 'aria-label': `Da completare: ${s.da_completare.join(', ')}`,
+  on: { click: e => { e.preventDefault(); e.stopPropagation(); toast(`${s.name}: da completare (${s.da_completare.join(', ')}). L'ha creata al volo chi ha aggiunto il contatto.`); } } }, '!') : null);
 const asaLabel = k => data.asa.find(a => a.key === k)?.label || k;
 const stageLabel = k => data.meta.leadStages.find(([s]) => s === k)?.[1] || k;
 const field = (label, control, hint) => h('label.field', h('span', label), control, hint ? h('small.muted', hint) : null);
@@ -263,7 +266,7 @@ function leadCard(s) {
     dragstart: e => { e.dataTransfer.setData('text/crm-lead', String(s.id)); el.classList.add('dragging'); },
     dragend: () => el.classList.remove('dragging'),
   } },
-  h('div.cv-row', { style: { gap: '8px' } }, h('span.cv-t5.cv-grow.cv-ell', s.name), s.missing_notes ? bang() : null, s.owner_name ? av(s.owner_name, 'or') : null),
+  h('div.cv-row', { style: { gap: '8px' } }, h('span.cv-t5.cv-grow.cv-ell', s.name), todoBang(s), s.missing_notes ? bang() : null, s.owner_name ? av(s.owner_name, 'or') : null),
   (lost || s.lead_why || s.city) ? h('div.cv-small.cv-muted.cv-ell', lost ? dots([`Motivo: ${s.lost_reason || '—'}`, retry && `riprovare a ${retry}`]) : (s.lead_why || s.city)) : null,
   h('div.cv-row.cv-small', { style: { gap: '8px' } },
     s.potential_value ? h('span.cv-t5', { style: { whiteSpace: 'nowrap' } }, short(Number(s.potential_value))) : null,
@@ -303,7 +306,7 @@ function reorderView(list, reload) {
   const tbody = h('tbody', list.map(s => h('tr',
     h('td', h('input', { type: 'checkbox', 'aria-label': `Seleziona ${s.name}`, disabled: !canPick(s) || undefined, title: canPick(s) ? undefined : 'Solo l\'owner o la direzione',
       on: { change: e => { e.target.checked ? picked.add(s.id) : picked.delete(s.id); sync(); } } })),
-    h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', initialsOf(s.name)), h('div', h('div.cv-t5.cv-ell', { style: { maxWidth: '360px' } }, s.name), h('div.cv-small.cv-muted', dots([data.meta.kinds[s.kind], s.city]) || '—')))),
+    h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', initialsOf(s.name)), h('div', h('div.cv-t5.cv-row', { style: { gap: '6px' } }, h('span.cv-ell', { style: { maxWidth: '340px' } }, s.name), todoBang(s)), h('div.cv-small.cv-muted', dots([data.meta.kinds[s.kind], s.city]) || '—')))),
     h('td.cv-hide-m', asaCell(s.asa)),
     h('td.cv-hide-m', ownerCell(s)),
     h('td.cv-hide-m.cv-small.cv-muted', s.updated_at ? `fermo dal ${day(s.updated_at)}` : '—'))));
@@ -418,7 +421,7 @@ function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () 
       h('thead', h('tr', h('th', 'Azienda'), h('th.cv-hide-m', 'ASA'), h('th.cv-hide-m', 'Owner · funzione'), h(`th${col4[2] ? '.num' : ''}.cv-hide-m`, col4[0]), h('th', 'Prossimo passo'), h('th', h('span.cv-sr', 'Azioni')))),
       h('tbody', shown.map(s => h('tr.cv-click', { on: { click: e => { if (!e.target.closest('.cv-more, a, button')) open(s); } } },
         h('td', h('a.cv-name', { href: `#/crm/scheda/${s.id}` }, h('span.cv-ib', initialsOf(s.short_name || s.name)),
-          h('div', h('div.cv-t5.cv-row', { style: { gap: '6px' } }, h('span.cv-ell', { style: { maxWidth: '300px' } }, s.name), s.key_account ? h('span', { title: 'Key account', style: { color: 'var(--cv-orange-d)', display: 'inline-flex' } }, ic('star', 13)) : null, s.missing_notes ? bang() : null),
+          h('div', h('div.cv-t5.cv-row', { style: { gap: '6px' } }, h('span.cv-ell', { style: { maxWidth: '300px' } }, s.name), todoBang(s), s.key_account ? h('span', { title: 'Key account', style: { color: 'var(--cv-orange-d)', display: 'inline-flex' } }, ic('star', 13)) : null, s.missing_notes ? bang() : null),
             h('div.cv-small.cv-muted.cv-ell', { style: { maxWidth: '300px' } }, dots([data.meta.kinds[s.kind], s.city, s.status !== 'attivo' && data.meta.status[s.status]]) || '—')))),
         h('td.cv-hide-m', asaCell(s.asa)),
         h('td.cv-hide-m', ownerCell(s)),
@@ -499,7 +502,7 @@ async function subjectPage(container, id, tabKey) {
       h('div.cv-head-main',
         h('span.cv-mono', { 'aria-hidden': 'true' }, initialsOf(s.short_name || s.name)),
         h('div.cv-grow',
-          h('div.cv-row.cv-wrap', { style: { gap: '8px 10px' } }, h('h1.cv-head-name', s.name), rolePill(s), s.asa.slice(0, 3).map(a => pill(asaLabel(a), 'line')),
+          h('div.cv-row.cv-wrap', { style: { gap: '8px 10px' } }, h('h1.cv-head-name', s.name), todoBang(s), rolePill(s), s.asa.slice(0, 3).map(a => pill(asaLabel(a), 'line')),
             s.asa.length > 3 ? pill(`+${s.asa.length - 3}`, '', { title: s.asa.slice(3).map(asaLabel).join(', ') }) : null,
             keyAccountPill(s, () => refresh(), data.keyRhythm || 90), s.status !== 'attivo' ? pill(data.meta.status[s.status], 'rd') : null),
           h('div.cv-head-meta',
@@ -954,7 +957,108 @@ async function contactPage(container, id, tabKey) {
       h('section.cv-card.pad', workHistory(c.links)))));
 }
 
+// ── Nuovo contatto semplificato (18/11/2026, canvas «v8 · Nuovo contatto a mano, semplificato») ─────────────
+// Un campo «Nome» («Ing. Mario Rossi», diviso da solo e mostrato in pillole), email, azienda con ricerca e «Crea "…"»
+// (lead, owner tu, la tua ASA, «da completare»; con l'email l'azienda del dominio è suggerita in cima), cellulare.
+// Basta un nome o un'email; il resto è in «Altri campi». Doppioni: avviso, non blocco. La modifica resta il modulo completo.
+const NAME_TITLES = { ing: 'Ing.', ingegner: 'Ing.', ingegnere: 'Ing.', arch: 'Arch.', architetto: 'Arch.', geom: 'Geom.', geometra: 'Geom.', dott: 'Dott.', dottor: 'Dott.', dottore: 'Dott.',
+  dottssa: 'Dott.ssa', dottoressa: 'Dott.ssa', avv: 'Avv.', avvocato: 'Avv.', rag: 'Rag.', prof: 'Prof.', sig: 'Sig.', signor: 'Sig.', sigra: 'Sig.ra', signora: 'Sig.ra' };
+const NAME_PARTICLES = new Set(['de', 'di', 'del', 'della', 'dello', 'dei', 'degli', 'da', 'dal', 'dalla', 'lo', 'la', 'van', 'von']);
+const capWord = w => (w === w.toLowerCase() || w === w.toUpperCase() ? w.split(/([-'’])/).map(p => (p.length > 1 ? p[0].toUpperCase() + p.slice(1).toLowerCase() : p)).join('') : w);
+function splitNameUi(raw) { // come lib/crm-nomi.js (il server divide allo stesso modo, maiuscole comprese)
+  let words = String(raw || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  let title = '';
+  while (words.length && NAME_TITLES[words[0].toLowerCase().replace(/[.\s]/g, '')]) title = title || NAME_TITLES[words.shift().toLowerCase().replace(/[.\s]/g, '')];
+  words = words.map(capWord);
+  if (!words.length) return { title, first: '', last: '' };
+  if (words.length === 1) return { title, first: '', last: words[0] };
+  let i = words.length - 1;
+  while (i > 1 && NAME_PARTICLES.has(words[i - 1].toLowerCase())) i--;
+  return { title, first: words.slice(0, i).join(' '), last: words.slice(i).join(' ') };
+}
+async function quickContactForm({ preset = {}, onSaved }) {
+  let chosen = null; // { id, name } oppure { create: 'Nome' }
+  if (preset.subject_id) { const s = await get(`/api/crm/subjects/${preset.subject_id}`).catch(() => null); if (s) chosen = { id: s.id, name: s.name }; }
+  let m, split = { title: '', first: '', last: '' }, byDomain = [];
+  const nameIn = input({ value: [preset.first_name, preset.last_name].filter(Boolean).join(' '), placeholder: 'Ing. Mario Rossi', autofocus: true, 'aria-label': 'Nome' });
+  const chips = h('div.cv-row.crm-namechips');
+  const emailIn = input({ type: 'email', value: preset.email || '', placeholder: 'm.rossi@azienda.it' });
+  const mobileIn = input({ value: '', placeholder: '347 …' });
+  const companyIn = input({ placeholder: 'Scrivi il nome dell\'azienda o dell\'ente', 'aria-label': 'Azienda' });
+  const list = h('div.crm-qlist', { hidden: true });
+  const picked = h('div');
+  const dup = h('div');
+  const more = h('div', { hidden: true },
+    h('div.en-row3', field('Qualifica', input({ 'data-k': 'job' })), field('Telefono', input({ 'data-k': 'phone' })), field('LinkedIn', input({ 'data-k': 'linkedin' }))),
+    field('Note', textarea('', { 'data-k': 'notes' })));
+  const toggleMore = h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => { more.hidden = !more.hidden; toggleMore.lastChild.textContent = more.hidden ? 'Altri campi (qualifica, telefono, LinkedIn, note)' : 'Meno campi'; } } },
+    icon('chevron-down', { size: 14 }), h('span', 'Altri campi (qualifica, telefono, LinkedIn, note)'));
+  const drawChips = () => {
+    split = splitNameUi(nameIn.value);
+    fill(chips, nameIn.value.trim() ? [split.title ? ['titolo', split.title] : null, split.first ? ['nome', split.first] : null, ['cognome', split.last]].filter(Boolean)
+      .map(([l, v]) => h('span.cv-pill.line', `${l}: ${v}`)) : null);
+  };
+  const drawPicked = () => {
+    companyIn.hidden = Boolean(chosen);
+    fill(picked, chosen ? h('div.cv-row.crm-qpicked', icon(chosen.create ? 'plus' : 'building', { size: 15 }),
+      h('span.cv-grow', chosen.create ? `Nuova: «${chosen.create}» · lead · owner tu · tua ASA · da completare` : chosen.name),
+      h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Cambia azienda', on: { click: () => { chosen = null; drawPicked(); companyIn.focus(); } } }, icon('x', { size: 14 }))) : null);
+  };
+  const option = (title, sub, onPick, cls = '') => h(`button.crm-qopt${cls}`, { type: 'button', on: { click: () => { onPick(); list.hidden = true; drawPicked(); check(); } } }, h('span.cv-t5', title), sub ? h('span.cv-small.cv-muted', sub) : null);
+  const search = debounce(async () => {
+    const q = companyIn.value.trim();
+    const { subjects = [] } = q.length >= 2 ? await get(`/api/crm/subjects${qs({ q })}`, { quiet: true }).catch(() => ({})) : {};
+    const dom = byDomain.filter(s => !subjects.some(x => x.id === s.id));
+    const opts = [...dom.map(s => option(s.name, `${(s.roles || []).join(', ')} · suggerita dal dominio dell'email`, () => { chosen = { id: s.id, name: s.name }; }, '.dom')),
+      ...subjects.slice(0, 6).map(s => option(s.name, [(s.roles || []).join(', '), s.city].filter(Boolean).join(' · '), () => { chosen = { id: s.id, name: s.name }; })),
+      ...(q ? [option(`Crea «${q}»`, 'lead · owner tu · tua ASA · da completare', () => { chosen = { create: q }; }, '.new')] : [])];
+    fill(list, opts);
+    list.hidden = !opts.length;
+  }, 250);
+  companyIn.addEventListener('input', search);
+  companyIn.addEventListener('focus', search);
+  const domain = debounce(async () => {
+    const { subjects = [] } = emailIn.value.includes('@') ? await get(`/api/crm/subjects/da-email${qs({ email: emailIn.value })}`, { quiet: true }).catch(() => ({})) : {};
+    byDomain = subjects;
+    if (!chosen && byDomain.length === 1 && !companyIn.value.trim()) { companyIn.value = ''; fill(list, option(byDomain[0].name, 'suggerita dal dominio dell\'email: tocca per usarla', () => { chosen = { id: byDomain[0].id, name: byDomain[0].name }; }, '.dom')); list.hidden = false; }
+  }, 400);
+  emailIn.addEventListener('input', domain);
+  const check = debounce(async () => {
+    const s = splitNameUi(nameIn.value);
+    const { matches = [] } = await get(`/api/crm/contacts/check${qs({ email: emailIn.value, first_name: s.first, last_name: s.last, subject_id: chosen?.id || '' })}`, { quiet: true }).catch(() => ({}));
+    fill(dup, matches.length ? h('div.banner.crm-dup', 'C\'è già: ', matches.map((x, i) => [i ? ', ' : '', h('a', { href: `#/crm/contatti/${x.id}`, on: { click: () => m.close() } }, personName(x))]), ' · se è un\'altra persona, salva pure.') : null);
+  }, 400);
+  nameIn.addEventListener('input', () => { drawChips(); check(); });
+  emailIn.addEventListener('input', check);
+  drawChips(); drawPicked();
+  const form = h('div.en-form',
+    field('Nome', h('div', nameIn, chips), 'Scrivilo tutto insieme: titolo, nome e cognome si dividono da soli.'),
+    field('Email', emailIn),
+    field('Azienda', h('div.crm-qcompany', picked, companyIn, list), 'Se non c\'è, crealo al volo: P.IVA e città si aggiungono dopo.'),
+    field('Cellulare', mobileIn),
+    toggleMore, more, dup);
+  m = cvModal({
+    title: h('div', h('h2', 'Nuovo contatto'), h('p.cv-small.cv-muted', { style: { margin: '2px 0 0' } }, 'Basta un nome o un\'email: il resto si aggiunge dopo.')), body: form,
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async e => {
+      const s = splitNameUi(nameIn.value);
+      if (!s.last && !emailIn.value.trim()) { toast('Scrivi almeno il nome o l\'email'); nameIn.focus(); return; }
+      const btn = e.currentTarget; btn.disabled = true;
+      try {
+        const extra = read(more);
+        let subjectId = chosen?.id || null;
+        if (chosen?.create) subjectId = (await post('/api/crm/subjects/rapida', { name: chosen.create })).id;
+        const saved = await post('/api/crm/contacts', { title: s.title, first_name: s.first, last_name: s.last, email: emailIn.value.trim(), mobile: mobileIn.value.trim(),
+          phone: extra.phone || '', linkedin: extra.linkedin || '', notes: extra.notes || '', links: subjectId ? [{ subject_id: subjectId, job: extra.job || '', is_primary: true }] : [] });
+        m.close();
+        toast(chosen?.create ? `Contatto e «${chosen.create}» creati (da completare)` : 'Contatto creato');
+        onSaved?.(saved);
+      } catch { btn.disabled = false; }
+    } } }, icon('check', { size: 15 }), 'Salva')],
+  });
+}
+
 async function contactForm({ contact = null, preset = {}, onSaved }) {
+  if (!contact) return quickContactForm({ preset, onSaved });
   const { subjects } = await get('/api/crm/subjects');
   const options = [['', 'Scegli l\'anagrafica…'], ...subjects.map(x => [x.id, x.name])];
   const jobs = data.meta.contactJobs;
