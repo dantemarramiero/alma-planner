@@ -58,7 +58,7 @@ let rtSession = null; const hung = []; // voce in tempo reale finta // voce fint
 
 before(async () => {
   db = await createDb({});
-  const out = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, crmFetchEvents: async () => [], assistantClient: fakeClaude,
+  const out = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN, API_WRITE_MAX: '2000' }), { db, crmFetchEvents: async () => [], assistantClient: fakeClaude,
     almaMailer: async (userId, e) => { if (mailFail) throw new Error(mailFail); sentMail.push({ userId, to: e.to_email, subject: e.subject, body: e.body }); },
     almaTranscriber: async a => { heard.push(a); return 'quanti ticket ho in ritardo?'; },
     almaSpeaker: async t => { spoken.push(t); return Buffer.from('ID3-mp3-finto'); },
@@ -602,4 +602,65 @@ test('voce in tempo reale: sessione con le ricerche, collegamento una volta, num
   assert.equal(isYes('Sì, confermo grazie'), true);
   assert.equal(isYes('sì ma cambia la data'), false);
   assert.equal(isYes('ok mandala pure'), true);
+});
+
+test('contatto facile (v8): nome libero, solo email, azienda al volo «da completare», azienda dal dominio, una sola scheda di Alma', async () => {
+  const { splitName } = require('../lib/crm-nomi');
+  assert.deepEqual(splitName('ing. mario rossi'), { title: 'Ing.', first: 'Mario', last: 'Rossi' });
+  assert.deepEqual(splitName('Maria Grazia De Luca'), { title: '', first: 'Maria Grazia', last: 'De Luca' });
+  // API: basta il nome detto tutto insieme o l'email, anche senza azienda
+  const c1 = await D('POST', '/api/crm/contacts', { nome: 'Geom. Paolo Verna' });
+  assert.equal(c1.status, 201);
+  assert.deepEqual([c1.body.title, c1.body.first_name, c1.body.last_name], ['Geom.', 'Paolo', 'Verna']);
+  const c2 = await D('POST', '/api/crm/contacts', { email: 'ufficio.tecnico@comune.atessa.ch.it' });
+  assert.equal(c2.body.last_name, 'ufficio.tecnico');
+  assert.equal((await D('POST', '/api/crm/contacts', {})).status, 400);
+  // azienda al volo: lead, owner chi la crea, «da completare»; stesso nome → quella che c'è
+  const q = await D('POST', '/api/crm/subjects/rapida', { name: 'Elettro Sud S.r.l.' });
+  assert.equal(q.status, 201);
+  assert.deepEqual([q.body.roles, q.body.created_quick], [['lead'], true]);
+  assert.equal((await D('POST', '/api/crm/subjects/rapida', { name: 'elettro sud s.r.l.' })).body.existing, true);
+  let row = (await D('GET', '/api/crm/subjects?q=Elettro')).body.subjects.find(x => x.id === q.body.id);
+  assert.deepEqual(row.da_completare, ['P.IVA', 'città']);
+  await D('POST', '/api/crm/contacts', { nome: 'Anna Bruno', email: 'a.bruno@elettrosud.it', links: [{ subject_id: q.body.id }] });
+  // azienda dal dominio dell'email
+  const dom = await D('GET', '/api/crm/subjects/da-email?email=m.rossi@elettrosud.it');
+  assert.deepEqual(dom.body.subjects.map(x => x.id), [q.body.id]);
+  assert.equal((await D('GET', '/api/crm/subjects/da-email?email=mario@gmail.com')).body.dominio, null);
+
+  // Alma: «aggiungi l'ing. Mario Rossi, m.rossi@elettrosud.it» senza azienda → la trova dal dominio, una scheda
+  queue.push(toolUse('proponi_contatto_crm', { nome_completo: 'ingegner mario rossi', email: 'm.rossi@elettrosud.it', cellulare: '347 220 1912' }), say('Ecco la scheda.'));
+  const r1 = await D('POST', '/api/alma/chat', { text: 'Aggiungi l\'ingegner Mario Rossi, email m.rossi@elettrosud.it, cellulare 347 220 1912' });
+  const p1 = r1.body.proposals[0];
+  assert.equal(p1.title, 'Nuovo contatto · Ing. Mario Rossi');
+  assert.ok(p1.fields.some(([k, v]) => k === 'Persona' && v === 'titolo: Ing. · nome: Mario · cognome: Rossi'));
+  assert.ok(p1.fields.some(([k, v]) => k === 'Azienda' && /Elettro Sud S\.r\.l\. \(già nel CRM · dal dominio elettrosud\.it\)/.test(v)));
+  await D('POST', '/api/alma/azioni/' + p1.id + '/conferma', { solo: true });
+  const rossi = (await db.query("SELECT c.id, l.subject_id FROM crm_contacts c JOIN crm_contact_links l ON l.contact_id = c.id WHERE c.last_name = 'Rossi' AND c.first_name = 'Mario'")).rows[0];
+  assert.equal(rossi.subject_id, q.body.id);
+  // azienda detta che non c'è, ma il dominio porta a una che c'è → «Quale?» con «crea nuova»
+  queue.push(toolUse('proponi_contatto_crm', { nome_completo: 'Luca Neri', azienda: 'Elettrosud Impianti', email: 'l.neri@elettrosud.it' }), say('Quale?'));
+  const r2 = await D('POST', '/api/alma/chat', { text: 'Aggiungi Luca Neri di Elettrosud Impianti, l.neri@elettrosud.it' });
+  assert.equal(r2.status, 200, JSON.stringify(r2.body));
+  const p2 = r2.body.proposals[0];
+  assert.deepEqual(p2.choices.options.map(o => o.label), ['Elettro Sud S.r.l.', 'No: crea «Elettrosud Impianti» nuova']);
+  // l'azienda nuova al volo: lead, «da completare», niente domande sui campi mancanti
+  queue.push(toolUse('proponi_contatto_crm', { nome_completo: 'Bianchi Luca', azienda: 'Impianti Adriatica', qualifica: 'geometra' }), say('Ecco.'));
+  const r3 = await D('POST', '/api/alma/chat', { text: 'Aggiungi Luca Bianchi di Impianti Adriatica, geometra' });
+  const p3 = r3.body.proposals[0];
+  assert.match(p3.title, /^Nuovo contatto e nuova azienda · /);
+  assert.ok(p3.fields.some(([k, v]) => k === 'Azienda' && /Impianti Adriatica \(nuova · lead · owner tu/.test(v)));
+  const ok3 = await D('POST', '/api/alma/azioni/' + p3.id + '/conferma', { solo: true });
+  assert.match(ok3.body.reply, /«Impianti Adriatica» \(lead, da completare\) creati/);
+  const ia = (await db.query("SELECT id, roles, created_quick FROM crm_subjects WHERE name = 'Impianti Adriatica'")).rows[0];
+  assert.deepEqual([ia.roles, ia.created_quick], [['lead'], true]);
+  const scheda = await D('GET', '/api/crm/subjects/' + ia.id);
+  assert.deepEqual(scheda.body.da_completare, ['P.IVA', 'città']);
+  await D('PATCH', '/api/crm/subjects/' + ia.id, { city: 'Pescara', vat: '01234567890' }).catch(() => {});
+  // solo il nome, nessuna azienda: il contatto si salva lo stesso
+  queue.push(toolUse('proponi_contatto_crm', { nome_completo: 'Sara Colombo' }), say('Ecco.'));
+  const r4 = await D('POST', '/api/alma/chat', { text: 'Aggiungi Sara Colombo' });
+  assert.ok(r4.body.proposals[0].fields.some(([k, v]) => k === 'Azienda' && /nessuna/.test(v)));
+  const ok4 = await D('POST', '/api/alma/azioni/' + r4.body.proposals[0].id + '/conferma', { solo: true });
+  assert.match(ok4.body.reply, /Sara Colombo aggiunto al CRM/);
 });

@@ -415,13 +415,15 @@ function createChat(opts = {}) {
     const box = h('div.al-prop', { 'data-id': p.id });
     const draw = q => {
       p = q;
-      const card = p.icon === 'id-card'; // biglietto da visita: un campo per riga, come nel canvas V6-Biglietti
+      const card = p.icon === 'id-card' || p.icon === 'user-plus'; // biglietto e contatto: un campo per riga (canvas V6-Biglietti, V8-Contatto-voce)
       const mail = p.icon === 'mail'; // email (canvas V7-Email): campi in righe, gruppo con le spunte
       const open = p.status === 'proposta' && !p.choices;
       const summary = card || mail ? '' : (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
       const unsure = card ? ((p.warnings || []).join(' ').match(/letti male dalla foto: ([^.]+)/) || [, ''])[1].split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : [];
-      const rows = card ? h('div.al-frows', (p.fields || []).filter(([k]) => k !== 'Persona').map(([k, v]) => h('div.al-frow', { class: unsure.includes(k.toLowerCase()) ? 'unsure' : '' },
-        h('span.al-muted', k), h('span', v), unsure.includes(k.toLowerCase()) ? h('span.al-small.al-unsure', 'da controllare') : null)))
+      // «Persona» divisa (titolo · nome · cognome) come pillole, così si vede subito se il nome è stato capito bene
+      const chips = v => h('span.al-chips', String(v).split(' · ').map(x => { const [l, ...r] = x.split(': '); return h('span.al-chip', h('b', r.join(': ')), h('small', l)); }));
+      const rows = card ? h('div.al-frows', (p.fields || []).filter(([k, v]) => k !== 'Persona' || /cognome: /.test(v)).map(([k, v]) => h('div.al-frow', { class: unsure.includes(k.toLowerCase()) ? 'unsure' : '' },
+        h('span.al-muted', k), k === 'Persona' ? chips(v) : h('span', v), unsure.includes(k.toLowerCase()) ? h('span.al-small.al-unsure', 'da controllare') : null)))
         : mail ? h('div.al-frows', (p.fields || []).map(([k, v]) => h('div.al-frow', { class: k === 'Testo' ? 'al-mtext' : '' }, h('span.al-muted', k), h('span', v)))) : null;
       const items = mail && p.items ? h('div.al-mitems', p.items.map(it => mailItem(it, open))) : null;
       const head = h('div.al-row', { style: { alignItems: 'flex-start' } }, h('span.al-ib.or', ic(p.icon || 'sparkles', 15)),
@@ -539,7 +541,7 @@ function createChat(opts = {}) {
   }
   function statusPill(p) {
     if (p.status === 'proposta' && p.icon === 'mail') return pill('bozza', 'or');
-    if (p.status === 'proposta' && p.icon === 'id-card') {
+    if (p.status === 'proposta' && (p.icon === 'id-card' || p.icon === 'user-plus')) {
       return p.title.startsWith('Aggiorna ·') ? pill('già nel CRM', '') : p.title.includes('nuova azienda') ? pill('azienda nuova', 'or') : pill('azienda trovata', 'gr');
     }
     const map = { fatta: ['Salvato', 'gr'], annullata: ['Annullata', ''], superata: ['Sostituita', ''], errore: ['Non salvato', 'rd'], disfatta: ['Tolto dopo il salvataggio', ''] };

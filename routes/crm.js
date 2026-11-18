@@ -10,6 +10,13 @@ const {
   SOA_CATEGORIES, SOA_CLASSES, LEGAL_FORMS, TITLES, CONTACT_JOBS, LANGUAGES, SUPPLIER_SUBCATEGORIES, CONTACT_STATUS, LEGAL_BASIS, vatOk, taxCodeOk,
 } = require('../lib/crm');
 const { REGIONS, PROVINCES } = require('../lib/energy-places');
+const { splitName, domainOf, domainWord } = require('../lib/crm-nomi');
+// Azienda creata al volo (v8): cosa manca ancora, per il «!» rosso nelle liste e nella scheda. null = completa.
+function daCompletare(s) {
+  if (!s || !s.created_quick) return null;
+  const miss = [...(!s.vat && !s.tax_code ? ['P.IVA'] : []), ...(!s.city ? ['città'] : [])];
+  return miss.length ? miss : null;
+}
 const { registerCrmLinks } = require('./crm-links');
 const { registerCrmImport } = require('./crm-import');
 const { registerCrmCommerciale } = require('./crm-commerciale');
@@ -286,7 +293,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     const { rows } = await db.query(
       `SELECT s.id, s.name, s.short_name, s.kind, s.vat, s.city, s.province, s.roles, s.asa, s.status, s.lead_stage, s.priority, s.potential_value,
               s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.function_name, s.updated_at, s.key_account,
-              s.lost_reason, s.retry_date, s.lead_why, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
+              s.lost_reason, s.retry_date, s.lead_why, s.created_quick, s.tax_code, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
               (SELECT COUNT(*)::int FROM crm_contact_links l WHERE l.subject_id = s.id AND l.date_to IS NULL) AS contacts,
               (SELECT COUNT(*)::int FROM crm_meeting_links ml JOIN crm_meetings m ON m.id = ml.meeting_id
                  WHERE NOT ml.removed AND (ml.subject_id = s.id OR ml.contact_id IN (SELECT cl.contact_id FROM crm_contact_links cl WHERE cl.subject_id = s.id
@@ -294,7 +301,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
                    AND m.end_at < $${params.length + 1}::timestamp AND NOT EXISTS (SELECT 1 FROM crm_notes n WHERE n.meeting_id = m.id AND n.deleted_at IS NULL)) AS missing_notes
          FROM crm_subjects s LEFT JOIN users u ON u.id = s.owner_id
         WHERE ${where.join(' AND ')} ORDER BY lower(s.name) LIMIT 10000`, [...params, nowRome()]);
-    res.json({ subjects: rows });
+    res.json({ subjects: rows.map(({ tax_code, ...r }) => ({ ...r, da_completare: daCompletare({ ...r, tax_code }) })) });
   });
 
   // Doppioni prima di salvare: stessa P.IVA, stesso codice fiscale o stesso nome. Le schede di altre ASA si vedono
@@ -309,6 +316,41 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
       `SELECT id, name, vat, asa FROM crm_subjects WHERE merged_into IS NULL
           AND (($1 <> '' AND vat = $1) OR ($2 <> '' AND tax_code = $2) OR ($3 <> '' AND lower(name) = lower($3))) LIMIT 5`, [vat, tax, name]);
     res.json({ matches: rows.map(r => ({ id: r.id, name: r.name, vat: r.vat, visible: true })) });
+  });
+
+  // ── Contatto facile (18/11/2026, canvas «v8 · Contatto nuovo con un vocale») ───────────────────────
+  // Azienda al volo con il solo nome: lead, owner chi la crea, la sua ASA (o quella detta), segnata «da completare».
+  // Se c'è già un'azienda con lo stesso nome si restituisce quella (existing: true): niente doppioni.
+  app.post('/api/crm/subjects/rapida', async (req, res) => {
+    const name = String(req.body?.name || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!name) throw new HttpError(400, 'Serve il nome dell\'azienda');
+    const all = await allAsa();
+    let asa = String(req.body?.asa || '');
+    if (asa && !all.some(a => a.key === asa)) throw new HttpError(400, 'ASA non valida');
+    if (!asa) asa = (req.crm.asas || []).find(k => all.some(a => a.key === k)) || (all[0] && all[0].key) || '';
+    if (!asa) throw new HttpError(400, 'Nel CRM non ci sono ASA: la direzione deve crearle prima');
+    const { rows: [dup] } = await db.query('SELECT id, name, roles, asa FROM crm_subjects WHERE merged_into IS NULL AND lower(name) = lower($1) LIMIT 1', [name]);
+    if (dup) return res.json({ ...dup, existing: true });
+    const kind = Object.keys(KINDS).includes(req.body?.kind) ? req.body.kind : undefined;
+    const f = { name, roles: ['lead'], asa: [asa], owner_id: req.user.id, created_by: req.user.id, created_quick: true,
+      origin: String(req.body?.origin || '').slice(0, 60) || 'Rete commerciale', ...(kind ? { kind } : {}),
+      ...(req.body?.website ? { website: String(req.body.website).slice(0, 200) } : {}), ...(req.body?.city ? { city: String(req.body.city).slice(0, 100) } : {}),
+      ...(req.body?.lead_why ? { lead_why: String(req.body.lead_why).slice(0, 1000) } : {}) };
+    const { rows: [s] } = await db.query(insertSql('crm_subjects', f), vals(f));
+    await history(s.id, null, s.lead_stage, 'Creata al volo', req.user.id);
+    res.status(201).json(s);
+  });
+  // Aziende suggerite dall'email: stesso dominio nel sito, nell'email della scheda o dei suoi contatti, o nel nome.
+  app.get('/api/crm/subjects/da-email', async (req, res) => {
+    const d = domainOf(req.query.email);
+    if (!d) return res.json({ dominio: null, subjects: [] });
+    const w = (domainWord(d) || '').replace(/[^a-z0-9]/g, '');
+    const { rows } = await db.query(`SELECT s.id, s.name, s.roles, s.asa, s.city FROM crm_subjects s WHERE s.merged_into IS NULL AND (
+        lower(COALESCE(s.website, '')) LIKE '%' || $1 || '%' OR lower(COALESCE(s.email, '')) LIKE '%@' || $1
+        OR EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_contacts c ON c.id = l.contact_id WHERE l.subject_id = s.id AND lower(c.email) LIKE '%@' || $1)
+        OR (length($2) >= 5 AND regexp_replace(lower(s.name), '[^a-z0-9]', '', 'g') LIKE '%' || $2 || '%'))
+      ORDER BY lower(s.name) LIMIT 5`, [d, w]);
+    res.json({ dominio: d, subjects: rows });
   });
 
   app.post('/api/crm/subjects', async (req, res) => {
@@ -345,7 +387,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
                  WHERE h.subject_id = $1 ORDER BY h.at DESC`, [id]),
       db.query(`SELECT x.id, x.name FROM crm_subjects x WHERE x.group_id = $1 AND x.merged_into IS NULL AND ${see} ORDER BY lower(x.name)`, params),
     ]);
-    res.json({ ...s, contacts, history: stageHistory, controlled });
+    res.json({ ...s, contacts, history: stageHistory, controlled, da_completare: daCompletare(s) });
   });
 
   app.patch('/api/crm/subjects/:id', async (req, res) => {
@@ -591,9 +633,19 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   });
 
   app.post('/api/crm/contacts', async (req, res) => {
-    const f = contactFields(req.body, { partial: false });
+    // Contatto facile (v8): basta un nome qualsiasi o l'email; «nome» libero («Ing. Mario Rossi») si divide da solo.
+    const b = { ...(req.body || {}) };
+    if (b.nome && !b.last_name && !b.first_name) {
+      const n = splitName(b.nome);
+      Object.assign(b, { last_name: n.last, first_name: n.first, ...(n.title && !b.title ? { title: n.title } : {}) });
+    }
+    if (!String(b.last_name || '').trim()) {
+      if (String(b.first_name || '').trim()) { b.last_name = b.first_name; b.first_name = ''; }
+      else if (String(b.email || '').includes('@')) b.last_name = String(b.email).split('@')[0].slice(0, 120);
+      else throw new HttpError(400, 'Serve almeno un nome o un\'email');
+    }
+    const f = contactFields(b, { partial: false });
     const links = await cleanLinks(req, req.body.links ?? []);
-    if (!req.crm.admin && !links.length) throw new HttpError(400, 'Collega il contatto ad almeno un\'anagrafica');
     if (f.owner_id === undefined) f.owner_id = req.user.id;
     f.created_by = req.user.id;
     const { rows: [c] } = await db.query(insertSql('crm_contacts', f), vals(f));

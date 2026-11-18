@@ -121,7 +121,9 @@ test('fasi del lead con lo storico; diventa cliente solo alla prima commessa', a
 test('contatti in più soggetti, controllo per email, li vedono tutti', async () => {
   const { body: { subjects: [cli] } } = await E('GET', '/api/crm/subjects?role=cliente');
   const { body: comune } = await E('POST', '/api/crm/subjects', { name: 'Comune di Pescara', kind: 'ente_pubblico', roles: ['lead'], asa: ['edilizia'], ipa_code: 'c_g482' });
-  assert.equal((await E('POST', '/api/crm/contacts', { last_name: 'Bianchi' })).status, 400); // senza anagrafica
+  // dal 18/11 (v8, contatto facile) basta un nome o un'email, anche senza anagrafica; senza niente no
+  assert.equal((await E('POST', '/api/crm/contacts', { last_name: 'Senzaazienda' })).status, 201);
+  assert.equal((await E('POST', '/api/crm/contacts', {})).status, 400);
   const c = await E('POST', '/api/crm/contacts', {
     title: 'Ing.', first_name: 'Mario', last_name: 'Bianchi', email: 'M.Bianchi@example.it',
     links: [{ subject_id: cli.id, job: 'Direttore tecnico', is_primary: true }, { subject_id: comune.id, job: 'RUP' }],

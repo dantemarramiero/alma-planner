@@ -77,6 +77,7 @@ function readConfig(env = process.env) {
     adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
     // Alma, l'assistente: la chiave di Claude (senza, Alma resta spenta) e la modalità finta per provarla in locale.
     openaiKey: env.OPENAI_API_KEY?.trim() || null,
+    apiWriteMax: Number(env.API_WRITE_MAX) > 0 ? Number(env.API_WRITE_MAX) : 120, // scritture al minuto per persona (alzato solo nei test lunghi)
     almaFake: env.ALMA_FAKE === '1',
   };
 }
@@ -128,7 +129,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   const perMinute = 60 * 1000;
   app.use('/auth', rateLimit({ windowMs: perMinute, max: 30, key: req => req.ip, message: 'Troppi tentativi di accesso, riprova tra un minuto' }));
   const apiReads = rateLimit({ windowMs: perMinute, max: 600, key: req => req.user?.id });
-  const apiWrites = rateLimit({ windowMs: perMinute, max: 120, key: req => req.user?.id });
+  const apiWrites = rateLimit({ windowMs: perMinute, max: config.apiWriteMax || 120, key: req => req.user?.id });
 
   app.get('/healthz', async (_req, res) => {
     await db.query('SELECT 1');
