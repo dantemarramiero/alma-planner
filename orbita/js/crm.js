@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
 import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
 import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.js';
+import { launchRoom, mieiProgetti, crmProjectPage } from './crm-progetti.js';
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
 import { concorrenzaTab, primaBandoTab } from './crm-concorrenza.js';
@@ -127,6 +128,10 @@ export async function crmView(container, parts = []) {
   data = await get('/api/crm');
   store.crmData = data; // BU e ASA per «Registra esito» aperto da altre pagine
   if (parts[1] === 'business') return businessView(container, parts.slice(2), data); // Nuovi business
+  // «Porta avanti» e «I miei progetti» (canvas v9): sala di lancio, portafoglio e scheda del progetto
+  if (parts[1] === 'lancio' && ['s', 'i'].includes(parts[2]) && Number(parts[3])) return launchRoom(container, parts[2], Number(parts[3]));
+  if (parts[1] === 'progetti') return mieiProgetti(container);
+  if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'incontro' && Number(parts[2])) { // dalla notifica «mancano le note»

@@ -39,6 +39,7 @@ const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
+const { registerCrmProgetti } = require('./routes/crm-progetti');
 const { createCrmAccess } = require('./lib/crm');
 const { createCrmSync } = require('./lib/crm-sync');
 const { registerStrategy } = require('./routes/strategy');
@@ -225,6 +226,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
+  registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Planet, «I miei progetti», rendiconto
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)
   registerPerformance(app, deps); // Alma Strategy: performance management (scheda, obiettivi, team, mansionario)
   registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto

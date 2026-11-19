@@ -208,6 +208,12 @@ export async function projectDetail(container, id, opts = {}) {
       return;
     }
   }
+  // il progetto portato avanti dal CRM (Radar o Nuovi business) si apre nella sua pagina del CRM
+  if (p.crm_kind && !opts.base) {
+    const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2] || '';
+    location.replace(`#/crm/progetto/${p.id}${t ? `/${t === 'ticket' ? 'compiti' : t}` : ''}`);
+    return;
+  }
   // il progetto di un A3 di Alma Strategy si apre nella pagina dell'A3
   if (p.hk && !opts.base) {
     const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2] || '';
@@ -219,7 +225,8 @@ export async function projectDetail(container, id, opts = {}) {
   }
   const owner = userById(p.owner_id);
   const extra = opts.extraTabs || [];
-  const tabs = [TABS[0], ...extra.map(([k, label]) => [k, label]), ...TABS.slice(1)];
+  // opts.tabs (progetti del CRM): l'elenco e l'ordine dei tab, con quelli in più presi da extraTabs
+  const tabs = opts.tabs ? opts.tabs.map(([k, label]) => [k, label]) : [TABS[0], ...extra.map(([k, label]) => [k, label]), ...TABS.slice(1)];
   const base = opts.base || `#/projects/${p.id}`;
   const reload = () => projectDetail(container, id, opts);
   const tabFromHash = () => {
@@ -273,7 +280,9 @@ export async function projectDetail(container, id, opts = {}) {
     on: { click: () => show(k) },
   }, k === 'gantt' && isMobile() ? 'Attività' : label, counter(k))));
   const content = h('div.pj-content');
-  clear(container).append(h('div.pj', head, nav, content));
+  // opts.hero (progetti del CRM): la testata scura al posto dell'intestazione normale
+  const top = opts.hero ? opts.hero({ p, reload, show: k => show(k), canManage: canManage(p), viewer }) : head;
+  clear(container).append(h('div.pj', { class: opts.hero ? 'pj-crm' : '' }, top, nav, content));
   show(tab);
   // il numero di email accanto al tab si legge a parte (non è nei dati del progetto)
   get(`/api/projects/${p.id}/emails`, { quiet: true }).then(list => {
@@ -316,7 +325,7 @@ export async function projectDetail(container, id, opts = {}) {
     clear(content).append(box);
     const ex = extra.find(([x]) => x === k);
     if (ex) ex[2](box, reload);
-    else if (k === 'panoramica') overview(box);
+    else if (k === 'panoramica') (opts.overview ? opts.overview(box, { p, show, reload }) : overview(box));
     else if (k === 'gantt') {
       if (isMobile()) ganttPhone(box, { project: p.id });
       else ganttView(box, new URLSearchParams({ project: String(p.id) }), { embedded: true });
@@ -385,7 +394,8 @@ export async function projectDetail(container, id, opts = {}) {
     const list = h('div.card.table-wrap', loading());
     box.append(
       h('div.spread', h('div', h('h3', 'Membri'), h('p.muted.small', { style: { margin: '2px 0 0' } },
-        'Il progetto e i suoi ticket li vedono solo queste persone (e gli amministratori). Chi viene assegnato a un ticket del progetto entra da solo.')),
+        p.crm_kind ? 'Lavorano al progetto queste persone; gli altri lo vedono in sola lettura da «I miei progetti». Chi viene assegnato a un compito entra da solo.'
+          : 'Il progetto e i suoi ticket li vedono solo queste persone (e gli amministratori). Chi viene assegnato a un ticket del progetto entra da solo.')),
       opts.membersActions ? h('div.row.pj-members-actions', opts.membersActions(reload)) : canManage(p) ? h('button.btn.btn-primary', { type: 'button', on: { click: addPeople } }, '＋ Aggiungi persone') : null),
       list);
     await draw();

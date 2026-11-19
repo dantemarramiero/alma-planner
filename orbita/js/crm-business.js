@@ -328,7 +328,11 @@ async function initiativePage(container, id, tabKey, crmData) {
         i.description ? h('div.nb-desc', i.description) : null,
         h('div.nb-meta', h('span.nb-who', av(i.owner_name), `${i.owner_name || '—'} · responsabile`), i.sponsor_name ? h('span.nb-who', av(i.sponsor_name, 'o'), `${i.sponsor_name} · sponsor`) : null,
           i.phase === 'abbandonata' ? pill('Abbandonata', 'off') : lightPill(i.light.color, `${LIGHT[i.light.color]}${reason ? ` · ${reason.t[0].toLowerCase()}${reason.t.slice(1)}` : ''}`))),
-      h('div.nb-hero-r', h('div.nb-actions', i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh), { ico: 'pencil' }) : null,
+      h('div.nb-hero-r', h('div.nb-actions',
+        // «Porta avanti» (canvas v9): l'iniziativa diventa un progetto di Alma Planet in «I miei progetti»
+        i.project_id ? btn('Apri il progetto', () => { location.hash = `#/crm/progetto/${i.project_id}`; }, { ico: 'folder' })
+          : i.canEdit && i.phase !== 'abbandonata' ? btn('Porta avanti', () => { location.hash = `#/crm/lancio/i/${i.id}`; }, { ico: 'rocket', primary: true }) : null,
+        i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh), { ico: 'pencil' }) : null,
         h('details.nb-menu', h('summary.nb-btn.ghost', { 'aria-label': 'Altro' }, ic('more')), more)), stats),
       h('div.nb-hero-steps', stepper(i))),
     gl?.late && i.phase !== 'abbandonata' ? h('div.nb-focus', ic('alert-triangle'), h('div.grow', h('b', 'Da decidere: '), `gate G${gl.n} «${gl.question}» è scaduto il ${day(gl.due_date)}.${lateTask ? ` Passo scaduto: «${lateTask.title}» (${lateTask.owner_name || '—'}).` : ''}`),

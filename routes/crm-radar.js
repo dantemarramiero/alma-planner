@@ -100,12 +100,16 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     const { rows } = await db.query(`${SELECT} WHERE g.status = ANY($1::text[]) ${req.query.altri ? '' : "AND g.stage <> 'vinta_altri'"}
       ORDER BY g.score DESC, g.created_at DESC LIMIT 600`, [states]);
     const rels = await relationsFor(db, rows.map(g => g.subject_id).filter(Boolean), c.settings.relazioni);
+    // portate avanti (progetto del CRM): chi le segue
+    const pids = rows.map(g => g.project_id).filter(Boolean);
+    const { rows: owners } = pids.length ? await db.query('SELECT p.id, u.name FROM projects p LEFT JOIN users u ON u.id = p.owner_id WHERE p.id = ANY($1::int[])', [pids]) : { rows: [] };
     const signals = rows.map(g => {
       const rel = g.subject_id ? rels[g.subject_id] : null;
       const paths = pathsOf(rel).slice(0, 3);
       return { id: g.id, title: g.title, entity: g.entity, subject_id: g.subject_id, subject_name: g.subject_name, bu: g.bu, bu_label: g.bu_label, kind: g.kind, stage: g.stage,
         column: columnOf(g), status: g.status, to_gare: g.to_gare, amount: g.amount != null ? Number(g.amount) : null, region: g.region, place: g.place,
         deadline: g.deadline, expected_on: g.expected_on, score: g.score, created_at: g.created_at, decided_by_name: g.decided_by_name, source: g.source,
+        project_id: g.project_id || null, project_owner: g.project_id ? owners.find(o => o.id === g.project_id)?.name || '' : '',
         warm: rel && rel.level ? rel.level : '', warm_us: paths.map(p => p.us && p.us.name).filter(Boolean), warm_why: paths[0] ? `${paths[0].us ? paths[0].us.name : ''} → ${paths[0].contact}` : '' };
     });
     res.json({ signals, bus: c.myBus, gare: c.gare, highlight: c.settings.scoring.highlight, discardReasons: c.settings.rules.discard_reasons,
