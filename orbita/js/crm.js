@@ -517,8 +517,11 @@ async function subjectPage(container, id, tabKey) {
         h('div.cv-head-acts',
           phone ? h('a.btn', { href: `tel:${phone}` }, ic('phone', 15), 'Chiama') : h('button.btn', { type: 'button', disabled: true, title: 'Nessun telefono: aggiungilo nei dati o ai contatti' }, ic('phone', 15), 'Chiama'),
           mail ? h('a.btn', { href: `mailto:${mail}` }, ic('mail', 15), 'Email') : h('button.btn', { type: 'button', disabled: true, title: 'Nessuna email' }, ic('mail', 15), 'Email'),
+          s.website ? h('a.btn.cv-hide-m', { href: /^https?:/i.test(s.website) ? s.website : `https://${s.website}`, target: '_blank', rel: 'noopener' }, ic('globe', 15), 'Sito') : null,
+          h('button.btn.an-websearch', { type: 'button', on: { click: () => webSearchDialog(s, () => refresh()) } }, ic('sparkles', 15), h('span.cv-hide-m', 'Cerca su internet'), h('span.cv-only-m', 'Internet')),
           h('button.btn.btn-primary', { type: 'button', on: { click: newStep }, 'aria-label': 'Nuovo passo' }, ic('plus', 15), h('span.cv-hide-m', 'Nuovo passo'), h('span.cv-only-m', 'Passo')),
-          menu)),
+          menu),
+        completenessRing(s)),
       s.roles.includes('lead') ? [h('div.cv-hr'), stageBar(s, () => refresh())] : null,
       h('div.cv-hr'),
       stepsCard(s, () => refresh(), { onNew: newStep })),
@@ -535,6 +538,104 @@ async function subjectPage(container, id, tabKey) {
   else if (tab === 'piani') await plansTab(body, s, () => refresh());
   else fill(body, placeholderTab(tab, s));
 }
+// ── Anagrafica completa e «Cerca su internet» (canvas v9 «Anagrafica», Dante 19/11/2026) ──────────────────────────
+// I vuoti sono pillole «+ Aggiungi»; i dati presi da internet hanno il bollino verde finché qualcuno non li conferma.
+const COMPLETE_KEYS = [['vat', 'P.IVA'], ['pec', 'PEC'], ['address', 'indirizzo'], ['city', 'città'], ['province', 'provincia'], ['phone', 'telefono'], ['email', 'email'], ['website', 'sito'], ['ateco', 'ATECO']];
+function completeness(s) {
+  const missing = COMPLETE_KEYS.filter(([k]) => !(k === 'vat' ? s.vat || s.tax_code : s[k]));
+  return { pct: Math.round(100 * (COMPLETE_KEYS.length - missing.length) / COMPLETE_KEYS.length), missing: missing.map(([, l]) => l) };
+}
+function completenessRing(s) {
+  const { pct, missing } = completeness(s);
+  const el = h('div.an-ring', { title: missing.length ? `Mancano: ${missing.join(', ')}` : 'Scheda completa' });
+  const C = 2 * Math.PI * 26;
+  el.innerHTML = `<svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="26" fill="none" stroke="var(--cv-ring)" stroke-width="7"/><circle cx="32" cy="32" r="26" fill="none" stroke="${pct === 100 ? '#1B7A45' : '#FF8A26'}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 32 32)"/></svg>`;
+  el.append(h('b', `${pct}%`), h('small', missing.length ? `mancano ${missing.slice(0, 2).join(', ')}${missing.length > 2 ? '…' : ''}` : 'scheda completa'));
+  return el;
+}
+function anagraficaSections(s, refresh) {
+  const web = s.web_fields || {};
+  const edit = () => subjectForm({ subject: s, onSaved: refresh });
+  const val = (k, v) => {
+    if (!v) return h('button.an-add', { type: 'button', on: { click: edit } }, '+ Aggiungi');
+    const w = web[k];
+    return h('span.an-val', h('b', v), w ? h('button.an-web', { type: 'button', title: `Preso da internet${w.source ? ` (${w.source})` : ''}: tocca per confermarlo`,
+      on: { click: async () => { await post(`/api/crm/subjects/${s.id}/da-web/conferma`, { key: k }); toast('Dato confermato'); refresh(); } } }, 'da internet') : null);
+  };
+  const ext = (url, text) => (url ? h('a', { href: /^(https?:|mailto:)/i.test(url) ? url : `https://${url}`, target: '_blank', rel: 'noopener' }, text || url.replace(/^https?:\/\/(www\.)?/i, '')) : '');
+  const dl = rows => h('div.an-dl', rows.filter(Boolean).map(([k, label, v]) => h('div', h('span', label), val(k, v))));
+  const sec = (icn, ttl, rows) => h('section.an-sec', h('div.an-sec-h', h('span.an-ic', ic(icn, 15)), h('b', ttl)), dl(rows));
+  const nWeb = Object.keys(web).length;
+  return h('div.an-wrap',
+    nWeb ? h('div.an-webnote', ic('sparkles', 14), h('span.cv-grow', `${nWeb} ${nWeb === 1 ? 'dato preso' : 'dati presi'} da internet da controllare: tocca il bollino verde per confermarli.`),
+      h('button.cv-lnk', { type: 'button', on: { click: async () => { await post(`/api/crm/subjects/${s.id}/da-web/conferma`, { key: '*' }); toast('Dati confermati'); refresh(); } } }, 'Confermali tutti')) : null,
+    h('div.an-grid',
+      sec('receipt', 'Dati fiscali', [['name', 'Ragione sociale', s.name], ['legal_form', 'Forma giuridica', s.legal_form], ['vat', 'P.IVA', s.vat], ['tax_code', 'Codice fiscale', s.tax_code], ['pec', 'PEC', s.pec],
+        ['sdi_code', 'Codice SDI', s.sdi_code], (s.kind === 'ente_pubblico' || s.ipa_code) && ['ipa_code', 'Codice IPA', s.ipa_code]]),
+      sec('map-pin', 'Sede', [['address', 'Indirizzo', s.address], ['zip', 'CAP', s.zip], ['city', 'Comune', s.city], ['province', 'Provincia', s.province], ['region', 'Regione', s.region]]),
+      sec('phone', 'Recapiti', [['email', 'Email', s.email && ext(`mailto:${s.email}`, s.email)], ['phone', 'Telefono', s.phone && h('a', { href: `tel:${s.phone}` }, s.phone)],
+        ['website', 'Sito', ext(s.website)], ['linkedin', 'LinkedIn', ext(s.linkedin, 'profilo')]]),
+      sec('briefcase', 'Attività', [['ateco', 'ATECO', s.ateco], ['employees', 'Dipendenti', s.employees], ['revenue', 'Fatturato', s.revenue], ['soa', 'SOA', s.soa?.length ? soaText(s.soa) : '']])));
+}
+async function webSearchDialog(s, onSaved) {
+  const body = h('div.an-wsd');
+  const m = cvModal({ title: h('div.cv-row', { style: { gap: '10px' } }, h('span.an-spark', ic('sparkles', 17)), h('div', h('h2', 'Cerca su internet'), h('p.cv-small.cv-muted', { style: { margin: '2px 0 0' } }, s.name))), body, size: 'web' });
+  const searching = text => fill(body, h('div.an-searching', h('span.spinner'), h('span', text)));
+  const run = async (scelta = null) => {
+    searching(scelta ? `Cerco i dati di «${scelta.name || scelta.note}»…` : 'Cerco l’azienda su internet…');
+    let r;
+    try { r = await post(`/api/crm/subjects/${s.id}/cerca-web`, scelta ? { scelta } : {}); } catch (err) {
+      fill(body, h('p.an-err', err.message || 'La ricerca non ha risposto.'), h('button.btn', { type: 'button', on: { click: () => run(scelta) } }, 'Riprova'));
+      return;
+    }
+    if (r.ambiguous) { choose(r.candidates); return; }
+    showFields(r);
+  };
+  // Alma è indecisa: propone le alternative e la persona dice qual è
+  const choose = candidates => {
+    const hint = h('input.input', { placeholder: 'Oppure scrivilo tu: città, P.IVA, sito…', 'aria-label': 'Di quale azienda si tratta' });
+    fill(body,
+      h('p.an-q', 'Ho trovato più aziende con questo nome. Di quale si tratta?'),
+      h('div.an-cands', candidates.map(c => h('button.an-cand', { type: 'button', on: { click: () => run(c) } },
+        h('span.an-cand-ic', ic('building', 15)), h('span.cv-grow', h('b', c.name), h('small', [c.city, c.vat && `P.IVA ${c.vat}`, c.website].filter(Boolean).join(' · ')), c.note ? h('small.an-note', c.note) : null), ic('chevron-right', 15)))),
+      h('div.an-hint', hint, h('button.btn', { type: 'button', on: { click: () => { const t = hint.value.trim(); if (t) run({ name: s.name, note: t }); else hint.focus(); } } }, 'Cerca questa')));
+  };
+  const showFields = r => {
+    if (!r.fields.length) {
+      fill(body, h('p.an-q', r.company?.name ? `Ho trovato «${r.company.name}», ma niente di nuovo rispetto alla scheda.` : 'Non ho trovato dati nuovi per questa scheda.'),
+        h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'));
+      return;
+    }
+    const checks = r.fields.map(f => ({ f, on: !f.current }));
+    const count = h('span');
+    const useBtn = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+      const picked = checks.filter(c => c.on);
+      if (!picked.length) return;
+      useBtn.disabled = true;
+      try {
+        const out = await post(`/api/crm/subjects/${s.id}/da-web`, { fields: Object.fromEntries(picked.map(c => [c.f.key, c.f.value])), sources: Object.fromEntries(picked.map(c => [c.f.key, c.f.source])) });
+        m.close();
+        toast(`${out.saved.length} ${out.saved.length === 1 ? 'dato salvato' : 'dati salvati'}${out.skipped?.length ? ` (saltati: ${out.skipped.join(', ')})` : ''}`);
+        onSaved?.();
+      } catch { useBtn.disabled = false; }
+    } } }, ic('check', 15), count);
+    const drawCount = () => { const n = checks.filter(c => c.on).length; count.textContent = n ? `Usa ${n === 1 ? 'quello spuntato' : `i ${n} spuntati`}` : 'Spunta i dati da usare'; useBtn.disabled = !n; };
+    const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+    fill(body,
+      r.company?.name ? h('p.an-q', `${r.fields.length} ${r.fields.length === 1 ? 'dato trovato' : 'dati trovati'} per «${r.company.name}»${r.company.city ? `, ${r.company.city}` : ''}.`) : null,
+      h('div.an-found', checks.map(c => {
+        const box = h('button.an-chk', { type: 'button', role: 'checkbox', 'aria-checked': String(c.on), 'aria-label': c.f.label, class: c.on ? 'on' : '', on: { click: () => { c.on = !c.on; box.classList.toggle('on', c.on); box.setAttribute('aria-checked', String(c.on)); drawCount(); } } }, ic('check', 12));
+        return h('div.an-frow', box, h('div.cv-grow', h('small', c.f.label), h('b', c.f.value),
+          c.f.current ? h('small.an-was', `nella scheda: ${c.f.current}`) : null,
+          c.f.source ? h('a.an-src', { href: c.f.source, target: '_blank', rel: 'noopener' }, ic('link', 10), host(c.f.source) || 'fonte') : null));
+      })),
+      h('div.cv-row', { style: { gap: '8px', marginTop: '12px' } }, useBtn, h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla')),
+      h('p.cv-small.cv-muted', { style: { marginTop: '8px' } }, 'Niente si salva da solo: i dati presi da internet restano segnati finché qualcuno non li conferma.'));
+    drawCount();
+  };
+  run();
+}
+
 const initialsOf = name => String(name).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(w => w.length > 1 || /\p{Lu}/u.test(w)).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 function placeholderTab(tab, s) {
@@ -600,7 +701,14 @@ async function overviewTab(box, s, base, go, people, refresh) {
       s.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, s.notes) : null,
       link('Modifica i dati', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })),
   ];
-  fill(box, h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
+  right.splice(1, 1, h('section.cv-card.pad', h('div.cv-lbl', 'Altro'),
+    kv([['Gruppo', s.group_id ? h('a', { href: `#/crm/scheda/${s.group_id}` }, s.group_name) : ''],
+      ['Società del gruppo', s.controlled.length ? h('span', s.controlled.flatMap((x, i) => [i ? ', ' : '', h('a', { href: `#/crm/scheda/${x.id}` }, x.name)])) : ''],
+      ['Stato', s.status !== 'attivo' ? data.meta.status[s.status] + (s.block_reason ? ` · ${s.block_reason}` : '') : ''],
+      ['Codici', codes ? h('span.cv-small.cv-muted', codes) : '']]),
+    s.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, s.notes) : null,
+    link('Modifica i dati', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })));
+  fill(box, anagraficaSections(s, refresh), h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
 }
 
 async function subjectContacts(box, s, refresh) {
@@ -711,13 +819,15 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
     h('div.en-row2',
       field('Segmento', select(segments, s.segment, { 'data-k': 'segment' })),
       field('Gruppo / capogruppo', select([['', '—'], ...others.filter(x => x.id !== subject?.id).map(x => [x.id, x.name])], s.group_id, { 'data-k': 'group_id' }))),
-    field('Indirizzo della sede', input({ 'data-k': 'address', value: s.address || '' })),
+    h('div.en-row2', field('Indirizzo della sede', input({ 'data-k': 'address', value: s.address || '' })), field('CAP', input({ 'data-k': 'zip', value: s.zip || '', maxlength: 10 }))),
     h('div.en-row3', field('Comune', input({ 'data-k': 'city', value: s.city || '' })), field('Provincia', prov), field('Regione', region)),
     h('div.en-row3', field('PEC', input({ 'data-k': 'pec', value: s.pec || '', type: 'email' })), field('Email', input({ 'data-k': 'email', value: s.email || '', type: 'email' })),
       field('Telefono', input({ 'data-k': 'phone', value: s.phone || '' }))),
     h('div.en-row3', field('Sito web', input({ 'data-k': 'website', value: s.website || '' }), 'Serve anche a riconoscere gli incontri con quest\'azienda'),
       field('Codice SDI', input({ 'data-k': 'sdi_code', value: s.sdi_code || '', maxlength: 10 })),
       field('Codice IPA', input({ 'data-k': 'ipa_code', value: s.ipa_code || '' }), 'Solo enti pubblici')),
+    h('div.en-row3', field('LinkedIn', input({ 'data-k': 'linkedin', value: s.linkedin || '' })), field('Dipendenti', input({ 'data-k': 'employees', value: s.employees || '', placeholder: '25–30' })),
+      field('Fatturato', input({ 'data-k': 'revenue', value: s.revenue || '', placeholder: '€ 4 M (2024)' }))),
     h('div.en-row3', field('Forma giuridica', select([['', '—'], ...data.meta.legalForms.map(x => [x, x])], s.legal_form, { 'data-k': 'legal_form' })),
       field('ATECO', input({ 'data-k': 'ateco', value: s.ateco || '', placeholder: '41.20' })),
       field('Stato', select(Object.entries(data.meta.status), s.status, { 'data-k': 'status' }))),

@@ -18,6 +18,7 @@ function daCompletare(s) {
   return miss.length ? miss : null;
 }
 const { registerCrmLinks } = require('./crm-links');
+const { registerCrmWeb } = require('./crm-web');
 const { registerCrmImport } = require('./crm-import');
 const { registerCrmCommerciale } = require('./crm-commerciale');
 const { loadSettings } = require('../lib/crm-commerciale');
@@ -105,7 +106,11 @@ function subjectFields(b, { partial, asaKeys }) {
     city: v.text(b.city, 'Comune', { max: 100 }),
     province: pickOrEmpty(b.province, 'Provincia', [...PROVINCES.keys()]),
     region: pickOrEmpty(b.region, 'Regione', REGIONS.map(r => r.name)),
-    ateco: v.text(b.ateco, 'ATECO', { max: 20 }),
+    ateco: v.text(b.ateco, 'ATECO', { max: 60 }),
+    zip: v.text(b.zip, 'CAP', { max: 10 }),
+    linkedin: v.text(b.linkedin, 'LinkedIn', { max: 200 }),
+    employees: v.text(b.employees, 'Dipendenti', { max: 40 }),
+    revenue: v.text(b.revenue, 'Fatturato', { max: 60 }),
     group_id: v.int(b.group_id, 'Gruppo', { min: 1, nullable: true }),
     roles: list(b.roles, 'Ruoli', Object.keys(ROLES)),
     asa: list(b.asa, 'ASA', asaKeys),
@@ -401,6 +406,10 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     await checkOwnerFunction(f, { creating: false });
     if (f.roles?.includes('cliente') && !cur.roles.includes('cliente') && !cur.client_since) f.client_since = new Date().toISOString().slice(0, 10);
     if (!Object.keys(f).length) return res.json(cur);
+    // un dato preso da internet cambiato a mano non è più «da internet»
+    const wf = { ...(cur.web_fields || {}) };
+    const touched = Object.keys(f).filter(k => wf[k]);
+    if (touched.length) { touched.forEach(k => delete wf[k]); f.web_fields = JSON.stringify(wf); }
     try {
       const { rows: [s] } = await db.query(updateSql('crm_subjects', f), [id, ...vals(f)]);
       res.json(s);
@@ -688,6 +697,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
+  registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch }); // «Cerca su internet» nell'anagrafica
   commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 
