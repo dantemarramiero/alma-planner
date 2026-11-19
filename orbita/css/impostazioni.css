@@ -1,0 +1,83 @@
+/* Impostazioni uniche (canvas «Alma Planet · Impostazioni», 19/11/2026). Le basi sono le classi cv-* di crm-v2.css. */
+.imp .cv-sbody { gap: 20px; }
+.imp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.imp-tile, .imp-mod { text-decoration: none; color: var(--cv-text); gap: 10px; transition: box-shadow var(--ap-dur) var(--ap-ease); }
+.imp-tile:hover, .imp-mod:hover { box-shadow: 0 4px 18px rgba(60,40,20,.10); }
+.imp-tile:focus-visible, .imp-mod:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.imp-ico { width: 40px; height: 40px; border-radius: 12px; background: var(--cv-or-t); color: var(--cv-or-ink); display: grid; place-items: center; }
+.imp-p { margin: 0; line-height: 1.45; }
+.imp-strong { font-weight: 500; color: var(--cv-ink); }
+.cv-card.imp-facts { display: flex; flex-wrap: wrap; gap: 18px 32px; align-items: center; }
+.imp-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.imp-two.wide-left { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.imp-pad { padding: 0 24px 12px; margin: 0; }
+.imp-foot { display: grid; gap: 12px; }
+.imp-note { display: flex; gap: 8px; align-items: center; background: var(--cv-am-t); color: var(--cv-am); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+.imp-list { display: grid; gap: 10px; }
+.imp-manual, .imp-exc { border-top: 1px solid var(--cv-line-2); padding-top: 10px; gap: 10px; align-items: center; flex-wrap: wrap; }
+.imp-form { display: grid; gap: 14px; }
+.imp-fld { display: grid; gap: 6px; }
+.imp-lbl { font-size: 13px; font-weight: 500; color: var(--cv-ink); }
+
+/* organigramma */
+.imp-tree { padding: 4px 24px 12px; display: grid; gap: 8px; }
+.imp-node-wrap { display: grid; gap: 8px; }
+.imp-node { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--cv-line); border-radius: 12px; background: var(--cv-card); }
+.imp-node b { display: block; font-size: 14px; font-weight: 500; color: var(--cv-ink); }
+.imp-branch { margin-left: 22px; padding-left: 18px; border-left: 1px solid var(--cv-line-strong); display: grid; gap: 8px; }
+
+/* utenti */
+.imp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+.imp-kpi b { display: block; font-size: 28px; font-weight: 300; color: var(--cv-ink); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* costi AI */
+.imp-total { gap: 12px; }
+.imp-big { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.imp-big > span:first-child { font-size: 40px; font-weight: 300; color: var(--cv-ink); font-variant-numeric: tabular-nums; }
+.imp-bar { height: 10px; border-radius: 999px; background: var(--cv-soft); overflow: hidden; }
+.imp-bar i { display: block; height: 100%; border-radius: 999px; background: var(--cv-orange); }
+.imp-bar.warn i { background: var(--ap-warning); }
+.imp-bar.thin { height: 6px; margin-top: 6px; }
+.imp-bar.mini { height: 6px; width: 110px; flex: none; }
+.imp-feat .cv-row { font-size: 14px; }
+.imp-feat b { font-weight: 500; color: var(--cv-ink); font-variant-numeric: tabular-nums; }
+
+/* privacy */
+.imp-legend { flex-wrap: wrap; gap: 8px; }
+.imp-matrix th { white-space: normal; vertical-align: bottom; min-width: 96px; }
+.imp-cell { border: 0; background: none; padding: 4px; margin: -4px; border-radius: 999px; cursor: pointer; font: inherit; }
+.imp-cell:hover .cv-pill { filter: brightness(.95); box-shadow: 0 0 0 1px var(--cv-line-strong); }
+.imp-cell:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.imp-hints { display: grid; gap: 4px; margin: -6px 0 0; line-height: 1.5; }
+.imp-hints b { font-weight: 500; }
+
+/* registro */
+.imp-log td { white-space: normal; min-width: 90px; }
+.imp-log td:first-child { white-space: nowrap; }
+.imp-log td:nth-child(6) { font-size: 12px; color: var(--cv-muted); min-width: 0; }
+.imp-diffrow td { background: var(--cv-head); padding-top: 4px; }
+.imp-diff { display: flex; flex-wrap: wrap; gap: 12px; }
+.imp-diff > div { flex: 1 1 240px; border-radius: 12px; padding: 10px 12px; }
+.imp-diff pre { margin: 4px 0 0; font: 13px/1.5 var(--ap-font); white-space: pre-wrap; color: var(--cv-text); }
+.imp-before { background: var(--cv-rd-t); }
+.imp-after { background: var(--cv-gr-t); }
+
+/* integrazioni */
+.imp-svcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.imp-svc b { font-size: 14px; font-weight: 500; color: var(--cv-ink); }
+.imp-perm { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--cv-line-2); font-size: 13.5px; flex-wrap: wrap; }
+.imp-perm:last-of-type { border-bottom: 0; }
+.imp-mslogo { display: grid; grid-template-columns: repeat(2, 18px); gap: 3px; flex: none; }
+.imp-mslogo i { display: block; width: 18px; height: 18px; }
+.imp-mslogo i:nth-child(1) { background: #F25022; } .imp-mslogo i:nth-child(2) { background: #7FBA00; }
+.imp-mslogo i:nth-child(3) { background: #00A4EF; } .imp-mslogo i:nth-child(4) { background: #FFB900; }
+
+/* moduli */
+.imp-mod ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+.imp-moved { font-size: 12px; color: var(--cv-muted); border-top: 1px solid var(--cv-line-2); padding-top: 10px; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .imp-two.wide-left { grid-template-columns: minmax(0, 1fr); }
+  .imp-big > span:first-child { font-size: 32px; }
+}

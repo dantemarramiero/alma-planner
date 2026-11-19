@@ -28,6 +28,7 @@ import { welcomeView } from './welcome.js';
 import { icon } from './icons.js';
 import { startPwa } from './pwa.js';
 import { notifSettingsView } from './notif-settings.js';
+import { renderImpostazioni } from './impostazioni.js';
 import { oggiView, lavoroView, inboxView, esploraView, ioView, markPlace, trackRecent, isRoot } from './app2.js';
 import { isMobile } from './ui.js';
 import { almaView, setupAlma } from './alma.js';
@@ -282,6 +283,9 @@ async function route() {
     case 'crm':
       await crmView(view, parts);
       break;
+    case 'impostazioni': // Impostazioni uniche (amministratori; Costi AI anche per chi ha «Costi AI: Tutto»)
+      await renderImpostazioni(view, parts);
+      break;
     case 'alma': // Alma, l'assistente: chat e (amministratori) impostazioni
       cleanup = (await almaView(view, parts, params)) || null;
       break;
@@ -352,6 +356,7 @@ async function start() {
   document.getElementById('nav-crm-admin-label').hidden = !store.me.is_admin;
   // la dashboard dei team la vedono gli amministratori, il team HR e chi è responsabile di qualcuno
   document.getElementById('nav-pm-team').hidden = !store.me.is_admin;
+  document.getElementById('nav-settings').hidden = !(store.me.is_admin || store.me.privacy?.costi_ai === 'all'); // Impostazioni uniche
   if (!store.me.is_admin) get('/api/pm/flags', { quiet: true }).then(f => { document.getElementById('nav-pm-team').hidden = !(f?.manager || f?.hr); }).catch(() => {});
   refreshBadges();
 

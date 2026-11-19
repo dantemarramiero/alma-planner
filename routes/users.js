@@ -11,7 +11,7 @@ function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAc
   const getUser = async id => (await db.query(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [id])).rows[0];
 
   app.get('/api/me', async (req, res) => {
-    res.json({ ...(await getUser(req.user.id)), microsoft: auth.msConfigured, is_admin: isAdmin(req),
+    res.json({ ...(await getUser(req.user.id)), microsoft: auth.msConfigured, is_admin: isAdmin(req), privacy: req.privacy || null,
       software: softwareAccess ? await softwareAccess.canUse(req) : isAdmin(req),
       fleet_manager: fleet ? await fleet.isManager(req) : false,
       energy: energyAccess ? await energyAccess.canUse(req) : false,
