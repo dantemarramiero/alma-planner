@@ -1,7 +1,7 @@
 // Radar commerciale (canvas «Segnale», «Piano d'azione», «Scheda azienda · Piano d'azione», «Proposte dal radar»),
 // con il design v2 del 14/11 (artboard «Segnale», «Piano», «Scheda-tab», «Gare», «Sotto-soglia»): segnale e piano
 // si aprono in un riquadro laterale da 600 px con l'elenco visibile dietro; azioni sempre nel piede fisso.
-import { h, fill, confirmDialog, toast, fmtDate, loading } from './ui.js';
+import { h, fill, confirmDialog, toast, fmtDate, loading, promptDialog } from './ui.js';
 import { get, post, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
@@ -427,34 +427,125 @@ export async function belowTab(box, data) {
     }) : emptyState('radar', r.bus.length ? 'Nessun segnale sotto soglia: il radar non ha scartato niente.' : 'Non sei responsabile di nessuna BU.')));
 }
 
-// «Radar»: tutti i segnali delle mie BU (la direzione: di tutte), con i filtri per BU e stato (Dante 14/11)
-const STATI = [['nuovo', 'Da decidere'], ['interessa', 'Interessa'], ['scartato', 'Scartati'], ['', 'Tutti']];
-export async function radarTab(box, data, state = { bu: '', status: 'nuovo', q: '' }) {
+// «Radar» per tutti (canvas «v9 · Radar», approvato da Dante il 19/11): tutte le opportunità di tutte le BU in tre colonne
+// (Programmata · Finanziata · Progetto approvato), filtri per tutti, «Chi conosciamo» come filtro e filtri preferiti di ognuno.
+const COLS = [['programmata', 'Programmata', 'calendar'], ['finanziata', 'Finanziata', 'banknote'], ['approvato', 'Progetto approvato', 'badge-check']];
+const WARM = [['', 'Chi conosciamo: tutti'], ['forte', 'Forte'], ['media', 'Forte o media'], ['qualcuno', 'Qualcuno ci conosce'], ['nessuno', 'Nessuno ci conosce']];
+const AMOUNTS = [['', 'Qualsiasi importo'], ['100000', 'Da 100 mila €'], ['1000000', 'Da 1 M€'], ['5000000', 'Da 5 M€']];
+const WARM_RANK = { forte: 3, media: 2, debole: 1, '': 0 };
+const FILTER_KEYS = ['q', 'bu', 'kind', 'region', 'min', 'warm', 'altri', 'scartate'];
+const emptyFilters = () => ({ q: '', bu: '', kind: '', region: '', min: '', warm: '', altri: false, scartate: false });
+let radarState = null;
+export async function radarTab(box, data) {
   fill(box, loading());
-  const again = () => radarTab(box, data, state);
-  const r = await get(`/api/crm/radar/signals?view=tutti${state.status ? `&status=${state.status}` : ''}`);
+  const st = radarState || (radarState = { view: 'kanban', f: null });
+  const load = () => get(`/api/crm/radar/board?${st.f?.altri ? 'altri=1&' : ''}${st.f?.scartate ? 'scartate=1' : ''}`);
+  let r = await load();
+  if (!st.f) { const def = (r.filtri || []).find(x => x.predefinito); st.f = { ...emptyFilters(), ...(def ? def.filtri : {}) }; if (st.f.altri || st.f.scartate) r = await load(); }
+  const again = () => radarTab(box, data);
   const asaName = k => data.asa.find(a => a.key === k)?.label || k || 'Senza BU';
-  const bus = [...new Set(r.signals.map(g => g.bu).filter(Boolean))].sort((a, b) => asaName(a).localeCompare(asaName(b), 'it'));
-  const list = h('section.cv-card');
-  const search = h('input.input', { type: 'search', placeholder: 'Cerca nel titolo o nell\u2019ente…', value: state.q, 'aria-label': 'Cerca', style: { maxWidth: '280px' } });
-  const draw = () => {
-    const q = state.q.trim().toLowerCase();
-    const shown = r.signals.filter(g => (!state.bu || g.bu === state.bu) && (!q || `${g.title} ${g.entity} ${g.subject_name || ''}`.toLowerCase().includes(q)));
-    const groups = state.bu ? [state.bu] : [...new Set(shown.map(g => g.bu || ''))];
-    fill(list, shown.length ? groups.map(b => {
-      const items = shown.filter(g => (g.bu || '') === b);
-      return items.length ? [sect(`${asaName(b)} · ${items.length}`), items.map(g => signalRow(g, { highlight: r.highlight, reasons: r.discardReasons, onChange: again, data, list: shown }))] : null;
-    }) : emptyState('radar', r.signals.length ? 'Nessun segnale con questi filtri.' : 'Nessun segnale in questo stato.'));
+  const f = st.f;
+  const passes = g => {
+    const q = f.q.trim().toLowerCase();
+    if (q && !`${g.title} ${g.entity || ''} ${g.subject_name || ''} ${g.place || ''}`.toLowerCase().includes(q)) return false;
+    if (f.bu && g.bu !== f.bu) return false;
+    if (f.kind && g.kind !== f.kind) return false;
+    if (f.region && (g.region || '') !== f.region) return false;
+    if (f.min && !(g.amount >= Number(f.min))) return false;
+    if (f.warm === 'forte' && g.warm !== 'forte') return false;
+    if (f.warm === 'media' && WARM_RANK[g.warm] < 2) return false;
+    if (f.warm === 'qualcuno' && !g.warm) return false;
+    if (f.warm === 'nessuno' && g.warm) return false;
+    return true;
   };
-  search.addEventListener('input', () => { state.q = search.value; draw(); });
-  const buChips = choiceChips([['', `Tutte le BU · ${r.signals.length}`], ...bus.map(b => [b, `${asaName(b)} · ${r.signals.filter(g => g.bu === b).length}`])], state.bu, { label: 'BU', onChange: k => { state.bu = k; draw(); } });
-  const stChips = choiceChips(STATI, state.status, { label: 'Stato', onChange: k => { state.status = k; state.bu = ''; radarTab(box, data, state); } });
+  const opts = (list, all) => [['', all], ...list];
+  const bus = [...new Set(r.signals.map(g => g.bu).filter(Boolean))].sort((a, b) => asaName(a).localeCompare(asaName(b), 'it')).map(b => [b, asaName(b)]);
+  const kinds = [...new Set(r.signals.map(g => g.kind).filter(Boolean))].map(k => [k, KIND_SHORT[k] || k]);
+  const regions = [...new Set(r.signals.map(g => g.region).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it')).map(x => [x, x]);
+  const sel = (key, list, label) => {
+    const s = select(list, f[key], { 'aria-label': label, class: f[key] ? 'on' : '' });
+    s.addEventListener('change', () => { f[key] = s.value; s.classList.toggle('on', Boolean(s.value)); draw(); });
+    return s;
+  };
+  const search = h('input.input', { type: 'search', placeholder: 'Cerca ente, opera, luogo…', value: f.q, 'aria-label': 'Cerca' });
+  search.addEventListener('input', () => { f.q = search.value; draw(); });
+  const check = (key, label) => {
+    const c = h('input', { type: 'checkbox', checked: Boolean(f[key]) });
+    c.addEventListener('change', () => { f[key] = c.checked; again(); });
+    return h('label.rk-check', c, label);
+  };
+  const favs = h('div.rk-favs');
+  const kpis = h('div');
+  const body = h('div');
+  const viewChips = choiceChips([['kanban', 'Colonne'], ['elenco', 'Elenco']], st.view, { label: 'Vista', onChange: k => { st.view = k; draw(); } });
+
+  const saveFavs = async list => { const out = await api('PUT', '/api/crm/radar/filtri', { filtri: list }); r.filtri = out.filtri; drawFavs(); };
+  const same = a => FILTER_KEYS.every(k => String(a[k] ?? '') === String(f[k] ?? ''));
+  const drawFavs = () => fill(favs,
+    h('span.rk-favs-l', ic('star', 13), 'I miei filtri'),
+    (r.filtri || []).map((x, i) => h('span.rk-fav', { class: same({ ...emptyFilters(), ...x.filtri }) ? 'on' : '' },
+      h('button', { type: 'button', title: 'Applica', on: { click: () => { st.f = { ...emptyFilters(), ...x.filtri }; again(); } } }, x.nome),
+      h('button.rk-fav-star', { type: 'button', class: x.predefinito ? 'on' : '', title: x.predefinito ? 'Si apre già così' : 'Apri il radar con questo filtro', 'aria-label': 'Predefinito',
+        on: { click: () => saveFavs(r.filtri.map((y, j) => ({ ...y, predefinito: j === i ? !y.predefinito : false }))) } }, ic('pin', 12)),
+      h('button.rk-fav-x', { type: 'button', title: 'Togli', 'aria-label': `Togli ${x.nome}`, on: { click: () => saveFavs(r.filtri.filter((_, j) => j !== i)) } }, ic('x', 12)))),
+    h('button.rk-fav-add', { type: 'button', on: { click: async () => {
+      const nome = await promptDialog('Salva questi filtri', { label: 'Nome del filtro', ok: 'Salva' });
+      if (nome && nome.trim()) { await saveFavs([...(r.filtri || []), { nome: nome.trim(), filtri: { ...f }, predefinito: false }]); toast('Filtro salvato'); }
+    } } }, ic('plus', 13), 'Salva questi filtri'),
+    FILTER_KEYS.some(k => f[k] && k !== 'altri') ? h('button.cv-lnk', { type: 'button', on: { click: () => { st.f = emptyFilters(); again(); } } }, 'Togli i filtri') : null);
+
+  const warmEl = g => g.warm
+    ? h('span.rk-warm', { class: g.warm, title: g.warm_why ? `Ci conosce: ${g.warm_why}` : 'Abbiamo rapporti con l’ente' },
+      h('span.rk-avs', (g.warm_us.length ? g.warm_us : ['?']).slice(0, 3).map(n => av(n))), `rapporto ${g.warm}`)
+    : h('span.rk-warm.none', 'nessuno ci conosce');
+  const due = g => g.deadline ? (() => { const d = daysTo(g.deadline); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 14 ? 'soon' : '' }, ic('clock', 11), d < 0 ? `scaduta ${day(g.deadline)}` : `scade ${day(g.deadline)}`); })()
+    : g.expected_on ? h('span.rk-due', ic('calendar', 11), `attesa ${day(g.expected_on)}`) : null;
+  const cardEl = (g, list) => h('article.rk-card', { tabIndex: 0, draggable: 'true', 'data-id': String(g.id), class: g.status === 'scartato' || g.status === 'gara_scartata' ? 'off' : '',
+    on: { dragstart: e => { e.dataTransfer.setData('text/plain', String(g.id)); e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('drag'); }, dragend: e => e.currentTarget.classList.remove('drag'),
+      click: e => { if (!e.target.closest('button')) openSignal(g.id, again, data, list); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) openSignal(g.id, again, data, list); } } },
+    h('div.rk-card-top', h('div.rk-card-tt', h('h4', g.title), h('div.rk-ent', g.subject_name || g.entity || '—')), scoreBadge(g.score, r.highlight)),
+    h('div.rk-meta', g.amount ? h('b', eur(g.amount)) : null, pill(g.bu_label || asaName(g.bu), 'line'), g.kind ? h('span', KIND_SHORT[g.kind] || g.kind) : null, g.region ? h('span', g.place || g.region) : null),
+    h('div.rk-card-ft', warmEl(g), h('span.cv-grow'), due(g)),
+    g.status === 'boss' ? h('div.rk-run', ic('circle-dot', 12), 'portata avanti', g.decided_by_name ? ` · ${g.decided_by_name}` : '')
+      : g.status === 'scartato' || g.status === 'gara_scartata' ? h('div.rk-run.off', 'scartata')
+      : h('button.rk-go', { type: 'button', on: { click: () => openSignal(g.id, again, data, list) } }, ic('rocket', 13), 'Porta avanti'));
+
+  function draw() {
+    const shown = r.signals.filter(passes);
+    const total = shown.reduce((s, g) => s + (g.amount || 0), 0);
+    fill(kpis, kpiRow([
+      ...COLS.map(([k, label, i]) => { const n = shown.filter(g => g.column === k).length; return { icon: i, n, label: label.split(' ').length > 1 ? [label.split(' ')[0], label.split(' ').slice(1).join(' ')] : [label, ''] }; }),
+      { icon: 'users', n: shown.filter(g => WARM_RANK[g.warm] >= 2).length, label: ['ci conoscono', 'bene'], tone: 'gr', onClick: () => { f.warm = 'media'; again(); } },
+      { icon: 'euro', n: total ? eur(total) : 0, label: ['valore', 'in vista'] },
+    ]));
+    drawFavs();
+    if (!shown.length) { fill(body, h('section.cv-card', emptyState('radar', r.signals.length ? 'Nessuna opportunità con questi filtri.' : 'Il radar non ha ancora trovato opportunità.'))); return; }
+    if (st.view === 'elenco') { fill(body, h('section.cv-card', shown.map(g => signalRow(g, { highlight: r.highlight, reasons: r.discardReasons, onChange: again, data, list: shown })))); return; }
+    fill(body, h('div.rk-board', COLS.map(([k, label, i]) => {
+      const list = shown.filter(g => g.column === k);
+      const sum = list.reduce((s, g) => s + (g.amount || 0), 0);
+      const drop = async e => {
+        e.preventDefault(); e.currentTarget.classList.remove('over');
+        const g = r.signals.find(x => String(x.id) === e.dataTransfer.getData('text/plain'));
+        if (!g || g.column === k) return;
+        const out = await api('POST', `/api/crm/radar/signals/${g.id}/fase`, { column: k });
+        Object.assign(g, { stage: out.stage, column: out.column }); draw(); toast(`Spostata in «${label}»`);
+      };
+      return h('section.rk-col', { class: k, on: { dragover: e => { e.preventDefault(); e.currentTarget.classList.add('over'); }, dragleave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('over'); }, drop } },
+        h('header.rk-col-h', h('span.rk-col-ic', ic(i, 15)), h('b', label), h('span.cv-c', String(list.length)), h('span.cv-grow'), sum ? h('span.rk-col-sum', eur(sum)) : null),
+        h('div.rk-col-b', list.length ? list.map(g => cardEl(g, shown)) : h('p.rk-col-empty', 'Niente in questa fase.')));
+    })));
+  }
   fill(box,
-    pageTop({ eyebrow: 'Alma CRM · radar', heading: title('Segnali del', 'radar'),
-      sub: 'Tutti i segnali delle tue BU, anche quelli già decisi o sotto soglia. Le gare già bandite sono in «Proposte dal radar».',
-      actions: [h('a.btn', { href: '#/crm/sottosoglia' }, 'Sotto soglia'), data.gare ? h('a.btn', { href: '#/crm/gare' }, 'Proposte dal radar') : null] }),
-    h('div.cv-row.cv-wrap', { style: { gap: '12px', marginBottom: '16px' } }, stChips.el, h('span.cv-grow'), search),
-    bus.length > 1 ? h('div', { style: { marginBottom: '16px' } }, buChips.el) : null,
-    list);
+    pageTop({ eyebrow: 'Alma CRM · radar', heading: title('Tutte le', 'opportunità'),
+      sub: 'Le opportunità di tutte le BU, dalla programmazione al progetto approvato. Il punteggio dice quanto conviene, «Chi conosciamo» chi può aprirci la porta.',
+      actions: [h('a.btn', { href: '#/crm/sottosoglia' }, 'Sotto soglia'), data.gare ? h('a.btn', { href: '#/crm/gare' }, ic('gavel', 15), 'Gare') : null,
+        h('button.btn.primary', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, ic('plus', 15), 'Segnala')] }),
+    kpis,
+    h('section.rk-bar',
+      h('div.rk-filters', h('span.rk-search', ic('search', 14), search), sel('bu', opts(bus, 'Tutte le BU'), 'BU'), sel('kind', opts(kinds, 'Ogni tipo'), 'Tipo'),
+        regions.length ? sel('region', opts(regions, 'Ogni zona'), 'Zona') : null, sel('min', AMOUNTS, 'Importo'), sel('warm', WARM, 'Chi conosciamo')),
+      h('div.rk-bar2', favs, h('span.cv-grow'), check('altri', 'Vinte da altri'), check('scartate', 'Scartate'), viewChips.el)),
+    body);
   draw();
 }

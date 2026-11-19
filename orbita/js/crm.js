@@ -1034,7 +1034,7 @@ async function quickContactForm({ preset = {}, onSaved }) {
   const form = h('div.en-form',
     field('Nome', h('div', nameIn, chips), 'Scrivilo tutto insieme: titolo, nome e cognome si dividono da soli.'),
     field('Email', emailIn),
-    field('Azienda', h('div.crm-qcompany', picked, companyIn, list), 'Se non c\'è, crealo al volo: P.IVA e città si aggiungono dopo.'),
+    field('Azienda', h('div.crm-qcompany', picked, companyIn, list), 'Se non c\'è, la crea da sola quando salvi: P.IVA e città si aggiungono dopo.'),
     field('Cellulare', mobileIn),
     toggleMore, more, dup);
   m = cvModal({
@@ -1045,12 +1045,14 @@ async function quickContactForm({ preset = {}, onSaved }) {
       const btn = e.currentTarget; btn.disabled = true;
       try {
         const extra = read(more);
-        let subjectId = chosen?.id || null;
-        if (chosen?.create) subjectId = (await post('/api/crm/subjects/rapida', { name: chosen.create })).id;
+        // azienda scritta ma non scelta dall'elenco (Dante 19/11): la crea da sola, o usa quella che ha già lo stesso nome
+        const typed = !chosen && companyIn.value.replace(/\s+/g, ' ').trim();
+        let subjectId = chosen?.id || null, made = null;
+        if (chosen?.create || typed) { made = await post('/api/crm/subjects/rapida', { name: chosen?.create || typed }); subjectId = made.id; }
         const saved = await post('/api/crm/contacts', { title: s.title, first_name: s.first, last_name: s.last, email: emailIn.value.trim(), mobile: mobileIn.value.trim(),
           phone: extra.phone || '', linkedin: extra.linkedin || '', notes: extra.notes || '', links: subjectId ? [{ subject_id: subjectId, job: extra.job || '', is_primary: true }] : [] });
         m.close();
-        toast(chosen?.create ? `Contatto e «${chosen.create}» creati (da completare)` : 'Contatto creato');
+        toast(made && !made.existing ? `Contatto e «${made.name}» creati (azienda da completare)` : made ? `Contatto creato in «${made.name}»` : 'Contatto creato');
         onSaved?.(saved);
       } catch { btn.disabled = false; }
     } } }, icon('check', { size: 15 }), 'Salva')],

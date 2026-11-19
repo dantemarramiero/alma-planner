@@ -10,6 +10,7 @@ const { readXlsx } = require('../lib/xlsx');
 const { loadSettings, managerOf, CHANNELS } = require('../lib/crm-commerciale');
 const { scoreSignal, bestBu, parseDelimited, readInfordat, proposePlan, pickPlaybook, norm } = require('../lib/crm-radar');
 const { relationsFor, pathsOf, relationshipLevel } = require('../lib/crm-relazioni');
+const { getSetting, saveSetting } = require('../lib/settings');
 const { draftTemplate, draftAI, moveFrom } = require('../lib/crm-primo-passo');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -87,6 +88,46 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     }
     const { rows } = await db.query(`${SELECT} WHERE ${where.join(' AND ')} ORDER BY g.score DESC, g.created_at DESC LIMIT 300`, params);
     res.json({ signals: rows, min, highlight: c.settings.scoring.highlight, bus: c.myBus, gare: c.gare, discardReasons: c.settings.rules.discard_reasons });
+  });
+  // ── Radar per tutti (19/11/2026, canvas «v9 · Radar»): tutte le opportunità di tutte le BU, a colonne ──────
+  // Colonne: Programmata (programmata o senza fase) · Finanziata · Progetto approvato (progetto, determina e gare
+  // già bandite: l'ufficio gare le vede qui con «Porta su BOSS»). «Vinte da altri» e scartate solo a richiesta.
+  // Ogni opportunità porta «chi ci conosce» (forza dei rapporti con l'ente, lib/crm-relazioni.js).
+  const columnOf = g => (g.to_gare || ['progetto', 'determina'].includes(g.stage) ? 'approvato' : g.stage === 'finanziata' ? 'finanziata' : 'programmata');
+  app.get('/api/crm/radar/board', async (req, res) => {
+    const c = await ctx(req);
+    const states = ['nuovo', 'interessa', 'boss', ...(req.query.scartate ? ['scartato', 'gara_scartata'] : [])];
+    const { rows } = await db.query(`${SELECT} WHERE g.status = ANY($1::text[]) ${req.query.altri ? '' : "AND g.stage <> 'vinta_altri'"}
+      ORDER BY g.score DESC, g.created_at DESC LIMIT 600`, [states]);
+    const rels = await relationsFor(db, rows.map(g => g.subject_id).filter(Boolean), c.settings.relazioni);
+    const signals = rows.map(g => {
+      const rel = g.subject_id ? rels[g.subject_id] : null;
+      const paths = pathsOf(rel).slice(0, 3);
+      return { id: g.id, title: g.title, entity: g.entity, subject_id: g.subject_id, subject_name: g.subject_name, bu: g.bu, bu_label: g.bu_label, kind: g.kind, stage: g.stage,
+        column: columnOf(g), status: g.status, to_gare: g.to_gare, amount: g.amount != null ? Number(g.amount) : null, region: g.region, place: g.place,
+        deadline: g.deadline, expected_on: g.expected_on, score: g.score, created_at: g.created_at, decided_by_name: g.decided_by_name, source: g.source,
+        warm: rel && rel.level ? rel.level : '', warm_us: paths.map(p => p.us && p.us.name).filter(Boolean), warm_why: paths[0] ? `${paths[0].us ? paths[0].us.name : ''} → ${paths[0].contact}` : '' };
+    });
+    res.json({ signals, bus: c.myBus, gare: c.gare, highlight: c.settings.scoring.highlight, discardReasons: c.settings.rules.discard_reasons,
+      filtri: (await getSetting(db, `crm.radar_filtri.${req.user.id}`, [])) || [] });
+  });
+  // Spostare un'opportunità tra le colonne (trascinandola): Programmata → Finanziata → Progetto approvato
+  app.post('/api/crm/radar/signals/:id/fase', async (req, res) => {
+    const g = await signalById(req.params.id);
+    const stage = { programmata: 'programmata', finanziata: 'finanziata', approvato: 'progetto' }[req.body?.column] ?? (STAGES.includes(req.body?.stage) ? req.body.stage : null);
+    if (stage === null) throw new HttpError(400, 'Fase non valida');
+    await db.query('UPDATE crm_signals SET stage = $2 WHERE id = $1', [g.id, stage]);
+    res.json({ id: g.id, stage, column: columnOf({ ...g, stage }) });
+  });
+  // Filtri preferiti di ognuno: [{ nome, filtri, predefinito }]
+  app.put('/api/crm/radar/filtri', async (req, res) => {
+    const list = (Array.isArray(req.body?.filtri) ? req.body.filtri : []).slice(0, 20).map(f => ({
+      nome: String(f.nome || '').replace(/\s+/g, ' ').trim().slice(0, 60), filtri: f.filtri && typeof f.filtri === 'object' ? f.filtri : {}, predefinito: Boolean(f.predefinito) }))
+      .filter(f => f.nome);
+    let seen = false;
+    for (const f of list) { if (f.predefinito && !seen) seen = true; else f.predefinito = false; }
+    await saveSetting(db, `crm.radar_filtri.${req.user.id}`, list, req.user.id);
+    res.json({ filtri: list });
   });
   app.get('/api/crm/radar/signals/:id', async (req, res) => {
     const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));

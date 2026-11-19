@@ -220,3 +220,23 @@ test('pagina Radar: tutti gli stati, filtro per stato; la direzione vede tutte l
   const mine = (await E('GET', '/api/crm/radar/signals?view=tutti')).body.signals;
   assert.ok(mine.every(g => g.bu === 'edilizia'));
 });
+
+test('Radar per tutti (19/11): tutte le BU anche per chi non ne è responsabile, colonne, «chi ci conosce», filtri preferiti', async () => {
+  const fin = (await E('POST', '/api/crm/radar/signals', { title: 'Polo scolastico finanziato', entity: 'Comune di Lanciano', bu: 'edilizia', kind: 'opera_finanziata', amount: 3000000, region: 'Abruzzo' })).body;
+  const moved = await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'finanziata' });
+  assert.deepEqual([moved.status, moved.body.stage], [200, 'finanziata']);
+  assert.equal((await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'boh' })).status, 400);
+  const b = (await F('GET', '/api/crm/radar/board')).body; // facility@ non è responsabile di Edilizia ma la vede
+  assert.ok(b.signals.some(g => g.bu === 'edilizia') && b.signals.some(g => g.bu !== 'edilizia'));
+  assert.equal(b.signals.find(g => g.id === fin.id).column, 'finanziata');
+  assert.ok(b.signals.every(g => ['programmata', 'finanziata', 'approvato'].includes(g.column)));
+  assert.ok(b.signals.every(g => g.status !== 'scartato'));
+  assert.ok((await F('GET', '/api/crm/radar/board?scartate=1')).body.signals.some(g => g.status === 'scartato'));
+  assert.ok(b.signals.every(g => 'warm' in g && Array.isArray(g.warm_us)));
+  assert.deepEqual(b.filtri, []);
+  const saved = await F('PUT', '/api/crm/radar/filtri', { filtri: [{ nome: ' Abruzzo  grandi ', filtri: { region: 'Abruzzo', min: '1000000' }, predefinito: true }, { nome: 'Tutte', filtri: {}, predefinito: true }, { nome: '' }] });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.filtri.map(x => [x.nome, x.predefinito]), [['Abruzzo grandi', true], ['Tutte', false]]);
+  assert.equal((await F('GET', '/api/crm/radar/board')).body.filtri[0].filtri.region, 'Abruzzo');
+  assert.deepEqual((await E('GET', '/api/crm/radar/board')).body.filtri, []); // sono di ognuno
+});
