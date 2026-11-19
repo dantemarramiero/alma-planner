@@ -53,6 +53,8 @@ const { createAlerts } = require('./lib/alerts');
 const { createTicketMail } = require('./lib/ticket-mail');
 const { registerAlerts } = require('./routes/alerts');
 const { registerAssistente } = require('./routes/assistente');
+const { createGovernance } = require('./lib/impostazioni');
+const { registerImpostazioni, startOrgNightly } = require('./routes/impostazioni');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -113,6 +115,9 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   });
 
   const audit = createAudit(db);
+  // Impostazioni uniche: ruoli (anche gli amministratori) e privacy, tenuti in memoria (lib/impostazioni.js)
+  const gov = createGovernance({ db, adminEmails: config.adminEmails });
+  await gov.reload();
   const auth = createAuth({
     db,
     config,
@@ -179,12 +184,17 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   });
   app.use('/api', (req, res, next) => (['GET', 'HEAD'].includes(req.method) ? apiReads : apiWrites)(req, res, next));
   app.use('/api', audit.middleware);
+  // Privacy (Impostazioni → Privacy e visibilità): i livelli di chi chiede, area per area. Li leggono le due guardie
+  // qui sotto e lib/access.js, lib/crm.js, lib/energy.js.
+  app.use('/api', (req, _res, next) => { req.privacy = gov.levelsFor(req.user.email); next(); });
+  app.use('/api/org', (req, _res, next) => next(req.privacy.persone === 'none' && !gov.isAdmin(req) ? new HttpError(403, 'L\'organigramma non è tra le cose che puoi vedere') : undefined));
+  app.use('/api/mezzi', (req, _res, next) => next(req.privacy.mezzi === 'none' && !gov.isAdmin(req) ? new HttpError(403, 'I mezzi non sono tra le cose che puoi vedere') : undefined));
   app.use('/api/alma/chat', express.json({ limit: '12mb' })); // Alma: foto dei biglietti da visita (al massimo 5, già rimpicciolite)
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
-  const isAdmin = req => config.adminEmails.includes(req.user.email);
-  const deps = { db, auth, audit, baseUrl: config.baseUrl, live, isAdmin, adminEmails: config.adminEmails, radarFetch, anacFetch, notifier: createNotifier({ db, live }) };
+  const isAdmin = gov.isAdmin; // ruolo «Amministratore» delle Impostazioni, più ADMIN_EMAILS come chiave di riserva
+  const deps = { db, auth, audit, gov, config, baseUrl: config.baseUrl, live, isAdmin, adminEmails: config.adminEmails, radarFetch, anacFetch, notifier: createNotifier({ db, live }) };
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
@@ -232,6 +242,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
+  registerImpostazioni(app, deps); // Impostazioni uniche: organigramma e ruoli, utenti, costi AI, privacy, registro, integrazioni
   registerAudit(app, deps);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Risorsa non trovata')));
@@ -244,20 +255,22 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
     res.status(status).send(message);
   });
 
-  return { app, db, auth, live, audit, alma, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening, crmSync: deps.crmSync };
+  return { app, db, auth, live, audit, alma, gov, digest: deps.digest, fleet: deps.fleet, energyReminders: deps.energyReminders, energyScreening: deps.energyScreening, crmSync: deps.crmSync };
 }
 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit, digest, fleet, energyReminders, energyScreening, crmSync } = await createApp(config);
+    const { app, db, auth, audit, gov, digest, fleet, energyReminders, energyScreening, crmSync } = await createApp(config);
     crmSync.start(); // ogni 15 minuti i calendari (incontri con i contatti del CRM), ogni 5 gli incontri finiti senza note
     digest.start();
     energyReminders.start(); // ogni 5 minuti, di giorno: scadenze delle opportunità di Alma Energy
     energyScreening.start().catch(err => console.warn('[energy] screening non ripartito', err.message)); // giri in coda dopo un riavvio
     fleet.start(); // ogni 5 minuti: promemoria di riconsegna (a chi ha il mezzo e ai gestori) e delle scadenze dei mezzi // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
-    setInterval(() => audit.purge().catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
+    gov.start(); // ruoli e privacy riletti ogni 5 minuti
+    startOrgNightly({ db, auth, gov }); // organigramma da Entra ogni notte alle 3
+    setInterval(() => audit.purge(730).catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Planet su ${config.baseUrl} (porta ${config.port})`);

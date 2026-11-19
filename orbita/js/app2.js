@@ -584,6 +584,7 @@ export async function ioView(view) {
       line(`#/u/${store.me.id}`, 'Il mio profilo', 'user'),
       line('#/strategy/obiettivi', 'Il mio contributo', 'target'),
       line('#/notifiche/impostazioni', 'Le mie notifiche', 'bell'),
+      store.me.is_admin ? line('#/impostazioni', 'Impostazioni di Alma Planet', 'settings') : null,
       line('#/notifiche/impostazioni', 'Il mio telefono', 'phone', h('span', { class: `a2-st ${pushCls === 'ok' ? 'green' : pushCls === 'ko' ? 'red' : 'grey'}` }, pushLabel)),
       themeBtn),
     h('nav.a2-card.a2-lines',
