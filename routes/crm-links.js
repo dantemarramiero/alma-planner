@@ -283,7 +283,7 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   async function linkEvent(token, col, id, eid, userId) {
     const e = await msGraph(token, 'GET', `/me/events/${encodeURIComponent(eid)}?$select=${EVENT_SELECT},body`,
       { headers: { ...tz, Prefer: `${tz.Prefer}, outlook.body-content-type="text"` } }, 'leggere il calendario');
-    if (isAlma(e)) throw new HttpError(400, `«${e.subject}» è un ticket di Alma Planet`);
+    if (isAlma(e)) throw new HttpError(400, `«${e.subject}» è un ticket di Alma Space`);
     const meetingId = await crmSync.upsertMeeting(e, { userId, withBody: true, eventId: eid });
     await db.query(`INSERT INTO crm_meeting_links (meeting_id, ${col}, linked_by) VALUES ($1, $2, $3)
                     ON CONFLICT (meeting_id, ${col}) WHERE ${col} IS NOT NULL DO UPDATE SET removed = false, auto = false`, [meetingId, id, userId]);

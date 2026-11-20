@@ -189,7 +189,7 @@ async function schedaPage(container, userId) {
         role ? h('div.pm-facts',
           fact('Ruolo', 'title', v => v || '—'), fact('Area', 'area', v => v || '—'),
           fact('A chi rispondo', 'reports_to', v => v || '—'), fact('Persone che coordino', 'coordinates', v => (v ? `Sì · ${v}` : 'No')),
-          h('div', h('span', 'Responsabile in Alma Planet'), h('b', d.profile?.manager_name || '—')),
+          h('div', h('span', 'Responsabile in Alma Space'), h('b', d.profile?.manager_name || '—')),
           h('div', h('span', 'Ruolo nel mansionario'), h('b', { class: rst[1] }, role.status === 'confirmed' && role.confirmed_at ? `Confermato il ${itDate(role.confirmed_at)}` : rst[0]))) : null,
         role ? editBtn('who') : null),
       h('div.pm-cols',

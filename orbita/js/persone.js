@@ -1,4 +1,4 @@
-// Alma Planet · Persone: chi c'è in Almacis e chi fa cosa. Vista «Colleghi» (ricorrenze della settimana, ricerca,
+// Alma Agorà · Persone: chi c'è in Almacis e chi fa cosa. Vista «Colleghi» (ricorrenze della settimana, ricerca,
 // schede) e vista «Organigramma» (l'albero di Microsoft e il PDF). Prima erano Organigramma e i riquadri della Home.
 import { h, fill, avatar, loading, debounce } from './ui.js';
 import { get } from './api.js';

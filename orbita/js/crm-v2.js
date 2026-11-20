@@ -44,7 +44,7 @@ export function card({ title: t, icon: i, count, right, cls = '', attrs = {} }, 
     h('div.cv-ch', h('h3.cv-t', i ? ic(i, 17) : null, h('span', t), count !== null && count !== undefined ? h('span.cv-c', String(count)) : null), right ? h('div.cv-ch-r', right) : null),
     ...body);
 }
-// percorso verso le Impostazioni uniche, in cima alle impostazioni di un modulo (CAN-271 di Alma Planet, 20/11)
+// percorso verso le Impostazioni uniche, in cima alle impostazioni di un modulo (CAN-271 di Alma Space, 20/11)
 export const settingsCrumb = name => h('a.cv-crumb', { href: '#/impostazioni/moduli' }, icon('chevron-left', { size: 14 }), `Impostazioni › Moduli › ${name}`);
 export const link = (text, attrs = {}) => h(attrs.href ? 'a.cv-lnk' : 'button.cv-lnk', { type: attrs.href ? undefined : 'button', ...attrs }, text);
 export const sect = (label, red = false) => h('div.cv-sect', { class: red ? 'rd' : '' }, label);

@@ -284,7 +284,7 @@ function remindButton(t) {
     try {
       const r = await post(`/api/tickets/${t.id}/reminders`, { ...(others.length ? { user_ids: others } : {}), message: defaultReminderText(t) });
       btn.classList.add('sent');
-      toast(`Promemoria mandato a ${names.join(', ') || `${r.notified} ${r.notified === 1 ? 'persona' : 'persone'}`}${r.emails_sent ? ' (anche per email)' : ' (solo in Alma Planet: email non partita)'}`);
+      toast(`Promemoria mandato a ${names.join(', ') || `${r.notified} ${r.notified === 1 ? 'persona' : 'persone'}`}${r.emails_sent ? ' (anche per email)' : ' (solo in Alma Space: email non partita)'}`);
     } catch { /* l'errore lo mostra già api() */ }
     setTimeout(() => { btn.disabled = false; }, 1500);
   } } }, icon('bell', { size: 16 }));
@@ -375,7 +375,7 @@ function board(tickets, { onChange, hideProject, selected, onPick }) {
 // requireSchedule: il ticket è un'attività del Gantt, quindi servono inizio, scadenza e almeno un responsabile.
 // ── promemoria sul ticket ──────────────────────────────────────────────────
 // Chi vede il ticket manda a chi ci lavora (assegnati e autore) un testo scritto da lui: arriva nelle notifiche
-// di Alma Planet e per email dalla sua casella Outlook. Sotto, lo storico dei promemoria mandati.
+// di Alma Space e per email dalla sua casella Outlook. Sotto, lo storico dei promemoria mandati.
 const MONTHS_IT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 function defaultReminderText(t) {
   const due = t.due_date ? (() => { const [y, m, d] = String(t.due_date).slice(0, 10).split('-').map(Number); return `${d} ${MONTHS_IT[m - 1]}${y !== new Date().getFullYear() ? ` ${y}` : ''}`; })() : null;
@@ -414,7 +414,7 @@ async function openReminder(t, onSent) {
     body: [
       h('div.field', h('span', 'A chi'), who),
       h('label.field', h('span', 'Testo'), text),
-      h('div.muted.small', 'Arriva nelle notifiche di Alma Planet e per email dalla tua casella Outlook, con il link al ticket.'),
+      h('div.muted.small', 'Arriva nelle notifiche di Alma Space e per email dalla tua casella Outlook, con il link al ticket.'),
     ],
     actions: [
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
@@ -425,7 +425,7 @@ async function openReminder(t, onSent) {
         try {
           const r = await post(`/api/tickets/${t.id}/reminders`, { user_ids: [...chosen], message: text.value });
           m.close();
-          toast(`Promemoria mandato a ${r.notified} ${r.notified === 1 ? 'persona' : 'persone'}${r.emails_sent ? ` (anche per email)` : ' (solo in Alma Planet: email non partita)'}`);
+          toast(`Promemoria mandato a ${r.notified} ${r.notified === 1 ? 'persona' : 'persone'}${r.emails_sent ? ` (anche per email)` : ' (solo in Alma Space: email non partita)'}`);
           onSent?.();
         } catch { e.currentTarget.disabled = false; }
       } } }, icon('bell', { size: 16 }), 'Manda'),

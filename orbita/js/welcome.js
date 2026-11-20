@@ -1,4 +1,4 @@
-// Alma Planet: pagina di benvenuto (proposta E). Saluto e azioni rapide, scorciatoie, strategia (True North, A3,
+// Alma Agorà: pagina di benvenuto (proposta E). Saluto e azioni rapide, scorciatoie, strategia (True North, A3,
 // revisione), storie in evidenza (persone, eventi, idee, «Grazie a…», novità dagli A3), bacheca e le mie cose.
 import { h, fill, avatar, timeAgo, loading, modal, toast } from './ui.js';
 import { get, put, post, del } from './api.js';

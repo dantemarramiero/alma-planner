@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Alma Planet</title>
+  <title>Alma Space</title>
   <link rel="icon" href="/brand/app-icon/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/brand/app-icon/app-icon-32.png" sizes="32x32" type="image/png">
   <!-- app sul telefono (si aggiunge alla schermata Home da Safari): logo Almacis, a tutto schermo -->
@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/brand/almacis/app-icon-180.png?v=2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Alma Planet">
+  <meta name="apple-mobile-web-app-title" content="Alma Space">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="#F7F6F3" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161514" media="(prefers-color-scheme: dark)">
@@ -42,6 +42,7 @@
   <link rel="stylesheet" href="/css/ideas.css">
   <link rel="stylesheet" href="/css/alma.css">
   <link rel="stylesheet" href="/css/impostazioni.css">
+  <link rel="stylesheet" href="/css/org-incarichi.css">
   <link rel="stylesheet" href="/css/biglietti.css">
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
   <link rel="stylesheet" href="/css/refresh.css">
@@ -54,17 +55,17 @@
 <body>
   <div class="shell">
     <aside class="sidebar">
-      <a class="brand brand-side" href="#/benvenuto" aria-label="Alma Planet, home"><img class="brand-logo" src="/brand/almacis/almacis-logo.png" alt="" width="806" height="212"></a>
-      <!-- selettore del modulo, come in MyWinery: Alma Planet (intranet), Alma Project (planner) e Alma Energy per chi ce l'ha -->
+      <a class="brand brand-side" href="#/benvenuto" aria-label="Alma Space, home"><img class="brand-logo" src="/brand/almacis/almacis-logo.png" alt="" width="806" height="212"></a>
+      <!-- selettore del modulo, come in MyWinery: Alma Agorà (intranet), Alma Project (planner) e Alma Energy per chi ce l'ha -->
       <div class="ws-switch" id="ws-switch" hidden>
         <button class="ws-trigger" id="ws-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="ws-menu">
           <span class="ws-badge" id="ws-badge" data-icon="house"></span>
-          <span class="ws-text"><span class="ws-eyebrow">Modulo</span><span class="ws-name" id="ws-name">Alma Planet</span></span>
+          <span class="ws-text"><span class="ws-eyebrow">Modulo</span><span class="ws-name" id="ws-name">Alma Agorà</span></span>
           <span class="ws-chevron" data-icon="chevrons-up-down" data-size="16"></span>
         </button>
         <div class="ws-menu" id="ws-menu" role="menu" hidden></div>
       </div>
-      <!-- menu di Alma Planet: la intranet (feed, chat, persone) -->
+      <!-- menu di Alma Agorà: la intranet (feed, chat, persone) -->
       <nav class="nav" data-ws="planet">
         <span class="nav-label">Intranet</span>
         <a href="#/benvenuto" data-nav="benvenuto"><span class="nav-ico" data-icon="house"></span>Home</a>

@@ -1,5 +1,5 @@
 // «Porta avanti», «I miei progetti» e la scheda del progetto del CRM (canvas v9 approvato da Dante il 19/11/2026:
-// «Porta avanti», «I miei progetti», «Il progetto»). Il progetto è un progetto vero di Alma Planet: la scheda usa
+// «Porta avanti», «I miei progetti», «Il progetto»). Il progetto è un progetto vero di Alma Space: la scheda usa
 // projectDetail con la testata scura del CRM e i tab Panoramica · Compiti · Relazioni · Incontri · Calendario · Note ·
 // Gantt · Rendiconto · Documenti (più Email e Membri in fondo).
 import { h, fill, toast, loading, fmtDate, initials, debounce, today, addDays } from './ui.js';

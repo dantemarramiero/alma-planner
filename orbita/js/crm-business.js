@@ -467,7 +467,7 @@ async function initiativePage(container, id, tabKey, crmData) {
         h('div.nb-meta', h('span.nb-who', av(i.owner_name), `${i.owner_name || '—'} · responsabile`), i.sponsor_name ? h('span.nb-who', av(i.sponsor_name, 'o'), `${i.sponsor_name} · sponsor`) : null,
           i.phase === 'abbandonata' ? pill('Abbandonata', 'off') : lightPill(i.light.color, `${LIGHT[i.light.color]}${reason ? ` · ${reason.t[0].toLowerCase()}${reason.t.slice(1)}` : ''}`))),
       h('div.nb-hero-r', h('div.nb-actions',
-        // «Porta avanti» (canvas v9): l'iniziativa diventa un progetto di Alma Planet in «I miei progetti»
+        // «Porta avanti» (canvas v9): l'iniziativa diventa un progetto di Alma Space in «I miei progetti»
         i.project_id ? btn('Apri il progetto', () => { location.hash = `#/crm/progetto/${i.project_id}`; }, { ico: 'folder' })
           : i.canEdit && i.phase !== 'abbandonata' ? btn('Porta avanti', () => { location.hash = `#/crm/lancio/i/${i.id}`; }, { ico: 'rocket', primary: true }) : null,
         i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh, crmData.meta || {}), { ico: 'pencil' }) : null,
@@ -1106,6 +1106,6 @@ function printSheet(i, a, gl) {
       h('div.nb-pr-box', '☐ Prosegui     ☐ Rimanda al ________     ☐ Abbandona'))) : null,
     h('div.nb-pr-2', rows('Prossimi passi', a.next.slice(0, 6).map(t => [t.title, `${t.owner_name ? initials(t.owner_name) : '—'} · ${t.late ? 'scaduto ' : ''}${dm(t.due_date)}`])),
       rows('Rischi', a.risks.slice(0, 6).map(r => [r.title || r.body.slice(0, 50), [r.level, r.mitigation].filter(Boolean).join(' · ')]))),
-    h('div.nb-small.muted.nb-pr-foot', 'Generato da Alma Planet · Nuovi business'));
+    h('div.nb-small.muted.nb-pr-foot', 'Generato da Alma Space · Nuovi business'));
   return sheet;
 }

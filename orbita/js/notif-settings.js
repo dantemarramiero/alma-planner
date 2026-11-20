@@ -28,7 +28,7 @@ export async function notifSettingsView(container) {
       on: 'Attive su questo dispositivo.',
       off: 'Non ancora attive su questo dispositivo.',
       denied: 'Bloccate dalle impostazioni del telefono o del browser: riattivale da lì.',
-      install: 'Su iPhone le notifiche arrivano solo dall\'app: in Safari tocca Condividi → Aggiungi alla schermata Home, poi apri Alma Planet dall\'icona.',
+      install: 'Su iPhone le notifiche arrivano solo dall\'app: in Safari tocca Condividi → Aggiungi alla schermata Home, poi apri Alma Space dall\'icona.',
       unsupported: 'Questo browser non riceve notifiche push.',
     }[st];
     fill(device,

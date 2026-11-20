@@ -60,7 +60,7 @@ export async function orgView(container) {
       await load();
     } catch (err) {
       if (err.code === 'org_permission') {
-        body.replaceChildren(h('div.banner', 'Microsoft non concede ancora la lettura dell\'organigramma. Un amministratore deve aggiungere il permesso «User.Read.All» all\'app Alma Planet in Entra e dare il consenso; poi esci e rientra.'));
+        body.replaceChildren(h('div.banner', 'Microsoft non concede ancora la lettura dell\'organigramma. Un amministratore deve aggiungere il permesso «User.Read.All» all\'app Alma Space in Entra e dare il consenso; poi esci e rientra.'));
       } else toast(err.message, 'err');
     } finally {
       syncBtn.disabled = false;
@@ -189,7 +189,7 @@ export async function orgView(container) {
           h('button.btn.btn-sm', { type: 'button', on: { click: () => { md.close(); openMailComposer({ to: [p.email] }); } } }, icon('mail', { size: 16 }), 'Email')) : null,
         chain.length ? h('div.field', h('span', 'Linea di riporto'), h('div.small', ...chain.flatMap((m, i) => [i ? ' › ' : '', link(m)]))) : h('div.muted.small', 'Nessun responsabile indicato in Microsoft 365.'),
         reports.length ? h('div.field', h('span', `Collaboratori diretti (${reports.length})`), h('div.org-grid', reports.map(r => h('div', link(r), r.job_title ? h('div.muted.small', r.job_title) : null)))) : null,
-        p.user_id ? h('div.muted.small', p.open_tickets ? `${p.open_tickets} ticket aperti in Alma Planet.` : 'Nessun ticket aperto in Alma Planet.') : h('div.muted.small', 'Non è ancora entrato in Alma Planet.'),
+        p.user_id ? h('div.muted.small', p.open_tickets ? `${p.open_tickets} ticket aperti in Alma Space.` : 'Nessun ticket aperto in Alma Space.') : h('div.muted.small', 'Non è ancora entrato in Alma Space.'),
       ],
       actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => md.close() } }, 'Chiudi')],
     });

@@ -1,4 +1,4 @@
-/* Impostazioni uniche (canvas «Alma Planet · Impostazioni», 19/11/2026). Le basi sono le classi cv-* di crm-v2.css. */
+/* Impostazioni uniche (canvas «Alma Space · Impostazioni», 19/11/2026). Le basi sono le classi cv-* di crm-v2.css. */
 .imp .cv-sbody { gap: 20px; }
 .imp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .imp-tile, .imp-mod { text-decoration: none; color: var(--cv-text); gap: 10px; transition: box-shadow var(--ap-dur) var(--ap-ease); }

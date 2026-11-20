@@ -394,7 +394,7 @@ test('importazione da Zoho: anteprima, categorie concordate, valori uniformati, 
   // i dati riservati non arrivano a chi non gestisce
   assert.equal((await api('anna', 'GET', `/api/mezzi/elenco/${audi.id}`)).body.vehicle.purchase_value, undefined);
 
-  // reimportare: aggiorna, non duplica; km e stato cambiati in Alma Planet restano
+  // reimportare: aggiorna, non duplica; km e stato cambiati in Alma Space restano
   await api('gestore', 'PATCH', `/api/mezzi/elenco/${audi.id}`, { km: 51000, status: 'fuori_servizio' });
   const again = (await sendCsv('gestore', '/api/mezzi/importa', csv.replace('AUDI A 7', 'AUDI A7 Sportback'))).body;
   assert.deepEqual([again.created, again.updated, again.categories], [0, 5, 0]);

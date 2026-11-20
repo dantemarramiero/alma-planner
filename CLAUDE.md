@@ -1,6 +1,6 @@
-# Alma Planet
+# Alma Space
 
-Segui sempre le regole in `orbita/brand/CLAUDE.md` (brand e UI di Alma Planet).
+Segui sempre le regole in `orbita/brand/CLAUDE.md` (brand e UI di Alma Space).
 
 - Tutta l'interfaccia sta in `orbita/`: `app.html`, `index.html`, `css/`, `js/`, `brand/`. Il server (`server.js`, `routes/`, `lib/`) la serve da lì.
 - Colori, font, spaziature e angoli vengono solo da `orbita/brand/tokens.css`. In `orbita/css/app.css` ci sono nomi brevi (`--orange`, `--ink`, `--rule`…) che puntano ai token.
@@ -12,4 +12,4 @@ Segui sempre le regole in `orbita/brand/CLAUDE.md` (brand e UI di Alma Planet).
 - **Barra laterale chiara** (bianca), non grafite; il logo è quello con la scritta grafite.
 - **Gantt** (12/10/2026): attività completate a righe verde chiaro, almeno 7 righe visibili.
 - **Barra laterale a icone e scheda progetto** (26/10/2026, design approvato in Claude): sul computer la barra mostra solo le icone e si apre sopra il contenuto al passaggio del mouse, come in BOSS; «Tieni aperta» la fissa (regole in fondo a `refresh.css`). Scheda progetto: un solo «indietro» (il percorso «‹ Progetti»), quattro numeri, «Nuovo ticket» + «Modifica» + menu «…», tab a pillola in orizzontale, Panoramica solo riassunto (scadenze, attività, descrizione, persone, ultimi aggiornamenti) senza ripetere gli altri tab.
-- **Logo Almacis** (20/11/2026): in barra laterale, pagina di accesso ed email si usa `orbita/brand/almacis/almacis-logo.png` al posto della scritta Alma Planet. Il nome «Alma Planet» resta nei testi; icona dell'app e favicon restano quelle di oggi.
+- **Logo Almacis** (20/11/2026): in barra laterale, pagina di accesso ed email si usa `orbita/brand/almacis/almacis-logo.png` al posto della scritta Alma Space. Il nome «Alma Space» resta nei testi; icona dell'app e favicon restano quelle di oggi.

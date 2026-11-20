@@ -1,7 +1,7 @@
 // «Porta avanti» e «I miei progetti» (canvas v9 approvato da Dante il 19/11/2026):
 // - la sala di lancio propone squadra, piano a fasi (con compiti, persone e date) e obiettivo, calcolati dall'opportunità
 //   del Radar (scadenza o bando atteso, chi conosce l'ente, BU, ufficio gare) o dall'iniziativa di Nuovi business (gate);
-// - «Lancia il progetto» crea un progetto di Alma Planet (crm_kind gara/settore): i compiti diventano ticket assegnati
+// - «Lancia il progetto» crea un progetto di Alma Space (crm_kind gara/settore): i compiti diventano ticket assegnati
 //   (avviso ed email), l'ente entra nel CRM ed è collegato al progetto, l'opportunità resta nel Radar con «in corso»;
 // - «I miei progetti»: il portafoglio di chi li segue (miei · del mio team · tutti), la giornata e i compiti della settimana;
 // - la testata della scheda del progetto (tappe, quattro numeri) e il rendiconto (obiettivo contro fatto, CSV).

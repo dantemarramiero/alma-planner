@@ -1,4 +1,4 @@
-// Impostazioni uniche di Alma Planet (canvas «Alma Planet · Impostazioni», approvato da Dante il 19/11/2026).
+// Impostazioni uniche di Alma Space (canvas «Alma Space · Impostazioni», approvato da Dante il 19/11/2026).
 // Solo amministratori, tranne Costi AI per chi ha «Costi AI: Tutto» nella privacy.
 // /api/impostazioni/panoramica · organigramma (+ sync, ruoli, assegna) · utenti (+ sospendi, riattiva, invita)
 // · costi · privacy (+ eccezioni, prova) · registro (+ .csv) · integrazioni (+ prova Microsoft)
@@ -26,9 +26,9 @@ function featureOf(model) {
 const FEATURES = { scritto: 'Alma per scritto', voce: 'Alma a voce', trascrizioni: 'Trascrizioni', crm: 'Ricerche AI del CRM' };
 
 // Registro: modulo e frase leggibile da «METODO /api/percorso»
-const MODULES = { tickets: 'Planet', projects: 'Planet', areas: 'Planet', notes: 'Planet', calendar: 'Planet', feed: 'Planet', posts: 'Planet', stories: 'Planet',
-  media: 'Planet', drive: 'Documenti', crm: 'Alma CRM', mezzi: 'Mezzi', energy: 'Alma Energy', alma: 'Alma', strategy: 'Alma Strategy', performance: 'Alma Strategy',
-  software: 'Alma IT', it: 'Alma IT', rda: 'Planet', impostazioni: 'Impostazioni', org: 'Persone', users: 'Persone', me: 'Profilo', alerts: 'Notifiche', notifications: 'Notifiche', ideas: 'Planet' };
+const MODULES = { tickets: 'Alma Project', projects: 'Alma Project', areas: 'Alma Project', notes: 'Alma Project', calendar: 'Alma Project', feed: 'Alma Agorà', posts: 'Alma Agorà', stories: 'Alma Agorà',
+  media: 'Alma Agorà', drive: 'Documenti', crm: 'Alma CRM', mezzi: 'Mezzi', energy: 'Alma Energy', alma: 'Alma', strategy: 'Alma Strategy', performance: 'Alma Strategy',
+  software: 'Alma IT', it: 'Alma IT', rda: 'Alma Project', impostazioni: 'Impostazioni', org: 'Persone', users: 'Persone', me: 'Profilo', alerts: 'Notifiche', notifications: 'Notifiche', ideas: 'Alma Agorà' };
 const NOUNS = { tickets: 'un ticket', projects: 'un progetto', notes: 'una nota', posts: 'un post', crm: 'il CRM', mezzi: 'i mezzi', energy: 'Alma Energy', drive: 'un documento',
   alma: 'Alma', impostazioni: 'le impostazioni', calendar: 'il calendario', rda: 'una RDA', strategy: 'Alma Strategy', ideas: 'un\'idea', org: 'l\'organigramma', me: 'il suo profilo' };
 function describe(row) {
@@ -261,12 +261,12 @@ function registerImpostazioni(app, { db, auth, gov, notifier, config }) {
     for (const p of people) {
       const html = `<div style="font-family:Roboto,Arial,sans-serif;font-size:15px;color:#3F3F3F;line-height:1.5">
   <p>Ciao ${escapeHtml(p.name.split(' ')[0])},</p>
-  <p>${escapeHtml(req.user.name)} ti invita su <b>Alma Planet</b>, la intranet di Almacis: progetti, ticket, persone, mezzi e Alma, l'assistente.</p>
+  <p>${escapeHtml(req.user.name)} ti invita su <b>Alma Space</b>, la intranet di Almacis: progetti, ticket, persone, mezzi e Alma, l'assistente.</p>
   <p>Si entra con il tuo account Microsoft di lavoro, senza password nuove.</p>
-  <p><a href="${escapeHtml(link)}" style="display:inline-block;background:#FF8A26;color:#FFFFFF;text-decoration:none;padding:10px 16px;border-radius:12px;font-weight:500">Entra in Alma Planet</a></p>
+  <p><a href="${escapeHtml(link)}" style="display:inline-block;background:#FF8A26;color:#FFFFFF;text-decoration:none;padding:10px 16px;border-radius:12px;font-weight:500">Entra in Alma Space</a></p>
 </div>`;
       try {
-        await graph(token, 'POST', '/me/sendMail', { body: { message: { subject: 'Ti aspettiamo su Alma Planet', body: { contentType: 'HTML', content: html }, toRecipients: [{ emailAddress: { address: p.email, name: p.name } }] }, saveToSentItems: true } });
+        await graph(token, 'POST', '/me/sendMail', { body: { message: { subject: 'Ti aspettiamo su Alma Space', body: { contentType: 'HTML', content: html }, toRecipients: [{ emailAddress: { address: p.email, name: p.name } }] }, saveToSentItems: true } });
         sent += 1;
       } catch (err) {
         console.warn(`[impostazioni] invito a ${p.email} non mandato: ${err.message}`);

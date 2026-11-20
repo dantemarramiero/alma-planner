@@ -1,4 +1,4 @@
-// Alma Planet: la nuova pagina di benvenuto. Riepilogo in un colpo solo, «Grazie a…», sondaggi, eventi,
+// Alma Agorà: la nuova pagina di benvenuto. Riepilogo in un colpo solo, «Grazie a…», sondaggi, eventi,
 // organigramma in PDF, compleanni e anniversari (chi può mettere le date).
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
