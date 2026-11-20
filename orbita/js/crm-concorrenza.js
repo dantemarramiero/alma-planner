@@ -12,7 +12,7 @@ const pct = n => (n === null || n === undefined || n === '' ? '—' : `${Number(
 const num = n => Number(n || 0).toLocaleString('it-IT');
 const month = d => (d ? new Date(`${String(d).slice(0, 10)}T12:00:00Z`).toLocaleDateString('it-IT', { month: 'short', year: 'numeric' }) : '');
 const kpi = (l, n, sub, tone = '') => h('div.cv-kpi', h('span.cv-kpi-l', l), h('span.cv-kpi-n', n), sub ? h('span.cv-kpi-d', { class: tone }, sub) : null);
-const nice = s => String(s || '').toLowerCase().replace(/(^|[\s'’(.-])([a-zà-ù])/g, (m, a, b) => a + b.toUpperCase()).replace(/\b(S\.?r\.?l|S\.?p\.?a|S\.?c\.?a\.?r\.?l|S\.?n\.?c)\b\.?/gi, x => x.toUpperCase());
+export const nice = s => String(s || '').toLowerCase().replace(/(^|[\s'’(.-])([a-zà-ù])/g, (m, a, b) => a + b.toUpperCase()).replace(/\b(S\.?r\.?l|S\.?p\.?a|S\.?c\.?a\.?r\.?l|S\.?n\.?c)\b\.?/gi, x => x.toUpperCase());
 // barra del ribasso: fascia centrale (25–75%) chiara, tacca = tipico; scala 0–50%
 export function bandBar(p25, med, p75) {
   const x = v => `${Math.max(0, Math.min(100, (Number(v) || 0) * 2))}%`;
@@ -26,9 +26,9 @@ async function toCrm(w, role, onDone) {
   toast(r.created ? `${nice(w.name)} è nel CRM come ${role}` : `${nice(w.name)} era già nel CRM: aggiunto il ruolo ${role}`);
   onDone?.();
 }
-const crmCell = (w, onDone, role = 'concorrente') => (w.noi ? pill('Almacis', 'or')
+export const crmCell = (w, onDone, role = 'concorrente') => (w.noi ? pill('Almacis', 'or')
   : w.subject ? h('a', { href: `#/crm/scheda/${w.subject.id}` }, pill(w.subject.roles.includes('partner') ? 'Partner' : w.subject.roles.includes('cliente') ? 'Cliente' : 'Concorrente', w.subject.roles.includes('partner') || w.subject.roles.includes('cliente') ? 'gr' : 'rd'))
-    : h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: e => { e.currentTarget.disabled = true; toCrm(w, role, onDone); } } }, ic('plus', 14), role === 'partner' ? 'Aggiungi' : 'Aggiungi come concorrente'));
+    : h('button.btn.btn-sm.btn-ghost', { type: 'button', title: role === 'partner' ? 'Aggiungi al CRM come partner' : 'Aggiungi al CRM come concorrente', on: { click: e => { e.currentTarget.disabled = true; toCrm(w, role, onDone); } } }, ic('plus', 14), 'Aggiungi'));
 
 // ── pagina «Concorrenza» ──────────────────────────────────────────────────────────────────────
 export async function concorrenzaTab(box, data, state = { bu: null, months: 12, regions: '', amount: '' }) {
