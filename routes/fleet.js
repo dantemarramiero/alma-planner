@@ -413,7 +413,7 @@ function registerFleet(app, { db, fleet, isAdmin, baseUrl }) {
     res.status(201).json({ ticket_id: ticketId });
   });
 
-  // Immagine del QR (SVG): punta a /m/<codice>, che dopo il login apre il mezzo in Alma Planet.
+  // Immagine del QR (SVG): punta a /m/<codice>, che dopo il login apre il mezzo in Alma Space.
   app.get('/api/mezzi/:id/qr.svg', async (req, res) => {
     await fleet.assertManager(req);
     const { rows: [veh] } = await db.query('SELECT qr_token FROM vehicles WHERE id = $1', [v.int(req.params.id, 'mezzo', { min: 1 })]);

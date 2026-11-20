@@ -32,7 +32,7 @@
 .digest-row .select { width: auto; }
 .digest-note { font-size: var(--ap-fs-sm); color: var(--muted); margin: 0; }
 
-/* Solleciti nelle notifiche: li manda Alma Planet, al posto della foto c'è una sveglia */
+/* Solleciti nelle notifiche: li manda Alma Space, al posto della foto c'è una sveglia */
 .notif-sys { width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--orange-soft); color: var(--orange-dark); display: grid; place-items: center; flex: none; }
 
 @media (max-width: 860px) {

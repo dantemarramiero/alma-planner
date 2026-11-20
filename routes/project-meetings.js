@@ -91,7 +91,7 @@ function registerProjectMeetings(app, { db, auth, access }) {
   async function linkEvent(token, projectId, eid, userId) {
     const e = await calGraph(token, 'GET', `/me/events/${encodeURIComponent(eid)}?$select=${EVENT_SELECT},body`,
       { headers: { ...tz, Prefer: `${tz.Prefer}, outlook.body-content-type="text"` } });
-    if (isAlma(e)) throw new HttpError(400, `«${e.subject}» è già un ticket di Alma Planet`);
+    if (isAlma(e)) throw new HttpError(400, `«${e.subject}» è già un ticket di Alma Space`);
     const uid = e.iCalUId || `outlook:${eid}`;
     const { rows } = await db.query(
       `INSERT INTO project_meetings (project_id, ical_uid, subject, start_at, end_at, all_day, location, organizer_name, organizer_address,

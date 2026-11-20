@@ -1,4 +1,4 @@
-/* Gantt (orbita/js/gantt.js) — layout del design «Alma Planet – Gantt»: strumenti e filtri, riepilogo, griglia con la
+/* Gantt (orbita/js/gantt.js) — layout del design «Alma Space – Gantt»: strumenti e filtri, riepilogo, griglia con la
    tabella fissa a sinistra e la linea del tempo a destra, legenda. Colori dai token del brand. */
 .gx-tools { display: grid; gap: var(--ap-space-3); margin-bottom: var(--ap-space-4); }
 .gx-bar { display: flex; align-items: center; gap: var(--ap-space-3); flex-wrap: wrap; }

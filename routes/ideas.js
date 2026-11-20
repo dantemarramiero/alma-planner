@@ -1,4 +1,4 @@
-// Alma Planet: Laboratorio delle idee e pagina di benvenuto.
+// Alma Agorà: Laboratorio delle idee e pagina di benvenuto.
 // Ognuno propone innovazioni e miglioramenti, i colleghi le sostengono e le commentano; a fine anno il comitato
 // (scelto dagli amministratori in Impostazioni) apre la votazione, dà un voto da 1 a 5 e premia le migliori.
 // La classifica con le medie la vedono solo il comitato e gli amministratori; le idee premiate le vedono tutti.

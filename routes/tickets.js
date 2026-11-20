@@ -170,7 +170,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
       subject: `[Alma] ${t.title}`,
       body: {
         contentType: 'text',
-        content: `${t.project_name ? `Progetto: ${t.project_name}\n` : ''}Stato: ${STATUS_LABEL[t.status]}\n\n${t.description || ''}\n\nApri in Alma Planet: ${baseUrl}/app#/tickets/${t.id}`,
+        content: `${t.project_name ? `Progetto: ${t.project_name}\n` : ''}Stato: ${STATUS_LABEL[t.status]}\n\n${t.description || ''}\n\nApri in Alma Space: ${baseUrl}/app#/tickets/${t.id}`,
       },
       isAllDay: true,
       showAs: 'free',
@@ -248,7 +248,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
   });
 
   // ── promemoria: un testo scritto da chi vede il ticket, a chi ci lavora (assegnati e chi l'ha creato),
-  // nelle notifiche di Alma Planet e per email dalla sua casella Outlook ──────────────────────────────
+  // nelle notifiche di Alma Space e per email dalla sua casella Outlook ──────────────────────────────
   const REMINDER_MAX = 2000;
   // chi può riceverlo: assegnati e autore del ticket, tranne chi lo manda
   async function reminderPeople(t, meId) {

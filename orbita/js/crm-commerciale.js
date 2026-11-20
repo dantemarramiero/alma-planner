@@ -540,7 +540,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
       const kw = tagEditor(p.keywords || []);
       const exc = tagEditor(p.exclude || []);
       fill(form,
-        h('div.cv-grid2', fld('Responsabile', manager, p.manager || !p.manager_name ? null : `Nel documento: ${p.manager_name} (non ancora tra le persone di Alma Planet)`),
+        h('div.cv-grid2', fld('Responsabile', manager, p.manager || !p.manager_name ? null : `Nel documento: ${p.manager_name} (non ancora tra le persone di Alma Space)`),
           h('div.cv-fld', h('span', 'Fascia d\'importo'), h('div.cv-row', { style: { gap: '8px' } }, amin, h('span.cv-muted', '–'), amax))),
         fld('Cosa fa', desc),
         h('div.cv-grid2', h('div.cv-fld', h('span', 'Parole da cercare'), kw.el, h('span.cv-hint', 'Invio per aggiungere')), h('div.cv-fld', h('span', 'Parole da escludere'), exc.el)),

@@ -1,5 +1,5 @@
 // Alma CRM: anagrafiche uniche (Lead, Clienti, Fornitori, Partner, Concorrenti) e contatti, per ASA.
-// Canvas «CRM Alma Planet – anagrafiche» (12–13/11/2026): un soggetto = una scheda con più ruoli; i contatti stanno in
+// Canvas «CRM Alma Space – anagrafiche» (12–13/11/2026): un soggetto = una scheda con più ruoli; i contatti stanno in
 // più soggetti con la loro qualifica; chi è di un'ASA vede solo le anagrafiche della sua, la direzione tutte.
 // Su ogni azienda e contatto email, incontri, note e progetti come negli A3 (crm-tabs.js); quello del contatto
 // ricade sull'azienda. Il lead diventa cliente da solo alla prima commessa in BOSS; opportunità in BOSS, qualifiche

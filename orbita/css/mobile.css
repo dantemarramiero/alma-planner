@@ -141,7 +141,7 @@
    Scheda del progetto: anche sul telefono l'indietro è il percorso «‹ Progetti» (la barra «← Indietro» lì non c'è) */
 .sheet:focus { outline: none; }
 
-/* Menu ☰: scelta del modulo (Alma Planet / Alma Energy) in cima, come il selettore della barra laterale */
+/* Menu ☰: scelta del modulo (Alma Agorà / Alma Energy) in cima, come il selettore della barra laterale */
 .menu-modules { display: grid; gap: 6px; margin-bottom: 10px; }
 .menu-modules-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .menu-modules-seg { display: flex; }

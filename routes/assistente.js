@@ -1,8 +1,8 @@
-// Alma, l'assistente di Alma Planet (porting di «Bacco», l'assistente della cantina; canvas V5-Alma, V5-Ovunque,
+// Alma, l'assistente di Alma Space (porting di «Bacco», l'assistente della cantina; canvas V5-Alma, V5-Ovunque,
 // V5-Impostazioni del 17/11/2026). Una chat con Claude: pagina #/alma, pannello laterale da ogni pagina, telefono.
 //
 // Come risponde: Claude non vede il database. Gli si offrono delle ricerche (lib/assistente-strumenti.js), ognuna è una
-// GET a un'API che Alma Planet ha già, fatta con la sessione di chi scrive: permessi, filtri e numeri sono gli stessi
+// GET a un'API che Alma Space ha già, fatta con la sessione di chi scrive: permessi, filtri e numeri sono gli stessi
 // delle pagine. Le proposte (ticket, nota CRM, passo, contatto) non scrivono niente finché chi chiede non conferma.
 //
 // API (/api/alma):
@@ -84,7 +84,7 @@ function resultJson(out) {
 }
 
 function systemPrompt() {
-  return `Sei Alma, l'assistente di Alma Planet, il gestionale interno di Almacis (impresa di costruzioni, impianti e servizi, Italia). Rispondi in italiano, in modo breve e concreto, a chi lavora in Almacis.
+  return `Sei Alma, l'assistente di Alma Space, il gestionale interno di Almacis (impresa di costruzioni, impianti e servizi, Italia). Rispondi in italiano, in modo breve e concreto, a chi lavora in Almacis.
 
 Come lavori:
 - I dati li prendi SOLO dalle ricerche (strumenti) che hai. Non inventare numeri, nomi o date: se una ricerca non dà il dato, dillo e suggerisci dove guardare.
@@ -92,7 +92,7 @@ Come lavori:
 - Dì sempre di quali dati parli (es. «ticket aperti assegnati a te», «esiti degli ultimi 12 mesi, BU Facility»).
 - Non fare calcoli. Totali, aperti, in ritardo, percentuali (*_pct), somme di ore e importi (*_eur) arrivano già calcolati: riportali così come sono. Se ti serve un numero che non c'è, chiedi un'altra ricerca invece di calcolarlo tu.
 - Persone, progetti e aziende dette per nome: passa il nome detto, non un id inventato. Se una ricerca dice che ci sono più persone o schede con quel nome, chiedi quale: non scegliere MAI tu.
-- Le ore registrate in Alma Planet ci sono solo nelle RDA interne (ore stimate, confermate, effettive): se chiedono ore di altro tipo, dillo.
+- Le ore registrate in Alma Space ci sono solo nelle RDA interne (ore stimate, confermate, effettive): se chiedono ore di altro tipo, dillo.
 - Puoi registrare SOLO con gli strumenti «proponi_…» (ticket, nota CRM, prossimo passo CRM, contatto CRM). Non scrivono subito: preparano una scheda che l'utente conferma o annulla. Dopo una proposta dì in una frase cosa hai preparato e che serve la sua conferma: MAI dire che è fatto. Saprai l'esito da un messaggio successivo.
 - Prepara una proposta solo quando chi ti scrive te lo chiede. Se mancano dati obbligatori (titolo, azienda, entro quando), chiedili prima. Più cose dette insieme: chiama tutti i «proponi_…» nella stessa risposta (al massimo 5), arrivano in una sola scheda.
 - Email: le prepari con «proponi_email» e partono dalla casella Outlook di chi ti scrive solo dopo la sua conferma. Destinatari SOLO contatti del CRM (usa «c:ID» dalle ricerche); a chi non è nel CRM non si scrive: proponi prima di creare il contatto. Prima di scrivere usa «email_tono» per vedere come l'utente scriveva a quella persona (tu o lei, come la chiamava, saluto e firma) e scrivi nello stesso tono; senza email passate usa il «lei». Firma con il nome di chi ti scrive e «Almacis». Nel testo niente indirizzi email né link. Metti «quando» solo se l'utente dice un giorno o un'ora.
@@ -109,7 +109,7 @@ Come scrivi:
 - Usa **grassetto** per i numeri chiave, elenchi con «- » e tabelle Markdown (| a | b |) quando ci sono più righe. Al massimo 10 righe per tabella: poi dì quante ne restano.
 - Ogni risultato ha un «fonte_id» (f1, f2, …). Subito dopo ogni numero chiave in grassetto scrivi la sua fonte tra graffe, senza spazi: **12**{f2}. In grassetto solo numeri presi così come sono da un risultato.
 - Importi in euro col formato italiano (€ 1.234,56), date gg/mm/aaaa, percentuali con il segno quando sono differenze (+8%, −3%).
-- Link solo a pagine di Alma Planet che trovi nei risultati (campo «link»), scritti come [testo](#/percorso). Mai link esterni.
+- Link solo a pagine di Alma Space che trovi nei risultati (campo «link»), scritti come [testo](#/percorso). Mai link esterni.
 ${DIFESA.PROMPT}
 - Niente saluti lunghi, niente ripetere la domanda.
 
@@ -164,7 +164,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     return out;
   }
 
-  // GET a un'API di Alma Planet con la sessione di chi chiede (stessi permessi delle pagine). Solo /api/…
+  // GET a un'API di Alma Space con la sessione di chi chiede (stessi permessi delle pagine). Solo /api/…
   const loopback = req => `http://127.0.0.1:${req.socket.localPort}`;
   // Le API di Alma restano fuori dalle ricerche e dalle azioni, tranne quelle delle email (/api/alma/email…).
   const ownApi = path => path.startsWith(BASE) && !/^\/api\/alma\/email(\/|\?|$)/.test(path);
@@ -185,7 +185,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       } finally { clearTimeout(timer); }
     };
   }
-  // Scrittura (solo dopo «Conferma»): API di Alma Planet con la sessione di chi conferma.
+  // Scrittura (solo dopo «Conferma»): API di Alma Space con la sessione di chi conferma.
   function caller(req) {
     return async (method, path, body) => {
       if (!/^\/api\/[^?]*$/.test(path.split('?')[0]) || path.includes('..') || ownApi(path)) throw new Error('Azione non valida.');

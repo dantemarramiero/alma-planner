@@ -220,7 +220,7 @@ function linkDialog(p, onDone) {
       fill(listBox, evs.reverse().map(row));
     } catch (err) {
       fill(listBox, h('div.banner', err?.code === 'calendar_read'
-        ? 'Per leggere il calendario serve il permesso di Microsoft. Un amministratore deve approvarlo in Entra; poi esci e rientra in Alma Planet.'
+        ? 'Per leggere il calendario serve il permesso di Microsoft. Un amministratore deve approvarlo in Entra; poi esci e rientra in Alma Space.'
         : err?.message || 'Outlook non risponde, riprova tra poco.'));
     }
   }

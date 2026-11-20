@@ -93,7 +93,7 @@ export function setupSearch() {
   // computer: casella sotto il logo
   const brand = document.querySelector('.sidebar .brand-side');
   if (brand) {
-    sideInput = h('input.input', { type: 'search', placeholder: 'Cerca…  (/)', 'aria-label': 'Cerca in Alma Planet' });
+    sideInput = h('input.input', { type: 'search', placeholder: 'Cerca…  (/)', 'aria-label': 'Cerca in Alma Space' });
     const box = h('div.side-search', icon('search', { size: 16 }), sideInput);
     brand.after(box);
     sideInput.addEventListener('input', debounce(() => { const q = sideInput.value.trim(); if (q.length >= 2 || location.hash.startsWith('#/search')) go(q); }, 300));

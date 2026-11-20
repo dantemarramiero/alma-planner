@@ -47,7 +47,7 @@ test("file dell'app: manifest con il logo Almacis e service worker", async () =>
   const m = await fetch(`${base}/manifest.webmanifest`);
   assert.equal(m.status, 200);
   const man = await m.json();
-  assert.equal(man.name, 'Alma Planet');
+  assert.equal(man.name, 'Alma Space');
   assert.equal(man.display, 'standalone');
   assert.ok(man.icons.some(i => i.src.split('?')[0] === '/brand/almacis/app-icon-512.png'));
   const mask = man.icons.find(i => i.purpose === 'maskable');
@@ -79,7 +79,7 @@ test('telefono: chiave pubblica, iscrizione, prova; nuovo post e ticket assegnat
   const sub = { endpoint: 'https://push.example/anna-1', keys: { p256dh: 'BPx', auth: 'au' } };
   assert.equal((await ANNA('POST', '/api/push/subscribe', { subscription: sub, device: 'iPhone (app)' })).status, 201);
   assert.equal((await ANNA('POST', '/api/push/test', {})).status, 200);
-  assert.equal(pushed.at(-1).title, 'Alma Planet');
+  assert.equal(pushed.at(-1).title, 'Alma Space');
 
   // nuovo post di Luca: Anna lo sa in campanella e sul telefono
   pushed.length = 0;

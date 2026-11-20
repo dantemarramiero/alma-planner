@@ -49,7 +49,7 @@ function registerAlerts(app, { db, push }) {
   });
 
   app.post('/api/push/test', async (req, res) => {
-    const sent = await push.send([req.user.id], { title: 'Alma Planet', body: 'Le notifiche sul telefono funzionano.', url: '/app#/notifiche/impostazioni', tag: 'prova' });
+    const sent = await push.send([req.user.id], { title: 'Alma Space', body: 'Le notifiche sul telefono funzionano.', url: '/app#/notifiche/impostazioni', tag: 'prova' });
     if (!sent) throw new HttpError(400, 'Nessun dispositivo ha ricevuto la prova: attiva prima le notifiche su questo dispositivo');
     res.json({ sent });
   });

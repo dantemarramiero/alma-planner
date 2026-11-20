@@ -1,4 +1,4 @@
-// «Porta avanti» → progetto di Alma Planet, «I miei progetti», testata e rendiconto (canvas v9, Dante 19/11/2026)
+// «Porta avanti» → progetto di Alma Space, «I miei progetti», testata e rendiconto (canvas v9, Dante 19/11/2026)
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp, readConfig } = require('../server');

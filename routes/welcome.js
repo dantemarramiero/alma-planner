@@ -1,4 +1,4 @@
-// Alma Planet: i dati della nuova pagina di benvenuto (proposta E) e le parti che la alimentano.
+// Alma Agorà: i dati della nuova pagina di benvenuto (proposta E) e le parti che la alimentano.
 // - /api/welcome/home: in un colpo solo persone in evidenza (nuovi arrivi, compleanni, anniversari), eventi,
 //   «Grazie a…», novità dagli A3, sondaggio, organigramma e «la mia giornata» (ticket, approvazioni, scheda).
 // - «Grazie a…»: un post verso un collega, legato a un pillar dell'Hoshin Kanri. Lo scrive chiunque.
