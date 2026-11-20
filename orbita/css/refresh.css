@@ -1,4 +1,4 @@
-/* Alma Planet — refresh 2026. Si carica DOPO tutti gli altri fogli (app.css, intranet.css, org.css, rda.css…).
+/* Alma Space — refresh 2026. Si carica DOPO tutti gli altri fogli (app.css, intranet.css, org.css, rda.css…).
    Solo ritocchi visivi: nessuna classe nuova obbligatoria, nessun cambio al JS. Colori dai token del brand. */
 :root{
   --rf-canvas:#F7F6F3;            /* fondo caldo al posto del grigio freddo */
@@ -412,7 +412,7 @@ table.list td:first-child{min-width:220px}
 }
 
 /* ── Selettore del modulo nella barra laterale (01/11/2026, come in MyWinery) ─────────────────────
-   Alma Planet / Alma Energy (domani Alma Social): riquadro sotto il logo con «MODULO» e il nome, menu che si apre
+   Alma Agorà / Alma Energy (domani Alma Social): riquadro sotto il logo con «MODULO» e il nome, menu che si apre
    sotto. Ogni modulo ha il suo menu laterale (nav[data-ws], main.js). Nella barra a icone resta solo il quadratino. */
 .ws-switch{position:relative;margin:var(--ap-space-3) 0 var(--ap-space-1)}
 .ws-switch[hidden]{display:none}

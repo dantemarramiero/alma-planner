@@ -79,11 +79,11 @@ function setupRail() {
   });
 }
 // ── selettore del modulo nella barra laterale, come in MyWinery ──
-// Alma Planet è la intranet (feed, chat, persone), Alma Project il planner (ticket, progetti, calendario, mezzi),
+// Alma Agorà è la intranet (feed, chat, persone), Alma Project il planner (ticket, progetti, calendario, mezzi),
 // Alma Strategy (Hoshin Kanri e performance management), Alma Energy solo per chi ce l'ha. Ogni modulo ha il
 // suo menu laterale e ricorda l'ultima pagina aperta: tornandoci si riparte da lì. Il selettore lo vedono tutti.
 const MODULES = [
-  { key: 'planet', label: 'Alma Planet', icon: 'house', home: '#/benvenuto', can: () => true },
+  { key: 'planet', label: 'Alma Agorà', icon: 'house', home: '#/benvenuto', can: () => true },
   { key: 'project', label: 'Alma Project', icon: 'folder-kanban', home: '#/settimana', can: () => true },
   { key: 'strategy', label: 'Alma Strategy', icon: 'target', home: '#/strategy/hoshin', can: () => true },
   // Alma IT: «I miei strumenti» per tutti, censimento e richieste per il team IT
@@ -93,7 +93,7 @@ const MODULES = [
   { key: 'crm', label: 'Alma CRM', icon: 'contact', home: '#/crm/settimana', can: () => Boolean(store.me.crm) },
 ];
 // sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
-const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar']); // OneDrive è in Planet
+const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar']); // OneDrive è in Alma Agorà
 let lastModule = 'planet';
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
@@ -172,7 +172,7 @@ async function route() {
     : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   document.body.classList.toggle('on-direct', section === 'direct');
-  const modLabel = MODULES.find(m => m.key === moduleOf(section))?.label || 'Alma Planet';
+  const modLabel = MODULES.find(m => m.key === moduleOf(section))?.label || 'Alma Agorà';
   document.title = section === 'direct' ? `Chat · ${modLabel}` : modLabel;
   trackBack(section);
   drawModule(section);

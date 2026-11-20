@@ -474,7 +474,7 @@ async function directUseDialog(done) {
   const ok = h('button.btn.btn-primary', { type: 'button' }, 'Registra la consegna');
   const m = modal({
     title: 'Consegna senza prenotazione',
-    body: [h('p.small.muted', 'Per chi prende un mezzo senza averlo chiesto in Alma Planet: finisce nello storico come gli altri.'),
+    body: [h('p.small.muted', 'Per chi prende un mezzo senza averlo chiesto in Alma Space: finisce nello storico come gli altri.'),
       field('Mezzo', veh), field('A chi', person.el), h('div.grid-2', field('Riconsegna prevista', to), field('Km', km))],
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok],
   });
@@ -1073,7 +1073,7 @@ async function settingsTab(box) {
       h('p.small.muted', 'In Zoho CRM apri «Mezzi», menu «…» → «Esporta Mezzi», scegli «Tutti i campi» e CSV, poi scompatta lo .zip. Carica qui il file: prima vedi l\'anteprima, poi confermi. Reimportare aggiorna i mezzi già presi da Zoho, senza doppioni.'),
       h('div', h('button.btn', { type: 'button', on: { click: () => importZoho(() => settingsTab(box)) } }, icon('upload', { size: 16 }), 'Carica il CSV di Zoho'))),
     h('section.card.sw-card', h('h3', 'QR code ed etichette'),
-      h('p.small.muted', 'Ogni mezzo ha un QR code. Chi lo inquadra col telefono entra in Alma Planet col suo account Microsoft e può ritirare o riconsegnare la sua prenotazione, oppure segnalare un problema (diventa un ticket ai gestori; se il mezzo non è utilizzabile va subito fuori servizio).'),
+      h('p.small.muted', 'Ogni mezzo ha un QR code. Chi lo inquadra col telefono entra in Alma Space col suo account Microsoft e può ritirare o riconsegnare la sua prenotazione, oppure segnalare un problema (diventa un ticket ai gestori; se il mezzo non è utilizzabile va subito fuori servizio).'),
       h('a.btn', { href: '#/mezzi/etichette' }, icon('crosshair', { size: 16 }), 'Stampa le etichette'))));
 }
 
@@ -1145,7 +1145,7 @@ async function importZoho(done) {
         h('div.sw-kpi', h('span.lab', 'Categorie nuove'), h('strong.big', num(s.new_categories.length)), h('span.sub', s.new_categories.join(', ') || 'nessuna')),
         h('div.sw-kpi', h('span.lab', 'Senza targa'), h('strong.big', num(s.without_plate)), h('span.sub', 'macchine: la matricola va in «Telaio o matricola»')),
         h('div.sw-kpi', { class: s.warnings ? 'warn' : '' }, h('span.lab', 'Con avvisi'), h('strong.big', num(s.warnings)), h('span.sub', 'da guardare, non bloccano'))),
-      h('p.small.muted', `Arrivano anche valore di acquisto (${num(s.with_value)} mezzi), costi annui (${num(s.with_costs)}) e commessa (${num(s.with_commessa)}). Km, foto, QR, prenotazioni e assegnazioni dei mezzi già in Alma Planet non si toccano.`),
+      h('p.small.muted', `Arrivano anche valore di acquisto (${num(s.with_value)} mezzi), costi annui (${num(s.with_costs)}) e commessa (${num(s.with_commessa)}). Km, foto, QR, prenotazioni e assegnazioni dei mezzi già in Alma Space non si toccano.`),
       seg, table,
     ],
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok],
@@ -1176,6 +1176,6 @@ async function labelsView(container) {
       h('div.row', h('a.btn', { href: '#/mezzi/elenco' }, 'Torna ai mezzi'), h('button.btn.btn-primary', { type: 'button', on: { click: () => window.print() } }, 'Stampa'))),
     all.length ? h('div.fl-labels', all.map(x => h('div.fl-label-card',
       h('img', { src: `/api/mezzi/${x.id}/qr.svg`, alt: '' }),
-      h('div', h('div.fl-label-brand', 'Alma Planet · Mezzi'), h('strong.fl-with-ico', vehIcon(x.category_icon, x.category_name, 22), x.code), x.plate ? h('div', x.plate) : null, h('div.small', vModel(x)),
+      h('div', h('div.fl-label-brand', 'Alma Space · Mezzi'), h('strong.fl-with-ico', vehIcon(x.category_icon, x.category_name, 22), x.code), x.plate ? h('div', x.plate) : null, h('div.small', vModel(x)),
         h('div.small.muted', 'Inquadra per ritirare, riconsegnare o segnalare un problema'))))) : h('div.card.empty', 'Nessun mezzo.'));
 }

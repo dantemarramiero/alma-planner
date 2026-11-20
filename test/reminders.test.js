@@ -68,7 +68,7 @@ test('email del promemoria: testo di chi lo manda, riquadro del ticket, niente H
     to: { name: 'Anna Rossi', email: 'anna@almacis.it' }, actor: { name: 'Dante' },
     message: 'Mi serve entro giovedì <script>x</script>', link: 'https://alma.example/app#/tickets/7',
   });
-  assert.equal(subject, '[Alma Planet] Promemoria da Dante: Preventivo <b>impianto</b>');
+  assert.equal(subject, '[Alma Space] Promemoria da Dante: Preventivo <b>impianto</b>');
   assert.match(html, /Ciao Anna/);
   assert.match(html, /Mi serve entro giovedì &lt;script&gt;/);
   assert.ok(!html.includes('<script>'));

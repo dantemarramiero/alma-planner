@@ -172,7 +172,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
 
   app.post('/api/energy/members', async (req, res) => {
     const e = email(req.body.email, 'Email');
-    if (!e) throw new HttpError(400, 'Scrivi l\'email dell\'account di Alma Planet');
+    if (!e) throw new HttpError(400, 'Scrivi l\'email dell\'account di Alma Space');
     await db.query('INSERT INTO energy_members (email, added_by) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING', [e, req.user.id]);
     res.status(201).json({ ok: true });
   });
@@ -523,7 +523,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
 
   // Cambio di stadio: resta nello storico. «perso» e «scartato» chiedono il motivo, riaprire da uno stadio chiuso
   // (persa, scartata, standby) la motivazione; «target» passa da «Seleziona come target». Oltre il primo stadio
-  // l'opportunità ha il suo progetto di Alma Planet (deciso da Dante il 02/11).
+  // l'opportunità ha il suo progetto di Alma Space (deciso da Dante il 02/11).
   app.post('/api/energy/opportunities/:id/stage', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const cur = await opportunityById(id);
@@ -552,7 +552,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     res.json(opp);
   });
 
-  // Il progetto di Alma Planet dell'opportunità (Gantt, ticket, documenti, email, incontri, note, membri): nasce la prima
+  // Il progetto di Alma Space dell'opportunità (Gantt, ticket, documenti, email, incontri, note, membri): nasce la prima
   // volta che serve, riservato alla BU Energy, con i membri del modulo. Restituisce l'id.
   async function ensureProject(q, o, userId) {
     if (o.project_id) return o.project_id;
@@ -979,7 +979,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
   });
 
   // ── Impianti target (ALM2-15 … ALM2-17) ─────────────────────────────────────────────────────
-  // «Seleziona come target»: l'opportunità diventa un progetto di Alma Planet riservato alla BU Energy (tutti i membri del
+  // «Seleziona come target»: l'opportunità diventa un progetto di Alma Space riservato alla BU Energy (tutti i membri del
   // modulo ne sono membri), con una riga del Gantt per ogni step dell'iter commerciale. L'opportunità resta la scheda
   // dell'impianto: aziende, persone, scenari e dati non si copiano, si ritrovano dal progetto.
   const STEP_KEYS = TARGET_STEPS.map(st => st.key);

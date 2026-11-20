@@ -1,4 +1,4 @@
-// Impostazioni uniche di Alma Planet (canvas «Alma Planet · Impostazioni», approvato da Dante il 19/11/2026):
+// Impostazioni uniche di Alma Space (canvas «Alma Space · Impostazioni», approvato da Dante il 19/11/2026):
 // #/impostazioni/<sezione> con panoramica, organigramma e ruoli, utenti, costi AI, privacy e visibilità, registro accessi
 // e azioni, integrazioni, moduli. Solo amministratori; Costi AI anche per chi ha «Costi AI: Tutto».
 // Pezzi grafici da crm-v2.js (classi cv-*), il resto in css/impostazioni.css (classi imp-*).
@@ -31,7 +31,7 @@ export async function renderImpostazioni(view, parts = []) {
   const costsOnly = !admin && store.me?.privacy?.costi_ai === 'all';
   if (!admin && !costsOnly) {
     fill(view, h('div.cv', pageTop({ eyebrow: 'Impostazioni', heading: title('', 'Impostazioni') }),
-      emptyState('key-round', 'Le impostazioni di Alma Planet le gestiscono gli amministratori.')));
+      emptyState('key-round', 'Le impostazioni di Alma Space le gestiscono gli amministratori.')));
     return;
   }
   let section = SECTIONS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
@@ -60,11 +60,11 @@ async function panoramica(body, { go }) {
     h('span.imp-ico', ic(icon, 20)), h('h3.cv-t', name), h('p.cv-small.cv-muted.imp-p', text), pill(status, tone));
   const org = p.org;
   fill(body,
-    head('amministratori', '', 'Impostazioni', 'Valgono per tutto il software: Planet, Project, CRM, Mezzi, Energy, IT e Alma. Le impostazioni proprie di un modulo sono sotto «Moduli».'),
+    head('amministratori', '', 'Impostazioni', 'Valgono per tutto il software: Agorà, Project, CRM, Mezzi, Energy, IT e Alma. Le impostazioni proprie di un modulo sono sotto «Moduli».'),
     h('div.imp-grid',
       tile('organigramma', 'network', 'Organigramma e ruoli', `Incarichi, livelli e aree come in BOSS; le persone${org ? ` (${org.people})` : ''} da Microsoft Entra. I ruoli di Alma Space si legano a qualifiche e reparti.`,
         org ? `Aggiornato ${timeAgo(org.synced_at)}` : 'Mai letto da Microsoft', org ? 'gr' : 'am'),
-      tile('utenti', 'users', 'Utenti', 'Chi è entrato in Alma Planet, quando, con quale ruolo. Chi non è ancora entrato si invita da qui.',
+      tile('utenti', 'users', 'Utenti', 'Chi è entrato in Alma Space, quando, con quale ruolo. Chi non è ancora entrato si invita da qui.',
         `${p.users.entered} entrati · ${p.users.never} non ancora`),
       tile('costi', 'coins', 'Costi AI', 'Quanto spende l\'AI per persona e per tutta l\'azienda, con i tetti al mese e al giorno.',
         `${eur(p.cost.month_eur)} di ${eur(p.cost.cap_eur)} questo mese`, p.cost.month_eur >= p.cost.cap_eur * 0.8 ? 'am' : ''),
@@ -72,7 +72,7 @@ async function panoramica(body, { go }) {
         `${p.roles} ruoli · ${p.exceptions} ${p.exceptions === 1 ? 'eccezione personale' : 'eccezioni personali'}`),
       tile('registro', 'clock', 'Registro accessi e azioni', 'Chi è entrato, da dove, cosa ha cambiato. Non si modifica e non si cancella.',
         p.refused_today ? `${p.refused_today} ${p.refused_today === 1 ? 'accesso rifiutato' : 'accessi rifiutati'} oggi` : 'Nessun accesso rifiutato oggi', p.refused_today ? 'rd' : ''),
-      tile('integrazioni', 'plug', 'Integrazioni', 'I servizi collegati ad Alma Planet. Oggi Microsoft 365: accesso, OneDrive, Outlook, Teams.',
+      tile('integrazioni', 'plug', 'Integrazioni', 'I servizi collegati ad Alma Space. Oggi Microsoft 365: accesso, OneDrive, Outlook, Teams.',
         p.microsoft ? 'Microsoft 365 collegato' : 'Microsoft 365 non configurato', p.microsoft ? 'gr' : 'am'),
       tile('moduli', 'grid', 'Moduli', 'Le impostazioni proprie di Alma, CRM, Mezzi, Energy e Notifiche.', '5 moduli')));
   void go;
@@ -114,7 +114,7 @@ async function ruoliEntra(body) {
         title: 'Senza responsabile in Entra', body: h('div.imp-list', o.without_manager.map(p => h('div.cv-row', av(p.name), h('div', h('b', p.name), h('div.cv-small.cv-muted', p.job_title || p.email))))),
         actions: [{ label: 'Chiudi' }] }) } }) : null)),
     h('div.imp-two',
-      card({ title: 'Ruoli di Alma Planet', icon: 'key-round', right: h('button.btn.btn-sm', { type: 'button', on: { click: () => roleDialog(o, null, reload) } }, ic('plus', 14), 'Nuovo ruolo') },
+      card({ title: 'Ruoli di Alma Space', icon: 'key-round', right: h('button.btn.btn-sm', { type: 'button', on: { click: () => roleDialog(o, null, reload) } }, ic('plus', 14), 'Nuovo ruolo') },
         h('p.cv-small.cv-muted.imp-pad', 'Ogni persona ha il ruolo dato a mano oppure il primo, dall\'alto, la cui regola vale per lei. Gli amministratori non sono più una variabile del server.'),
         h('div.cv-tblwrap', h('table.cv-tbl',
           h('thead', h('tr', h('th', 'Ruolo'), h('th', 'Chi lo ha'), h('th.num', 'Persone'))),
@@ -232,7 +232,7 @@ async function utenti(body, { parts }) {
   };
   const kpi = (n, label) => h('div.cv-card.pad.imp-kpi', h('span.cv-small.cv-muted', label), h('b', String(n)));
   fill(body,
-    head('utenti', '', 'Utenti', 'Chi è entrato in Alma Planet con il suo account Microsoft. Sospendere un utente lo fa uscire subito da tutti i dispositivi.', [inviteBtn]),
+    head('utenti', '', 'Utenti', 'Chi è entrato in Alma Space con il suo account Microsoft. Sospendere un utente lo fa uscire subito da tutti i dispositivi.', [inviteBtn]),
     h('div.imp-kpis', kpi(d.kpi.entered, 'Entrati almeno una volta'), kpi(d.kpi.active_7d, 'Attivi negli ultimi 7 giorni'), kpi(d.kpi.never, 'In Entra, mai entrati'), kpi(d.kpi.suspended, 'Sospesi')),
     h('section.cv-card',
       h('div.cv-ch',
@@ -268,7 +268,7 @@ async function costi(body, { parts }) {
       } } }, 'Salva'));
   })() : null;
   fill(body,
-    head('costi AI', '', 'Costi AI', 'Tutto quello che l\'AI costa in Alma Planet, in euro: Alma per scritto e a voce, trascrizioni, ricerche AI del CRM. I prezzi in dollari si convertono al cambio di Alma.',
+    head('costi AI', '', 'Costi AI', 'Tutto quello che l\'AI costa in Alma Space, in euro: Alma per scritto e a voce, trascrizioni, ricerche AI del CRM. I prezzi in dollari si convertono al cambio di Alma.',
       [select(months.map(m => [m, monthLabel(m)]), c.month, { 'aria-label': 'Mese', on: { change: e => { location.hash = `#/impostazioni/costi/${e.target.value}`; } } })]),
     h('div.imp-two',
       h('section.cv-card.pad.imp-total',
@@ -449,7 +449,7 @@ async function integrazioni(body) {
   const perm = (text, used) => h('div.imp-perm', h('span', text), h('span.cv-small.cv-muted', used));
   const exp = String(ms.secret_expires || '');
   fill(body,
-    head('integrazioni', '', 'Integrazioni', 'I servizi esterni collegati ad Alma Planet. Per ognuno: se funziona, cosa può fare e quando scade il collegamento.'),
+    head('integrazioni', '', 'Integrazioni', 'I servizi esterni collegati ad Alma Space. Per ognuno: se funziona, cosa può fare e quando scade il collegamento.'),
     h('section.cv-card.pad',
       h('div.cv-row', { style: { flexWrap: 'wrap', justifyContent: 'space-between', gap: '12px' } },
         h('div.cv-row', { style: { gap: '14px' } }, h('span.imp-mslogo', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i')),

@@ -1,4 +1,4 @@
-// CRM di Alma Planet: soggetti (Lead, Clienti, Fornitori, Partner, Concorrenti), contatti, attività, ASA.
+// CRM di Alma Space: soggetti (Lead, Clienti, Fornitori, Partner, Concorrenti), contatti, attività, ASA.
 // Regole (canvas del 12/11/2026):
 // - un soggetto è una sola scheda con più ruoli; P.IVA e codice fiscale non si ripetono;
 // - ogni soggetto ha una o più ASA: chi è di un'ASA vede solo i soggetti della sua, la direzione tutti;

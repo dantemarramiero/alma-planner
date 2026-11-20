@@ -127,7 +127,7 @@ export async function openAccept(t, onDone) {
       h('div.grid-2',
         h('label.field', h('span', 'Ore confermate'), hours, changed),
         h('label.field', h('span', 'Scadenza'), due)),
-      h('div.field', h('span', 'Chi la fa'), team.length ? people : h('div.muted.small', 'Nessuno del tuo team è ancora entrato in Alma Planet.')),
+      h('div.field', h('span', 'Chi la fa'), team.length ? people : h('div.muted.small', 'Nessuno del tuo team è ancora entrato in Alma Space.')),
       h('label.field', h('span', 'Nota'), note),
     ],
     actions: [

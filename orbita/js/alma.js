@@ -1,4 +1,4 @@
-// Alma, l'assistente di Alma Planet (canvas V5-Alma, V5-Ovunque, V5-Impostazioni del 17/11/2026).
+// Alma, l'assistente di Alma Space (canvas V5-Alma, V5-Ovunque, V5-Impostazioni del 17/11/2026).
 // - Pagina #/alma: conversazioni a sinistra, chat a destra (risposta in diretta, passi, numeri con ricevuta, cifre,
 //   domande suggerite, piede copia/riprova/utile/non utile, proposta arancione Conferma/Cambia/Annulla).
 // - Pannello laterale da ogni pagina (tasto Alma in basso a destra): sa da quale pagina chiedi («Stai guardando: …»).
@@ -351,7 +351,7 @@ export function createChat(opts = {}) {
     if (opts.welcome) return fill(msgs, opts.welcome({ pick: () => pickFile.click(), shoot: () => takePhoto.click() }));
     const sugg = (opts.suggestions ? opts.suggestions() : null) || ['Quali ticket ho in ritardo?', 'Cosa ho questa settimana nel CRM?', 'Come stiamo andando con le gare negli ultimi 12 mesi?'];
     fill(msgs, h('div.al-welcome', ava(44), h('div.al-t5.al-big', 'Ciao, sono Alma'),
-      h('p.al-muted', 'Rispondo con i dati di Alma Planet che vedi tu: ticket, progetti, ore delle RDA, CRM, radar, gare, persone e mezzi. Posso preparare ticket, note, passi e contatti: niente si salva senza la tua conferma.'),
+      h('p.al-muted', 'Rispondo con i dati di Alma Space che vedi tu: ticket, progetti, ore delle RDA, CRM, radar, gare, persone e mezzi. Posso preparare ticket, note, passi e contatti: niente si salva senza la tua conferma.'),
       h('div.al-sugg', sugg.map(s => h('button', { type: 'button', on: { click: () => send(s) } }, s)))));
   }
   function blocked(text) {
@@ -878,7 +878,7 @@ async function settingsView(view) {
   const general = h('section.cv-card.al-setcard', h('div.al-lbl', 'Generale'),
     !s.configured ? h('div.al-warn', h('div', ic('alert-triangle', 13), 'Manca la chiave OPENAI_API_KEY su Railway: finché non c\'è, Alma resta spenta per tutti.')) : null,
     s.fake ? h('div.al-warn', h('div', ic('info', 13), 'Modalità finta (solo in locale): Alma risponde senza OpenAI.')) : null,
-    line('Alma accesa', 'per tutti gli utenti di Alma Planet', on.el),
+    line('Alma accesa', 'per tutti gli utenti di Alma Space', on.el),
     line('Quota del mese', 'si ferma da sola quando è finita', h('span.al-eur', monthly, '€')),
     line('Per persona al giorno', null, h('span.al-eur', daily, '€')),
     line('Può preparare ticket, note, passi e contatti', 'sempre da confermare', acts.el),

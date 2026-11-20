@@ -1,4 +1,4 @@
-// Service worker dell'app Alma Planet: riceve le notifiche push e, al tocco, apre la pagina giusta.
+// Service worker dell'app Alma Space: riceve le notifiche push e, al tocco, apre la pagina giusta.
 // Niente cache delle pagine: l'app resta sempre aggiornata come il sito.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
@@ -6,7 +6,7 @@ self.addEventListener('activate', event => event.waitUntil(self.clients.claim())
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : '' }; }
-  event.waitUntil(self.registration.showNotification(data.title || 'Alma Planet', {
+  event.waitUntil(self.registration.showNotification(data.title || 'Alma Space', {
     body: data.body || '',
     icon: '/brand/almacis/app-icon-192.png?v=2',
     badge: '/brand/almacis/app-icon-192.png?v=2',

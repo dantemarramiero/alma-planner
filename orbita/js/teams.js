@@ -254,7 +254,7 @@ export async function openChatWithEmails(emails, topic) {
   location.hash = chatHash(id);
 }
 
-// Pulsante «Messaggio» per una persona: apre la sua chat Teams dentro Alma Planet.
+// Pulsante «Messaggio» per una persona: apre la sua chat Teams dentro Alma Space.
 export function messageButton(person, { className = 'btn.btn-primary', label = 'Messaggio' } = {}) {
   return h(`button.${className}`, { type: 'button', title: `Scrivi a ${person.name} (chat di Teams)`, on: { click: e => {
     e.preventDefault();
