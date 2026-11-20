@@ -182,3 +182,21 @@ test('radar: secondo giro «prima del bando» con fase e data attesa', async () 
   assert.equal(p.stages.programmata[0].expected_on.slice(0, 7), '2027-03');
   assert.deepEqual(parseSignals('[{"title":"x","url":"https://a.it","stage":"boh","expected_on":"2027-01-01"}]')[0].stage, '');
 });
+
+test('categorie delle iniziative aperte di Nuovi business: il mese si ricarica con la categoria nuova (20/11)', async () => {
+  const { categoryCoverage } = require('../lib/crm-anac');
+  const { loadSettings } = require('../lib/crm-commerciale');
+  const before = await categoryCoverage(db, await loadSettings(db));
+  assert.ok(before.loaded.includes('OG1') && !before.loaded.includes('OG3'));
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM crm_anac_awards WHERE cig = 'CCCCCCCCC1'")).rows[0].n, 0);
+  // iniziativa aperta con OG3 (le strade): al prossimo giro il mese si ricarica e la gara CCCCCCCCC1 entra
+  await db.query(`INSERT INTO crm_initiatives (name, phase, profile) VALUES ('Strade', 'analisi', '{"soa": ["OG 3"]}'), ('Vecchia', 'abbandonata', '{"soa": ["OS30"]}')`);
+  const mid = await categoryCoverage(db, await loadSettings(db));
+  assert.ok(mid.pending.includes('OG3') && !mid.pending.includes('OS30'));
+  assert.equal((await D('POST', '/api/crm/concorrenza/aggiorna', {})).status, 200);
+  for (let i = 0; i < 100 && (await D('GET', '/api/crm/concorrenza/stato')).body.running; i++) await new Promise(r => setTimeout(r, 50));
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM crm_anac_awards WHERE cig = 'CCCCCCCCC1'")).rows[0].n, 1);
+  const after = await categoryCoverage(db, await loadSettings(db));
+  assert.ok(after.loaded.includes('OG3'));
+  assert.deepEqual(after.pending, []);
+});
