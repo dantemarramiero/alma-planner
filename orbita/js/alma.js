@@ -8,7 +8,7 @@
 import { h, fill, clear, toast, loading, confirmDialog, promptDialog, isMobile, fmtDateTime } from './ui.js';
 import { get, post, put, patch, del } from './api.js';
 import { icon } from './icons.js';
-import { pill, toggle, seg, emptyState } from './crm-v2.js';
+import { pill, toggle, seg, emptyState, settingsCrumb } from './crm-v2.js';
 import { openVoice, voiceSupported } from './alma-voce.js';
 
 const ic = (name, size = 16) => icon(name, { size });
@@ -918,6 +918,7 @@ async function settingsView(view) {
     h('div.al-row', { style: { gap: '8px' } }, newRule, h('button.btn', { type: 'button', on: { click: addRule } }, ic('plus', 15), 'Aggiungi')));
 
   fill(view, h('div.cv',
+    settingsCrumb('Alma, l’assistente'),
     h('div.cv-top', h('div.cv-top-l', h('div.cv-eyebrow', 'Impostazioni · amministratori'), h('h1.cv-h1', h('b', 'Alma'), ', l\'assistente'),
       h('p.cv-sub', 'Quanto può spendere, cosa può fare, come risponde.')),
       h('div.cv-top-r', h('a.btn', { href: '#/alma' }, ic('sparkles', 15), 'Apri Alma'))),

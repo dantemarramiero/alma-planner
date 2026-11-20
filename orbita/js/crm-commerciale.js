@@ -7,7 +7,7 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { openCrmMeeting } from './crm-tabs.js';
 import { signalRow, newSignalDialog, openPlan } from './crm-radar.js';
-import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, seg, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
+import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, seg, toggle, choiceChips, cvModal, scoreRing, settingsCrumb } from './crm-v2.js';
 import { todoRows } from './crm-esiti.js';
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
@@ -417,7 +417,8 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
   body.addEventListener('input', dirty);
   body.addEventListener('change', dirty);
   fill(box,
-    pageTop({ eyebrow: 'Alma CRM · direzione', heading: title('', 'Impostazioni'), sub: 'Tutto quello che decide come lavora il CRM commerciale. I promemoria cambiano subito, il radar dal giorno dopo.' }),
+    settingsCrumb('Alma CRM'),
+    pageTop({ eyebrow: 'Alma CRM · direzione', heading: title('', 'Impostazioni', 'del CRM'), sub: 'Tutto quello che decide come lavora il CRM commerciale. I promemoria cambiano subito, il radar dal giorno dopo.' }),
     h('div.cv-settings', nav, h('div.cv-sbody', body, bar)));
 
   if (section === 'asa') { onSave = null; return asaTab?.(body); }
