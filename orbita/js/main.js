@@ -1,4 +1,5 @@
 // Avvio e navigazione (#/percorso?parametri).
+import { mioBigliettoView } from './biglietti.js';
 import { h, clear, avatar, loading } from './ui.js';
 import { get, post } from './api.js';
 import { store, loadUsers, loadProjects } from './store.js';
@@ -165,7 +166,7 @@ async function route() {
   // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
-    : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
+    : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'
     : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
@@ -282,6 +283,9 @@ async function route() {
       break;
     case 'crm':
       await crmView(view, parts);
+      break;
+    case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10)
+      await mioBigliettoView(view);
       break;
     case 'impostazioni': // Impostazioni uniche (amministratori; Costi AI anche per chi ha «Costi AI: Tutto»)
       await renderImpostazioni(view, parts);

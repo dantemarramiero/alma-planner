@@ -83,6 +83,19 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
   });
 
   // ── Prima del bando ─────────────────────────────────────────────────────────────────────────
+  // «Cerca un'impresa» (v11 · Concorrenza e gare): per nome o P.IVA tra chi ha vinto gare ANAC, anche se non è nel CRM
+  app.get('/api/crm/concorrenza/cerca', async (req, res) => {
+    const q = String(req.query.q || '').replace(/s+/g, ' ').trim().slice(0, 80);
+    if (q.length < 2) return res.json({ imprese: [] });
+    const cf = q.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const { rows } = await db.query(
+      `SELECT w->>'cf' AS cf, max(w->>'name') AS name, count(*)::int AS vinte, sum(a.amount) AS valore
+         FROM crm_anac_awards a, jsonb_array_elements(a.winners) w
+        WHERE (w->>'name') ILIKE $1 OR ($2 <> '' AND length($2) >= 6 AND (w->>'cf') LIKE $2 || '%')
+        GROUP BY 1 ORDER BY count(*) DESC LIMIT 8`, [`%${q}%`, cf]);
+    res.json({ imprese: rows.map(r => ({ cf: r.cf || '', name: r.name, vinte: r.vinte, valore: r.valore != null ? Number(r.valore) : null })) });
+  });
+
   app.get('/api/crm/prima-del-bando', async (req, res) => {
     const c = await ctx(req);
     const bus = req.query.bu ? [buOk(c, String(req.query.bu))] : req.crm.admin || !c.myBus.length ? Object.keys(c.settings.profiles) : c.myBus;
