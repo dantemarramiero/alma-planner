@@ -327,7 +327,7 @@ export async function crmProjectPage(container, id) {
         taskBoard(await get(`/api/tickets?project=${id}`), { id }, changed, { drag: true }));
       fill(box, loading()); await draw();
     }],
-    ['relazioni', 'Relazioni', async box => { fill(box, h('div.pv-tabhead', h('div', h('h3', 'Relazioni'), h('p', 'Enti, clienti, partner, concorrenti e persone collegati al progetto, con il loro ruolo. Si vedono anche nella loro scheda del CRM.'))), linksBox({ project: id }, { title: 'Collegati al progetto', onChange: refreshInfo })); }],
+    ['relazioni', 'Relazioni', async box => { fill(box, h('div.pv-tabhead', h('div', h('h3', 'Relazioni'), h('p', 'Enti, clienti, partner, concorrenti e persone collegati al progetto, con il loro ruolo. Si vedono anche nella loro scheda del CRM.'))), (() => { const lb = linksBox({ project: id }, { title: 'Collegati al progetto', onChange: refreshInfo }); return [touchBox({ project: id }, { onChange: () => { refreshInfo(); lb.replaceWith(linksBox({ project: id }, { title: 'Collegati al progetto', onChange: refreshInfo })); } }), lb]; })()); }],
     ['calendario', 'Calendario', async box => calendarTab(box, id)],
     ['rendiconto', 'Rendiconto', async box => reportTab(box, id)],
   ];
@@ -488,4 +488,49 @@ export function linksBox(target, { title = 'Collegati', onChange } = {}) {
   };
   draw().catch(() => fill(box, h('p.pv-empty', 'Collegamenti non disponibili.')));
   return box;
+}
+
+// ═══ Punti di contatto (canvas v9 «Collegamenti e punti di contatto») ═══════════════════════════════════════════
+// target: { signal } | { project } | { subject }. Ogni segnale: Collega · Chiedi un'introduzione · Aggiungi alla squadra ·
+// Non c'entra. Niente si collega da solo. Se non c'è niente il riquadro non si vede.
+const TOUCH_ROLE = { rup: 'RUP', referente: 'referente', ati: 'partner ATI', concorrente: 'concorrente', subappalto: 'subappaltatore', altro: 'collegato' };
+export function touchBox(target, { onChange } = {}) {
+  const qs2 = new URLSearchParams(target).toString();
+  const box = h('section.tp-box', { hidden: true });
+  const draw = async () => {
+    const r = await get(`/api/crm/punti-contatto?${qs2}`, { quiet: true }).catch(() => ({ items: [] }));
+    if (!r.items.length) { box.hidden = true; fill(box); return; }
+    box.hidden = false;
+    const act = (label, cls, fn) => h(`button.tp-btn${cls}`, { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; try { await fn(); } catch { e.currentTarget.disabled = false; } } } }, label);
+    fill(box,
+      h('div.tp-h', h('span.tp-spark', ic('sparkles', 16)), h('div.pv-grow', h('b', 'Punti di contatto trovati'), h('small', `${r.items.length} · Alma incrocia CRM, Outlook e dati ANAC; niente si collega da solo`))),
+      r.items.map(t => h('div.tp-item', { class: t.tone },
+        h('span.tp-ic', ic(t.icon, 15)),
+        h('div.pv-grow', h('b', t.title), h('small', t.detail),
+          h('div.tp-acts',
+            t.actions.includes('collega') ? act(['Collega', t.role ? ` come ${TOUCH_ROLE[t.role] || t.role}` : ''].join(''), '.pri', async () => {
+              await post('/api/crm/collegamenti', { ...target, ...(t.contact_id ? { contact_id: t.contact_id } : { subject_id: t.subject_id }), role: t.role === 'referente' ? 'referente' : t.role || '' });
+              toast(`${t.name} collegato`); await draw(); onChange?.();
+            }) : null,
+            t.actions.includes('introduzione') && t.knows ? act(`Chiedi a ${t.knows.name.split(' ')[0]} un'introduzione`, '', async () => {
+              const out = await post('/api/crm/punti-contatto/introduzione', { ...target, user_id: t.knows.id, name: t.type === 'collega' ? (box.dataset.ente || 'l’ente') : t.name });
+              toast(`Compito mandato a ${out.to}`);
+            }) : null,
+            t.actions.includes('squadra') && target.project ? act(`Aggiungi ${t.name.split(' ')[0]} alla squadra`, '', async () => {
+              await post('/api/crm/punti-contatto/squadra', { ...target, user_id: t.user_id }); toast(`${t.name} è nella squadra`); onChange?.();
+            }) : null,
+            t.actions.includes('apri') ? h('a.tp-btn', { href: `#/crm/scheda/${t.subject_id}/incontri` }, 'Apri l’incontro') : null,
+            act('Non c’entra', '.ghost', async () => { await post('/api/crm/punti-contatto/non-centra', { ...target, key: t.key }); await draw(); }))))));
+  };
+  draw();
+  box.refresh = draw;
+  return box;
+}
+
+// bollino verde «N punti di contatto» sulle righe di una lista (pagina Lead, carte del Radar): si legge dopo, a gruppi
+export async function touchBadges(pairs) {
+  const ids = [...new Set(pairs.map(([id]) => id).filter(Boolean))];
+  if (!ids.length) return;
+  const counts = await post('/api/crm/punti-contatto/conteggi', { subjects: ids }).catch(() => ({}));
+  for (const [id, el] of pairs) if (counts[id] && el.isConnected) el.append(h('span.tp-badge', { title: 'Persone che conosciamo o incontri già in calendario: aprila per vederli' }, ic('link', 10), `${counts[id]} ${counts[id] === 1 ? 'punto di contatto' : 'punti di contatto'}`));
 }

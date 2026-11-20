@@ -11,6 +11,8 @@ const { HttpError, v } = require('../lib/http');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { scoreSignal, norm } = require('../lib/crm-radar');
 const B = require('../lib/crm-business');
+const { prefsFor } = require('../lib/alerts'); // preferenze per canale degli avvisi (Profilo → Notifiche)
+const { graph } = require('../lib/graph');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni'); // forza dei rapporti (win ratio, 16/11)
 const { stats: outcomeStats } = require('../lib/crm-esiti');
 const { registerCrmBusinessMercato } = require('./crm-business-mercato'); // mappa del mercato (20/11)
@@ -38,7 +40,7 @@ const strList = (value, field, max = 40) => {
   return [...new Set(value.map(x => String(x ?? '').trim().slice(0, 120)).filter(Boolean))].slice(0, max);
 };
 
-function registerCrmBusiness(app, { db, notifier, radarFetch }) {
+function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], auth, push, baseUrl }) {
   const aiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
   const fetchImpl = () => radarFetch || fetch;
 
@@ -231,6 +233,52 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     res.status(201).json(i);
   });
 
+  // Riepilogo per la direzione (canvas NB-Riepilogo, 20/11): tutte le iniziative aperte a confronto, totali e gate da decidere
+  app.get('/api/crm/business/riepilogo', async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT i.*, o.name AS owner_name, s.name AS sponsor_name FROM crm_initiatives i LEFT JOIN users o ON o.id = i.owner_id
+         LEFT JOIN users s ON s.id = i.sponsor_id ORDER BY (i.phase = 'abbandonata'), i.started_on, i.id`);
+    const settings = await loadSettings(db);
+    const today = todayRome();
+    const list = await Promise.all(rows.map(async i => {
+      const st = await stats(i);
+      if (i.phase === 'abbandonata') {
+        const { rows: [g] } = await db.query(`SELECT n, decided_at, decision_note FROM crm_initiative_gates WHERE initiative_id = $1 AND decision = 'abbandona' ORDER BY decided_at DESC LIMIT 1`, [i.id]);
+        return { id: i.id, name: i.name, phase: i.phase, owner_name: i.owner_name, abandoned_reason: i.abandoned_reason, abandoned_on: g ? dayOf(g.decided_at) : null, gate_n: g ? g.n : null, spent: st.spent };
+      }
+      const { rows: [o] } = await db.query(
+        `SELECT count(*) FILTER (WHERE result = 'vinta')::int AS won, count(*) FILTER (WHERE result = 'persa')::int AS lost
+           FROM crm_outcomes WHERE initiative_id = $1 OR (subject_id IN (SELECT subject_id FROM crm_initiative_targets WHERE initiative_id = $1 AND subject_id IS NOT NULL) AND decided_on >= $2)`,
+        [i.id, dayOf(i.started_on)]);
+      const market = await marketSummary(db, settings, i).catch(() => null);
+      // days > 0 = giorni di ritardo del gate della fase in corso
+      const gate = st.gate ? { ...st.gate, days: st.gate.due_date ? B.dayDiff(today, st.gate.due_date) : null } : null;
+      return {
+        id: i.id, name: i.name, description: i.description, phase: i.phase, owner_id: i.owner_id, owner_name: i.owner_name, sponsor_name: i.sponsor_name,
+        budget: Number(i.budget_eur), spent: st.spent, gaps: st.gaps, funnel: st.funnel, light: st.light, gate, lateTasks: st.lateTasks,
+        lastActivity: st.lastActivity, outcomes: { won: o.won, lost: o.lost }, market: market && market.kpi && market.kpi.gare ? { gare: market.kpi.gare, ribasso: market.kpi.ribasso, valore: market.kpi.valore } : null,
+        canDecide: req.crm.admin || i.sponsor_id === req.user.id,
+      };
+    }));
+    const open = list.filter(i => i.phase !== 'abbandonata');
+    const won = open.reduce((s, i) => s + i.outcomes.won, 0);
+    const lost = open.reduce((s, i) => s + i.outcomes.lost, 0);
+    // da decidere: gate della fase in corso scaduti o in scadenza entro 14 giorni
+    const decide = open.filter(i => i.gate && !i.gate.decision && i.gate.due_date && i.gate.days !== null && i.gate.days >= -14)
+      .sort((a, b) => b.gate.days - a.gate.days)
+      .map(i => ({ id: i.id, name: i.name, owner_name: i.owner_name, gate: i.gate, light: i.light, canDecide: i.canDecide }));
+    res.json({
+      open, abandoned: list.filter(i => i.phase === 'abbandonata'), decide, today,
+      totals: {
+        open: open.length, decide: decide.length, lateGates: decide.filter(d => d.gate.days > 0).length,
+        targets: open.reduce((s, i) => s + i.funnel.individuati, 0), contacted: open.reduce((s, i) => s + i.funnel.contattati, 0),
+        gapsOk: open.reduce((s, i) => s + i.gaps.ok, 0), gapsTotal: open.reduce((s, i) => s + i.gaps.total, 0),
+        won, lost, ratio: won + lost ? Math.round(100 * won / (won + lost)) : null,
+        spent: open.reduce((s, i) => s + i.spent, 0), budget: open.reduce((s, i) => s + i.budget, 0),
+      },
+    });
+  });
+
   app.get('/api/crm/business/:id', async (req, res) => {
     const i = await byId(iid(req));
     const marketGare = await countGare(db, await loadSettings(db), i).catch(() => 0);
@@ -257,7 +305,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     const f = pick({ question: v.text(req.body.question, 'Domanda', { max: 300 }), due_date: req.body.due_date === undefined ? undefined : v.date(req.body.due_date, 'Data del gate') });
     if (!Object.keys(f).length) throw new HttpError(400, 'Niente da cambiare');
     const c = Object.keys(f);
-    const { rows: [g] } = await db.query(`UPDATE crm_initiative_gates SET ${c.map((k, x) => `${k} = $${x + 3}`).join(', ')}, alerted_at = NULL WHERE initiative_id = $1 AND n = $2 RETURNING *`, [i.id, n, ...Object.values(f)]);
+    const { rows: [g] } = await db.query(`UPDATE crm_initiative_gates SET ${c.map((k, x) => `${k} = $${x + 3}`).join(', ')}, alerted_at = NULL, overdue_alerted_at = NULL WHERE initiative_id = $1 AND n = $2 RETURNING *`, [i.id, n, ...Object.values(f)]);
     res.json(g);
   });
   app.post('/api/crm/business/:id/gates/:n/decide', async (req, res) => {
@@ -273,7 +321,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     if (decision === 'rimanda') {
       const due = v.date(req.body.due_date, 'Nuova data');
       if (!due) throw new HttpError(400, 'Scegli la nuova data del gate');
-      await db.query('UPDATE crm_initiative_gates SET due_date = $3, alerted_at = NULL WHERE initiative_id = $1 AND n = $2', [i.id, n, due]);
+      await db.query('UPDATE crm_initiative_gates SET due_date = $3, alerted_at = NULL, overdue_alerted_at = NULL WHERE initiative_id = $1 AND n = $2', [i.id, n, due]);
     } else {
       await db.query('UPDATE crm_initiative_gates SET decision = $3, decision_note = $4, decided_by = $5, decided_at = now() WHERE initiative_id = $1 AND n = $2', [i.id, n, decision, note, req.user.id]);
       const next = decision === 'abbandona' ? 'abbandonata' : B.PHASE_KEYS[Math.min(n + 1, 4)];
@@ -751,6 +799,118 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
   });
 
   registerCrmBusinessMercato(app, { db, notifier, byId, editable, iid, addTarget, aiKey, fetchImpl });
+
+  // ── avvisi (Dante 20/11/2026) ───────────────────────────────────────────────────────────────
+  // Una volta al giorno (alle 8, ora italiana), per le iniziative non abbandonate:
+  // - gate della fase in corso che scade entro 3 giorni → responsabile e sponsor (una volta: gates.alerted_at);
+  // - gate scaduto e non deciso → responsabile, sponsor e direzione (una volta: gates.overdue_alerted_at);
+  // - nessuna attività da 21 giorni → responsabile e sponsor (una volta per periodo fermo: initiatives.quiet_alerted_at,
+  //   torna a valere quando l'attività riprende);
+  // - passo scaduto e non fatto → chi lo fa (una volta: tasks.alerted_at).
+  // Rimandare un gate o cambiarne la data rimette a zero i suoi avvisi.
+  const itDay = d => d.split('-').reverse().slice(0, 2).join('/');
+  const esc = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  async function mailSelf(userId, name, text, link) {
+    if (!auth?.graphToken) return false;
+    let token;
+    try { token = await auth.graphToken(userId); } catch { return false; } // casella non disponibile: si salta
+    const { rows: [to] } = await db.query("SELECT name, email FROM users WHERE id = $1 AND email <> ''", [userId]);
+    if (!to) return false;
+    const url = `${baseUrl || ''}/app#${link}`;
+    const html = `<div style="font-family:Segoe UI,Roboto,Arial,sans-serif;color:#3F3F3F;font-size:15px;line-height:1.5;max-width:560px">
+<img src="${baseUrl || ''}/brand/almacis/almacis-logo.png" alt="Almacis" style="height:34px;margin-bottom:16px">
+<p>Ciao ${esc(String(to.name || '').split(' ')[0])},</p>
+<p>${esc(text)}</p>
+<p><a href="${url}" style="display:inline-block;background:#B54E0A;color:#FFFFFF;text-decoration:none;border-radius:12px;padding:10px 16px;font-weight:600">Apri l'iniziativa</a></p>
+<p style="color:#6B6B6B;font-size:12px">Non vuoi più queste email? Cambia le tue notifiche in Alma Space → Profilo → Notifiche.</p>
+</div>`;
+    try {
+      await graph(token, 'POST', '/me/sendMail', { body: {
+        message: { subject: `Alma Space · Nuovi business · ${name}`, body: { contentType: 'HTML', content: html }, toRecipients: [{ emailAddress: { address: to.email, name: to.name } }] },
+        saveToSentItems: false,
+      } });
+      return true;
+    } catch (err) {
+      console.warn(`[nuovi business] email a ${to.email} non inviata (${err.message})`);
+      return false;
+    }
+  }
+  async function alertTick({ today = todayRome() } = {}) {
+    if (!notifier) return { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
+    const out = { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
+    // al massimo un avviso al giorno per iniziativa e persona (canvas NB-Avvisi): gli avvisi della stessa iniziativa si
+    // raccolgono e a fine iniziativa partono uniti, un messaggio per canale (campanella, telefono, email) secondo le
+    // preferenze di ognuno in Profilo → Notifiche (lib/alerts.js, tipi nb_*). La campanella usa il tipo 'crm' perché
+    // le notifiche di Alma Space hanno un elenco chiuso di tipi.
+    let pending = new Map(); // userId → [{ kind, body, link }]
+    const send = async (ids, kind, body, link) => {
+      const userIds = [...new Set(ids.filter(Boolean))];
+      for (const u of userIds) { if (!pending.has(u)) pending.set(u, []); pending.get(u).push({ kind, body, link }); }
+      return userIds.length > 0;
+    };
+    const merged = (name, msgs) => (msgs.length === 1 ? msgs[0].body
+      : `${msgs.length} avvisi su «${name}»: ${msgs.map(m => m.body.replace(/\.$/, '')).join(' · ')}.`);
+    const flush = async (name, initiativeId) => {
+      for (const [u, msgs] of pending) {
+        const prefs = new Map();
+        for (const kind of new Set(msgs.map(m => m.kind))) prefs.set(kind, (await prefsFor(db, [u], kind))[0]);
+        const by = ch => msgs.filter(m => prefs.get(m.kind)?.[ch]);
+        const bell = by('bell'), tel = by('push'), mail = by('email');
+        if (bell.length) await notifier.notify({ userIds: [u], actorId: null, kind: 'crm', body: merged(name, bell), link: bell[0].link }).catch(err => console.warn('[nuovi business] avviso', err.message));
+        if (tel.length && push) await push.send([u], { title: `Nuovi business · ${name}`, body: merged(name, tel), url: `/app#${tel[0].link}`, tag: `nb-${initiativeId}` }).catch(() => 0);
+        if (mail.length) await mailSelf(u, name, merged(name, mail), mail[0].link);
+      }
+      pending = new Map();
+    };
+    const { rows: admins } = adminEmails.length
+      ? await db.query('SELECT id FROM users WHERE lower(email) = ANY($1::text[])', [adminEmails.map(e => String(e).toLowerCase())]) : { rows: [] };
+    const { rows: list } = await db.query(`SELECT * FROM crm_initiatives WHERE phase <> 'abbandonata' ORDER BY id`);
+    for (const i of list) {
+      const people = [i.owner_id, i.sponsor_id];
+      const n = B.PHASE_KEYS.indexOf(i.phase);
+      const { rows: [g] } = await db.query(`SELECT * FROM crm_initiative_gates WHERE initiative_id = $1 AND n = $2 AND decision = '' AND due_date IS NOT NULL`, [i.id, n]);
+      if (g) {
+        const due = dayOf(g.due_date);
+        if (due < today && !g.overdue_alerted_at) {
+          if (await send([...people, ...admins.map(a => a.id)], 'nb_gate_late', `Il gate G${g.n} di «${i.name}» è scaduto il ${itDay(due)}: va deciso dalla direzione (Prosegui, Rimanda o Abbandona).`, `/crm/business/${i.id}/piano`)) out.overdue++;
+          await db.query('UPDATE crm_initiative_gates SET overdue_alerted_at = now(), alerted_at = COALESCE(alerted_at, now()) WHERE id = $1', [g.id]);
+        } else if (due >= today && due <= addDays(today, 3) && !g.alerted_at) {
+          if (await send(people, 'nb_gate_due', `Il gate G${g.n} di «${i.name}» scade il ${itDay(due)}: va deciso dalla direzione.`, `/crm/business/${i.id}/piano`)) out.gates++;
+          await db.query('UPDATE crm_initiative_gates SET alerted_at = now() WHERE id = $1', [g.id]);
+        }
+      }
+      // ferma da 3 settimane: un avviso per periodo fermo (se l'attività riprende e poi si ferma di nuovo, riparte)
+      const last = await lastActivity(i);
+      const quietSince = last && i.quiet_alerted_at ? dayOf(new Date(i.quiet_alerted_at).toISOString()) : null;
+      if (last && last <= addDays(today, -21) && (!quietSince || quietSince < last)) {
+        if (await send(people, 'nb_quiet', `«${i.name}» è ferma da 3 settimane: nessuna attività dal ${itDay(last)}. Fissa un passo o aggiorna lo stato.`, `/crm/business/${i.id}/analisi`)) out.quiet++;
+        await db.query('UPDATE crm_initiatives SET quiet_alerted_at = now() WHERE id = $1', [i.id]);
+      }
+      // passi scaduti: a chi li fa
+      const { rows: late } = await db.query(
+        `SELECT id, title, owner_id, due_date FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL AND due_date < $2 AND alerted_at IS NULL`, [i.id, today]);
+      for (const t of late) {
+        if (await send([t.owner_id], 'nb_task_late', `Il passo «${t.title}» di «${i.name}» è scaduto il ${itDay(dayOf(t.due_date))}.`, `/crm/business/${i.id}/piano`)) out.tasks++;
+        await db.query('UPDATE crm_initiative_tasks SET alerted_at = now() WHERE id = $1', [t.id]);
+      }
+      await flush(i.name, i.id);
+    }
+    return out;
+  }
+  app.locals.crmBusinessAlerts = alertTick; // per i test
+  if (!process.env.NODE_TEST_CONTEXT) {
+    let lastDay = '';
+    const t = setInterval(async () => {
+      try {
+        const hour = Number(new Date().toLocaleString('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }));
+        if (hour < 8 || lastDay === todayRome()) return;
+        lastDay = todayRome();
+        await alertTick();
+      } catch (err) { console.warn('[nuovi business] avvisi', err.message); }
+    }, 15 * 60000);
+    t.unref?.();
+  }
+  return { alertTick };
 }
 
 module.exports = { registerCrmBusiness };

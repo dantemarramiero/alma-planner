@@ -1,0 +1,42 @@
+/* Note più pulite (Dante 20/11/2026: «quanto sono brutte le note… correggile ovunque»): una testata compatta, i filtri
+   come pillole piccole su una riga sola (solo se ci sono note), il vuoto con un invito a scrivere la prima.
+   Vale per progetti, ticket e schede del CRM (stesso componente notesPanel). Caricato dopo notes.css e refresh.css. */
+.nt-head { margin-bottom: 10px; gap: 12px; }
+.nt-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+.nt-count:not(:empty) { background: var(--ap-grey-100, #F1EFEB); color: var(--mid); font-size: 11.5px; font-weight: 600; padding: 1px 8px; }
+.nt-tools { gap: 8px; }
+.nt-searchbox { display: inline-flex; align-items: center; gap: 6px; height: 34px; width: 220px; max-width: 100%; padding: 0 12px; border: 1px solid var(--rule); border-radius: 999px; background: var(--card); color: var(--muted); }
+.nt-searchbox[hidden] { display: none; }
+.nt-searchbox:focus-within { border-color: var(--orange); box-shadow: var(--ap-focus); }
+.nt-search2 { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.nt-head .btn-primary { display: inline-flex; gap: 6px; align-items: center; }
+.nt-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.nt-filters[hidden] { display: none; }
+.nt-grow { flex: 1; }
+.nt-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.nt-chip { display: inline-flex; gap: 6px; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--card); font: inherit; font-size: 12.5px; color: var(--mid); cursor: pointer; }
+.nt-chip:hover { border-color: var(--orange); }
+.nt-chip:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.nt-chip span { font-size: 11px; color: var(--muted); }
+.nt-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.nt-chip.k-telefonata i { background: var(--blue); }
+.nt-chip.k-riunione i { background: var(--green); }
+.nt-chip.k-decisione i { background: var(--orange); }
+.nt-chip.on { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.nt-chip.on span { color: inherit; opacity: .7; }
+#view .nt-origin { height: 28px; border-radius: 999px; padding: 0 26px 0 10px; border: 1px solid var(--rule); background-color: var(--card); font: inherit; font-size: 12.5px; color: var(--mid); max-width: 220px; }
+#view .nt-origin.on { border-color: var(--orange); background-color: var(--orange-soft); color: var(--orange-dark); font-weight: 600; }
+.nt-empty { display: grid; justify-items: center; gap: 6px; padding: 28px 16px; border: 0; border-radius: 16px; background: var(--ap-grey-50, #FBFAF8); text-align: center; }
+.nt-empty strong { font-size: 14px; color: var(--ink); }
+.nt-empty .muted { font-size: 12.5px; max-width: 420px; }
+.nt-empty .btn { margin-top: 6px; display: inline-flex; gap: 6px; align-items: center; }
+.nt-empty-ic { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--orange-soft); color: var(--orange-dark); margin-bottom: 2px; }
+@media (max-width: 640px) {
+  .nt-tools { width: 100%; }
+  .nt-searchbox { flex: 1; width: auto; }
+  .nt-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+  .nt-chips::-webkit-scrollbar { display: none; }
+  .nt-chip { flex: none; }
+  #view .nt-origin { max-width: none; width: 100%; }
+  .nt-grow { display: none; }
+}

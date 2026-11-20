@@ -7,7 +7,7 @@ import { store } from './store.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
 import { probabilityBox, pathsBox, firstMoveBox, registraEsito } from './crm-esiti.js';
 import { garaBox } from './crm-concorrenza.js';
-import { linksBox } from './crm-progetti.js';
+import { linksBox, touchBox, touchBadges } from './crm-progetti.js';
 const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
@@ -107,7 +107,7 @@ export async function openSignal(id, onDone, data, list = []) {
         g.soa?.length ? [h('dt', 'SOA'), h('dd', g.soa.join(' · '))] : null, g.cig ? [h('dt', 'CIG'), h('dd', g.cig)] : null]) : null,
       g.soa?.length || g.cig ? garaBox(g, { onDone, close: () => m.close() }) : null, // prezzo e concorrenti dai dati ANAC (17/11)
       known,
-      linksBox({ signal: g.id }, { title: 'Collegati a questa opportunità' }),
+      (() => { const wrap = h('div', { style: { display: 'grid', gap: '14px' } }); const lb = () => linksBox({ signal: g.id }, { title: 'Collegati a questa opportunità' }); let cur = lb(); wrap.append(touchBox({ signal: g.id }, { onChange: () => { const n = lb(); cur.replaceWith(n); cur = n; } }), cur); return wrap; })(),
       decided ? h('div.cv-soft.cv-small', `Deciso: ${({ interessa: 'Interessa', scartato: `scartato (${g.discard_reason})`, boss: 'portato su BOSS', gara_scartata: `gara scartata (${g.discard_reason})` })[g.status]} · ${dots([g.decided_by_name, day(g.decided_at)])}`) : null),
     left: decided ? [] : g.to_gare ? [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta')]
       : [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta'), buSel],
@@ -560,7 +560,7 @@ export async function radarTab(box, data) {
         click: e => { if (!e.target.closest('button, a')) openSignal(g.id, again, data, list); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) openSignal(g.id, again, data, list); } } },
       h('div.rk-card-top', h('span.rk-ent-ic', { style: { background: tintOf(ent) }, 'aria-hidden': 'true' }, entInitials(ent)),
         h('div.rk-card-tt', h('h4', g.title), h('div.rk-ent', isNew(g) && !off ? h('span.rk-hot', { title: 'Arrivata nelle ultime 24 ore' }, 'nuova') : null, ent)), scoreDial(g.score)),
-      h('div.rk-meta', h('b.rk-val', g.amount ? eur(g.amount) : '—'), h('span.rk-bu', g.bu_label || asaName(g.bu)), h('span.cv-grow'), due(g)),
+      h('div.rk-meta', { 'data-sid': g.subject_id || '' }, h('b.rk-val', g.amount ? eur(g.amount) : '—'), h('span.rk-bu', g.bu_label || asaName(g.bu)), h('span.cv-grow'), due(g)),
       h('div.rk-prog', { title: 'Avanzamento verso la gara' }, h('span', { style: { width: `${g.to_gare ? 90 : PROGRESS[g.stage] ?? 15}%` } })),
       h('div.rk-card-ft', warmEl(g), h('span.cv-grow'),
         g.project_id ? h('a.rk-run', { href: `#/crm/progetto/${g.project_id}`, title: 'Apri il progetto' }, `● in corso${g.project_owner ? ` · ${g.project_owner.split(' ')[0]}` : ''}`)
@@ -603,6 +603,8 @@ export async function radarTab(box, data) {
         list.length ? list.slice(0, limit).map(g => cardEl(g, shown)) : h('p.rk-col-empty', 'Niente in questa fase.'),
         list.length > limit ? h('button.rk-more', { type: 'button', on: { click: () => { st.more[k] = true; draw(); } } }, `Mostra le altre ${list.length - limit}`) : null);
     })));
+    // punti di contatto: bollino verde sulle carte delle aziende che conosciamo
+    touchBadges([...body.querySelectorAll('.rk-meta[data-sid]')].filter(el => el.dataset.sid).map(el => [Number(el.dataset.sid), el]));
   }
   const newest = r.signals.reduce((m, g) => (g.created_at > m ? g.created_at : m), '');
   const upd = newest ? new Date(newest).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
