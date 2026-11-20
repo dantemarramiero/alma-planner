@@ -289,3 +289,5 @@ body.av-open { overflow: hidden; }
 .al-doc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .al-doc button { width: 20px; height: 20px; flex: none; border-radius: 999px; border: 0; padding: 0; display: grid; place-items: center; background: var(--cv-soft); color: var(--cv-text-2); cursor: pointer; }
 .al-qphotos .al-doc { height: 26px; padding-right: 10px; }
+/* Il pulsante «Alma» non copre i pulsanti dei riquadri (20/11): con una finestra o un riquadro laterale aperto si nasconde */
+body:has(.backdrop) .al-fab, body:has(.sheet-backdrop) .al-fab { display: none; }
