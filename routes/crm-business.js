@@ -231,6 +231,52 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
     res.status(201).json(i);
   });
 
+  // Riepilogo per la direzione (canvas NB-Riepilogo, 20/11): tutte le iniziative aperte a confronto, totali e gate da decidere
+  app.get('/api/crm/business/riepilogo', async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT i.*, o.name AS owner_name, s.name AS sponsor_name FROM crm_initiatives i LEFT JOIN users o ON o.id = i.owner_id
+         LEFT JOIN users s ON s.id = i.sponsor_id ORDER BY (i.phase = 'abbandonata'), i.started_on, i.id`);
+    const settings = await loadSettings(db);
+    const today = todayRome();
+    const list = await Promise.all(rows.map(async i => {
+      const st = await stats(i);
+      if (i.phase === 'abbandonata') {
+        const { rows: [g] } = await db.query(`SELECT n, decided_at, decision_note FROM crm_initiative_gates WHERE initiative_id = $1 AND decision = 'abbandona' ORDER BY decided_at DESC LIMIT 1`, [i.id]);
+        return { id: i.id, name: i.name, phase: i.phase, owner_name: i.owner_name, abandoned_reason: i.abandoned_reason, abandoned_on: g ? dayOf(g.decided_at) : null, gate_n: g ? g.n : null, spent: st.spent };
+      }
+      const { rows: [o] } = await db.query(
+        `SELECT count(*) FILTER (WHERE result = 'vinta')::int AS won, count(*) FILTER (WHERE result = 'persa')::int AS lost
+           FROM crm_outcomes WHERE initiative_id = $1 OR (subject_id IN (SELECT subject_id FROM crm_initiative_targets WHERE initiative_id = $1 AND subject_id IS NOT NULL) AND decided_on >= $2)`,
+        [i.id, dayOf(i.started_on)]);
+      const market = await marketSummary(db, settings, i).catch(() => null);
+      // days > 0 = giorni di ritardo del gate della fase in corso
+      const gate = st.gate ? { ...st.gate, days: st.gate.due_date ? B.dayDiff(today, st.gate.due_date) : null } : null;
+      return {
+        id: i.id, name: i.name, description: i.description, phase: i.phase, owner_id: i.owner_id, owner_name: i.owner_name, sponsor_name: i.sponsor_name,
+        budget: Number(i.budget_eur), spent: st.spent, gaps: st.gaps, funnel: st.funnel, light: st.light, gate, lateTasks: st.lateTasks,
+        lastActivity: st.lastActivity, outcomes: { won: o.won, lost: o.lost }, market: market && market.kpi ? { gare: market.kpi.gare, ribasso: market.kpi.ribasso, valore: market.kpi.valore } : null,
+        canDecide: req.crm.admin || i.sponsor_id === req.user.id,
+      };
+    }));
+    const open = list.filter(i => i.phase !== 'abbandonata');
+    const won = open.reduce((s, i) => s + i.outcomes.won, 0);
+    const lost = open.reduce((s, i) => s + i.outcomes.lost, 0);
+    // da decidere: gate della fase in corso scaduti o in scadenza entro 14 giorni
+    const decide = open.filter(i => i.gate && !i.gate.decision && i.gate.due_date && i.gate.days !== null && i.gate.days >= -14)
+      .sort((a, b) => b.gate.days - a.gate.days)
+      .map(i => ({ id: i.id, name: i.name, owner_name: i.owner_name, gate: i.gate, light: i.light, canDecide: i.canDecide }));
+    res.json({
+      open, abandoned: list.filter(i => i.phase === 'abbandonata'), decide, today,
+      totals: {
+        open: open.length, decide: decide.length, lateGates: decide.filter(d => d.gate.days > 0).length,
+        targets: open.reduce((s, i) => s + i.funnel.individuati, 0), contacted: open.reduce((s, i) => s + i.funnel.contattati, 0),
+        gapsOk: open.reduce((s, i) => s + i.gaps.ok, 0), gapsTotal: open.reduce((s, i) => s + i.gaps.total, 0),
+        won, lost, ratio: won + lost ? Math.round(100 * won / (won + lost)) : null,
+        spent: open.reduce((s, i) => s + i.spent, 0), budget: open.reduce((s, i) => s + i.budget, 0),
+      },
+    });
+  });
+
   app.get('/api/crm/business/:id', async (req, res) => {
     const i = await byId(iid(req));
     const marketGare = await countGare(db, await loadSettings(db), i).catch(() => 0);
@@ -764,10 +810,21 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
   async function alertTick({ today = todayRome() } = {}) {
     if (!notifier) return { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
     const out = { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
+    // al massimo un avviso al giorno per iniziativa e persona (canvas NB-Avvisi): gli avvisi della stessa iniziativa
+    // si raccolgono e a fine iniziativa partono uniti in una sola notifica
+    let pending = new Map(); // userId → [{ body, link }]
     const send = async (ids, body, link) => {
       const userIds = [...new Set(ids.filter(Boolean))];
-      if (userIds.length) await notifier.notify({ userIds, actorId: null, kind: 'crm', body, link }).catch(err => console.warn('[nuovi business] avviso', err.message));
+      for (const u of userIds) { if (!pending.has(u)) pending.set(u, []); pending.get(u).push({ body, link }); }
       return userIds.length > 0;
+    };
+    const flush = async name => {
+      for (const [u, msgs] of pending) {
+        const body = msgs.length === 1 ? msgs[0].body
+          : `${msgs.length} avvisi su «${name}»: ${msgs.map(m => m.body.replace(/.$/, '')).join(' · ')}.`;
+        await notifier.notify({ userIds: [u], actorId: null, kind: 'crm', body, link: msgs[0].link }).catch(err => console.warn('[nuovi business] avviso', err.message));
+      }
+      pending = new Map();
     };
     const { rows: admins } = adminEmails.length
       ? await db.query('SELECT id FROM users WHERE lower(email) = ANY($1::text[])', [adminEmails.map(e => String(e).toLowerCase())]) : { rows: [] };
@@ -800,6 +857,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
         if (await send([t.owner_id], `Il passo «${t.title}» di «${i.name}» è scaduto il ${itDay(dayOf(t.due_date))}.`, `/crm/business/${i.id}/piano`)) out.tasks++;
         await db.query('UPDATE crm_initiative_tasks SET alerted_at = now() WHERE id = $1', [t.id]);
       }
+      await flush(i.name);
     }
     return out;
   }

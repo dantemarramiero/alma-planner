@@ -343,3 +343,26 @@ test('avvisi: gate in scadenza e scaduto, iniziativa ferma, passo scaduto, una v
   await tick({ today: plus(60) });
   assert.equal(await ofThis('.'), all);
 });
+
+test('riepilogo per la direzione e un solo avviso al giorno per iniziativa', async () => {
+  const recchia = await meId(E);
+  const c = await D('POST', '/api/crm/business', { name: 'Riepilogo di prova', owner_id: recchia, budget_eur: 10000, g0_due: plus(-3) });
+  assert.equal(c.status, 201, JSON.stringify(c.body));
+  const id = c.body.id;
+  await D('PATCH', `/api/crm/business/${id}/gates/0`, { due_date: plus(-3) });
+  await E('POST', `/api/crm/business/${id}/tasks`, { title: 'Chiamare il distributore', due_date: plus(-1) });
+  const r = await F('GET', '/api/crm/business/riepilogo');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const col = r.body.open.find(i => i.id === id);
+  assert.ok(col && col.gate && col.gate.days === 3); // scaduto da 3 giorni
+  assert.ok(r.body.decide.some(x => x.id === id));
+  assert.equal(r.body.decide.find(x => x.id === id).canDecide, false); // F non è sponsor né direzione
+  assert.ok(r.body.totals.open >= 1 && r.body.totals.budget >= 10000);
+  assert.ok(Array.isArray(r.body.abandoned));
+  // gate scaduto + passo scaduto lo stesso giorno: a Recchia un solo avviso con i due motivi
+  await app.locals.crmBusinessAlerts({ today: today() });
+  const { rows } = await db.query("SELECT body FROM notifications WHERE user_id = $1 AND body LIKE '%Riepilogo di prova%'", [recchia]);
+  assert.equal(rows.length, 1, JSON.stringify(rows));
+  assert.match(rows[0].body, /2 avvisi su «Riepilogo di prova»/);
+  assert.match(rows[0].body, /Chiamare il distributore/);
+});

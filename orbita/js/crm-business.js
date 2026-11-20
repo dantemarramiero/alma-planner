@@ -109,12 +109,13 @@ function stepper(i) {
 export async function businessView(container, parts = [], crmData = {}) {
   const id = Number(parts[0]);
   if (id) return initiativePage(container, id, parts[1] || 'chat', crmData);
+  if (parts[0] === 'riepilogo') return riepilogoView(container, crmData);
   fill(container, loading());
   const d = await get('/api/crm/business');
   const ctx = { crmData, ai: d.ai, refresh: () => businessView(container, parts, crmData) };
   const head = h('div.page-head.nb-head', h('div', h('div.en-eyebrow', 'Alma CRM · Strategia commerciale'), h('h1', 'Nuovi ', h('b', 'business')),
     h('div.sub', 'Le aree d\'affari in cui stiamo provando a entrare.')),
-  d.initiatives.length ? h('div.nb-actions', btn('Chiedi un\'idea', () => ideaDialog(ctx), { ico: 'lightbulb' }), btn('Nuova iniziativa', () => initiativeForm({ ...ctx }), { primary: true, ico: 'plus' })) : null);
+  d.initiatives.length ? h('div.nb-actions', viewSeg('elenco'), btn('Chiedi un\'idea', () => ideaDialog(ctx), { ico: 'lightbulb' }), btn('Nuova iniziativa', () => initiativeForm({ ...ctx }), { primary: true, ico: 'plus' })) : null);
   if (!d.initiatives.length) return fill(container, h('div.nb', head, emptyState(ctx)));
   const k = d.kpis;
   const late = d.initiatives.filter(i => i.phase !== 'abbandonata' && i.gate?.late);
@@ -147,6 +148,140 @@ export async function businessView(container, parts = [], crmData = {}) {
       btn('Apri e decidi', () => { location.hash = `#/crm/business/${i.id}/piano`; }, { small: true }))),
     h('div.nb-tb', chipBar, h('label.nb-search', ic('search'), h('input', { type: 'search', placeholder: 'Cerca un\'iniziativa…', on: { input: e => { q = e.target.value.trim().toLowerCase(); draw(); } } }))),
     grid));
+}
+
+// «Elenco · Riepilogo» in testa alla pagina Nuovi business (canvas NB-Riepilogo)
+const viewSeg = active => h('div.nb-seg.nb-vseg', [['elenco', 'Elenco', 'list', '#/crm/business'], ['riepilogo', 'Riepilogo', 'grid', '#/crm/business/riepilogo']]
+  .map(([k, l, i, href]) => h('button', { type: 'button', class: k === active ? 'on' : '', 'aria-pressed': String(k === active), on: { click: () => { if (k !== active) location.hash = href; } } }, ic(i, 15), l)));
+
+// ── Riepilogo per la direzione (canvas NB-Riepilogo, NB-Riepilogo-Stampa, NB-Riepilogo-Telefono, 20/11) ─────────────
+async function riepilogoView(container, crmData) {
+  fill(container, loading());
+  const d = await get('/api/crm/business/riepilogo');
+  const again = () => riepilogoView(container, crmData);
+  const t = d.totals;
+  const stamp = `${dm(d.today)} alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+  const head = h('div.page-head.nb-head', h('div', h('div.en-eyebrow', 'Alma CRM · Strategia commerciale'), h('h1', 'Nuovi ', h('b', 'business')),
+    h('div.sub', `Riepilogo per la riunione di direzione · dati di oggi, ${stamp}`)),
+  h('div.nb-actions', viewSeg('riepilogo'), d.open.length ? btn('Esporta per la riunione', () => window.print(), { primary: true, ico: 'file-text' }) : null));
+  if (!d.open.length) {
+    return fill(container, h('div.nb', head, h('section.nb-card', empty('Nessuna iniziativa aperta: il riepilogo si riempie quando ne apri una.', 'grid',
+      btn("Vai all'elenco", () => { location.hash = '#/crm/business'; }, { small: true })))));
+  }
+  const spendPct = t.budget ? Math.round(t.spent / t.budget * 100) : 0;
+  const whenPill = g => {
+    if (!g?.due_date) return h('span.nb-when.gy', 'data da fissare');
+    if (g.days > 0) return h('span.nb-when.rd', g.days === 1 ? 'scaduto da 1 giorno' : `scaduto da ${g.days} giorni`);
+    if (g.days === 0) return h('span.nb-when.rd', 'scade oggi');
+    return h('span.nb-when.am', `scade il ${dm(g.due_date)}`);
+  };
+  // decidere: la stessa finestra del Piano, con i dati completi dell'iniziativa
+  const decide = async (row, choice) => {
+    const [i, tk] = await Promise.all([get(`/api/crm/business/${row.id}`), get(`/api/crm/business/${row.id}/tasks`)]);
+    if (!i.gate) return toast('Il gate è già stato deciso', 'err');
+    gateDialog(i, i.gate, choice, tk.tasks || [], again);
+  };
+  const why = i => {
+    const out = [];
+    if (i.lateTasks) out.push(`${i.lateTasks} ${i.lateTasks === 1 ? 'passo scaduto' : 'passi scaduti'}`);
+    out.push(...i.light.reasons.filter(r => r.c !== 'g' && !/gate|pass/i.test(r.t)).map(r => r.t));
+    out.push(`${i.gaps.ok} requisiti su ${i.gaps.total} a posto`);
+    return out.slice(0, 3).join(' · ');
+  };
+  const byId = Object.fromEntries(d.open.map(i => [i.id, i]));
+  const decBox = d.decide.length ? h('section.nb-dec',
+    h('div.nb-dec-h', h('b', ic('alert-triangle', 16), 'Da decidere in questa riunione'), h('span.nb-small.muted', 'si decide in una finestra sola, con il perché')),
+    d.decide.map(x => h('div.nb-drow',
+      h('div.nb-min0', h('div.nb-dq', `${x.name} · gate G${x.gate.n} «${x.gate.question}»`, ' ', whenPill(x.gate)),
+        h('div.nb-dw', [why(byId[x.id]), x.owner_name ? `responsabile ${x.owner_name}` : ''].filter(Boolean).join(' · '))),
+      x.canDecide ? h('div.nb-dacts', btn('Prosegui', () => decide(x, 'prosegui'), { small: true }), btn('Rimanda', () => decide(x, 'rimanda'), { small: true }), btn('Abbandona', () => decide(x, 'abbandona'), { small: true }))
+        : h('span.nb-small.muted', 'decide lo sponsor o la direzione')))) : null;
+
+  // tabella: una colonna per iniziativa
+  const cols = d.open;
+  const phaseName = i => PHASES[PHASE_KEYS.indexOf(i.phase)]?.[1] || '—';
+  const tk = phase => { const on = PHASE_KEYS.indexOf(phase); return h('div.nb-tk', PHASES.map((_, k) => h('i', { class: k < on ? 'd' : k === on ? 'o' : '' }))); };
+  const funnel = f => {
+    const v = [f.individuati, f.contattati, f.incontrati, f.opportunita];
+    const mx = Math.max(v[0], 1);
+    return h('div.nb-fun', v.map((n, k) => h('div', h('b', String(n)), h('i', { class: k === 3 ? 'k' : '', style: { height: `${Math.max(4, Math.round(n / mx * 30))}px` } }), h('span', ['indiv.', 'contatt.', 'incontri', 'opport.'][k]))));
+  };
+  const big = (n, cls = '') => h('div.nb-big', { class: cls }, n);
+  const sub = x => h('div.nb-sub', x);
+  const lightWhy = i => i.light.reasons.filter(r => r.c === i.light.color).map(r => r.t).join(' · ') || 'Tutto in regola';
+  const meur = n => (n >= 1e6 ? `${(n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : eur(n));
+  const rows = [
+    ['Semaforo · perché', i => h('div.nb-mx-t', lightWhy(i))],
+    ['Fase e gate', i => [tk(i.phase), h('div.nb-mx-ph', phaseName(i), h('span.muted', ` · ${PHASE_KEYS.indexOf(i.phase) + 1} di 5`)),
+      i.gate ? h('div.nb-mt8', h('span.nb-when', { class: i.gate.days > 0 ? 'rd' : i.gate.due_date && i.gate.days >= -14 ? 'am' : 'gy' },
+        `G${i.gate.n} ${i.gate.due_date ? (i.gate.days > 0 ? `scaduto il ${dm(i.gate.due_date)}` : dm(i.gate.due_date)) : 'da fissare'}`)) : null]],
+    ['Cosa ci manca', i => (i.gaps.total ? [big(`${i.gaps.ok} / ${i.gaps.total}`), h('div.nb-burn.ok', h('i', { style: { width: `${Math.round(i.gaps.ok / i.gaps.total * 100)}%` } })), sub('requisiti a posto')] : [big('—', 'dim'), sub('da analizzare')])],
+    ['Clienti target', i => (i.funnel.individuati ? funnel(i.funnel) : [big('0', 'dim'), sub('nessun cliente target')])],
+    ['Spesa', i => (i.budget ? [big(eur(i.spent)), h('div.nb-burn', { class: i.spent / i.budget > 0.9 ? 'r' : 'ok' }, h('i', { style: { width: `${Math.max(2, Math.min(100, Math.round(i.spent / i.budget * 100)))}%` } })), sub(`su ${eur(i.budget)} · ${Math.round(i.spent / i.budget * 100)}%`)]
+      : [big(eur(i.spent)), h('div.nb-mt8', h('span.nb-pi.ln', 'budget da fissare'))])],
+    ['Gare vinte e perse', i => (i.outcomes.won + i.outcomes.lost ? [big(`${Math.round(i.outcomes.won / (i.outcomes.won + i.outcomes.lost) * 100)}%`),
+      h('div.nb-wl', h('span.nb-pi.gr', `${i.outcomes.won} ${i.outcomes.won === 1 ? 'vinta' : 'vinte'}`), h('span.nb-pi.rd', `${i.outcomes.lost} ${i.outcomes.lost === 1 ? 'persa' : 'perse'}`))] : [big('—', 'dim'), sub('nessuna gara ancora')])],
+    ['Mercato · 12 mesi', i => (i.market ? [h('div.nb-mx-ph', `${i.market.gare} gare · ${meur(i.market.valore)}`),
+      sub(i.market.ribasso != null ? `ribasso tipico ${Number(i.market.ribasso).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%` : 'ribasso non disponibile')]
+      : [h('div.nb-mx-ph.warn-t', 'categorie da scegliere o in arrivo'), sub("tab Mercato dell'iniziativa")])],
+    ['Ultima attività', i => h('div.nb-mx-t', { class: i.light.color === 'r' ? 'bad' : '' }, i.lastActivity ? relDay(i.lastActivity) : 'nessuna')],
+  ];
+  const mx = h('div.nb-mx-wrap', h('div.nb-mx', { style: { '--n': String(cols.length) } },
+    h('div.nb-mx-c.hd.lb', 'Iniziativa'),
+    cols.map(i => h('a.nb-mx-c.hd', { href: `#/crm/business/${i.id}/analisi` }, h('div.nb-mx-nm', i.name), h('div.nb-who.nb-small', av(i.owner_name), i.owner_name || '—'), lightPill(i.light.color, LIGHT[i.light.color]))),
+    rows.map(([label, f]) => [h('div.nb-mx-c.lb', label), cols.map(i => h('div.nb-mx-c', f(i)))])));
+
+  // telefono: una scheda per iniziativa da scorrere di lato
+  const phone = h('div.nb-rp-phone', cols.map((i, n) => h('a.nb-card.nb-rp-tc', { href: `#/crm/business/${i.id}/analisi` },
+    h('div.nb-row-sb', h('span.nb-small.muted', `${n + 1} di ${cols.length}`), lightPill(i.light.color, LIGHT[i.light.color])),
+    h('div.nb-t16', i.name), h('div.nb-small.muted', lightWhy(i)),
+    h('div.nb-rp-kv', [['Fase', phaseName(i)], ['Requisiti', `${i.gaps.ok}/${i.gaps.total}`], ['Clienti', `${i.funnel.contattati}/${i.funnel.individuati}`],
+      ['Spesa', eur(i.spent)], ['Gare', i.outcomes.won + i.outcomes.lost ? `${i.outcomes.won} vinte · ${i.outcomes.lost} perse` : '—'], ['Mercato', i.market ? `${i.market.gare} gare` : '—']]
+      .map(([k, v]) => h('div', h('small', k), h('b', v)))))));
+
+  const ab = d.abandoned.length ? h('div.nb-ab', ic('clock', 16), h('span', h('b', 'Abbandonate: '),
+    d.abandoned.map(a => `${a.name}${a.abandoned_on ? ` · ${dm(a.abandoned_on)}` : ''}${a.abandoned_reason ? ` · «${a.abandoned_reason}»` : ''}${a.owner_name ? ` (${a.owner_name})` : ''}`).join(' — '), ' · non entrano nei totali.')) : null;
+
+  fill(container, h('div.nb.nb-rp',
+    head,
+    h('div.nb-fcs.nb-rsum',
+      counter('grid', t.open, t.open === 1 ? 'iniziativa aperta' : 'iniziative aperte'),
+      counter('alert-triangle', t.decide, 'gate da decidere', t.lateGates ? 'hot' : t.decide ? '' : 'zero'),
+      counter('target', t.targets, 'clienti target', t.targets ? '' : 'zero'),
+      counter('square-check', `${t.gapsOk}/${t.gapsTotal}`, 'requisiti a posto'),
+      counter('trophy', t.ratio === null ? '—' : `${t.ratio}%`, t.won + t.lost ? `win ratio · ${t.won} vinte · ${t.lost} perse` : 'win ratio', t.won + t.lost ? '' : 'zero'),
+      h('div.nb-fc.nb-fc-wide', h('div.nb-row-sb', h('span.nb-small.strong', 'Spesa sul budget'), h('b', eur(t.spent), h('span.muted', ` / ${eur(t.budget)}`))), burn(spendPct),
+        h('div.nb-small.muted', `${spendPct}% del budget delle iniziative aperte`))),
+    decBox, mx, phone, ab,
+    riepilogoPrint(d, stamp)));
+}
+
+// foglio A4 del riepilogo (si vede solo in stampa)
+function riepilogoPrint(d, stamp) {
+  const t = d.totals;
+  const row = (label, f) => h('tr', h('th', label), d.open.map(i => h('td', f(i))));
+  return h('div.nb-print.nb-rp-print', { 'aria-hidden': 'true' },
+    h('div.nb-pr-head', h('div', h('div.en-eyebrow', 'Alma CRM · Nuovi business · riunione di direzione'), h('div.nb-pr-t', 'Riepilogo delle ', h('b', 'iniziative'))),
+      h('div.nb-small.muted.nb-right', stamp, h('br'), `${t.open} aperte`)),
+    h('div.nb-pr-k', [['Iniziative', String(t.open)], ['Gate da decidere', String(t.decide)], ['Requisiti a posto', `${t.gapsOk} di ${t.gapsTotal}`], ['Spesa', `${eur(t.spent)} / ${eur(t.budget)}`]]
+      .map(([l, n]) => h('div', h('div.nb-lbl', l), h('b', n)))),
+    d.decide.length ? h('div', h('div.nb-lbl', 'Da decidere'), d.decide.map(x => h('div.nb-pr-dec', `${x.name} · gate G${x.gate.n} «${x.gate.question}»${x.gate.due_date ? ` · ${x.gate.days > 0 ? 'scaduto il' : 'entro il'} ${dm(x.gate.due_date)}` : ''}`,
+      h('div.nb-pr-box', '☐ Prosegui     ☐ Rimanda al ________     ☐ Abbandona')))) : null,
+    h('table.nb-pr-tbl', h('thead', h('tr', h('th', ''), d.open.map(i => h('th', i.name)))),
+      h('tbody',
+        row('Responsabile', i => i.owner_name || '—'),
+        row('Semaforo', i => LIGHT[i.light.color]),
+        row('Fase', i => PHASES[PHASE_KEYS.indexOf(i.phase)]?.[1] || '—'),
+        row('Gate', i => (i.gate ? `G${i.gate.n} ${i.gate.due_date ? dm(i.gate.due_date) : 'da fissare'}` : '—')),
+        row('Requisiti', i => `${i.gaps.ok} / ${i.gaps.total}`),
+        row('Clienti target', i => `${i.funnel.individuati} · ${i.funnel.contattati} contattati · ${i.funnel.opportunita} opport.`),
+        row('Spesa', i => `${eur(i.spent)}${i.budget ? ` / ${eur(i.budget)}` : ''}`),
+        row('Gare', i => (i.outcomes.won + i.outcomes.lost ? `${i.outcomes.won} vinte · ${i.outcomes.lost} perse` : '—')),
+        row('Mercato', i => (i.market ? `${i.market.gare} gare` : '—')),
+        row('Ultima attività', i => (i.lastActivity ? dm(i.lastActivity) : '—')))),
+    h('div.nb-lbl', 'Note della riunione'), h('div.nb-pr-notes'),
+    h('div.nb-small.muted.nb-pr-foot', 'Generato da Alma Planet · Nuovi business · Riepilogo',
+      d.abandoned.length ? ` · Abbandonate: ${d.abandoned.map(a => `${a.name}${a.abandoned_on ? ` (${dm(a.abandoned_on)})` : ''}`).join(', ')}` : ''));
 }
 
 function initiativeCard(i) {
