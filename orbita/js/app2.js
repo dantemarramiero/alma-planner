@@ -105,13 +105,13 @@ function undoToast(text, undo) {
 }
 
 // ── azioni sui ticket ────────────────────────────────────────────────────────────────────────────────
-async function ticketDone(t, after) {
+export async function ticketDone(t, after) {
   const before = t.status;
   await patch(`/api/tickets/${t.id}`, { status: 'done' });
   after?.();
   undoToast(`«${t.title}» fatto`, async () => { await patch(`/api/tickets/${t.id}`, { status: before === 'done' ? 'todo' : before }); after?.(); });
 }
-async function ticketLater(t, after) {
+export async function ticketLater(t, after) {
   const before = t.due_date ? String(t.due_date).slice(0, 10) : null;
   const to = nextWorkday(before && before > todayISO() ? before : todayISO());
   await patch(`/api/tickets/${t.id}`, { due_date: to });
@@ -172,7 +172,7 @@ const PLUS = [
   ['mezzo', 'Prenota mezzo', '#F1EFEB', '#2C2C2C', 'car'],
   ['idea', 'Idea', '#F3ECFA', '#6A4A96', 'lightbulb'],
 ];
-export function openPlus() {
+export function openPlusAltro() {
   const pid = Number((location.hash.match(/^#\/projects\/(\d+)/) || [])[1]) || null; // dentro un progetto: già scelto
   const state = { due: nextWorkday(), project: pid };
   const DUES = [[todayISO(), 'Oggi'], [nextWorkday(), 'Domani'], [null, 'Senza data']];
@@ -484,7 +484,7 @@ export async function inboxView(view) {
   };
   const unread = notes.some(n => !n.read_at);
   fill(view, h('div.a2-page.a2-inbox',
-    bigHead('Inbox', { right: unread ? h('button.a2-textbtn', { type: 'button', on: { click: async () => { await post('/api/notifications/read', {}); reload(); } } }, 'Segna tutto letto') : null }),
+    bigHead('Avvisi', { right: unread ? h('button.a2-textbtn', { type: 'button', on: { click: async () => { await post('/api/notifications/read', {}); reload(); } } }, 'Segna tutto letto') : null }),
     decide.length ? [h('span.a2-section.amber', `Da decidere · ${decide.length}`), h('div.a2-list', decide)] : null,
     [...groups].map(([k, list]) => [h('span.a2-section', k), h('div.a2-card.a2-notes', list.slice(0, 40).map(nRow))]),
     !decide.length && !notes.length ? h('div.a2-empty', h('span.a2-ok-ico', icon('check', { size: 22 })), h('strong', 'Tutto letto'), h('small.a2-muted', 'Qui arrivano le cose da decidere e le notifiche.')) : null,
@@ -582,6 +582,7 @@ export async function ioView(view) {
       h('a', { href: '#/settimana' }, h('strong', cal ? String(meets) : '–'), h('small', 'incontri questa settimana')),
       h('span', h('strong.orange', String(grazie)), h('small', 'grazie in 30 giorni'))),
     h('nav.a2-card.a2-lines',
+      line('#/esplora', 'Tutte le funzioni', 'grid-3x3'), // app 3.0: Esplora non è più nella barra in basso
       line(`#/u/${store.me.id}`, 'Il mio profilo', 'user'),
       line('#/biglietto', 'Il mio biglietto (QR)', 'qr-code'),
       line('#/strategy/obiettivi', 'Il mio contributo', 'target'),
@@ -594,37 +595,40 @@ export async function ioView(view) {
 }
 
 // ═══ barra in basso e barra in alto ═════════════════════════════════════════════════════════════════
-const ROOTS = { benvenuto: 'oggi', lavoro: 'lavoro', inbox: 'inbox', esplora: 'esplora', io: 'io' };
-const WORK = new Set(['lavoro', 'settimana', 'tickets', 'mine', 'rda', 'projects', 'gantt', 'calendar', 'mezzi']);
+// App 3.0 (20/11/2026): Agorà · CRM · + · Compiti · Avvisi (orbita/js/app3.js). Esplora e Io dalla foto in alto.
+const ROOTS = { benvenuto: 'agora', compiti: 'compiti', inbox: 'avvisi', esplora: '', io: '', lavoro: 'compiti' };
+const WORK = new Set(['compiti', 'lavoro', 'settimana', 'tickets', 'mine', 'rda', 'projects', 'gantt', 'calendar', 'mezzi']);
 export function placeOfSection(section) {
-  if (section === 'benvenuto') return 'oggi';
-  if (WORK.has(section)) return 'lavoro';
-  if (section === 'inbox' || section === 'notifications') return 'inbox';
-  if (section === 'io') return '';
-  return 'esplora';
+  if (section === 'benvenuto' || section === 'home' || section === 'p') return 'agora';
+  if (section === 'crm' || section === 'biglietto') return 'crm';
+  if (WORK.has(section)) return 'compiti';
+  if (section === 'inbox' || section === 'notifications') return 'avvisi';
+  return '';
 }
-export const isRoot = section => Boolean(ROOTS[section]);
+// pagine del telefono con la loro intestazione (niente barra in alto)
+const OWN_HEAD = /^#\/(crm\/?(\?.*)?$|crm\/persona\/|crm\/scansiona|biglietto\/?$|energy\/vicino)/;
+export const isRoot = section => section in ROOTS;
 
 export function drawBar() {
   const bar = document.getElementById('m-tabs');
-  if (!bar || bar.dataset.v2) return;
-  bar.dataset.v2 = '1';
+  if (!bar || bar.dataset.v3) return;
+  bar.dataset.v3 = '1';
   bar.setAttribute('aria-label', 'Alma Space');
   const tab = (href, key, ico, label, badge) => h('a.m-tab', { href, 'data-place': key, on: { click: e => {
     if (location.hash === href) { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); rerender(); }
   } } }, h('span.m-tab-ico', icon(ico, { size: 23 }), badge || null), h('span', label));
   bar.style.setProperty('--n', '5');
   bar.replaceChildren(
-    tab('#/benvenuto', 'oggi', 'house', 'Oggi'),
-    tab('#/lavoro', 'lavoro', 'square-check', 'Lavoro'),
-    h('button.m-tab.m-plus2', { type: 'button', 'aria-label': 'Crea', on: { click: openPlus } }, h('span', icon('plus', { size: 26 }))),
-    tab('#/inbox', 'inbox', 'inbox', 'Inbox', h('span.nav-badge.a2-badge', { 'data-badge': 'decide', hidden: true })),
-    tab('#/esplora', 'esplora', 'grid-3x3', 'Esplora'));
+    tab('#/benvenuto', 'agora', 'users', 'Agorà'),
+    tab('#/crm', 'crm', 'contact', 'CRM'),
+    h('button.m-tab.m-plus2', { type: 'button', 'aria-label': 'Crea: contatto, biglietto, nota, compito', on: { click: () => import('./app3.js').then(m => m.openPlus()) } }, h('span', icon('plus', { size: 26 }))),
+    tab('#/compiti', 'compiti', 'square-check', 'Compiti', h('span.nav-badge.a2-badge', { 'data-badge3': 'compiti', hidden: true })),
+    tab('#/inbox', 'avvisi', 'bell', 'Avvisi', h('span.nav-badge.a2-badge', { 'data-badge': 'notifications', hidden: true })));
 }
 export function markPlace(section) {
   const p = placeOfSection(section);
   for (const a of document.querySelectorAll('#m-tabs [data-place]')) a.classList.toggle('active', a.dataset.place === p);
-  document.body.classList.toggle('a2-root', isRoot(section) || location.hash.startsWith('#/energy/vicino'));
+  document.body.classList.toggle('a2-root', isRoot(section) || OWN_HEAD.test(location.hash));
   const t = document.getElementById('m-title');
   if (t) t.textContent = '';
 }

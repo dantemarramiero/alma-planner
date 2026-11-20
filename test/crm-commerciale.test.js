@@ -130,3 +130,22 @@ test('La mia settimana: passi aperti delle iniziative di Nuovi business', async 
   assert.equal(w.business[0].initiative_name, 'Reti elettriche MT/BT');
   assert.equal(w.business[0].late, true);
 });
+
+test('app 3.0 sul telefono: «Compiti» legge i miei passi e quelli dati ad altri; chi riceve un passo ha l\'avviso', async () => {
+  const s = (await E('POST', '/api/crm/subjects', { name: 'Impresa Compiti Telefono', roles: ['lead'], asa: ['edilizia'] })).body;
+  const fId = await meId(F);
+  const eId = await meId(E);
+  const mine = await E('POST', `/api/crm/subjects/${s.id}/steps`, { title: 'Richiamare io', due_date: plus(-1) });
+  const given = await E('POST', `/api/crm/subjects/${s.id}/steps`, { title: 'Preparare offerta', due_date: plus(2), owner_id: fId });
+  assert.equal(given.status, 201);
+  const me = (await E('GET', '/api/crm/steps?di=me')).body;
+  assert.ok(me.steps.some(x => x.id === mine.body.id && x.late === true && x.subject_name === 'Impresa Compiti Telefono'));
+  assert.ok(!me.steps.some(x => x.id === given.body.id));
+  const dati = (await E('GET', '/api/crm/steps?di=dati')).body;
+  assert.ok(dati.steps.some(x => x.id === given.body.id && x.owner_id === fId));
+  assert.ok(!dati.steps.some(x => x.id === mine.body.id));
+  assert.ok((await F('GET', '/api/crm/steps?di=me')).body.steps.some(x => x.id === given.body.id));
+  await new Promise(r => setTimeout(r, 50)); // l'avviso parte dopo la risposta
+  const { rows } = await db.query("SELECT n.body, n.link, n.actor_id FROM notifications n JOIN users u ON u.id = n.user_id WHERE u.email = 'facility@almacis.it' AND n.kind = 'crm'");
+  assert.ok(rows.some(r => /Preparare offerta/.test(r.body) && r.link === `/crm/scheda/${s.id}` && r.actor_id === eId));
+});
