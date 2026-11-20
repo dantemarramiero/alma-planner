@@ -1,6 +1,6 @@
 // Alma Project: «La mia settimana» (la pagina di partenza del modulo) e la pagina unica dei Ticket.
 // La settimana mette insieme, giorno per giorno, incontri di Outlook, ticket in scadenza, RDA e mezzi prenotati;
-// ogni riquadro apre il suo dettaglio. La Home di Alma Planet ne mostra solo oggi.
+// ogni riquadro apre il suo dettaglio. La Home di Alma Agorà ne mostra solo oggi.
 import { h, fill, loading, today, addDays, fmtDate, isMobile } from './ui.js';
 import { get } from './api.js';
 import { ticketsView, openTicket } from './tickets.js';
@@ -84,7 +84,7 @@ export async function settimanaView(container, params) {
         h('h2', `${name} ${Number(day.slice(8, 10))}`, day === todayIso ? h('span.wk-now', ' oggi') : null),
         list.length ? list : h('p.small.muted', 'Niente in agenda.'));
     })),
-    h('p.small.muted', 'Ogni riquadro apre il suo dettaglio. La Home di Alma Planet ne mostra solo oggi.'));
+    h('p.small.muted', 'Ogni riquadro apre il suo dettaglio. La Home di Alma Agorà ne mostra solo oggi.'));
 }
 
 // Pagina unica dei ticket: «I miei» di partenza, «Creati da me» e «Tutti» con un clic.

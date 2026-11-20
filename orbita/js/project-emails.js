@@ -22,7 +22,7 @@ function linkify(text) {
 }
 
 const mailErrorBox = err => h('div.banner', err?.code === 'mail_read'
-  ? 'Per leggere la posta serve il permesso «Mail.Read» di Microsoft. Un amministratore deve approvarlo in Entra; poi esci e rientra in Alma Planet.'
+  ? 'Per leggere la posta serve il permesso «Mail.Read» di Microsoft. Un amministratore deve approvarlo in Entra; poi esci e rientra in Alma Space.'
   : err?.message || 'Outlook non risponde, riprova tra poco.');
 
 export function projectEmails(box, p) {

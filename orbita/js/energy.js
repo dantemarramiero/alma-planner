@@ -545,12 +545,12 @@ async function openPerson(id, onChange) {
 
 // ── membri del modulo ───────────────────────────────────────────────────────
 function membersTab(box, data) {
-  const email = input({ type: 'email', placeholder: 'email dell\'account di Alma Planet' });
+  const email = input({ type: 'email', placeholder: 'email dell\'account di Alma Space' });
   fill(box, h('section.card.sw-card.en-members',
     h('h3', 'Chi entra in Alma Energy'),
     h('p.small.muted', 'Solo queste persone vedono il modulo e i suoi dati. Si entra con l\'account Microsoft di Almacis.'),
     h('div.en-links', data.members.map(mb => h('div.en-link',
-      h('div.grow', h('strong', mb.name || mb.email), h('div.t-meta', mb.name ? mb.email : 'Non ha ancora fatto l\'accesso ad Alma Planet')),
+      h('div.grow', h('strong', mb.name || mb.email), h('div.t-meta', mb.name ? mb.email : 'Non ha ancora fatto l\'accesso ad Alma Space')),
       mb.email === String(store.me.email).toLowerCase() ? h('span.t-meta', 'tu') : h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => {
         if (!await confirmDialog(`Togliere ${mb.name || mb.email} da Alma Energy?`, { ok: 'Togli', danger: true })) return;
         await del(`/api/energy/members/${encodeURIComponent(mb.email)}`);

@@ -1,4 +1,4 @@
-// Gantt (layout del design «Alma Planet – Gantt»): tabella a sinistra (attività, responsabile, fine, %) e linea del tempo
+// Gantt (layout del design «Alma Space – Gantt»): tabella a sinistra (attività, responsabile, fine, %) e linea del tempo
 // a destra, nella stessa griglia scorrevole. Le righe sono le attività, cioè i ticket con date: «Fatto» = completata.
 // - Gantt di un progetto (?project=id): le righe sono le sue attività.
 // - Gantt generale: una riga per progetto (barra = arco delle sue attività, arancione = avanzamento) con sotto,

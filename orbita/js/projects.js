@@ -430,7 +430,7 @@ export async function projectDetail(container, id, opts = {}) {
       const picker = peoplePicker({ selected: [], label: '＋ Scegli' });
       const md = modal({
         title: `Aggiungi persone a «${p.name}»`,
-        body: [h('p.muted.small', { style: { margin: 0 } }, 'Puoi scegliere anche colleghi che non sono ancora entrati in Alma Planet: cercali per nome nella rubrica.'), picker.el],
+        body: [h('p.muted.small', { style: { margin: 0 } }, 'Puoi scegliere anche colleghi che non sono ancora entrati in Alma Space: cercali per nome nella rubrica.'), picker.el],
         actions: [
           h('button.btn', { type: 'button', on: { click: () => md.close() } }, 'Annulla'),
           h('button.btn.btn-primary', { type: 'button', on: { click: async () => {

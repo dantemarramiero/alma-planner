@@ -23,7 +23,7 @@ Gestione del team interno Almacis: **progetti**, **ticket** assegnati a una o pi
 - `lib/graph.js` — chiamate a Microsoft Graph
 - `routes/` — `projects`, `tickets`, `project-files` (documenti del progetto e caricamento file dei ticket), `users`, `calendar`, `drive`
 - `lib/onedrive.js` — caricamento file su OneDrive (anche grandi, con sottocartelle)
-- `orbita/` — **tutta l'interfaccia** (HTML, CSS, moduli JS, niente build) e in `orbita/brand/` il design system di Alma Planet: `tokens.css`, logo, icone, regole (`orbita/brand/CLAUDE.md`). Gantt con [Frappe Gantt](https://github.com/frappe/gantt), calendario con [FullCalendar](https://fullcalendar.io)
+- `orbita/` — **tutta l'interfaccia** (HTML, CSS, moduli JS, niente build) e in `orbita/brand/` il design system di Alma Space: `tokens.css`, logo, icone, regole (`orbita/brand/CLAUDE.md`). Gantt con [Frappe Gantt](https://github.com/frappe/gantt), calendario con [FullCalendar](https://fullcalendar.io)
 
 ## In locale
 

@@ -1,4 +1,4 @@
-// App sul telefono: Alma Planet si aggiunge alla schermata Home da Safari (o Chrome) con il logo Almacis,
+// App sul telefono: Alma Space si aggiunge alla schermata Home da Safari (o Chrome) con il logo Almacis,
 // si apre a tutto schermo e riceve le notifiche push. Qui: service worker, avviso «Aggiungi alla schermata Home»
 // su iPhone e iscrizione del dispositivo alle notifiche.
 import { h } from './ui.js';
@@ -23,10 +23,10 @@ function installHint() {
   let until = 0;
   try { until = Number(localStorage.getItem(HINT_KEY) || 0); } catch { /* niente memoria: si mostra */ }
   if (until > Date.now()) return;
-  const box = h('div.pwa-hint', { role: 'dialog', 'aria-label': 'Aggiungi Alma Planet al telefono' },
+  const box = h('div.pwa-hint', { role: 'dialog', 'aria-label': 'Aggiungi Alma Space al telefono' },
     h('img', { src: '/brand/almacis/app-icon-180.png', alt: '' }),
     h('div',
-      h('strong', 'Aggiungi Alma Planet al telefono'),
+      h('strong', 'Aggiungi Alma Space al telefono'),
       h('span', 'Tocca ', h('strong', 'Condividi'), ' in basso, poi ', h('strong', 'Aggiungi alla schermata Home'), '. Si apre come un\'app e ti avvisa dei ticket e dei post nuovi.'),
       h('button', { type: 'button', on: { click: () => {
         try { localStorage.setItem(HINT_KEY, String(Date.now() + 14 * 86400000)); } catch { /* ok */ }

@@ -1,4 +1,4 @@
-// Alma Planet — gestione del team interno Almacis.
+// Alma Space — gestione del team interno Almacis.
 const path = require('path');
 const express = require('express');
 const { createDb, migrate } = require('./lib/db');
@@ -147,7 +147,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   auth.register(app);
 
   // Pagine
-  const pub = path.join(__dirname, 'orbita'); // tutta l'interfaccia di Alma Planet (HTML, CSS, JS, brand)
+  const pub = path.join(__dirname, 'orbita'); // tutta l'interfaccia di Alma Space (HTML, CSS, JS, brand)
   app.get('/', (req, res) => (req.user ? res.redirect('/app') : res.sendFile(path.join(pub, 'index.html'))));
   // QR code dei mezzi: il link passa dal server (l'hash #/… si perderebbe nel login di Microsoft), poi apre il mezzo.
   app.get('/m/:token', (req, res) => {
@@ -239,12 +239,12 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
-  registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Planet, «I miei progetti», rendiconto
+  registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)
   registerPerformance(app, deps); // Alma Strategy: performance management (scheda, obiettivi, team, mansionario)
-  registerIdeas(app, deps); // Alma Planet: Laboratorio delle idee e pagina di benvenuto
-  registerWelcome(app, deps); // Alma Planet: dati della nuova pagina di benvenuto (sondaggi, eventi, organigramma, «Grazie a…»)
+  registerIdeas(app, deps); // Alma Agorà: Laboratorio delle idee e pagina di benvenuto
+  registerWelcome(app, deps); // Alma Agorà: dati della nuova pagina di benvenuto (sondaggi, eventi, organigramma, «Grazie a…»)
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
@@ -279,7 +279,7 @@ if (require.main === module) {
     setInterval(() => audit.purge(730).catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
     app.listen(config.port, () => {
-      console.log(`Alma Planet su ${config.baseUrl} (porta ${config.port})`);
+      console.log(`Alma Space su ${config.baseUrl} (porta ${config.port})`);
       if (!auth.msConfigured) {
         const missing = [['MS_TENANT_ID', config.tenantId], ['MS_CLIENT_ID', config.clientId], ['MS_CLIENT_SECRET', config.clientSecret]].filter(([, val]) => !val).map(([k]) => k);
         console.warn(`[auth] Microsoft non configurato: manca ${missing.join(', ')}`);

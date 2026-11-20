@@ -1,4 +1,4 @@
-// Alma Planet sul telefono: tasto «+» (ticket, post, storia, evento), menu con le altre pagine e avatar nella barra in basso.
+// Alma Space sul telefono: tasto «+» (ticket, post, storia, evento), menu con le altre pagine e avatar nella barra in basso.
 import { h, mobileQuery, avatar } from './ui.js';
 const avatarOf = () => avatar(store.me, 32);
 import { icon } from './icons.js';
@@ -86,7 +86,7 @@ const TABS = {
   crm: [['#/crm/settimana', 'crm-settimana', 'alarm-clock', 'Settimana'], ['#/crm/lead', 'crm-lead', 'target', 'Lead'], ['#/crm/clienti', 'crm-clienti', 'building', 'Clienti'], ['#/crm/contatti', 'crm-contatti', 'contact', 'Contatti']],
   energy: [['#/energy/panoramica', 'energy-panoramica', 'layout-dashboard', 'Panoramica'], ['#/energy/ppa', 'energy-ppa energy-revamping energy-fv energy-opportunita', 'sun', 'Pipeline'], ['#/energy/aziende', 'energy-aziende', 'building', 'Aziende'], ['#/energy/screening', 'energy-screening', 'map', 'Mappa']],
 };
-let current = { key: 'planet', label: 'Alma Planet', modules: [] };
+let current = { key: 'planet', label: 'Alma Agorà', modules: [] };
 
 function drawTabs() {
   const bar = document.getElementById('m-tabs');

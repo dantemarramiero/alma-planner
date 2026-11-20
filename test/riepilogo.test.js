@@ -94,7 +94,7 @@ test('contenuto del riepilogo: ritardi, oggi, prossimi giorni, nuovi assegnati, 
   await mk('anna', 'Prova <b>grassetto</b>', TODAY, [users.luca.id]);
   const d2 = await digest.build(users.luca.id, TODAY, { since: new Date(Date.now() - 3600 * 1000) });
   const { subject, html } = digest.render({ name: 'Luca Bianchi' }, d2);
-  assert.equal(subject, 'Alma Planet · la tua giornata: 1 in ritardo, 2 in scadenza oggi');
+  assert.equal(subject, 'Alma Space · la tua giornata: 1 in ritardo, 2 in scadenza oggi');
   assert.match(html, /Buongiorno Luca/);
   assert.match(html, /giovedì 15 ott/);
   assert.match(html, /https:\/\/alma\.example\.it\/app#\/tickets\/\d+/);

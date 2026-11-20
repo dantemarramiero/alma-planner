@@ -67,7 +67,7 @@ export function notificationsView(view) {
 
   function row(n) {
     const u = userById(n.actor_id);
-    const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind) || (n.kind === 'mezzi' && !n.actor_id); // li manda Alma Planet, non una persona
+    const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind) || (n.kind === 'mezzi' && !n.actor_id); // li manda Alma Space, non una persona
     return h('button.notif', { type: 'button', class: n.read_at ? '' : 'new', on: { click: () => open(n) } },
       system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : n.kind === 'mezzi' ? 'car' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
       h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], withoutName(sentence(n), system ? null : u?.name), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),

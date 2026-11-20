@@ -1,4 +1,4 @@
-/* Alma Planet — stili di base. Colori, font, spaziature e angoli vengono SOLO da /brand/tokens.css (regole in
+/* Alma Space — stili di base. Colori, font, spaziature e angoli vengono SOLO da /brand/tokens.css (regole in
    orbita/brand/CLAUDE.md). Le variabili brevi qui sotto (--orange, --ink, --rule…) sono nomi di comodo usati in
    tutti i fogli di stile e in qualche colore scelto dal JS: puntano ai token, niente colori nuovi. */
 :root {

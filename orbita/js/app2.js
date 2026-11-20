@@ -1,4 +1,4 @@
-// Alma Planet 2.0 sul telefono (canvas «app 2.0 per il telefono», approvato da Dante il 13/11/2026).
+// Alma Space 2.0 sul telefono (canvas «app 2.0 per il telefono», approvato da Dante il 13/11/2026).
 // Cinque posti fissi in basso: Oggi · Lavoro · + · Inbox · Esplora. Oggi risponde a «cosa devo fare adesso?» nel
 // primo schermo; Lavoro mette insieme ticket, incontri e RDA; Inbox ha in cima le cose da decidere; Esplora sostituisce
 // il cambio modulo; «Io» si apre dalla foto in alto. Sul computer non cambia niente.
@@ -586,7 +586,7 @@ export async function ioView(view) {
       line('#/biglietto', 'Il mio biglietto (QR)', 'qr-code'),
       line('#/strategy/obiettivi', 'Il mio contributo', 'target'),
       line('#/notifiche/impostazioni', 'Le mie notifiche', 'bell'),
-      store.me.is_admin ? line('#/impostazioni', 'Impostazioni di Alma Planet', 'settings') : null,
+      store.me.is_admin ? line('#/impostazioni', 'Impostazioni di Alma Space', 'settings') : null,
       line('#/notifiche/impostazioni', 'Il mio telefono', 'phone', h('span', { class: `a2-st ${pushCls === 'ok' ? 'green' : pushCls === 'ko' ? 'red' : 'grey'}` }, pushLabel)),
       themeBtn),
     h('nav.a2-card.a2-lines',
@@ -609,7 +609,7 @@ export function drawBar() {
   const bar = document.getElementById('m-tabs');
   if (!bar || bar.dataset.v2) return;
   bar.dataset.v2 = '1';
-  bar.setAttribute('aria-label', 'Alma Planet');
+  bar.setAttribute('aria-label', 'Alma Space');
   const tab = (href, key, ico, label, badge) => h('a.m-tab', { href, 'data-place': key, on: { click: e => {
     if (location.hash === href) { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); rerender(); }
   } } }, h('span.m-tab-ico', icon(ico, { size: 23 }), badge || null), h('span', label));

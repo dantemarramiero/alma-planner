@@ -1,6 +1,6 @@
 // Alma Energy: Impianti target (ALM2-15 … ALM2-17). Kanban per step dell'iter commerciale (contatto del venditore,
 // due diligence tecnica e legale, approvazione dell'investimento, offerta) con gli esiti; iter con checklist nella
-// scheda del target e nel tab «Impianto» del progetto di Alma Planet; «Seleziona come target» dalle pipeline.
+// scheda del target e nel tab «Impianto» del progetto di Alma Space; «Seleziona come target» dalle pipeline.
 import { h, fill, modal, toast, loading, debounce, confirmDialog, promptDialog } from './ui.js';
 import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';

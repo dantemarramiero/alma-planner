@@ -1,4 +1,4 @@
-// Alma Planet: Laboratorio delle idee (proposte, sostegno, commenti, comitato e voti) e pagina di benvenuto.
+// Alma Agorà: Laboratorio delle idee (proposte, sostegno, commenti, comitato e voti) e pagina di benvenuto.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp, readConfig } = require('../server');

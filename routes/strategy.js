@@ -1,5 +1,5 @@
 // Alma Strategy: Hoshin Kanri. Un GET dà tutto l'anno (per la X-Matrix e la Gestione); le modifiche sono campo per campo
-// (PATCH), con righe nuove (POST) ed eliminazioni (DELETE). Per ora chi è entrato in Alma Planet vede e modifica;
+// (PATCH), con righe nuove (POST) ed eliminazioni (DELETE). Per ora chi è entrato in Alma Space vede e modifica;
 // i permessi per ruolo (admin, owner, sponsor) arrivano con ALM2-37.
 const { HttpError, v } = require('../lib/http');
 const { seedStrategy } = require('../lib/strategy-seed');

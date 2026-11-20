@@ -1,4 +1,4 @@
-// Alma Energy: pagina dell'opportunità (ALM2-24). È la pagina di un progetto di Alma Planet (Panoramica, Gantt, Ticket,
+// Alma Energy: pagina dell'opportunità (ALM2-24). È la pagina di un progetto di Alma Space (Panoramica, Gantt, Ticket,
 // Documenti, Email, Incontri, Note, Membri) con in più lo stadio nell'intestazione, il tab «Opportunità» con i dati
 // e, per gli Impianti target, il tab «Iter». Il progetto nasce quando l'opportunità supera il primo stadio (deciso da
 // Dante il 02/11): prima la pagina ha la stessa forma, con il solo tab «Opportunità».
@@ -111,7 +111,7 @@ async function moveDialog(o, stage, refresh, { back = false } = {}) {
     body: h('div.en-form',
       info.requirements.length ? h('ul.en-reqs', info.requirements.map(r => h('li', { class: r.ok ? 'ok' : 'ko' },
         icon(r.ok ? 'check' : 'x', { size: 15 }), h('div', h('span', r.label), r.ok ? null : h('div.t-meta', r.hint))))) : null,
-      info.creates_project ? h('p.banner', 'Nasce il progetto dell\'opportunità in Alma Planet: Gantt, ticket, documenti, email, incontri, note e membri (i membri di Alma Energy).') : null,
+      info.creates_project ? h('p.banner', 'Nasce il progetto dell\'opportunità in Alma Space: Gantt, ticket, documenti, email, incontri, note e membri (i membri di Alma Energy).') : null,
       field('Nota sul passaggio', note)),
     actions: [go],
   });

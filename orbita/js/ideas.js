@@ -1,4 +1,4 @@
-// Alma Planet: Laboratorio delle idee. Ognuno propone innovazioni e miglioramenti, i colleghi le sostengono e le
+// Alma Agorà: Laboratorio delle idee. Ognuno propone innovazioni e miglioramenti, i colleghi le sostengono e le
 // commentano; a fine anno il comitato (scelto dagli amministratori in Impostazioni) le vota da 1 a 5 e premia le migliori.
 import { h, fill, avatar, timeAgo, loading, modal, toast, confirmDialog } from './ui.js';
 import { get, post, patch, put, del } from './api.js';

@@ -1,6 +1,6 @@
-# Alma Planet – regole di brand e UI
+# Alma Space – regole di brand e UI
 
-Alma Planet è l'intranet aziendale e lo strumento di project management di Almacis, usato solo dai collaboratori interni. Fa parte della famiglia visiva Almacis: arancione, grafite, Roboto e angoli quasi vivi. Queste regole valgono per **tutto** il software: ogni schermata, componente, email di sistema e documento esportato.
+Alma Space è l'intranet aziendale e lo strumento di project management di Almacis, usato solo dai collaboratori interni. Fa parte della famiglia visiva Almacis: arancione, grafite, Roboto e angoli quasi vivi. Queste regole valgono per **tutto** il software: ogni schermata, componente, email di sistema e documento esportato.
 
 ## Refresh grafico 2026 (12/10/2026, prevale sulle regole più sotto)
 Il refresh fatto in Claude Design è `orbita/css/refresh.css`, caricato in `app.html` come **ultimo** foglio di stile. Il materiale di riferimento (anteprime, Gantt, README) è in `design/refresh/`. Dove le regole sotto dicono altro, valgono queste:
@@ -15,11 +15,11 @@ Il refresh fatto in Claude Design è `orbita/css/refresh.css`, caricato in `app.
 - `logo/alma-planet-logo.svg` (scritta grafite, su fondi chiari) e `logo/alma-planet-logo-white.svg` (scritta bianca, su fondi scuri).
 - `logo/alma-planet-symbol.svg` (arancione), `-white.svg` (su arancione o su foto), `-graphite.svg` (stampa monocromatica).
 - `app-icon/`: icona 1024 (iOS, store), 512 e 192 (PWA/Android), 180 (apple-touch-icon), 32 e `favicon.svg`, più `android-foreground.svg` per l'icona adattiva (sfondo `#2C2C2C`).
-- `Alma Planet Brand.html`: la scheda visiva di riferimento.
+- `Alma Planet Brand.html` (file con il vecchio nome): la scheda visiva di riferimento.
 
 ## Logo
-- Nome: sempre **Alma Planet**, due parole, iniziali maiuscole. Mai "AlmaPlanet", "ALMA PLANET" o "AP".
-- Nella scritta, "Alma" è Roboto Light (300), "Planet" è Roboto Bold (700) arancione. Non ricomporla a mano: usa gli SVG.
+- Nome dell'app: sempre **Alma Space**, due parole, iniziali maiuscole (Dante, 20/11/2026; prima «Alma Planet»). Mai "AlmaSpace", "ALMA SPACE" o "AS". La parte intranet (benvenuto, bacheca, persone) è il modulo **Alma Agorà**.
+- Nella scritta, "Alma" è Roboto Light (300), "Space" è Roboto Bold (700) arancione. Gli SVG in `logo/` dicono ancora "Planet": vanno rifatti.
 - Topbar e sidebar: logo con scritta, alto 28–32px. Sidebar compressa: solo il simbolo, 28px.
 - Dimensione minima: simbolo 16px, logo con scritta 24px di altezza.
 - Area di rispetto: attorno al logo lascia uno spazio libero pari almeno a metà altezza del simbolo.
