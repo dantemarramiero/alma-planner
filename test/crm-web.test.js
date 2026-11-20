@@ -10,6 +10,11 @@ const prompts = [];
 async function fakeOpenAI(url, opts) {
   const body = JSON.parse(opts.body);
   prompts.push(body.input);
+  if (/profilo LinkedIn pubblico/.test(body.input)) {
+    const profili = [{ url: 'https://it.linkedin.com/in/paolo-di-fabio-123?trk=x', titolo: 'Paolo Di Fabio – Direttore tecnico', azienda: 'Impianti Adriatica' },
+      { url: 'https://www.linkedin.com/company/adriatica', titolo: 'pagina aziendale' }, { url: 'https://it.linkedin.com/in/paolo-di-fabio-123', titolo: 'doppione' }];
+    return { ok: true, json: async () => ({ output_text: JSON.stringify({ profili }), output: [], usage: {} }) };
+  }
   const chosen = /scelta dalla persona/.test(body.input);
   const answer = chosen
     ? { ambigua: false, azienda: { nome: 'Impianti Adriatica S.r.l.', citta: 'Pescara', piva: '02134560685' },
@@ -73,4 +78,13 @@ test('«Cerca su internet»: alternative → scelta → dati spuntati salvati «
   cur = (await D('GET', `/api/crm/subjects/${s.id}`)).body;
   assert.deepEqual(Object.keys(cur.web_fields), ['province']);
   assert.equal((await D('POST', `/api/crm/subjects/${s.id}/da-web`, { fields: { inventato: 'x' } })).status, 400);
+});
+
+test('«Trova su LinkedIn»: solo link linkedin.com/in/ puliti e senza doppioni; il link si salva solo scelto', async () => {
+  const c = (await D('POST', '/api/crm/contacts', { first_name: 'Paolo', last_name: 'Di Fabio' })).body;
+  const r = await D('POST', `/api/crm/contacts/${c.id}/cerca-linkedin`, {});
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.profiles.map(p => p.url), ['https://it.linkedin.com/in/paolo-di-fabio-123']);
+  assert.match(prompts.at(-1), /Paolo Di Fabio/);
+  assert.equal((await D('GET', `/api/crm/contacts/${c.id}`)).body.linkedin, '');
 });

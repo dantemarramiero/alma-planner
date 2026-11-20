@@ -327,7 +327,7 @@ export async function crmProjectPage(container, id) {
         taskBoard(await get(`/api/tickets?project=${id}`), { id }, changed, { drag: true }));
       fill(box, loading()); await draw();
     }],
-    ['relazioni', 'Relazioni', async box => relationsTab(box, id, info, async () => { await refreshInfo(); })],
+    ['relazioni', 'Relazioni', async box => { fill(box, h('div.pv-tabhead', h('div', h('h3', 'Relazioni'), h('p', 'Enti, clienti, partner, concorrenti e persone collegati al progetto, con il loro ruolo. Si vedono anche nella loro scheda del CRM.'))), linksBox({ project: id }, { title: 'Collegati al progetto', onChange: refreshInfo })); }],
     ['calendario', 'Calendario', async box => calendarTab(box, id)],
     ['rendiconto', 'Rendiconto', async box => reportTab(box, id)],
   ];
@@ -419,39 +419,6 @@ async function calendarTab(box, id) {
   draw();
 }
 
-async function relationsTab(box, id, info, onChange) {
-  const draw = async () => {
-    const r = await get(`/api/crm/progetti/${id}`);
-    const search = h('input.input', { type: 'search', placeholder: 'Collega un\'azienda, un ente o una persona del CRM…', 'aria-label': 'Cerca nel CRM' });
-    const results = h('div.pv-results');
-    search.addEventListener('input', debounce(async () => {
-      const q = search.value.trim();
-      if (q.length < 2) { fill(results); return; }
-      const [{ subjects = [] }, contacts] = await Promise.all([get(`/api/crm/subjects?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => ({})), get(`/api/crm/contacts?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => [])]);
-      const people = Array.isArray(contacts) ? contacts : contacts.contacts || [];
-      fill(results, [...subjects.slice(0, 6).map(s => ['subjects', s.id, s.name, (s.roles || []).join(', ') || 'azienda']),
-        ...people.slice(0, 6).map(c => ['contacts', c.id, [c.first_name, c.last_name].filter(Boolean).join(' '), c.subject_name || c.email || 'persona'])]
-        .map(([target, tid, name, sub]) => h('button.pv-res', { type: 'button', on: { click: async () => {
-          await post(`/api/crm/${target}/${tid}/projects`, { project_id: id });
-          toast(`${name} collegato al progetto`); await onChange?.(); draw();
-        } } }, ic(target === 'subjects' ? 'building' : 'user', 14), h('b', name), h('small', sub))));
-    }, 250));
-    fill(box, h('div.pv-tabhead', h('div', h('h3', 'Relazioni'), h('p', 'Enti, clienti, partner e persone collegati a questo progetto. Si vedono anche nella loro scheda del CRM.'))),
-      h('section.pv-card', h('div.pv-relsearch', ic('search', 14), search), results,
-        r.links.length ? h('div.pv-rels', r.links.map(l => {
-          const subj = Boolean(l.subject_id);
-          return h('div.pv-rel', h('span.pv-oic', ic(subj ? 'building' : 'user', 14)),
-            h('a.pv-grow', { href: subj ? `#/crm/scheda/${l.subject_id}` : `#/crm/contatti/${l.contact_id}` }, h('b', subj ? l.subject_name : l.contact_name), h('small', subj ? (l.roles || []).join(', ') || 'azienda' : 'persona')),
-            h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Scollega', title: 'Scollega dal progetto', on: { click: async () => {
-              await del(`/api/crm/${subj ? 'subjects' : 'contacts'}/${subj ? l.subject_id : l.contact_id}/projects/${id}`);
-              await onChange?.(); draw();
-            } } }, ic('x', 14)));
-        })) : h('p.pv-empty', 'Ancora nessun collegamento.')));
-  };
-  fill(box, loading());
-  await draw();
-}
-
 async function reportTab(box, id) {
   fill(box, loading());
   const r = await get(`/api/crm/progetti/${id}/rendiconto`);
@@ -476,4 +443,49 @@ async function reportTab(box, id) {
             h('span.pv-rst', STATO[t.status] || t.status), h('span.pv-grow', t.title), h('small', t.who), h('small', t.due_date ? day(t.due_date) : '—'), h('small', t.hours ? `${t.hours} h` : '')))])),
       h('section.pv-card', h('b.pv-card-t', 'Chi ha fatto cosa'),
         r.people.length ? r.people.map(u => h('div.pv-rrow', ini(u.name), h('span.pv-grow', u.name), h('small', `${u.done}/${u.tasks} compiti`), h('small', `${u.hours} h`))) : h('p.pv-empty', 'Nessun compito assegnato.'))));
+}
+
+// ═══ Collegati (canvas v9 «Collegamenti»): aziende e persone del CRM collegate a una gara, opportunità o progetto ═══
+// target: { project: id } oppure { signal: id }. «+ Collega» cerca in tutto il CRM con un campo solo, si sceglie il ruolo;
+// se non c'è si crea al volo come lead da completare.
+export function linksBox(target, { title = 'Collegati', onChange } = {}) {
+  const qs2 = target.project ? `project=${target.project}` : `signal=${target.signal}`;
+  const box = h('section.pv-card.lk-box', loading());
+  let roles = {};
+  const roleSel = (value, attrs = {}) => h('select.pv-sel.lk-role', attrs, h('option', { value: '' }, 'ruolo…'), Object.entries(roles).map(([k, l]) => h('option', { value: k, selected: k === value }, l)));
+  const save = async (who, role) => { const r = await post('/api/crm/collegamenti', { ...target, ...who, role }); onChange?.(); return r; };
+  const draw = async (links = null) => {
+    if (!links) { const r = await get(`/api/crm/collegamenti?${qs2}`); roles = r.roles; links = r.links; }
+    const search = h('input.input', { type: 'search', placeholder: 'Cerca un\'azienda, un ente o una persona del CRM…', 'aria-label': 'Cerca nel CRM' });
+    const pickRole = roleSel('', { 'aria-label': 'Come' });
+    const results = h('div.pv-results');
+    const add = async (who, name) => { const r = await save(who, pickRole.value); toast(`${name} collegato${pickRole.value ? ` come ${roles[pickRole.value]}` : ''}`); draw(r.links); };
+    search.addEventListener('input', debounce(async () => {
+      const q = search.value.trim();
+      if (q.length < 2) { fill(results); return; }
+      const [{ subjects = [] }, contacts] = await Promise.all([get(`/api/crm/subjects?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => ({})), get(`/api/crm/contacts?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => [])]);
+      const people = Array.isArray(contacts) ? contacts : contacts.contacts || [];
+      fill(results,
+        subjects.slice(0, 5).map(s => h('button.pv-res', { type: 'button', on: { click: () => add({ subject_id: s.id }, s.name) } }, ic('building', 14), h('b', s.name), h('small', [(s.roles || []).join(', '), s.city].filter(Boolean).join(' · ') || 'azienda'))),
+        people.slice(0, 5).map(c => h('button.pv-res', { type: 'button', on: { click: () => add({ contact_id: c.id }, [c.first_name, c.last_name].filter(Boolean).join(' ')) } }, ic('user', 14), h('b', [c.title, c.first_name, c.last_name].filter(Boolean).join(' ')), h('small', c.subject_name || c.email || 'persona'))),
+        h('button.pv-res.new', { type: 'button', on: { click: async () => { const s = await post('/api/crm/subjects/rapida', { name: q }); add({ subject_id: s.id }, s.name); } } }, ic('plus', 14), h('b', `Crea «${q}» al volo`), h('small', 'lead da completare')));
+    }, 250));
+    fill(box,
+      h('div.pv-row.lk-h', h('span.pv-oic', ic('link', 14)), h('b.pv-grow', title), h('small', links.length ? `${links.length}` : '')),
+      links.length ? h('div.lk-list', links.map(l => {
+        const sel = roleSel(l.role, { 'aria-label': `Ruolo di ${l.name}` });
+        sel.addEventListener('change', async () => { const r = await save(l.subject_id ? { subject_id: l.subject_id } : { contact_id: l.contact_id }, sel.value); draw(r.links); });
+        return h('div.lk-row', h('span.lk-ic', { class: l.kind }, ic(l.kind === 'subject' ? 'building' : 'user', 14)),
+          h('a.pv-grow', { href: l.subject_id ? `#/crm/scheda/${l.subject_id}` : `#/crm/contatti/${l.contact_id}` }, h('b', l.name || '—'), h('small', l.sub || (l.kind === 'subject' ? 'azienda' : 'persona'))),
+          sel,
+          h('button.pv-x', { type: 'button', 'aria-label': `Scollega ${l.name}`, title: 'Scollega', on: { click: async () => {
+            const r = await api('DELETE', '/api/crm/collegamenti', { ...target, ...(l.subject_id ? { subject_id: l.subject_id } : { contact_id: l.contact_id }) });
+            onChange?.(); draw(r.links);
+          } } }, ic('x', 12)));
+      })) : h('p.pv-empty', 'Ancora nessuno: collega l\'ente, il RUP, i partner per l\'ATI, i concorrenti…'),
+      h('div.lk-add', h('div.pv-relsearch', search), h('span.lk-come', 'come'), pickRole),
+      results);
+  };
+  draw().catch(() => fill(box, h('p.pv-empty', 'Collegamenti non disponibili.')));
+  return box;
 }

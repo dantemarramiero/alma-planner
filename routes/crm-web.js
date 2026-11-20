@@ -4,11 +4,11 @@
 //   segnati «da internet» finché qualcuno non li conferma;
 // - POST /api/crm/subjects/:id/da-web/conferma { key }: il dato è confermato (via il bollino).
 const { HttpError, v } = require('../lib/http');
-const { searchCompany, WEB_FIELDS } = require('../lib/crm-web');
+const { searchCompany, searchLinkedin, WEB_FIELDS } = require('../lib/crm-web');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 
-function registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch, seeSql }) {
+function registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql }) {
   const apiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
 
   // quanto conosciamo le aziende che si vedono in una lista (pagina Lead): forza e chi ci porta, solo per le schede visibili
@@ -84,6 +84,24 @@ function registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetc
       if (err.code === '23505') throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
       throw err;
     }
+  });
+
+  // LinkedIn di un contatto: i profili pubblici possibili; il link si salva solo quando la persona sceglie quello giusto
+  app.post('/api/crm/contacts/:id/cerca-linkedin', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const c = await contactById(req, id);
+    if (!apiKey()) throw new HttpError(503, 'La ricerca su internet non è attiva: manca la chiave di OpenAI');
+    const { rows: [w] } = await db.query(
+      `SELECT s.name, s.city, l.job FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = $1
+        ORDER BY (l.date_to IS NULL) DESC, l.is_primary DESC NULLS LAST, l.id DESC LIMIT 1`, [id]).catch(() => ({ rows: [] }));
+    let profiles;
+    try {
+      profiles = await searchLinkedin({ apiKey: apiKey(), fetchImpl: radarFetch || fetch,
+        contact: { name: [c.title, c.first_name, c.last_name].filter(Boolean).join(' '), job: w?.job || '', company: w?.name || '', city: w?.city || '' } });
+    } catch (err) {
+      throw new HttpError(502, `La ricerca su internet non ha risposto: ${String(err.message || err).slice(0, 160)}`);
+    }
+    res.json({ profiles, current: c.linkedin || '' });
   });
 
   app.post('/api/crm/subjects/:id/da-web/conferma', async (req, res) => {
