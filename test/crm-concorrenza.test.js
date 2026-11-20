@@ -200,3 +200,11 @@ test('categorie delle iniziative aperte di Nuovi business: il mese si ricarica c
   assert.ok(after.loaded.includes('OG3'));
   assert.deepEqual(after.pending, []);
 });
+
+test('«Cerca un\'impresa» (v11): per nome o P.IVA tra chi ha vinto, anche fuori dal CRM', async () => {
+  const r = (await E('GET', '/api/crm/concorrenza/cerca?q=taddei')).body;
+  assert.equal(r.imprese[0].name, 'TADDEI S.P.A.');
+  assert.equal(r.imprese[0].vinte, 2);
+  assert.equal((await E('GET', '/api/crm/concorrenza/cerca?q=0987654')).body.imprese[0].cf, '09876543210');
+  assert.deepEqual((await E('GET', '/api/crm/concorrenza/cerca?q=x')).body.imprese, []);
+});

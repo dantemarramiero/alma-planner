@@ -12,9 +12,9 @@ import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMee
 import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
 import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.js';
 import { launchRoom, mieiProgetti, crmProjectPage } from './crm-progetti.js';
+import { gareHub } from './crm-gare.js';
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
-import { concorrenzaTab, primaBandoTab } from './crm-concorrenza.js';
 import { ic, dots, pill, av, pageTop, title, card, link, listRow, emptyState, seg, tabsBar as cvTabs, moreMenu, cvModal, choiceChips } from './crm-v2.js';
 
 const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', 'Clienti'], ['fornitori', 'Fornitori'], ['partner', 'Partner e concorrenti'], ['tutte', 'Tutte le anagrafiche'], ['contatti', 'Contatti'], ['asa', 'ASA e accessi'], ['impostazioni', 'Impostazioni'], ['gare', 'Proposte dal radar'], ['sottosoglia', 'Segnali sotto soglia'], ['radar', 'Radar'], ['esiti', 'Vinte e perse'], ['relazioni', 'Chi conosciamo'], ['prima', 'Prima del bando'], ['concorrenza', 'Concorrenza']];
@@ -151,8 +151,9 @@ export async function crmView(container, parts = []) {
   else if (tab === 'radar') await radarTab(body, data);
   else if (tab === 'esiti') await esitiTab(body, data);
   else if (tab === 'relazioni') await relazioniTab(body, data);
-  else if (tab === 'prima') await primaBandoTab(body, data, undefined, { openSignal });
-  else if (tab === 'concorrenza') await concorrenzaTab(body, data);
+  // «Concorrenza e gare» (v11, 20/11): Concorrenza e Prima del bando in una pagina sola, a sezioni
+  else if (tab === 'prima') await gareHub(body, data, 'prima-del-bando', { openSignal });
+  else if (tab === 'concorrenza') await gareHub(body, data, parts[2], { openSignal });
   else if (tab === 'lead') await leadTab(body, parts[2], again);
   else if (tab === 'contatti') await contactsTab(body, again);
   else await subjectsTab(body, tab, again);
