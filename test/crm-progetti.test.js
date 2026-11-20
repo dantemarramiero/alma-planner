@@ -110,3 +110,28 @@ test('Porta avanti di un\'iniziativa di Nuovi business: progetto «settore» con
   assert.equal(card.source.budget, 25000);
   assert.equal(card.steps[0], 'G1 · Idea');
 });
+
+test('collegamenti con il ruolo: all\'opportunità e al progetto, visibili dall\'altra parte; al lancio passano al progetto', async () => {
+  const sig = (await F('POST', '/api/crm/radar/signals', { title: 'Messa in sicurezza ponti', entity: 'Provincia di Teramo', bu: 'edilizia', kind: 'opera_finanziata', amount: 5700000 })).body;
+  const partner = (await D('POST', '/api/crm/subjects/rapida', { name: 'SolarEst' })).body;
+  const rup = (await D('POST', '/api/crm/contacts', { first_name: 'Luca', last_name: 'Marchetti' })).body;
+  assert.equal((await F('POST', '/api/crm/collegamenti', { signal: sig.id, subject_id: partner.id, role: 'boh' })).status, 400);
+  let r = await F('POST', '/api/crm/collegamenti', { signal: sig.id, subject_id: partner.id, role: 'ati' });
+  assert.equal(r.status, 201);
+  r = await F('POST', '/api/crm/collegamenti', { signal: sig.id, contact_id: rup.id, role: 'rup' });
+  assert.deepEqual(r.body.links.map(l => [l.kind, l.role_label]), [['subject', 'Partner ATI'], ['contact', 'RUP']]);
+  r = await F('POST', '/api/crm/collegamenti', { signal: sig.id, subject_id: partner.id, role: 'subappalto' }); // cambia ruolo, niente doppione
+  assert.equal(r.body.links.length, 2);
+  assert.equal(r.body.links[0].role, 'subappalto');
+  const side = (await D('GET', `/api/crm/subjects/${partner.id}/collegata`)).body.items;
+  assert.deepEqual(side.map(i => [i.type, i.role_label]), [['signal', 'Subappaltatore']]);
+  // al lancio i collegamenti passano al progetto, l'ente come «Ente appaltante»
+  const prop = (await F('GET', `/api/crm/lancio/proposta?signal=${sig.id}`)).body;
+  const pid = (await F('POST', '/api/crm/lancio', { signal_id: sig.id, phases: prop.phases, goal: prop.goal })).body.project_id;
+  const links = (await F('GET', `/api/crm/collegamenti?project=${pid}`)).body.links;
+  assert.deepEqual(links.map(l => l.role).sort(), ['ente', 'rup', 'subappalto']);
+  const side2 = (await D('GET', `/api/crm/contacts/${rup.id}/collegata`)).body.items;
+  assert.deepEqual(side2.map(i => i.type), ['project']); // l'opportunità portata avanti si vede come progetto
+  r = await F('DELETE', '/api/crm/collegamenti', { project: pid, contact_id: rup.id });
+  assert.equal(r.body.links.length, 2);
+});

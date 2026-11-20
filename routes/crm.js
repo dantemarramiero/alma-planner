@@ -697,7 +697,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
-  registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch, seeSql }); // «Cerca su internet» nell'anagrafica
+  registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql }); // «Cerca su internet» nell'anagrafica
   commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 

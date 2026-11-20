@@ -208,7 +208,11 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
           created.push({ ticket: { id: tk.id, title: tk.title, due_date: iso(tk.due_date) }, user: t.owner_id });
         }
       }
-      if (subjectId) await q.query('INSERT INTO crm_project_links (project_id, subject_id, linked_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pid, subjectId, req.user.id]);
+      if (subjectId) await q.query("INSERT INTO crm_project_links (project_id, subject_id, linked_by, role) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING", [pid, subjectId, req.user.id, signalId ? 'ente' : '']);
+      if (signalId) {
+        await q.query(`INSERT INTO crm_project_links (project_id, subject_id, contact_id, role, linked_by)
+                       SELECT $1, subject_id, contact_id, role, $3 FROM crm_signal_links WHERE signal_id = $2 ON CONFLICT DO NOTHING`, [pid, signalId, req.user.id]);
+      }
       if (signalId) {
         await q.query(`UPDATE crm_signals SET project_id = $2, status = CASE WHEN status IN ('nuovo', 'interessa') THEN 'interessa' ELSE status END,
                          decided_by = COALESCE(decided_by, $3), decided_at = COALESCE(decided_at, now()) WHERE id = $1`, [signalId, pid, req.user.id]);
