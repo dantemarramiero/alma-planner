@@ -225,3 +225,76 @@ test('win ratio: forza del rapporto sui clienti target e gare vinte/perse in Ana
   assert.equal((await D('POST', '/api/crm/esiti', { result: 'vinta', title: pre.title, initiative_id: id, origin: pre.origin })).status, 201);
   assert.equal((await D('GET', `/api/crm/business/${id}/analisi`)).body.outcomes.won, 2);
 });
+
+test('mappa del mercato: categorie SOA del profilo, chi vince, chi compra, dove, impresa, avvisami', async () => {
+  const recchia = await meId(E);
+  const asa = (await D('GET', '/api/crm')).body.asa[0].key;
+  const id = (await D('POST', '/api/crm/business', { name: 'Reti MT mercato', description: 'Costruzione di cabine MT e reti di distribuzione elettrica', owner_id: recchia, asa })).body.id;
+  // categorie dall'elenco ufficiale, con classifica; codice sconosciuto rifiutato
+  assert.equal((await E('PUT', `/api/crm/business/${id}/soa`, { soa: ['OG10', 'OZ99'] })).status, 400);
+  const soa = await E('PUT', `/api/crm/business/${id}/soa`, { soa: ['og10', 'OS30'], classes: { OG10: 'III' } });
+  assert.equal(soa.status, 200, JSON.stringify(soa.body));
+  assert.deepEqual(soa.body.missing, ['OG10', 'OS30']); // nessuna gara caricata ancora
+  assert.ok((await E('POST', `/api/crm/business/${id}/soa/proponi`, {})).body.proposals.some(p => p.code === 'OG10'));
+  // il profilo del radar non perde le classifiche
+  await E('PUT', `/api/crm/business/${id}/profile`, { description: 'reti', soa: ['OG10', 'OS30'], regions: ['Abruzzo'] });
+  // stato «le carico stanotte» e «Avvisami»
+  let m = (await E('GET', `/api/crm/business/${id}/mercato`)).body;
+  assert.deepEqual(m.state.missing, ['OG10', 'OS30']);
+  assert.equal(m.classes.OG10, 'III');
+  assert.equal((await E('POST', `/api/crm/business/${id}/mercato/avvisami`, {})).body.watching, true);
+  // gare ANAC finte nelle categorie e zone dell'iniziativa
+  const day = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+  const aw = [
+    ['C1', 'Cabina MT lotto 1', 'Provincia di Chieti', 'Abruzzo', 'Chieti', 'OG10', 600000, 22, 5, [{ cf: '01111111111', name: 'ELETTRO ADRIATICA SRL', role: 'mandataria' }, { cf: '02222222222', name: 'SCAVI SANGRO SRL', role: 'mandante' }]],
+    ['C2', 'Rete BT Ortona', 'Comune di Ortona', 'Abruzzo', 'Chieti', 'OG10', 300000, 25, 4, [{ cf: '01111111111', name: 'ELETTRO ADRIATICA SRL', role: '' }]],
+    ['C3', 'Impianti scuola', 'Provincia di Pescara', 'Abruzzo', 'Pescara', 'OS30', 2500000, 18, 6, [{ cf: '03333333333', name: 'DI NARDO IMPIANTI SRL', role: '' }]],
+    ['C4', 'Cabine Molise', 'Regione Molise', 'Molise', 'Campobasso', 'OG10', 900000, 20, 3, [{ cf: '04444444444', name: 'ALTRA SRL', role: '' }]],
+  ];
+  for (const [cig, object, sa, region, province, category, amount, discount, bidders, winners] of aw) {
+    await db.query(`INSERT INTO crm_anac_awards (cig, object, sa_cf, sa_name, region, province, category, amount, discount, bidders, criterion, awarded_on, winners, month)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'prezzo', $11, $12, '202611')`, [cig, object, `SA${sa.length}${sa.slice(-6)}`, sa, region, province, category, amount, discount, bidders, day(30), JSON.stringify(winners)]);
+  }
+  // mesi caricati dal CRM con le nostre categorie (copertura = categoryCoverage della sessione CRM)
+  for (let k = 0; k < 12; k++) {
+    const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - k);
+    await db.query("INSERT INTO crm_anac_imports (month, awards, kept, cats) VALUES ($1, 0, 0, $2) ON CONFLICT (month) DO UPDATE SET cats = EXCLUDED.cats", [d.toISOString().slice(0, 7).replace('-', ''), ['OG10', 'OS30']]);
+  }
+  // Elettro Adriatica è già partner nel CRM
+  assert.equal((await D('POST', '/api/crm/subjects', { name: 'Elettro Adriatica Srl', roles: ['partner'], asa: [asa], owner_id: recchia })).status, 201);
+  m = (await E('GET', `/api/crm/business/${id}/mercato`)).body;
+  assert.equal(m.state.missing.length, 0);
+  assert.equal(m.kpi.gare, 3); // solo Abruzzo: Molise fuori dalle zone del profilo
+  assert.equal(m.winners[0].name, 'ELETTRO ADRIATICA SRL');
+  assert.equal(m.winners[0].vinte, 2);
+  assert.equal(m.winners[0].role, 'partner');
+  assert.deepEqual(m.winners[0].partners, ['SCAVI SANGRO SRL']);
+  assert.equal(m.synergies.length, 1);
+  assert.equal(m.where[0].region, 'Abruzzo');
+  assert.equal(m.where[0].provinces.length, 2);
+  // filtro per provincia e per categoria
+  const ch = (await E('GET', `/api/crm/business/${id}/mercato?province=Chieti`)).body;
+  assert.equal(ch.kpi.gare, 2);
+  assert.equal(ch.where[0].provinces.length, 2); // «Dove» mostra sempre tutte le province
+  assert.equal((await E('GET', `/api/crm/business/${id}/mercato?cats=OS30`)).body.kpi.gare, 1);
+  // chi compra → cliente target
+  const buyer = m.buyers.find(b => b.name === 'Provincia di Chieti');
+  assert.equal(buyer.target, false);
+  assert.equal((await E('POST', `/api/crm/business/${id}/mercato/stazione`, { name: buyer.name, gare: buyer.gare })).status, 201);
+  assert.equal((await E('GET', `/api/crm/business/${id}/mercato`)).body.buyers.find(b => b.name === 'Provincia di Chieti').target, true);
+  // cerca un'impresa e la sua scheda
+  const found = (await E('GET', `/api/crm/business/${id}/mercato/imprese?q=nardo`)).body.companies;
+  assert.equal(found[0].name, 'DI NARDO IMPIANTI SRL');
+  const card = (await E('GET', `/api/crm/business/${id}/mercato/impresa?cf=${found[0].cf}`)).body;
+  assert.equal(card.kpi.vinte, 1);
+  assert.equal(card.tenders[0].cig, 'C3');
+  assert.equal(card.role, '');
+  assert.equal((await E('GET', `/api/crm/business/${id}/mercato/impresa?cf=09999999999`)).status, 404);
+  // scheda comune (usata anche da Concorrenza): stesse gare con categorie date, oppure senza perimetro
+  const shared = (await E('GET', `/api/crm/mercato/impresa?cf=${found[0].cf}&cats=${card.categorie.join(',')}`)).body;
+  assert.equal(shared.kpi.vinte, 1);
+  assert.equal((await E('GET', '/api/crm/mercato/impresa')).status, 400);
+  // analisi e tab
+  assert.equal((await E('GET', `/api/crm/business/${id}/analisi`)).body.market.kpi.gare, 3);
+  assert.equal((await E('GET', `/api/crm/business/${id}`)).body.market_gare, 3);
+});

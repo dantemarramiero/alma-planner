@@ -694,6 +694,48 @@ async function webSearchDialog(s, onSaved) {
   run();
 }
 
+// «Trova su LinkedIn» (Dante 20/11): Alma cerca i profili pubblici possibili, la persona sceglie quello giusto e si salva il link
+async function linkedinDialog(c, onSaved) {
+  const body = h('div.an-wsd');
+  const m = cvModal({ title: h('div.cv-row', { style: { gap: '10px' } }, h('span.an-spark', ic('linkedin', 17)), h('div', h('h2', 'Trova su LinkedIn'), h('p.cv-small.cv-muted', { style: { margin: '2px 0 0' } }, personName(c)))), body, size: 'web' });
+  const save = async url => {
+    await patch(`/api/crm/contacts/${c.id}`, { linkedin: url });
+    m.close(); toast('Profilo LinkedIn salvato'); onSaved?.();
+  };
+  const manual = () => {
+    const inp = h('input.input', { placeholder: 'https://www.linkedin.com/in/…', 'aria-label': 'Link del profilo LinkedIn' });
+    return h('div.an-hint', inp, h('button.btn', { type: 'button', on: { click: () => { const u = inp.value.trim(); if (/linkedin\.com\/in\//i.test(u)) save(u.startsWith('http') ? u : `https://${u}`); else { toast('Incolla un link linkedin.com/in/…', 'error'); inp.focus(); } } } }, 'Salva questo'));
+  };
+  fill(body, h('div.an-searching', h('span.spinner'), h('span', 'Cerco il profilo pubblico…')));
+  let r;
+  try { r = await post(`/api/crm/contacts/${c.id}/cerca-linkedin`, {}); } catch (err) {
+    fill(body, h('p.an-err', err.message || 'La ricerca non ha risposto.'), h('p.an-q', 'Puoi incollare tu il link del profilo:'), manual());
+    return;
+  }
+  fill(body,
+    r.profiles.length ? h('p.an-q', r.profiles.length === 1 ? 'Ho trovato questo profilo: è lui o lei?' : 'Ho trovato questi profili: quale è quello giusto?')
+      : h('p.an-q', 'Non ho trovato un profilo pubblico. Se lo conosci, incolla il link:'),
+    r.profiles.length ? h('div.an-cands', r.profiles.map(p => h('div.an-cand.li',
+      h('span.an-cand-ic', ic('linkedin', 15)),
+      h('span.cv-grow', h('b', p.title || p.url.replace(/^https:\/\/(www\.)?/, '')), h('small', [p.company, p.url.replace(/^https:\/\/(www\.)?/, '')].filter(Boolean).join(' · '))),
+      h('a.btn.btn-sm.btn-ghost', { href: p.url, target: '_blank', rel: 'noopener', title: 'Guardalo su LinkedIn prima di sceglierlo' }, 'Guarda'),
+      h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => save(p.url) } }, 'È questo')))) : null,
+    r.profiles.length ? h('p.cv-small.cv-muted', 'Oppure incolla tu il link giusto:') : null,
+    manual(),
+    h('p.cv-small.cv-muted', { style: { marginTop: '6px' } }, 'Si salva solo il link: foto e dati restano su LinkedIn e si guardano aprendo il profilo.'));
+}
+
+// «Collegata a» (canvas v9 «Collegamenti»): gare, opportunità e progetti a cui è collegata, con il ruolo
+function linkedToCard(kind, id) {
+  const box = h('section.cv-card.pad.lk-side', h('div.cv-lbl', 'Collegata a'), h('div.loading', h('span.spinner')));
+  get(`/api/crm/${kind}/${id}/collegata`, { quiet: true }).then(r => {
+    if (!r.items.length) { box.remove(); return; }
+    box.lastChild.replaceWith(h('div', r.items.map(i => h('a.lk-item', { href: i.type === 'project' ? (i.crm ? `#/crm/progetto/${i.id}` : `#/projects/${i.id}`) : '#/crm/radar' },
+      h('span.lk-ic', ic(i.type === 'project' ? 'folder' : 'radar', 14)), h('span.cv-grow', h('b', i.title), h('small', i.type === 'project' ? 'progetto' : dots(['opportunità nel Radar', i.entity]))),
+      i.role_label ? pill(i.role_label, 'line') : null))));
+  }).catch(() => box.remove());
+  return box;
+}
 const initialsOf = name => String(name).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(w => w.length > 1 || /\p{Lu}/u.test(w)).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 function placeholderTab(tab, s) {
@@ -742,6 +784,7 @@ async function overviewTab(box, s, base, go, people, refresh) {
   const contactsLine = [s.pec && h('a', { href: `mailto:${s.pec}` }, s.pec), s.email && h('a', { href: `mailto:${s.email}` }, s.email), s.phone && h('a', { href: `tel:${s.phone}` }, s.phone), s.website].filter(Boolean);
   const codes = dots([s.boss_code && `BOSS ${s.boss_code}`, s.accounting_code && `Target ${s.accounting_code}`, s.zoho_id && `Zoho ${s.zoho_id}`]);
   const right = [
+    linkedToCard('subjects', s.id),
     card({ title: 'Persone', count: people.length, right: people.length ? link('Tutte', { on: { click: () => go('contatti') } }) : null },
       people.length ? people.slice(0, 5).map(x => listRow({ lead: av(personName(x), 'bl'), title: personName(x), meta: dots([x.job, x.is_primary && 'principale']) || null, href: `#/crm/contatti/${x.id}`,
         actions: [x.mobile || x.phone ? h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `tel:${x.mobile || x.phone}`, 'aria-label': `Chiama ${personName(x)}` }, ic('phone', 15)) : null,
@@ -1117,6 +1160,9 @@ async function contactPage(container, id, tabKey) {
       h('div.cv-head-acts',
         c.mobile || c.phone ? h('a.btn', { href: `tel:${c.mobile || c.phone}` }, ic('phone', 15), 'Chiama') : null,
         c.email ? h('a.btn', { href: `mailto:${c.email}` }, ic('mail', 15), 'Email') : null,
+        // LinkedIn (Dante 20/11): solo il link al profilo pubblico, scelto dalla persona; il profilo si guarda su LinkedIn
+        c.linkedin ? h('a.btn', { href: /^https?:/i.test(c.linkedin) ? c.linkedin : `https://${c.linkedin}`, target: '_blank', rel: 'noopener' }, ic('linkedin', 15), h('span.cv-hide-m', 'Apri su LinkedIn'))
+          : h('button.btn.an-websearch', { type: 'button', on: { click: () => linkedinDialog(c, () => refresh()) } }, ic('sparkles', 15), h('span.cv-hide-m', 'Trova su LinkedIn')),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => go('note') } }, ic('file-text', 15), 'Nuova nota'),
         menu))),
     cvTabs(tabs, tab, go),
@@ -1131,9 +1177,10 @@ async function contactPage(container, id, tabKey) {
     h('div.cv-stack',
       h('section.cv-card.pad', h('div.cv-lbl', 'Persona'),
         kv([['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : ''], ['Cellulare', c.mobile ? h('a', { href: `tel:${c.mobile}` }, c.mobile) : ''], ['Telefono', c.phone],
-          ['LinkedIn', c.linkedin], ['Lingua', c.language], ['Owner', c.owner_name], ['Privacy', `${data.meta.legalBasis[c.legal_basis]}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`]]),
+          ['LinkedIn', c.linkedin ? h('a', { href: /^https?:/i.test(c.linkedin) ? c.linkedin : `https://${c.linkedin}`, target: '_blank', rel: 'noopener' }, 'profilo') : ''], ['Lingua', c.language], ['Owner', c.owner_name], ['Privacy', `${data.meta.legalBasis[c.legal_basis]}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`]]),
         c.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, c.notes) : null,
         link('Modifica', { on: { click: () => contactForm({ contact: c, onSaved: () => refresh() }) } })),
+      linkedToCard('contacts', c.id),
       h('section.cv-card.pad', workHistory(c.links)))));
 }
 

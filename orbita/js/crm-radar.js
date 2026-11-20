@@ -7,6 +7,7 @@ import { store } from './store.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
 import { probabilityBox, pathsBox, firstMoveBox, registraEsito } from './crm-esiti.js';
 import { garaBox } from './crm-concorrenza.js';
+import { linksBox } from './crm-progetti.js';
 const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
@@ -106,10 +107,13 @@ export async function openSignal(id, onDone, data, list = []) {
         g.soa?.length ? [h('dt', 'SOA'), h('dd', g.soa.join(' · '))] : null, g.cig ? [h('dt', 'CIG'), h('dd', g.cig)] : null]) : null,
       g.soa?.length || g.cig ? garaBox(g, { onDone, close: () => m.close() }) : null, // prezzo e concorrenti dai dati ANAC (17/11)
       known,
+      linksBox({ signal: g.id }, { title: 'Collegati a questa opportunità' }),
       decided ? h('div.cv-soft.cv-small', `Deciso: ${({ interessa: 'Interessa', scartato: `scartato (${g.discard_reason})`, boss: 'portato su BOSS', gara_scartata: `gara scartata (${g.discard_reason})` })[g.status]} · ${dots([g.decided_by_name, day(g.decided_at)])}`) : null),
     left: decided ? [] : g.to_gare ? [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta')]
       : [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta'), buSel],
     actions: decided ? [['interessa', 'boss'].includes(g.status) ? h('button.btn', { type: 'button', on: { click: () => { m.close(); registraEsito({ signal_id: g.id }, onDone); } } }, ic('trophy', 15), 'Registra esito') : null,
+      g.project_id ? h('a.btn', { href: `#/crm/progetto/${g.project_id}`, on: { click: () => m.close() } }, ic('folder', 15), 'Apri il progetto')
+        : g.status === 'interessa' ? h('a.btn.btn-primary', { href: `#/crm/lancio/s/${g.id}`, on: { click: () => m.close() } }, ic('rocket', 15), 'Porta avanti') : null,
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')]
       : g.to_gare ? [h('button.btn.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/crm/radar/signals/${g.id}/gare`, { action: 'boss' }); toast('Da portare su BOSS'); done(); } } }, 'Porta su BOSS')]
         : [h('button.btn', { type: 'button', on: { click: () => { const move = fm?.value(); m.close(); interessa(g, onDone, { move }); } } }, fm?.el ? 'Solo interessa' : [ic('check', 15), 'Interessa']),
