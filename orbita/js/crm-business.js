@@ -185,7 +185,7 @@ async function riepilogoView(container, crmData) {
     const out = [];
     if (i.lateTasks) out.push(`${i.lateTasks} ${i.lateTasks === 1 ? 'passo scaduto' : 'passi scaduti'}`);
     out.push(...i.light.reasons.filter(r => r.c !== 'g' && !/gate|pass/i.test(r.t)).map(r => r.t));
-    out.push(`${i.gaps.ok} requisiti su ${i.gaps.total} a posto`);
+    out.push(i.gaps.total ? `${i.gaps.ok} requisiti su ${i.gaps.total} a posto` : "requisiti da analizzare");
     return out.slice(0, 3).join(' · ');
   };
   const byId = Object.fromEntries(d.open.map(i => [i.id, i]));
@@ -226,7 +226,7 @@ async function riepilogoView(container, crmData) {
       : [h('div.nb-mx-ph.warn-t', 'categorie da scegliere o in arrivo'), sub("tab Mercato dell'iniziativa")])],
     ['Ultima attività', i => h('div.nb-mx-t', { class: i.light.color === 'r' ? 'bad' : '' }, i.lastActivity ? relDay(i.lastActivity) : 'nessuna')],
   ];
-  const mx = h('div.nb-mx-wrap', h('div.nb-mx', { style: { '--n': String(cols.length) } },
+  const mx = h('div.nb-mx-wrap', h('div.nb-rmx', { style: { '--n': String(cols.length) } },
     h('div.nb-mx-c.hd.lb', 'Iniziativa'),
     cols.map(i => h('a.nb-mx-c.hd', { href: `#/crm/business/${i.id}/analisi` }, h('div.nb-mx-nm', i.name), h('div.nb-who.nb-small', av(i.owner_name), i.owner_name || '—'), lightPill(i.light.color, LIGHT[i.light.color]))),
     rows.map(([label, f]) => [h('div.nb-mx-c.lb', label), cols.map(i => h('div.nb-mx-c', f(i)))])));
@@ -236,7 +236,7 @@ async function riepilogoView(container, crmData) {
     h('div.nb-row-sb', h('span.nb-small.muted', `${n + 1} di ${cols.length}`), lightPill(i.light.color, LIGHT[i.light.color])),
     h('div.nb-t16', i.name), h('div.nb-small.muted', lightWhy(i)),
     h('div.nb-rp-kv', [['Fase', phaseName(i)], ['Requisiti', `${i.gaps.ok}/${i.gaps.total}`], ['Clienti', `${i.funnel.contattati}/${i.funnel.individuati}`],
-      ['Spesa', eur(i.spent)], ['Gare', i.outcomes.won + i.outcomes.lost ? `${i.outcomes.won} vinte · ${i.outcomes.lost} perse` : '—'], ['Mercato', i.market ? `${i.market.gare} gare` : '—']]
+      ['Spesa', eur(i.spent)], ['Gare', i.outcomes.won + i.outcomes.lost ? `${i.outcomes.won} ${i.outcomes.won === 1 ? 'vinta' : 'vinte'} · ${i.outcomes.lost} ${i.outcomes.lost === 1 ? 'persa' : 'perse'}` : '—'], ['Mercato', i.market ? `${i.market.gare} gare` : '—']]
       .map(([k, v]) => h('div', h('small', k), h('b', v)))))));
 
   const ab = d.abandoned.length ? h('div.nb-ab', ic('clock', 16), h('span', h('b', 'Abbandonate: '),
@@ -280,7 +280,7 @@ function riepilogoPrint(d, stamp) {
         row('Mercato', i => (i.market ? `${i.market.gare} gare` : '—')),
         row('Ultima attività', i => (i.lastActivity ? dm(i.lastActivity) : '—')))),
     h('div.nb-lbl', 'Note della riunione'), h('div.nb-pr-notes'),
-    h('div.nb-small.muted.nb-pr-foot', 'Generato da Alma Planet · Nuovi business · Riepilogo',
+    h('div.nb-small.muted.nb-pr-foot', 'Generato da Alma Space · Nuovi business · Riepilogo',
       d.abandoned.length ? ` · Abbandonate: ${d.abandoned.map(a => `${a.name}${a.abandoned_on ? ` (${dm(a.abandoned_on)})` : ''}`).join(', ')}` : ''));
 }
 

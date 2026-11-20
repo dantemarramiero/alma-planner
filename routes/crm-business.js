@@ -254,7 +254,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
       return {
         id: i.id, name: i.name, description: i.description, phase: i.phase, owner_id: i.owner_id, owner_name: i.owner_name, sponsor_name: i.sponsor_name,
         budget: Number(i.budget_eur), spent: st.spent, gaps: st.gaps, funnel: st.funnel, light: st.light, gate, lateTasks: st.lateTasks,
-        lastActivity: st.lastActivity, outcomes: { won: o.won, lost: o.lost }, market: market && market.kpi ? { gare: market.kpi.gare, ribasso: market.kpi.ribasso, valore: market.kpi.valore } : null,
+        lastActivity: st.lastActivity, outcomes: { won: o.won, lost: o.lost }, market: market && market.kpi && market.kpi.gare ? { gare: market.kpi.gare, ribasso: market.kpi.ribasso, valore: market.kpi.valore } : null,
         canDecide: req.crm.admin || i.sponsor_id === req.user.id,
       };
     }));
