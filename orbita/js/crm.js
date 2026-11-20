@@ -738,6 +738,56 @@ function linkedToCard(kind, id) {
   }).catch(() => box.remove());
   return box;
 }
+// ── Anagrafica del contatto come quella dell'azienda (canvas v9 «Anagrafica»: «il contatto ha la stessa carta») ─────
+// Lavoro (azienda, qualifica, sede di lavoro), recapiti (email, cellulare, telefono, LinkedIn), altro (lingua, owner,
+// privacy). I vuoti sono «+ Aggiungi»; in testa l'anello «scheda completa».
+const CONTACT_KEYS = [['email', 'email'], ['mobile', 'cellulare'], ['job', 'qualifica'], ['company', 'azienda'], ['linkedin', 'LinkedIn'], ['language', 'lingua']];
+function contactCompleteness(c, primary) {
+  const has = { email: c.email, mobile: c.mobile || c.phone, job: primary?.job, company: primary, linkedin: c.linkedin, language: c.language };
+  const missing = CONTACT_KEYS.filter(([k]) => !has[k]).map(([, l]) => l);
+  return { pct: Math.round(100 * (CONTACT_KEYS.length - missing.length) / CONTACT_KEYS.length), missing };
+}
+function contactRing(c, primary) {
+  const { pct, missing } = contactCompleteness(c, primary);
+  const el = h('div.an-ring', { title: missing.length ? `Mancano: ${missing.join(', ')}` : 'Scheda completa' });
+  const C = 2 * Math.PI * 26;
+  el.innerHTML = `<svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="26" fill="none" stroke="var(--cv-ring)" stroke-width="7"/><circle cx="32" cy="32" r="26" fill="none" stroke="${pct === 100 ? '#1B7A45' : '#FF8A26'}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 32 32)"/></svg>`;
+  el.append(h('b', `${pct}%`), h('small', missing.length ? `mancano ${missing.slice(0, 2).join(', ')}${missing.length > 2 ? '…' : ''}` : 'scheda completa'));
+  return el;
+}
+function contactSections(c, primary, refresh) {
+  const edit = () => contactForm({ contact: c, onSaved: () => refresh() });
+  const val = v => (v ? h('span.an-val', h('b', v)) : h('button.an-add', { type: 'button', on: { click: edit } }, '+ Aggiungi'));
+  const ext = (url, text) => h('a', { href: /^https?:/i.test(url) ? url : `https://${url}`, target: '_blank', rel: 'noopener' }, text);
+  const dl = rows => h('div.an-dl', rows.filter(Boolean).map(([label, v]) => h('div', h('span', label), val(v))));
+  const sec = (icn, ttl, rows, extra) => h('section.an-sec', h('div.an-sec-h', h('span.an-ic', ic(icn, 15)), h('b', ttl)), dl(rows), extra || null);
+  const work = h('span.an-val', h('b', '…'));
+  const workRow = primary ? h('div', h('span', 'Sede di lavoro'), work) : null;
+  if (primary) get(`/api/crm/subjects/${primary.subject_id}`, { quiet: true }).then(s => {
+    const addr = [s.address, [s.zip, s.city].filter(Boolean).join(' '), s.province && `(${s.province})`].filter(Boolean).join(', ');
+    fill(work, addr ? h('b', addr) : h('a.an-add', { href: `#/crm/scheda/${s.id}`, title: 'L’indirizzo è quello dell’azienda: completalo nella sua scheda' }, '+ Aggiungi nell’azienda'));
+  }).catch(() => fill(work, h('b', '—')));
+  const workSec = sec('briefcase', 'Lavoro', [
+    ['Azienda', primary ? h('a', { href: `#/crm/scheda/${primary.subject_id}` }, primary.name) : ''],
+    ['Qualifica', primary?.job || ''],
+  ]);
+  if (workRow) workSec.querySelector('.an-dl').append(workRow);
+  return h('div.an-wrap', h('div.an-grid.c3',
+    workSec,
+    sec('phone', 'Recapiti', [
+      ['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : ''],
+      ['Cellulare', c.mobile ? h('a', { href: `tel:${c.mobile}` }, c.mobile) : ''],
+      ['Telefono', c.phone ? h('a', { href: `tel:${c.phone}` }, c.phone) : ''],
+      ['LinkedIn', c.linkedin ? ext(c.linkedin, 'profilo') : ''],
+    ]),
+    sec('user', 'Altro', [
+      ['Lingua', c.language || ''],
+      ['Owner', c.owner_name || ''],
+      ['Privacy', `${data.meta.legalBasis[c.legal_basis] || ''}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`],
+      c.status !== 'attivo' ? ['Stato', data.meta.contactStatus[c.status]] : null,
+    ], c.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap', margin: 0 } }, c.notes) : null)));
+}
+
 const initialsOf = name => String(name).replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(w => w.length > 1 || /\p{Lu}/u.test(w)).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 function placeholderTab(tab, s) {
@@ -1166,22 +1216,17 @@ async function contactPage(container, id, tabKey) {
         c.linkedin ? h('a.btn', { href: /^https?:/i.test(c.linkedin) ? c.linkedin : `https://${c.linkedin}`, target: '_blank', rel: 'noopener' }, ic('linkedin', 15), h('span.cv-hide-m', 'Apri su LinkedIn'))
           : h('button.btn.an-websearch', { type: 'button', on: { click: () => linkedinDialog(c, () => refresh()) } }, ic('sparkles', 15), h('span.cv-hide-m', 'Trova su LinkedIn')),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => go('note') } }, ic('file-text', 15), 'Nuova nota'),
-        menu))),
+        menu),
+      contactRing(c, primary))),
     cvTabs(tabs, tab, go),
     body));
   if (tab === 'email') return emailsTab(body, base, {});
   if (tab === 'incontri') return meetingsTab(body, base, { people: [{ name: personName(c), email: c.email, preset: true }], label: 'questo contatto' });
   if (tab === 'note') return notesTab(body, base, {});
   if (tab === 'progetti') return projectsTab(body, base, { newName: personName(c) });
-  const kv = pairs => h('dl.cv-kv', pairs.filter(p => p[1]).flatMap(([k, val]) => [h('dt', k), h('dd', val)]));
-  fill(body, h('div.cv-cols.w420',
+  fill(body, contactSections(c, primary, refresh), h('div.cv-cols.w420',
     h('div.cv-stack', await timelineCard(base, { onOpenTab: go })),
     h('div.cv-stack',
-      h('section.cv-card.pad', h('div.cv-lbl', 'Persona'),
-        kv([['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : ''], ['Cellulare', c.mobile ? h('a', { href: `tel:${c.mobile}` }, c.mobile) : ''], ['Telefono', c.phone],
-          ['LinkedIn', c.linkedin ? h('a', { href: /^https?:/i.test(c.linkedin) ? c.linkedin : `https://${c.linkedin}`, target: '_blank', rel: 'noopener' }, 'profilo') : ''], ['Lingua', c.language], ['Owner', c.owner_name], ['Privacy', `${data.meta.legalBasis[c.legal_basis]}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`]]),
-        c.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, c.notes) : null,
-        link('Modifica', { on: { click: () => contactForm({ contact: c, onSaved: () => refresh() }) } })),
       linkedToCard('contacts', c.id),
       h('section.cv-card.pad', workHistory(c.links)))));
 }

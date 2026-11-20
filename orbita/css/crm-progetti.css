@@ -547,3 +547,7 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .tp-badge { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 600; color: #1B7A45; background: #E8F5EC; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 :root[data-theme="dark"] .tp-box { background: var(--cv-or-t); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tp-box { background: var(--cv-or-t); } }
+/* anagrafica del contatto: tre sezioni affiancate (lavoro · recapiti · altro) */
+.an-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.an-grid.c3 .an-dl { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1100px) { .an-grid.c3 { grid-template-columns: minmax(0, 1fr); } .an-grid.c3 .an-dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
