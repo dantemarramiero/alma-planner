@@ -6,6 +6,7 @@ import { h, fill, toast, loading, confirmDialog, fmtDate, fmtDateTime, timeAgo, 
 import { get, post, put, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { ic, pill, av, pageTop, title, card, emptyState, seg, cvModal, link } from './crm-v2.js';
+import { renderOrganigramma } from './org-incarichi.js';
 
 const SECTIONS = [
   ['panoramica', 'Panoramica', 'tutto in un colpo d\'occhio', 'layout-dashboard'],
@@ -61,7 +62,7 @@ async function panoramica(body, { go }) {
   fill(body,
     head('amministratori', '', 'Impostazioni', 'Valgono per tutto il software: Planet, Project, CRM, Mezzi, Energy, IT e Alma. Le impostazioni proprie di un modulo sono sotto «Moduli».'),
     h('div.imp-grid',
-      tile('organigramma', 'network', 'Organigramma e ruoli', `Da Microsoft Entra${org ? `: ${org.people} persone` : ''}, responsabili e reparti. I ruoli di Alma Planet si legano alle qualifiche.`,
+      tile('organigramma', 'network', 'Organigramma e ruoli', `Incarichi, livelli e aree come in BOSS; le persone${org ? ` (${org.people})` : ''} da Microsoft Entra. I ruoli di Alma Space si legano a qualifiche e reparti.`,
         org ? `Aggiornato ${timeAgo(org.synced_at)}` : 'Mai letto da Microsoft', org ? 'gr' : 'am'),
       tile('utenti', 'users', 'Utenti', 'Chi è entrato in Alma Planet, quando, con quale ruolo. Chi non è ancora entrato si invita da qui.',
         `${p.users.entered} entrati · ${p.users.never} non ancora`),
@@ -78,9 +79,14 @@ async function panoramica(body, { go }) {
 }
 
 // ── Organigramma e ruoli ───────────────────────────────────────────────────────────────────────
-async function organigramma(body) {
+// Organigramma a incarichi (js/org-incarichi.js, come BOSS); la scheda «Ruoli e Microsoft Entra» è ruoliEntra qui sotto.
+async function organigramma(body, { parts } = {}) {
+  await renderOrganigramma(body, { parts, ruoli: el => ruoliEntra(el) });
+}
+
+async function ruoliEntra(body) {
   const o = await get('/api/impostazioni/organigramma');
-  const reload = () => organigramma(body);
+  const reload = () => ruoliEntra(body);
   const syncBtn = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
     syncBtn.disabled = true;
     try {
@@ -96,8 +102,9 @@ async function organigramma(body) {
     n.children?.length ? h('div.imp-branch', n.children.map(c => node(c, depth + 1))) : null);
   const roleLabel = k => o.roles.find(r => r.key === k)?.label || k;
   fill(body,
-    head('organigramma', '', 'Organigramma', 'L\'organigramma viene da Microsoft Entra: responsabile, reparto e qualifica si cambiano lì. Qui si decide quale ruolo di Alma Planet ha ognuno.',
-      [h('a.btn', { href: 'https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserManagementMenuBlade/~/AllUsers', target: '_blank', rel: 'noopener' }, ic('external', 15), 'Apri in Entra'), syncBtn]),
+    h('div.cv-row', { style: { flexWrap: 'wrap', justifyContent: 'space-between', gap: '12px' } },
+      h('p.cv-small.cv-muted', { style: { margin: 0, maxWidth: '640px' } }, 'Le persone, le qualifiche e i reparti arrivano da Microsoft Entra ogni notte. Qui si decide anche quale ruolo di Alma Space ha ognuno (amministratori compresi).'),
+      h('div.cv-row', h('a.btn', { href: 'https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserManagementMenuBlade/~/AllUsers', target: '_blank', rel: 'noopener' }, ic('external', 15), 'Apri in Entra'), syncBtn)),
     h('section.cv-card.pad.imp-facts',
       h('div.cv-row', { style: { gap: '10px' } }, pill(s ? 'Collegato' : 'Mai letto', s ? 'gr' : 'am'), h('span.cv-small.cv-muted', 'Microsoft Entra')),
       fact('Ultimo aggiornamento', s ? `${fmtDateTime(s.synced_at)}${s.synced_by_name ? ` · ${s.synced_by_name}` : ''}` : '—', h('span.cv-small.cv-muted', ' · ogni notte alle 3')),
@@ -107,9 +114,6 @@ async function organigramma(body) {
         title: 'Senza responsabile in Entra', body: h('div.imp-list', o.without_manager.map(p => h('div.cv-row', av(p.name), h('div', h('b', p.name), h('div.cv-small.cv-muted', p.job_title || p.email))))),
         actions: [{ label: 'Chiudi' }] }) } }) : null)),
     h('div.imp-two',
-      card({ title: 'Organigramma', icon: 'network', right: h('span.cv-small.cv-muted', 'sola lettura') },
-        h('div.imp-tree', o.tree.length ? o.tree.map(t => node(t)) : emptyState('network', 'Ancora nessun organigramma: premi «Aggiorna ora».')),
-        h('div.cv-cardfoot', h('a.cv-lnk', { href: '#/org' }, 'Apri l\'organigramma completo in Persone'))),
       card({ title: 'Ruoli di Alma Planet', icon: 'key-round', right: h('button.btn.btn-sm', { type: 'button', on: { click: () => roleDialog(o, null, reload) } }, ic('plus', 14), 'Nuovo ruolo') },
         h('p.cv-small.cv-muted.imp-pad', 'Ogni persona ha il ruolo dato a mano oppure il primo, dall\'alto, la cui regola vale per lei. Gli amministratori non sono più una variabile del server.'),
         h('div.cv-tblwrap', h('table.cv-tbl',

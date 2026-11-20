@@ -58,6 +58,7 @@ const { registerAlerts } = require('./routes/alerts');
 const { registerAssistente } = require('./routes/assistente');
 const { createGovernance } = require('./lib/impostazioni');
 const { registerImpostazioni, startOrgNightly } = require('./routes/impostazioni');
+const { registerOrganigramma } = require('./routes/organigramma');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -248,6 +249,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
+  registerOrganigramma(app, deps); // organigramma a incarichi, come BOSS (Impostazioni → Organigramma e ruoli)
   registerImpostazioni(app, deps); // Impostazioni uniche: organigramma e ruoli, utenti, costi AI, privacy, registro, integrazioni
   registerAudit(app, deps);
 
