@@ -11,6 +11,8 @@ const { HttpError, v } = require('../lib/http');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { scoreSignal, norm } = require('../lib/crm-radar');
 const B = require('../lib/crm-business');
+const { prefsFor } = require('../lib/alerts'); // preferenze per canale degli avvisi (Profilo → Notifiche)
+const { graph } = require('../lib/graph');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni'); // forza dei rapporti (win ratio, 16/11)
 const { stats: outcomeStats } = require('../lib/crm-esiti');
 const { registerCrmBusinessMercato } = require('./crm-business-mercato'); // mappa del mercato (20/11)
@@ -38,7 +40,7 @@ const strList = (value, field, max = 40) => {
   return [...new Set(value.map(x => String(x ?? '').trim().slice(0, 120)).filter(Boolean))].slice(0, max);
 };
 
-function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }) {
+function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], auth, push, baseUrl }) {
   const aiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
   const fetchImpl = () => radarFetch || fetch;
 
@@ -807,22 +809,56 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
   // - passo scaduto e non fatto → chi lo fa (una volta: tasks.alerted_at).
   // Rimandare un gate o cambiarne la data rimette a zero i suoi avvisi.
   const itDay = d => d.split('-').reverse().slice(0, 2).join('/');
+  const esc = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  async function mailSelf(userId, name, text, link) {
+    if (!auth?.graphToken) return false;
+    let token;
+    try { token = await auth.graphToken(userId); } catch { return false; } // casella non disponibile: si salta
+    const { rows: [to] } = await db.query("SELECT name, email FROM users WHERE id = $1 AND email <> ''", [userId]);
+    if (!to) return false;
+    const url = `${baseUrl || ''}/app#${link}`;
+    const html = `<div style="font-family:Segoe UI,Roboto,Arial,sans-serif;color:#3F3F3F;font-size:15px;line-height:1.5;max-width:560px">
+<img src="${baseUrl || ''}/brand/almacis/almacis-logo.png" alt="Almacis" style="height:34px;margin-bottom:16px">
+<p>Ciao ${esc(String(to.name || '').split(' ')[0])},</p>
+<p>${esc(text)}</p>
+<p><a href="${url}" style="display:inline-block;background:#B54E0A;color:#FFFFFF;text-decoration:none;border-radius:12px;padding:10px 16px;font-weight:600">Apri l'iniziativa</a></p>
+<p style="color:#6B6B6B;font-size:12px">Non vuoi più queste email? Cambia le tue notifiche in Alma Space → Profilo → Notifiche.</p>
+</div>`;
+    try {
+      await graph(token, 'POST', '/me/sendMail', { body: {
+        message: { subject: `Alma Space · Nuovi business · ${name}`, body: { contentType: 'HTML', content: html }, toRecipients: [{ emailAddress: { address: to.email, name: to.name } }] },
+        saveToSentItems: false,
+      } });
+      return true;
+    } catch (err) {
+      console.warn(`[nuovi business] email a ${to.email} non inviata (${err.message})`);
+      return false;
+    }
+  }
   async function alertTick({ today = todayRome() } = {}) {
     if (!notifier) return { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
     const out = { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
-    // al massimo un avviso al giorno per iniziativa e persona (canvas NB-Avvisi): gli avvisi della stessa iniziativa
-    // si raccolgono e a fine iniziativa partono uniti in una sola notifica
-    let pending = new Map(); // userId → [{ body, link }]
-    const send = async (ids, body, link) => {
+    // al massimo un avviso al giorno per iniziativa e persona (canvas NB-Avvisi): gli avvisi della stessa iniziativa si
+    // raccolgono e a fine iniziativa partono uniti, un messaggio per canale (campanella, telefono, email) secondo le
+    // preferenze di ognuno in Profilo → Notifiche (lib/alerts.js, tipi nb_*). La campanella usa il tipo 'crm' perché
+    // le notifiche di Alma Space hanno un elenco chiuso di tipi.
+    let pending = new Map(); // userId → [{ kind, body, link }]
+    const send = async (ids, kind, body, link) => {
       const userIds = [...new Set(ids.filter(Boolean))];
-      for (const u of userIds) { if (!pending.has(u)) pending.set(u, []); pending.get(u).push({ body, link }); }
+      for (const u of userIds) { if (!pending.has(u)) pending.set(u, []); pending.get(u).push({ kind, body, link }); }
       return userIds.length > 0;
     };
-    const flush = async name => {
+    const merged = (name, msgs) => (msgs.length === 1 ? msgs[0].body
+      : `${msgs.length} avvisi su «${name}»: ${msgs.map(m => m.body.replace(/\.$/, '')).join(' · ')}.`);
+    const flush = async (name, initiativeId) => {
       for (const [u, msgs] of pending) {
-        const body = msgs.length === 1 ? msgs[0].body
-          : `${msgs.length} avvisi su «${name}»: ${msgs.map(m => m.body.replace(/.$/, '')).join(' · ')}.`;
-        await notifier.notify({ userIds: [u], actorId: null, kind: 'crm', body, link: msgs[0].link }).catch(err => console.warn('[nuovi business] avviso', err.message));
+        const prefs = new Map();
+        for (const kind of new Set(msgs.map(m => m.kind))) prefs.set(kind, (await prefsFor(db, [u], kind))[0]);
+        const by = ch => msgs.filter(m => prefs.get(m.kind)?.[ch]);
+        const bell = by('bell'), tel = by('push'), mail = by('email');
+        if (bell.length) await notifier.notify({ userIds: [u], actorId: null, kind: 'crm', body: merged(name, bell), link: bell[0].link }).catch(err => console.warn('[nuovi business] avviso', err.message));
+        if (tel.length && push) await push.send([u], { title: `Nuovi business · ${name}`, body: merged(name, tel), url: `/app#${tel[0].link}`, tag: `nb-${initiativeId}` }).catch(() => 0);
+        if (mail.length) await mailSelf(u, name, merged(name, mail), mail[0].link);
       }
       pending = new Map();
     };
@@ -836,10 +872,10 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
       if (g) {
         const due = dayOf(g.due_date);
         if (due < today && !g.overdue_alerted_at) {
-          if (await send([...people, ...admins.map(a => a.id)], `Il gate G${g.n} di «${i.name}» è scaduto il ${itDay(due)}: va deciso dalla direzione (Prosegui, Rimanda o Abbandona).`, `/crm/business/${i.id}/piano`)) out.overdue++;
+          if (await send([...people, ...admins.map(a => a.id)], 'nb_gate_late', `Il gate G${g.n} di «${i.name}» è scaduto il ${itDay(due)}: va deciso dalla direzione (Prosegui, Rimanda o Abbandona).`, `/crm/business/${i.id}/piano`)) out.overdue++;
           await db.query('UPDATE crm_initiative_gates SET overdue_alerted_at = now(), alerted_at = COALESCE(alerted_at, now()) WHERE id = $1', [g.id]);
         } else if (due >= today && due <= addDays(today, 3) && !g.alerted_at) {
-          if (await send(people, `Il gate G${g.n} di «${i.name}» scade il ${itDay(due)}: va deciso dalla direzione.`, `/crm/business/${i.id}/piano`)) out.gates++;
+          if (await send(people, 'nb_gate_due', `Il gate G${g.n} di «${i.name}» scade il ${itDay(due)}: va deciso dalla direzione.`, `/crm/business/${i.id}/piano`)) out.gates++;
           await db.query('UPDATE crm_initiative_gates SET alerted_at = now() WHERE id = $1', [g.id]);
         }
       }
@@ -847,17 +883,17 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }
       const last = await lastActivity(i);
       const quietSince = last && i.quiet_alerted_at ? dayOf(new Date(i.quiet_alerted_at).toISOString()) : null;
       if (last && last <= addDays(today, -21) && (!quietSince || quietSince < last)) {
-        if (await send(people, `«${i.name}» è ferma da 3 settimane: nessuna attività dal ${itDay(last)}. Fissa un passo o aggiorna lo stato.`, `/crm/business/${i.id}/analisi`)) out.quiet++;
+        if (await send(people, 'nb_quiet', `«${i.name}» è ferma da 3 settimane: nessuna attività dal ${itDay(last)}. Fissa un passo o aggiorna lo stato.`, `/crm/business/${i.id}/analisi`)) out.quiet++;
         await db.query('UPDATE crm_initiatives SET quiet_alerted_at = now() WHERE id = $1', [i.id]);
       }
       // passi scaduti: a chi li fa
       const { rows: late } = await db.query(
         `SELECT id, title, owner_id, due_date FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL AND due_date < $2 AND alerted_at IS NULL`, [i.id, today]);
       for (const t of late) {
-        if (await send([t.owner_id], `Il passo «${t.title}» di «${i.name}» è scaduto il ${itDay(dayOf(t.due_date))}.`, `/crm/business/${i.id}/piano`)) out.tasks++;
+        if (await send([t.owner_id], 'nb_task_late', `Il passo «${t.title}» di «${i.name}» è scaduto il ${itDay(dayOf(t.due_date))}.`, `/crm/business/${i.id}/piano`)) out.tasks++;
         await db.query('UPDATE crm_initiative_tasks SET alerted_at = now() WHERE id = $1', [t.id]);
       }
-      await flush(i.name);
+      await flush(i.name, i.id);
     }
     return out;
   }

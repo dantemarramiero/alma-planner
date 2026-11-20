@@ -60,7 +60,7 @@ test("file dell'app: manifest con il logo Almacis e service worker", async () =>
 
 test('preferenze: valori di partenza (email dei post spenta), si cambiano e restano', async () => {
   const p = (await ANNA('GET', '/api/notifiche/preferenze')).body;
-  assert.deepEqual(p.kinds.map(k => [k.kind, k.bell, k.push, k.email]),
+  assert.deepEqual(p.kinds.map(k => [k.kind, k.bell, k.push, k.email]).slice(0, 3), // dopo vengono i 4 di Nuovi business
     [['new_post', true, true, false], ['ticket_assigned', true, true, true], ['a3_update', true, true, true]]);
   assert.equal((await ANNA('PUT', '/api/notifiche/preferenze', { kinds: [{ kind: 'new_post', bell: false, push: true, email: false }] })).status, 200);
   assert.equal((await ANNA('GET', '/api/notifiche/preferenze')).body.kinds[0].bell, false);

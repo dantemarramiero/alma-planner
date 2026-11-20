@@ -366,3 +366,22 @@ test('riepilogo per la direzione e un solo avviso al giorno per iniziativa', asy
   assert.match(rows[0].body, /2 avvisi su «Riepilogo di prova»/);
   assert.match(rows[0].body, /Chiamare il distributore/);
 });
+
+test('avvisi: le preferenze di Profilo → Notifiche valgono per canale (tipi nb_*)', async () => {
+  const recchia = await meId(E);
+  const p = (await E('GET', '/api/notifiche/preferenze')).body.kinds;
+  const late = p.find(k => k.kind === 'nb_gate_late');
+  assert.deepEqual([late.bell, late.push, late.email], [true, true, true]); // email accesa solo per il gate scaduto
+  assert.equal(p.find(k => k.kind === 'nb_task_late').email, false);
+  // Recchia spegne la campanella dei passi scaduti
+  assert.equal((await E('PUT', '/api/notifiche/preferenze', { kinds: [{ kind: 'nb_task_late', bell: false, push: true, email: false }] })).status, 200);
+  const c = await D('POST', '/api/crm/business', { name: 'Preferenze di prova', owner_id: recchia, g0_due: plus(-2) });
+  const id = c.body.id;
+  await D('PATCH', `/api/crm/business/${id}/gates/0`, { due_date: plus(-2) });
+  await E('POST', `/api/crm/business/${id}/tasks`, { title: 'Passo senza campanella', due_date: plus(-1) });
+  await app.locals.crmBusinessAlerts({ today: today() });
+  const { rows } = await db.query("SELECT body FROM notifications WHERE user_id = $1 AND body LIKE '%Preferenze di prova%'", [recchia]);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].body, /è scaduto il/);
+  assert.doesNotMatch(rows[0].body, /Passo senza campanella/);
+});
