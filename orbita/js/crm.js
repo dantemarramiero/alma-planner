@@ -4,6 +4,7 @@
 // Su ogni azienda e contatto email, incontri, note e progetti come negli A3 (crm-tabs.js); quello del contatto
 // ricade sull'azienda. Il lead diventa cliente da solo alla prima commessa in BOSS; opportunità in BOSS, qualifiche
 // dei fornitori in Vittoria. Ovunque abbia senso i campi sono elenchi da cui scegliere (Dante 13/11).
+import { bigliettiTab } from './biglietti.js';
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
@@ -133,6 +134,7 @@ export async function crmView(container, parts = []) {
   if (parts[1] === 'progetti') return mieiProgetti(container);
   if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
+  if (parts[1] === 'contatti' && parts[2] === 'biglietti') { const body = h('div.cv'); fill(container, body); return bigliettiTab(body); } // biglietti da visita (canvas v10)
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'incontro' && Number(parts[2])) { // dalla notifica «mancano le note»
     openCrmMeeting(Number(parts[2]));
@@ -1002,9 +1004,16 @@ async function contactsTab(box, again) {
   const sub = h('p.cv-sub');
   const pills = h('div.cv-row.cv-wrap', { style: { gap: '8px' } });
   let all = [];
+  // «Tutti i contatti» · «Biglietti da visita» (canvas v10); il numero = contatti lasciati dal mio QR da confermare
+  const contactsTabs = h('div');
+  const drawContactsTabs = n => fill(contactsTabs, cvTabs([['tutti', 'Tutti i contatti'], ['biglietti', 'Biglietti da visita', n || null]], 'tutti',
+    k => { if (k === 'biglietti') location.hash = '#/crm/contatti/biglietti'; }));
+  drawContactsTabs(0);
+  get('/api/biglietto', { quiet: true }).then(r => drawContactsTabs(r?.leads_new)).catch(() => {});
   fill(box,
     pageTop({ eyebrow: 'Alma CRM · persone', heading: title('', 'Contatti'), sub,
       actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, ic('plus', 15), 'Nuovo contatto')] }),
+    contactsTabs,
     h('div.cv-filters', filterRow(state, () => load(), { search: 'Cerca per nome, email o azienda', fn: false, again }), pills),
     h('div.cv-cols.w420', h('div', list), side));
   const showMore = h('div');

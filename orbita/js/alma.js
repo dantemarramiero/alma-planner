@@ -250,7 +250,8 @@ function chartEl(c, opts = {}) {
 
 // ── la chat (pagina e pannello usano la stessa) ────────────────────────────────────────────────────
 // opts: { compact, context(): { route, label } | null, onConversation(id, title), suggestions() }
-function createChat(opts = {}) {
+// opts.welcome(azioni): benvenuto su misura (es. Contatti → Biglietti da visita); opts.drop: si possono trascinare le foto
+export function createChat(opts = {}) {
   let convId = null;
   let busy = null; // AbortController della risposta in corso
   let lastQuestion = '';
@@ -329,6 +330,11 @@ function createChat(opts = {}) {
   drawPhotos();
   const composer = h('div.al-composer', photoRow, input, h('div.al-row', camBtn, clipBtn, micBtn, liveBtn, micTime, hint, sendBtn), pickFile, takePhoto);
   const el = h('div.al-chat', { class: opts.compact ? 'compact' : '' }, scroller, composer);
+  if (opts.drop) {
+    el.addEventListener('dragover', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); el.classList.add('drag'); } });
+    el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) el.classList.remove('drag'); });
+    el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drag'); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
+  }
   const scrollDown = () => { scroller.scrollTop = scroller.scrollHeight; };
   const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(160, input.scrollHeight)}px`; };
   input.addEventListener('input', grow);
@@ -342,6 +348,7 @@ function createChat(opts = {}) {
   };
 
   function welcome() {
+    if (opts.welcome) return fill(msgs, opts.welcome({ pick: () => pickFile.click(), shoot: () => takePhoto.click() }));
     const sugg = (opts.suggestions ? opts.suggestions() : null) || ['Quali ticket ho in ritardo?', 'Cosa ho questa settimana nel CRM?', 'Come stiamo andando con le gare negli ultimi 12 mesi?'];
     fill(msgs, h('div.al-welcome', ava(44), h('div.al-t5.al-big', 'Ciao, sono Alma'),
       h('p.al-muted', 'Rispondo con i dati di Alma Planet che vedi tu: ticket, progetti, ore delle RDA, CRM, radar, gare, persone e mezzi. Posso preparare ticket, note, passi e contatti: niente si salva senza la tua conferma.'),
@@ -649,7 +656,7 @@ function createChat(opts = {}) {
     }
     scrollDown();
   }
-  return { el, open, send, focus: () => input.focus(), get id() { return convId; }, get lastQuestion() { return lastQuestion; } };
+  return { el, open, send, addPhotos: addFiles, focus: () => input.focus(), get id() { return convId; }, get lastQuestion() { return lastQuestion; } };
 }
 
 // ── pagina #/alma/dashboard: i grafici tenuti, rifatti con i dati di oggi (canvas V5-Alma) ─────────────────
