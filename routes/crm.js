@@ -298,7 +298,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     const { rows } = await db.query(
       `SELECT s.id, s.name, s.short_name, s.kind, s.vat, s.city, s.province, s.roles, s.asa, s.status, s.lead_stage, s.priority, s.potential_value,
               s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.function_name, s.updated_at, s.key_account,
-              s.lost_reason, s.retry_date, s.lead_why, s.created_quick, s.tax_code, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
+              s.lost_reason, s.retry_date, s.lead_why, s.created_quick, s.tax_code, s.phone, s.email, s.website, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
               (SELECT COUNT(*)::int FROM crm_contact_links l WHERE l.subject_id = s.id AND l.date_to IS NULL) AS contacts,
               (SELECT COUNT(*)::int FROM crm_meeting_links ml JOIN crm_meetings m ON m.id = ml.meeting_id
                  WHERE NOT ml.removed AND (ml.subject_id = s.id OR ml.contact_id IN (SELECT cl.contact_id FROM crm_contact_links cl WHERE cl.subject_id = s.id
@@ -697,7 +697,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
-  registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch }); // «Cerca su internet» nell'anagrafica
+  registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch, seeSql }); // «Cerca su internet» nell'anagrafica
   commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 

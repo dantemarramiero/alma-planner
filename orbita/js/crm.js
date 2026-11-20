@@ -190,53 +190,109 @@ function filterRow(state, load, { search = 'Cerca per nome, P.IVA o città', own
 // Design v2 (artboard «Lead»): barra della pipeline in alto, kanban solo con i lead vivi, gli altri (quasi tutti dal
 // caricamento di Zoho, mai lavorati) in «Da riordinare» con assegnazione o chiusura in blocco.
 const short = n => (n >= 1e6 ? `${(n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : n >= 1e3 ? `${Math.round(n / 1e3).toLocaleString('it-IT')}k €` : `${n} €`);
+// «Lead» (canvas v9 «La pagina Lead», approvato da Dante il 19/11/2026): testata scura con l'imbuto per fase e il valore,
+// gli avvisi di Alma (fermi da 90 giorni, senza prossimo passo, dove ci conoscono) e l'elenco con quanto ci conoscono,
+// il prossimo passo e chiama/scrivi a un tocco. Restano le colonne per fase e «Da riordinare».
 async function leadTab(box, mode, again) {
-  const state = { q: '', mode: ['elenco', 'riordina'].includes(mode) ? mode : 'colonne', owner: ownerDefault(), fn: '', prio: '' };
-  const pipe = h('div');
+  const state = { q: '', mode: ['colonne', 'riordina'].includes(mode) ? mode : 'elenco', owner: ownerDefault(), fn: '', prio: '', stage: '', page: 0 };
+  const hero = h('div');
+  const alerts = h('div');
   const content = h('div', loading());
-  const go = m => { state.mode = m; history.replaceState(null, '', `#/crm/lead${m === 'colonne' ? '' : `/${m}`}`); load(); };
+  const go = m => { state.mode = m; history.replaceState(null, '', `#/crm/lead${m === 'elenco' ? '' : `/${m}`}`); load(); };
   const prio = select([['', 'Priorità'], ...Object.entries(data.meta.priorities).map(([k, l]) => [k, `Priorità ${l.toLowerCase()}`])], '', { 'aria-label': 'Priorità',
-    on: { change: e => { state.prio = e.target.value; e.target.classList.toggle('on', Boolean(state.prio)); load(); } } });
+    on: { change: e => { state.prio = e.target.value; e.target.classList.toggle('on', Boolean(state.prio)); state.page = 0; load(); } } });
+  const stageSel = select([['', 'Fase: tutte'], ...data.meta.leadStages.filter(([k]) => k !== 'non_interessato').map(([k, l]) => [k, `Fase: ${l}`])], '', { 'aria-label': 'Fase',
+    on: { change: e => { state.stage = e.target.value; e.target.classList.toggle('on', Boolean(state.stage)); state.page = 0; load(); } } });
   const modes = h('div');
-  const sub = h('p.cv-sub');
-  fill(box,
-    pageTop({ eyebrow: 'Alma CRM', heading: title('', 'Lead'), sub,
-      actions: [data.admin ? h('a.btn', { href: '#/crm/impostazioni/zoho' }, ic('upload', 15), 'Importa') : null,
-        h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: ['lead'] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, ic('plus', 15), 'Nuovo lead')] }),
-    pipe,
-    filterRow(state, () => load(), { again, extra: [prio, modes] }),
-    content);
+  fill(box, hero, alerts, filterRow(state, () => { state.page = 0; load(); }, { again, extra: [stageSel, prio, modes] }), content);
   let all = [];
   async function load() {
     all = (await get(`/api/crm/subjects${qs({ role: 'lead', asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`)).subjects;
-    const shown = all.filter(s => !state.prio || s.priority === state.prio);
-    const live = shown.filter(s => s.live);
-    const dead = shown.filter(s => !s.live);
-    sub.textContent = `${shown.length.toLocaleString('it-IT')} lead · ${shown.filter(s => s.next_step).length.toLocaleString('it-IT')} con un prossimo passo`;
-    fill(modes, seg([['colonne', 'Colonne'], ['elenco', 'Elenco'], ['riordina', 'Da riordinare', dead.length]], state.mode, go, { label: 'Vista dei lead' }));
-    fill(pipe, pipeline(live, dead, () => go('riordina')));
+    const filtered = all.filter(s => (!state.prio || s.priority === state.prio));
+    const live = filtered.filter(s => s.live);
+    const dead = filtered.filter(s => !s.live);
+    const shown = live.filter(s => !state.stage || s.lead_stage === state.stage);
+    fill(hero, leadHero(live, dead));
+    fill(alerts, leadAlerts(live, dead, { onReorder: () => go('riordina'), onNoStep: () => { state.stage = ''; state.noStep = !state.noStep; state.page = 0; load(); }, noStep: state.noStep }));
+    fill(modes, seg([['elenco', 'Elenco'], ['colonne', 'Colonne'], ['riordina', 'Da riordinare', dead.length]], state.mode, go, { label: 'Vista dei lead' }));
     if (state.mode === 'riordina') return fill(content, reorderView(dead, load));
-    if (state.mode === 'elenco') return fill(content, subjectTable(live, 'lead', state.q || state.prio, state, load));
-    fill(content, h('div.cv-kan', data.meta.leadStages.map(([stage, label]) => leadColumn(stage, label, live.filter(s => s.lead_stage === stage), live, load))));
+    const list = state.noStep ? shown.filter(s => ['incontro', 'opportunita'].includes(s.lead_stage) && !s.next_step) : shown;
+    if (state.mode === 'elenco') return fill(content, leadList(list, state, load));
+    fill(content, h('div.cv-kan', data.meta.leadStages.map(([stage, label]) => leadColumn(stage, label, list.filter(s => s.lead_stage === stage), list, load))));
   }
   await load();
 }
 
-function pipeline(live, dead, onReorder) {
+function leadHero(live, dead) {
   const stages = data.meta.leadStages.filter(([k]) => k !== 'non_interessato');
-  const order = stages.map(([k]) => k);
   const n = k => live.filter(s => s.lead_stage === k).length;
   const value = k => live.filter(s => s.lead_stage === k).reduce((t, s) => t + (Number(s.potential_value) || 0), 0);
-  return h('section.cv-card.cv-pipe', { 'aria-label': 'Pipeline dei lead' },
-    stages.map(([k, l], i) => {
-      const later = order.slice(i + 1).reduce((t, x) => t + n(x), 0);
-      const pct = n(k) + later ? Math.round((100 * later) / (n(k) + later)) : 0;
-      return h('div', h('div.cv-lbl', l), h('div.cv-row', { style: { gap: '8px', marginTop: '4px' } }, h('span.cv-pipe-n', String(n(k))), value(k) ? h('span.cv-small.cv-muted', short(value(k))) : null),
-        h('div.cv-small.cv-muted', i < stages.length - 1 ? (n(k) + later ? `${pct}% passa alla fase dopo` : 'nessun lead') : 'si lavora in BOSS'));
-    }),
-    h('div', dead.length ? pill(`${dead.length.toLocaleString('it-IT')} da riordinare`, 'am') : pill('Niente da riordinare', 'gr'),
-      h('div.cv-small.cv-muted', 'senza passo e fermi da più di 90 giorni (quasi tutti da Zoho)'),
-      dead.length ? link(['Riordina', ic('chevron-right', 13)], { on: { click: onReorder } }) : null));
+  const withStep = live.filter(s => s.next_step_date && String(s.next_step_date).slice(0, 10) <= addDaysIso(7)).length;
+  return h('section.ld-hero',
+    h('div.ld-hero-top',
+      h('div.cv-grow', h('div.ld-kicker', 'Anagrafiche'), h('h1.ld-h1', 'Lead'),
+        h('p.ld-sub', `${live.length.toLocaleString('it-IT')} lead in corso · ${withStep} con un prossimo passo questa settimana${dead.length ? ` · ${dead.length.toLocaleString('it-IT')} da riordinare` : ''}`)),
+      h('div.ld-acts',
+        data.admin ? h('a.ld-ghost', { href: '#/crm/impostazioni/zoho' }, ic('download', 13), 'Importa') : null,
+        h('button.ld-ghost.pri', { type: 'button', on: { click: () => subjectForm({ preset: { roles: ['lead'] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, ic('plus', 13), 'Nuovo lead'))),
+    h('div.ld-funnel', stages.map(([k, l], i) => h('div.ld-step', { style: { '--a': String(0.25 + i * 0.18) } },
+      h('div.ld-bar', { class: i === 0 ? 'first' : i === stages.length - 1 ? 'last' : '' }, h('b', n(k).toLocaleString('it-IT'))),
+      h('span.ld-step-l', l), h('small', value(k) ? `${short(value(k))} di valore` : 'valore da stimare')))));
+}
+const addDaysIso = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }); };
+
+function leadAlerts(live, dead, { onReorder, onNoStep, noStep }) {
+  const noStepN = live.filter(s => ['incontro', 'opportunita'].includes(s.lead_stage) && !s.next_step).length;
+  const lateN = live.filter(s => s.next_step_date && late(s.next_step_date)).length;
+  const card = (icn, tone, t, s, onClick, on) => h(onClick ? 'button.ld-alert' : 'div.ld-alert', { type: onClick ? 'button' : undefined, class: `${tone} ${on ? 'on' : ''}`, on: onClick ? { click: onClick } : undefined },
+    h('span.ld-alert-ic', ic(icn, 17)), h('span.ld-alert-b', h('b', t), h('small', s)));
+  return h('div.ld-alerts',
+    card('alarm-clock', 'rd', `${dead.length.toLocaleString('it-IT')} lead fermi da 90 giorni`, dead.length ? 'Nessun passo, incontro o nota: richiamarli o chiuderli?' : 'Nessun lead fermo: bene così.', dead.length ? onReorder : null),
+    card('target', 'or', `${noStepN} senza prossimo passo`, noStep ? 'Mostro solo questi: tocca per tornare a tutti.' : 'Tra i lead con incontro fatto o opportunità aperta.', noStepN || noStep ? onNoStep : null, noStep),
+    card('clock', 'bl', `${lateN} passi in ritardo`, lateN ? 'Prossimi passi con la data già passata.' : 'Nessun passo in ritardo.', null));
+}
+
+function leadList(rows, state, reload) {
+  if (!rows.length) return h('section.cv-card', emptyState('target', asaChoice() || ownerDefault() || state.q ? 'Nessun lead con questi filtri.' : 'Ancora nessun lead.'));
+  const page = state.page || 0;
+  const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
+  const pages = Math.ceil(rows.length / PAGE);
+  const STAGE_TONE = { da_contattare: 'or', contattato: 'bl', incontro: 'gr', opportunita: 'op' };
+  const TINTS = ['#C25E0E', '#4B6B8A', '#5A6B7A', '#7A5A6B', '#6B7A5A', '#5A7A6B', '#7A6B5A'];
+  const tint = s => TINTS[[...String(s.name)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % TINTS.length];
+  const warmCells = new Map();
+  const body = h('div.ld-rows', shown.map(s => {
+    const warm = h('div.ld-warm', h('i', h('span', { style: { width: '0%' } })), h('small', '…'));
+    warmCells.set(s.id, warm);
+    const open = () => { location.hash = `#/crm/scheda/${s.id}`; };
+    return h('div.ld-row', { role: 'link', tabIndex: 0, on: { click: e => { if (!e.target.closest('a, button')) open(); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } } },
+      h('div.ld-name', h('span.ld-logo', { style: { background: tint(s) } }, initialsOf(s.short_name || s.name)),
+        h('div.cv-grow', h('div.ld-name-t', h('a', { href: `#/crm/scheda/${s.id}` }, s.name), todoBang(s), s.missing_notes ? bang() : null),
+          h('small', dots([data.meta.kinds[s.kind], s.asa[0] ? asaLabel(s.asa[0]) : null, s.city || (s.created_quick ? 'creata al volo' : null)]) || '—'))),
+      h('div.ld-c', h('span.ld-stage', { class: STAGE_TONE[s.lead_stage] || '' }, stageLabel(s.lead_stage))),
+      h('div.ld-c.ld-val', s.potential_value ? short(Number(s.potential_value)) : '—'),
+      h('div.ld-c', warm),
+      h('div.ld-c.ld-next', s.next_step ? [h('span', s.next_step), h('small', { class: late(s.next_step_date) ? 'late' : '' }, s.next_step_date ? (late(s.next_step_date) ? `in ritardo · ${day(s.next_step_date)}` : `entro ${day(s.next_step_date)}`) : '')]
+        : [h('span.cv-muted', 'Nessun passo'), h('small', 'da decidere')]),
+      h('div.ld-c.ld-acts2',
+        s.phone ? h('a.ld-ico', { href: `tel:${s.phone}`, 'aria-label': `Chiama ${s.name}`, title: s.phone }, ic('phone', 14)) : h('span.ld-ico.off', { title: 'Nessun telefono nella scheda' }, ic('phone', 14)),
+        s.email ? h('a.ld-ico', { href: `mailto:${s.email}`, 'aria-label': `Scrivi a ${s.name}`, title: s.email }, ic('mail', 14)) : h('span.ld-ico.off', { title: 'Nessuna email nella scheda' }, ic('mail', 14))));
+  }));
+  // quanto ci conoscono: si legge dopo, solo per le righe che si vedono
+  post('/api/crm/rapporti', { ids: shown.map(s => s.id) }).then(rel => {
+    for (const [id, cell] of warmCells) {
+      const r = rel[id];
+      const pct = r ? (r.level === 'forte' ? 85 : r.level === 'media' ? 55 : 25) : 6;
+      fill(cell, h('i', h('span', { class: r?.level || '', style: { width: `${pct}%` } })), h('small', r ? `${r.level}${r.why ? ` · ${r.why}` : ''}` : 'nessuno ci conosce'));
+    }
+  }).catch(() => { for (const cell of warmCells.values()) fill(cell, h('small', '—')); });
+  return h('section.ld-list',
+    h('div.ld-head', h('span', 'Lead'), h('span', 'Fase'), h('span', 'Valore'), h('span', 'Ci conoscono'), h('span', 'Prossimo passo'), h('span')),
+    body,
+    h('div.cv-tfoot', `Righe ${page * PAGE + 1}–${page * PAGE + shown.length} di ${rows.length.toLocaleString('it-IT')}`, h('span.cv-grow'),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => exportCsv(rows, 'lead') } }, ic('download', 14), 'Esporta'),
+      pages > 1 ? [h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina prima', disabled: page === 0 || undefined, on: { click: () => { state.page = page - 1; reload(); } } }, ic('chevron-left', 15)),
+        h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina dopo', disabled: page >= pages - 1 || undefined, on: { click: () => { state.page = page + 1; reload(); } } }, ic('chevron-right', 15))] : null));
 }
 
 const LEAD_COL_MAX = 30;

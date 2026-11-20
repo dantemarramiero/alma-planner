@@ -582,7 +582,7 @@ button.rk-stat { cursor: pointer; }
 button.rk-stat:hover { background: rgba(255,255,255,.12); }
 .rk-k { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.55); }
 .rk-stat b { font-size: 24px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rk-stat.or b { color: #FFB066; }
+.rk-stat.or b { color: #fff; }
 .rk-stat.gr b { color: #BFF0CF; }
 .rk-stat small { font-size: 11px; color: rgba(255,255,255,.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rk-favs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -634,10 +634,11 @@ button.rk-stat:hover { background: rgba(255,255,255,.12); }
 .rk-card { position: relative; display: grid; gap: 9px; padding: 12px 14px; border-radius: 16px; background: var(--cv-card); box-shadow: 0 1px 3px rgba(0,0,0,.05); cursor: pointer; min-width: 0; transition: box-shadow .15s, transform .15s; }
 .rk-card:hover { box-shadow: 0 6px 18px -8px rgba(28,24,20,.25); transform: translateY(-1px); }
 .rk-card:focus-visible { outline: none; box-shadow: var(--ap-focus); }
-.rk-card.hot { outline: 2px solid #FFD3AD; }
+.rk-card.hot { outline: 0; }
 .rk-card.off { opacity: .6; }
 .rk-card.drag { opacity: .45; }
-.rk-hot { position: absolute; top: -9px; right: 12px; font-size: 10.5px; font-weight: 600; background: #FF8A26; color: #fff; border-radius: 999px; padding: 2px 9px; }
+/* «nuova» (Dante 20/11: non arancione e più piccola): pillolina blu tenue dentro la scheda, accanto all'ente */
+.rk-hot { display: inline-block; vertical-align: 1px; margin-right: 6px; font-size: 10px; font-weight: 600; line-height: 15px; background: var(--cv-bl-t); color: var(--cv-bl); border-radius: 999px; padding: 0 6px; }
 .rk-card-top { display: flex; gap: 10px; align-items: flex-start; }
 .rk-ent-ic { width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; }
 .rk-card-tt { flex: 1; min-width: 0; display: grid; gap: 2px; }

@@ -5,9 +5,29 @@
 // - POST /api/crm/subjects/:id/da-web/conferma { key }: il dato è confermato (via il bollino).
 const { HttpError, v } = require('../lib/http');
 const { searchCompany, WEB_FIELDS } = require('../lib/crm-web');
+const { loadSettings } = require('../lib/crm-commerciale');
+const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 
-function registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch }) {
+function registerCrmWeb(app, { db, subjectById, subjectFields, allAsa, radarFetch, seeSql }) {
   const apiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
+
+  // quanto conosciamo le aziende che si vedono in una lista (pagina Lead): forza e chi ci porta, solo per le schede visibili
+  app.post('/api/crm/rapporti', async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 300);
+    if (!ids.length) return res.json({});
+    const params = [ids];
+    const { rows } = await db.query(`SELECT s.id FROM crm_subjects s WHERE s.id = ANY($1::int[]) AND ${seeSql(req, 's', params)}`, params);
+    const settings = await loadSettings(db);
+    const rel = await relationsFor(db, rows.map(r => r.id), settings.relazioni);
+    const out = {};
+    for (const r of rows) {
+      const x = rel[r.id];
+      if (!x || !x.level) continue;
+      const p = pathsOf(x)[0];
+      out[r.id] = { level: x.level, points: x.points, why: p ? `${p.us ? p.us.name.split(' ')[0] : ''}${p.us ? ' → ' : ''}${p.contact}` : (x.projects ? `${x.projects} ${x.projects === 1 ? 'progetto' : 'progetti'} insieme` : '') };
+    }
+    res.json(out);
+  });
 
   app.post('/api/crm/subjects/:id/cerca-web', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
