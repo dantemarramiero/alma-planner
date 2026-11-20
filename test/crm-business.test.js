@@ -5,7 +5,7 @@ const { createApp, readConfig } = require('../server');
 const { createDb } = require('../lib/db');
 const { trafficLight, parseAnswer } = require('../lib/crm-business');
 
-let server, base, db, D, E, F;
+let server, base, db, D, E, F, app;
 const calls = [];
 // OpenAI finto: la chat (input = array di messaggi) risponde con il JSON dell'assistente, il radar (input = testo) con notizie
 async function fakeOpenAI(url, opts) {
@@ -43,6 +43,7 @@ const meId = async who => { const b = (await who('GET', '/api/me')).body; return
 before(async () => {
   db = await createDb({});
   const out = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, crmFetchEvents: async () => [], radarFetch: fakeOpenAI });
+  app = out.app;
   server = out.app.listen(0);
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -297,4 +298,48 @@ test('mappa del mercato: categorie SOA del profilo, chi vince, chi compra, dove,
   // analisi e tab
   assert.equal((await E('GET', `/api/crm/business/${id}/analisi`)).body.market.kpi.gare, 3);
   assert.equal((await E('GET', `/api/crm/business/${id}`)).body.market_gare, 3);
+});
+
+test('avvisi: gate in scadenza e scaduto, iniziativa ferma, passo scaduto, una volta sola', async () => {
+  const recchia = await meId(E);
+  const dante = await meId(D);
+  const tick = app.locals.crmBusinessAlerts;
+  const c = await D('POST', '/api/crm/business', { name: 'Avvisi di prova', owner_id: recchia, g0_due: plus(2) });
+  assert.equal(c.status, 201, JSON.stringify(c.body));
+  const id = c.body.id;
+  await D('PATCH', `/api/crm/business/${id}/gates/0`, { due_date: plus(2) });
+  const t = await E('POST', `/api/crm/business/${id}/tasks`, { title: 'Telefonare al distributore', due_date: plus(-1) });
+  assert.equal(t.status, 201);
+  const ofThis = async re => (await db.query("SELECT count(*)::int AS n FROM notifications WHERE body LIKE '%Avvisi di prova%' AND body ~ $1", [re])).rows[0].n;
+  const mine = async uid => (await db.query(`SELECT body, link FROM notifications WHERE user_id = $1 AND body LIKE '%Avvisi di prova%' ORDER BY id`, [uid])).rows;
+
+  // oggi: gate fra 2 giorni (a responsabile e sponsor) + passo scaduto (a chi lo fa)
+  const r1 = await tick({ today: today() });
+  assert.ok(r1.gates >= 1 && r1.tasks >= 1);
+  assert.ok((await mine(recchia)).some(n => /scade il/.test(n.body) && n.link === `/crm/business/${id}/piano`));
+  assert.ok((await mine(dante)).some(n => /scade il/.test(n.body)));
+  assert.ok((await mine(recchia)).some(n => /Telefonare al distributore/.test(n.body)));
+  // una volta sola
+  const before = await ofThis('scade il|Telefonare');
+  await tick({ today: today() });
+  assert.equal(await ofThis('scade il|Telefonare'), before);
+  // fra 5 giorni: gate scaduto (anche alla direzione) e iniziativa ferma da 3 settimane fra 22 giorni
+  await tick({ today: plus(5) });
+  assert.equal(await ofThis('è scaduto il .*: va deciso'), 2); // responsabile + sponsor, che qui è anche la direzione (contata una volta)
+  assert.ok((await mine(dante)).some(n => /è scaduto il/.test(n.body)));
+  await tick({ today: plus(22) });
+  assert.ok((await mine(recchia)).some(n => /ferma da 3 settimane/.test(n.body)));
+  const q = await ofThis('ferma da 3 settimane');
+  await tick({ today: plus(23) });
+  assert.equal(await ofThis('ferma da 3 settimane'), q);
+  // rimandare il gate rimette a zero i suoi avvisi
+  await D('POST', `/api/crm/business/${id}/gates/0/decide`, { decision: 'rimanda', note: 'Serve un incontro', due_date: plus(30) });
+  const g = await ofThis('scade il');
+  await tick({ today: plus(29) });
+  assert.ok(await ofThis('scade il') > g);
+  // le iniziative abbandonate non mandano avvisi
+  await D('POST', `/api/crm/business/${id}/gates/0/decide`, { decision: 'abbandona', note: 'Non conviene' });
+  const all = await ofThis('.');
+  await tick({ today: plus(60) });
+  assert.equal(await ofThis('.'), all);
 });

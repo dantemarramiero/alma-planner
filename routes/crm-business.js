@@ -38,7 +38,7 @@ const strList = (value, field, max = 40) => {
   return [...new Set(value.map(x => String(x ?? '').trim().slice(0, 120)).filter(Boolean))].slice(0, max);
 };
 
-function registerCrmBusiness(app, { db, notifier, radarFetch }) {
+function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [] }) {
   const aiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
   const fetchImpl = () => radarFetch || fetch;
 
@@ -257,7 +257,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     const f = pick({ question: v.text(req.body.question, 'Domanda', { max: 300 }), due_date: req.body.due_date === undefined ? undefined : v.date(req.body.due_date, 'Data del gate') });
     if (!Object.keys(f).length) throw new HttpError(400, 'Niente da cambiare');
     const c = Object.keys(f);
-    const { rows: [g] } = await db.query(`UPDATE crm_initiative_gates SET ${c.map((k, x) => `${k} = $${x + 3}`).join(', ')}, alerted_at = NULL WHERE initiative_id = $1 AND n = $2 RETURNING *`, [i.id, n, ...Object.values(f)]);
+    const { rows: [g] } = await db.query(`UPDATE crm_initiative_gates SET ${c.map((k, x) => `${k} = $${x + 3}`).join(', ')}, alerted_at = NULL, overdue_alerted_at = NULL WHERE initiative_id = $1 AND n = $2 RETURNING *`, [i.id, n, ...Object.values(f)]);
     res.json(g);
   });
   app.post('/api/crm/business/:id/gates/:n/decide', async (req, res) => {
@@ -273,7 +273,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     if (decision === 'rimanda') {
       const due = v.date(req.body.due_date, 'Nuova data');
       if (!due) throw new HttpError(400, 'Scegli la nuova data del gate');
-      await db.query('UPDATE crm_initiative_gates SET due_date = $3, alerted_at = NULL WHERE initiative_id = $1 AND n = $2', [i.id, n, due]);
+      await db.query('UPDATE crm_initiative_gates SET due_date = $3, alerted_at = NULL, overdue_alerted_at = NULL WHERE initiative_id = $1 AND n = $2', [i.id, n, due]);
     } else {
       await db.query('UPDATE crm_initiative_gates SET decision = $3, decision_note = $4, decided_by = $5, decided_at = now() WHERE initiative_id = $1 AND n = $2', [i.id, n, decision, note, req.user.id]);
       const next = decision === 'abbandona' ? 'abbandonata' : B.PHASE_KEYS[Math.min(n + 1, 4)];
@@ -751,6 +751,72 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
   });
 
   registerCrmBusinessMercato(app, { db, notifier, byId, editable, iid, addTarget, aiKey, fetchImpl });
+
+  // ── avvisi (Dante 20/11/2026) ───────────────────────────────────────────────────────────────
+  // Una volta al giorno (alle 8, ora italiana), per le iniziative non abbandonate:
+  // - gate della fase in corso che scade entro 3 giorni → responsabile e sponsor (una volta: gates.alerted_at);
+  // - gate scaduto e non deciso → responsabile, sponsor e direzione (una volta: gates.overdue_alerted_at);
+  // - nessuna attività da 21 giorni → responsabile e sponsor (una volta per periodo fermo: initiatives.quiet_alerted_at,
+  //   torna a valere quando l'attività riprende);
+  // - passo scaduto e non fatto → chi lo fa (una volta: tasks.alerted_at).
+  // Rimandare un gate o cambiarne la data rimette a zero i suoi avvisi.
+  const itDay = d => d.split('-').reverse().slice(0, 2).join('/');
+  async function alertTick({ today = todayRome() } = {}) {
+    if (!notifier) return { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
+    const out = { gates: 0, overdue: 0, quiet: 0, tasks: 0 };
+    const send = async (ids, body, link) => {
+      const userIds = [...new Set(ids.filter(Boolean))];
+      if (userIds.length) await notifier.notify({ userIds, actorId: null, kind: 'crm', body, link }).catch(err => console.warn('[nuovi business] avviso', err.message));
+      return userIds.length > 0;
+    };
+    const { rows: admins } = adminEmails.length
+      ? await db.query('SELECT id FROM users WHERE lower(email) = ANY($1::text[])', [adminEmails.map(e => String(e).toLowerCase())]) : { rows: [] };
+    const { rows: list } = await db.query(`SELECT * FROM crm_initiatives WHERE phase <> 'abbandonata' ORDER BY id`);
+    for (const i of list) {
+      const people = [i.owner_id, i.sponsor_id];
+      const n = B.PHASE_KEYS.indexOf(i.phase);
+      const { rows: [g] } = await db.query(`SELECT * FROM crm_initiative_gates WHERE initiative_id = $1 AND n = $2 AND decision = '' AND due_date IS NOT NULL`, [i.id, n]);
+      if (g) {
+        const due = dayOf(g.due_date);
+        if (due < today && !g.overdue_alerted_at) {
+          if (await send([...people, ...admins.map(a => a.id)], `Il gate G${g.n} di «${i.name}» è scaduto il ${itDay(due)}: va deciso dalla direzione (Prosegui, Rimanda o Abbandona).`, `/crm/business/${i.id}/piano`)) out.overdue++;
+          await db.query('UPDATE crm_initiative_gates SET overdue_alerted_at = now(), alerted_at = COALESCE(alerted_at, now()) WHERE id = $1', [g.id]);
+        } else if (due >= today && due <= addDays(today, 3) && !g.alerted_at) {
+          if (await send(people, `Il gate G${g.n} di «${i.name}» scade il ${itDay(due)}: va deciso dalla direzione.`, `/crm/business/${i.id}/piano`)) out.gates++;
+          await db.query('UPDATE crm_initiative_gates SET alerted_at = now() WHERE id = $1', [g.id]);
+        }
+      }
+      // ferma da 3 settimane: un avviso per periodo fermo (se l'attività riprende e poi si ferma di nuovo, riparte)
+      const last = await lastActivity(i);
+      const quietSince = last && i.quiet_alerted_at ? dayOf(new Date(i.quiet_alerted_at).toISOString()) : null;
+      if (last && last <= addDays(today, -21) && (!quietSince || quietSince < last)) {
+        if (await send(people, `«${i.name}» è ferma da 3 settimane: nessuna attività dal ${itDay(last)}. Fissa un passo o aggiorna lo stato.`, `/crm/business/${i.id}/analisi`)) out.quiet++;
+        await db.query('UPDATE crm_initiatives SET quiet_alerted_at = now() WHERE id = $1', [i.id]);
+      }
+      // passi scaduti: a chi li fa
+      const { rows: late } = await db.query(
+        `SELECT id, title, owner_id, due_date FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL AND due_date < $2 AND alerted_at IS NULL`, [i.id, today]);
+      for (const t of late) {
+        if (await send([t.owner_id], `Il passo «${t.title}» di «${i.name}» è scaduto il ${itDay(dayOf(t.due_date))}.`, `/crm/business/${i.id}/piano`)) out.tasks++;
+        await db.query('UPDATE crm_initiative_tasks SET alerted_at = now() WHERE id = $1', [t.id]);
+      }
+    }
+    return out;
+  }
+  app.locals.crmBusinessAlerts = alertTick; // per i test
+  if (!process.env.NODE_TEST_CONTEXT) {
+    let lastDay = '';
+    const t = setInterval(async () => {
+      try {
+        const hour = Number(new Date().toLocaleString('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }));
+        if (hour < 8 || lastDay === todayRome()) return;
+        lastDay = todayRome();
+        await alertTick();
+      } catch (err) { console.warn('[nuovi business] avvisi', err.message); }
+    }, 15 * 60000);
+    t.unref?.();
+  }
+  return { alertTick };
 }
 
 module.exports = { registerCrmBusiness };
