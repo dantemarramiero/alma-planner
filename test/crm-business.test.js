@@ -290,6 +290,10 @@ test('mappa del mercato: categorie SOA del profilo, chi vince, chi compra, dove,
   assert.equal(card.tenders[0].cig, 'C3');
   assert.equal(card.role, '');
   assert.equal((await E('GET', `/api/crm/business/${id}/mercato/impresa?cf=09999999999`)).status, 404);
+  // scheda comune (usata anche da Concorrenza): stesse gare con categorie date, oppure senza perimetro
+  const shared = (await E('GET', `/api/crm/mercato/impresa?cf=${found[0].cf}&cats=${card.categorie.join(',')}`)).body;
+  assert.equal(shared.kpi.vinte, 1);
+  assert.equal((await E('GET', '/api/crm/mercato/impresa')).status, 400);
   // analisi e tab
   assert.equal((await E('GET', `/api/crm/business/${id}/analisi`)).body.market.kpi.gare, 3);
   assert.equal((await E('GET', `/api/crm/business/${id}`)).body.market_gare, 3);

@@ -45,7 +45,23 @@ function registerCrmBusinessMercato(app, { db, notifier, byId, editable, iid, ad
     res.json(c);
   });
 
-  // «Avvisami quando è pronto»: un avviso quando le categorie mancanti arrivano tra le gare caricate
+  // scheda di un'impresa comune (Nuovi business e Concorrenza): perimetro dalle categorie e regioni date, altrimenti
+  // tutte le categorie già caricate da ANAC e tutta Italia
+  app.get('/api/crm/mercato/impresa', async (req, res) => {
+    const cf = String(req.query.cf || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    const name = v.text(req.query.name, 'Impresa', { max: 200 }) || '';
+    if (!cf && !name) throw new HttpError(400, 'Scegli un\'impresa');
+    const settings = await loadSettings(db);
+    const list = x => String(x || '').split(',').map(t => t.trim()).filter(Boolean).slice(0, 60);
+    let cats = list(req.query.cats).map(normCat).filter(Boolean);
+    if (!cats.length) cats = (await require('../lib/crm-anac').categoryCoverage(db, settings)).loaded;
+    const c = await M.company(db, settings, { profile: { soa: cats, regions: list(req.query.regions) } }, { cf, name },
+      { months: [12, 24].includes(Number(req.query.months)) ? Number(req.query.months) : 12 });
+    if (!c) throw new HttpError(404, 'Questa impresa non ha gare vinte in queste categorie e zone');
+    res.json(c);
+  });
+
+  // «Avvisami quando è pronto»:un avviso quando le categorie mancanti arrivano tra le gare caricate
   app.post('/api/crm/business/:id/mercato/avvisami', async (req, res) => {
     const i = await byId(iid(req));
     const st = await M.dataState(db, i);

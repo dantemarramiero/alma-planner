@@ -212,9 +212,17 @@ function searchBox(i, id, m, crmData) {
 }
 
 // ── scheda di mercato di un'impresa (riquadro laterale 600 px) ─────────────────────────────────
+// Comune: la usa anche la pagina Concorrenza del CRM tramite orbita/js/crm-impresa-mercato.js.
+// openImpresaMercato({ cf } | { name }, { cats, regions, months, onChange }): categorie e regioni vuote = tutte le
+// categorie caricate da ANAC e tutta Italia.
+export function openImpresaMercato(who, { cats = [], regions = [], months = 12, onChange } = {}) {
+  return companyPanel({ profile: { soa: cats, regions } }, null, who, { months }, {}, onChange);
+}
 async function companyPanel(i, id, who, f = {}, crmData = {}, onChange) {
-  const qs = new URLSearchParams({ ...(who.cf ? { cf: who.cf } : { name: who.name }), months: f.months || 12 });
-  const c = await get(`/api/crm/business/${id}/mercato/impresa?${qs}`);
+  const list = x => (Array.isArray(x) ? x : String(x || '').split(',')).map(t => String(t).trim()).filter(Boolean).join(',');
+  const qs = new URLSearchParams({ ...(who.cf ? { cf: who.cf } : { name: who.name }), months: f.months || 12,
+    cats: list(f.cats?.length ? f.cats : i.profile?.soa || []), regions: list(i.profile?.regions || []) });
+  const c = await get(`/api/crm/mercato/impresa?${qs}`);
   const box = (label, val) => h('div', h('small', label), h('b', val));
   const atiText = () => {
     const ati = c.kpi.vinte - c.kpi.sola;
