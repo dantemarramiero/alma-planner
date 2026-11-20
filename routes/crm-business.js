@@ -13,6 +13,8 @@ const { scoreSignal, norm } = require('../lib/crm-radar');
 const B = require('../lib/crm-business');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni'); // forza dei rapporti (win ratio, 16/11)
 const { stats: outcomeStats } = require('../lib/crm-esiti');
+const { registerCrmBusinessMercato } = require('./crm-business-mercato'); // mappa del mercato (20/11)
+const { marketSummary, countGare } = require('../lib/crm-business-mercato');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const month = () => todayRome().slice(0, 7);
@@ -231,7 +233,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
 
   app.get('/api/crm/business/:id', async (req, res) => {
     const i = await byId(iid(req));
-    res.json({ ...i, started_on: dayOf(i.started_on), ...(await stats(i)), canEdit: canEdit(req, i), canDecide: canDecide(req, i), ai: Boolean(aiKey()), meta: meta() });
+    const marketGare = await countGare(db, await loadSettings(db), i).catch(() => 0);
+    res.json({ ...i, started_on: dayOf(i.started_on), ...(await stats(i)), market_gare: marketGare, canEdit: canEdit(req, i), canDecide: canDecide(req, i), ai: Boolean(aiKey()), meta: meta() });
   });
   app.patch('/api/crm/business/:id', async (req, res) => {
     const i = await editable(req, iid(req));
@@ -655,6 +658,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
       regions: strList(b.regions, 'Zone') || [], exclude: strList(b.exclude, 'Escludi') || [],
       amount_min: money(b.amount_min, 'Importo minimo') ?? undefined, amount_max: money(b.amount_max, 'Importo massimo') ?? undefined,
     });
+    profile.soa = profile.soa.map(x => x.toUpperCase().replace(/\s+/g, ''));
+    if (i.profile?.soa_classes) profile.soa_classes = Object.fromEntries(Object.entries(i.profile.soa_classes).filter(([k]) => profile.soa.includes(k)));
     await db.query('UPDATE crm_initiatives SET profile = $2, updated_at = now() WHERE id = $1', [i.id, JSON.stringify(profile)]);
     res.json(profile);
   });
@@ -734,7 +739,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     const os = outcomeStats(outs);
     const outcomes = { ratio: os.ratio, won: os.won, lost: os.lost, skipped: os.skipped, value_won: os.value_won, value_bid: os.value_bid, reasons: os.by.reason.slice(0, 3),
       winners: os.winners.slice(0, 3), last: outs.slice(0, 5).map(o => ({ id: o.id, title: o.title, result: o.result, subject_name: o.subject_name, amount: o.amount === null ? null : Number(o.amount), decided_on: dayOf(o.decided_on), reason: o.reason })) };
-    res.json({ ...st, outcomes, weeks, next: next.map(taskOut), risks, owner_name: i.owner_name, phase: i.phase, budget: Number(i.budget_eur), summary: i.summary, summary_at: i.summary_at });
+    const market = await marketSummary(db, await loadSettings(db), i).catch(() => null);
+    res.json({ ...st, outcomes, market, weeks, next: next.map(taskOut), risks, owner_name: i.owner_name, phase: i.phase, budget: Number(i.budget_eur), summary: i.summary, summary_at: i.summary_at });
   });
   app.post('/api/crm/business/:id/sintesi', async (req, res) => { // sintesi dell'assistente per la riunione di direzione
     const i = await byId(iid(req));
@@ -743,6 +749,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch }) {
     await db.query('UPDATE crm_initiatives SET summary = $2, summary_at = now() WHERE id = $1', [i.id, m.body.slice(0, 4000)]);
     res.status(201).json(m);
   });
+
+  registerCrmBusinessMercato(app, { db, notifier, byId, editable, iid, addTarget, aiKey, fetchImpl });
 }
 
 module.exports = { registerCrmBusiness };

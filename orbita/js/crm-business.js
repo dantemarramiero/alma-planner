@@ -6,6 +6,7 @@ import { get, post, put, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 import { warmPill, pathsBox, registraEsito } from './crm-esiti.js'; // forza dei rapporti e vinte/perse (win ratio, 16/11)
+import { mercatoTab, soaDialog, marketCard } from './crm-business-mercato.js'; // mappa del mercato (20/11)
 
 const PHASES = [['esplorazione', 'Esplorazione'], ['analisi', 'Analisi'], ['piano', 'Piano'], ['ingresso', 'Ingresso'], ['consolidamento', 'Consolidamento']];
 const PHASE_KEYS = PHASES.map(([k]) => k);
@@ -24,7 +25,7 @@ const CHECK = { da_verificare: 'da verificare', confermata: 'confermata', smenti
 const PROB = [['poco', 'poco probabile'], ['possibile', 'possibile'], ['probabile', 'probabile']];
 const LEVELS = ['alto', 'medio', 'basso'];
 const LIGHT = { g: 'Verde', y: 'Giallo', r: 'Rosso', n: 'Spento' };
-const TABS = [['chat', 'Chat'], ['clienti', 'Clienti target'], ['gap', 'Cosa ci manca'], ['piano', 'Piano'], ['riflessioni', 'Riflessioni'], ['analisi', 'Analisi']];
+const TABS = [['chat', 'Chat'], ['clienti', 'Clienti target'], ['gap', 'Cosa ci manca'], ['piano', 'Piano'], ['riflessioni', 'Riflessioni'], ['analisi', 'Analisi'], ['mercato', 'Mercato']];
 const MORE_TABS = [['radar', 'Radar']];
 const MONTHS = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 
@@ -222,7 +223,7 @@ function initiativeForm(ctx, preset = {}) {
   goStep(1);
 }
 
-function editForm(i, asa, done) {
+function editForm(i, asa, done, meta = {}) {
   const name = input({ value: i.name });
   const desc = textarea(i.description);
   const owner = select(userOptions('Scegli…'), i.owner_id || '');
@@ -238,6 +239,8 @@ function editForm(i, asa, done) {
     body: h('div.nb-form', field('Nome', name), field('Descrizione', desc),
       h('div.nb-two', field('Responsabile', owner), field('Sponsor della direzione', sponsor)),
       h('div.nb-two', field('ASA dei nuovi lead', asaSel), field('Budget', budget)),
+      h('div.nb-fl', h('span.nb-lbl', 'Categorie SOA'), h('div.nb-row.wrap', (i.profile?.soa || []).length ? i.profile.soa.map(c => h('span.nb-chip.sm', c, i.profile.soa_classes?.[c] ? ` · cl. ${i.profile.soa_classes[c]}` : '')) : h('span.nb-small.muted', 'nessuna'),
+        h('button.nb-link', { type: 'button', on: { click: () => { m.close(); soaDialog(i, meta, done); } } }, ic('pencil', 14), 'Scegli le categorie')), h('small', 'Servono al Radar e alla tab Mercato.')),
       h('div.nb-two', field('Spese scritte a mano', spent, 'Consulenze, corsi… L\'assistente si somma da solo.'), field('Avviata il', started)),
       h('div.nb-lbl', 'Quando si fa ogni fase'), h('small.muted', 'Le date disegnano il Gantt del piano; senza date valgono quelle dei gate.'),
       h('div.nb-dates', dates.map(([, l, f, t, p]) => [h('span.nb-small.strong', l), f, t, p]))),
@@ -313,7 +316,7 @@ async function initiativePage(container, id, tabKey, crmData) {
   const n = (t, x) => [t, x ? h('span.nb-tab-n', x) : null];
   const tabBtn = (k, l) => h('button', { type: 'button', role: 'tab', class: k === tab ? 'on' : '', 'aria-selected': String(k === tab), on: { click: () => go(k) } }, l);
   const tabLabel = k => (k === 'gap' ? n('Cosa ci manca', i.gaps.total ? `${i.gaps.ok}/${i.gaps.total}` : '') : k === 'clienti' ? n('Clienti target', i.funnel.individuati || '')
-    : k === 'piano' && i.lateTasks ? ['Piano', h('span.nb-bang', '!')] : k === 'riflessioni' ? n('Riflessioni', '') : TABS.find(x => x[0] === k)[1]);
+    : k === 'piano' && i.lateTasks ? ['Piano', h('span.nb-bang', '!')] : k === 'riflessioni' ? n('Riflessioni', '') : k === 'mercato' ? n('Mercato', i.market_gare || '') : TABS.find(x => x[0] === k)[1]);
   const moreMenu = h('details.nb-more-tab', { class: MORE_TABS.some(([k]) => k === tab) ? 'on' : '' },
     h('summary', MORE_TABS.find(([k]) => k === tab)?.[1] || 'Altro', ic('chevron-down', 12)),
     h('div.nb-menu-list', MORE_TABS.map(([k, l]) => h('button.nb-menu-i', { type: 'button', on: { click: () => go(k) } }, l))));
@@ -332,7 +335,7 @@ async function initiativePage(container, id, tabKey, crmData) {
         // «Porta avanti» (canvas v9): l'iniziativa diventa un progetto di Alma Planet in «I miei progetti»
         i.project_id ? btn('Apri il progetto', () => { location.hash = `#/crm/progetto/${i.project_id}`; }, { ico: 'folder' })
           : i.canEdit && i.phase !== 'abbandonata' ? btn('Porta avanti', () => { location.hash = `#/crm/lancio/i/${i.id}`; }, { ico: 'rocket', primary: true }) : null,
-        i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh), { ico: 'pencil' }) : null,
+        i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh, crmData.meta || {}), { ico: 'pencil' }) : null,
         h('details.nb-menu', h('summary.nb-btn.ghost', { 'aria-label': 'Altro' }, ic('more')), more)), stats),
       h('div.nb-hero-steps', stepper(i))),
     gl?.late && i.phase !== 'abbandonata' ? h('div.nb-focus', ic('alert-triangle'), h('div.grow', h('b', 'Da decidere: '), `gate G${gl.n} «${gl.question}» è scaduto il ${day(gl.due_date)}.${lateTask ? ` Passo scaduto: «${lateTask.title}» (${lateTask.owner_name || '—'}).` : ''}`),
@@ -340,7 +343,7 @@ async function initiativePage(container, id, tabKey, crmData) {
       lateTask ? btn('Apri il passo', () => go('piano'), { small: true, ghost: true }) : null) : null,
     h('div.nb-tb', h('nav.nb-tabs', { role: 'tablist' }, TABS.map(([k]) => tabBtn(k, tabLabel(k))), moreMenu), toolbar),
     body));
-  const fn = { chat: chatTab, clienti: targetsTab, gap: gapsTab, piano: planTab, radar: radarTab, riflessioni: notesTab, analisi: analysisTab }[tab];
+  const fn = { chat: chatTab, clienti: targetsTab, gap: gapsTab, piano: planTab, radar: radarTab, riflessioni: notesTab, analisi: analysisTab, mercato: mercatoTab }[tab];
   await fn(ctx);
 }
 
@@ -795,7 +798,7 @@ async function radarTab(ctx, status = 'nuovo') {
         i.canEdit && status === 'nuovo' ? h('div.nb-sig-a', btn('Cliente target', async () => { await post(`/api/crm/business/signals/${s.id}/target`, {}); toast('Aggiunto ai clienti target'); radarTab(ctx, status); }, { small: true, ico: 'plus' }),
           btn('Scarta', async () => { await post(`/api/crm/business/signals/${s.id}/scarta`, {}); radarTab(ctx, status); }, { small: true, ghost: true })) : null))
         : h('section.nb-card', empty(d.ai ? 'Nessun segnale qui. «Cerca adesso» legge le notizie degli ultimi giorni con il profilo a destra.' : 'Il radar si accende quando su Railway c\'è OPENAI_API_KEY.', 'crosshair'))),
-      card('Cosa cerca il radar', i.canEdit ? h('button.nb-link', { type: 'button', on: { click: () => profileDialog(i, p, () => radarTab(ctx, status)) } }, ic('pencil', 14), 'Modifica') : null,
+      card('Cosa cerca il radar', i.canEdit ? h('span.nb-row', h('button.nb-link', { type: 'button', on: { click: () => soaDialog(i, ctx.crmData.meta || {}, () => radarTab(ctx, status)) } }, ic('plus', 14), 'Categorie SOA'), h('button.nb-link', { type: 'button', on: { click: () => profileDialog(i, p, () => radarTab(ctx, status)) } }, ic('pencil', 14), 'Modifica')) : null,
         h('div.nb-small.strong', p.description || i.description || 'Profilo da scrivere.'),
         [['Lavori tipici', p.works], ['Parole utili', p.keywords], ['Zone', p.regions], ['SOA', p.soa]].filter(([, xs]) => xs?.length).map(([l, xs]) => h('div.nb-mt12', h('div.nb-lbl.nb-mb8', l), h('div.nb-chips.static', xs.map(x => h('span.nb-chip.sm', x))))),
         h('div.nb-small.muted.nb-sepline', 'Stesso motore e stesso punteggio del radar delle BU; la spesa conta nel budget dell\'iniziativa.'))));
@@ -913,20 +916,24 @@ async function analysisTab(ctx) {
       counter('grid', `${cur >= 0 ? cur + 1 : '—'}/5`, `fase ${cur >= 0 ? PHASES[cur][1] : 'chiusa'}`, 'or'), counter('square-check', `${a.gaps.ok}/${a.gaps.total}`, 'requisiti a posto'),
       counter('users', `${f.contattati}/${f.individuati}`, 'clienti contattati'), counter('calculator', eur(a.spent), `su ${eur(a.budget)}`),
       counter('alert-triangle', a.lateTasks, a.lateTasks === 1 ? 'passo scaduto' : 'passi scaduti', a.lateTasks ? 'hot' : 'zero'), counter('search', a.openHypotheses, 'ipotesi da verificare', a.openHypotheses ? '' : 'zero')),
-    h('div.nb-g3',
-      card('Clienti target', null, fun.map(([l, n]) => h('div.nb-hbar', h('span.nb-small', l), h('div.nb-bar', h('i', { style: { width: `${f.individuati ? n / f.individuati * 100 : 0}%` } })), h('b', String(n))))),
+    h('div.nb-g3.nb-stretch',
+      card('Clienti target', null, fun.map(([l, n]) => h('div.nb-hbar', h('span.nb-small', l), h('div.nb-bar', h('i', { style: { width: `${f.individuati ? n / f.individuati * 100 : 0}%` } })), h('b', String(n)))),
+        h('div.nb-mfoot', h('button.nb-link', { type: 'button', on: { click: () => ctx.go('clienti') } }, 'Apri i clienti target', ic('chevron-right', 13)))),
+      marketCard(i, a.market, ctx.go, crmData.meta || {}, refresh),
+      card('Budget', null, h('div.nb-row-sb', h('b', eur(a.spent)), h('span.nb-small.muted', eur(a.budget))), burn(pct), h('div.nb-small.muted.nb-mt8', a.ai_eur ? `di cui assistente AI ${eur2(a.ai_eur)}` : 'spese scritte a mano e assistente AI'),
+        h('div.nb-mt12', a.light.reasons.map(r => h('div.nb-line.tight', dot(r.c), h('div.nb-small.grow', r.t)))),
+        i.canEdit ? h('div.nb-mfoot', h('button.nb-link', { type: 'button', on: { click: () => editForm(i, crmData.asa || [], refresh, crmData.meta || {}) } }, 'Cambia budget e spese', ic('chevron-right', 13))) : null)),
+    h('div.nb-g2.eq',
       card(`${a.owner_name || 'Il responsabile'} · ultime 4 settimane`, null,
         h('div.nb-heat', h('span'), a.weeks.map(w => h('span.nb-small.muted.c', dm(w.from))),
           [['meetings', 'Incontri'], ['emails', 'Email'], ['notes', 'Note e riflessioni'], ['tasks', 'Passi fatti']].map(([k, l]) => [h('span.nb-small', l), a.weeks.map(w => h('i', { class: heatC(w[k]) }, w[k] ? String(w[k]) : ''))])),
         h('div.nb-small.muted.nb-mt12', `${total2} cose nelle ultime 2 settimane · da Outlook, CRM e passi`)),
-      card('Budget', null, h('div.nb-row-sb', h('b', eur(a.spent)), h('span.nb-small.muted', eur(a.budget))), burn(pct), h('div.nb-small.muted.nb-mt8', a.ai_eur ? `di cui assistente AI ${eur2(a.ai_eur)}` : 'spese scritte a mano e assistente AI'),
-        h('div.nb-mt12', a.light.reasons.map(r => h('div.nb-line.tight', dot(r.c), h('div.nb-small.grow', r.t)))))),
-    h('div.nb-g2.eq',
-      card('Prossimi passi', null, a.next.length ? a.next.map(t => taskRow({ ...i, canEdit: false }, t, () => {}, { showPhase: true })) : empty('Nessun passo aperto.', 'clock')),
+      card('Prossimi passi', null, a.next.length ? a.next.map(t => taskRow({ ...i, canEdit: false }, t, () => {}, { showPhase: true })) : empty('Nessun passo aperto.', 'clock'))),
+    h('div.nb-g2.eq.nb-stretch',
       card('Rischi', i.canEdit ? h('button.nb-link', { type: 'button', on: { click: () => noteDialog(i, null, refresh, 'rischio') } }, ic('plus', 14), 'Rischio') : null,
         a.risks.length ? [matrix, unplaced.length ? h('div.nb-small.muted.nb-mt12', `Senza impatto o probabilità: ${unplaced.map(r => r.title).join(' · ')}`) : null]
-          : empty('Nessun rischio scritto. Si aggiungono dalle Riflessioni (tipo «Rischio»).', 'alert-triangle'))),
-    outcomesCard(i, a.outcomes, refresh),
+          : empty('Nessun rischio scritto. Si aggiungono dalle Riflessioni (tipo «Rischio»).', 'alert-triangle')),
+      outcomesCard(i, a.outcomes, refresh)),
     printSheet(i, a, gl));
   if (crmData.print) { delete crmData.print; setTimeout(() => window.print(), 300); }
 }
