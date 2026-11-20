@@ -51,21 +51,25 @@ function undoToast(message, onUndo) {
 export function notesPanel(box, { url, showTicket = false, onCount, title = 'Note', api: noteApi = '/api/notes', filesApi = '/api/note-files', openMeetingFn = null, origins = null } = {}) {
   let notes = [], editing = null, adding = false, filter = 'all', origin = 'all';
   const listBox = h('div.nt-list', loading());
-  const search = h('input.input.nt-search', { type: 'search', placeholder: 'Cerca nelle note…' });
+  // testata compatta (Dante 20/11: «quanto sono brutte le note»): titolo e numero, cerca e «Nuova nota» sulla stessa riga;
+  // sotto i filtri come pillole piccole su una riga sola (tipo con il numero, provenienza in un menu), solo se ci sono note
+  const search = h('input.nt-search2', { type: 'search', placeholder: 'Cerca nelle note…', 'aria-label': 'Cerca nelle note' });
   const count = h('span.nt-count');
-  const newBtn = h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => { adding = true; editing = null; draw(); } } }, '＋ Nuova nota');
-  const kinds = h('div.seg.nt-kinds', [['all', 'Tutte'], ...NOTE_KINDS].map(([k, label]) => h('button', {
-    type: 'button', 'data-k': k, class: k === filter ? 'on' : '',
-    on: { click: () => { filter = k; kinds.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); draw(); } },
-  }, label)));
+  const startNew = () => { adding = true; editing = null; draw(); };
+  const newBtn = h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: startNew } }, icon('plus', { size: 14 }), 'Nuova nota');
+  const kinds = h('div.nt-chips', { role: 'radiogroup', 'aria-label': 'Tipo di nota' });
+  const drawKinds = () => fill(kinds, [['all', 'Tutte'], ...NOTE_KINDS].map(([k, label]) => {
+    const n = k === 'all' ? notes.length : notes.filter(x => x.kind === k).length;
+    if (k !== 'all' && !n && filter !== k) return null;
+    return h('button.nt-chip', { type: 'button', role: 'radio', 'aria-checked': String(k === filter), class: [k === filter ? 'on' : '', `k-${k}`].join(' '),
+      on: { click: () => { filter = k; draw(); } } }, k !== 'all' ? h('i') : null, label, h('span', String(n)));
+  }));
   search.addEventListener('input', draw);
-
-  const originBox = origins ? h('div.seg.nt-kinds', [['all', 'Tutte'], ['own', origins], ['via', 'Dei contatti'], ['meeting', 'Degli incontri']].map(([k, label]) => h('button', {
-    type: 'button', 'data-o': k, class: k === origin ? 'on' : '',
-    on: { click: () => { origin = k; originBox.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.o === k)); draw(); } },
-  }, label))) : null;
+  const originSel = origins ? h('select.nt-origin', { 'aria-label': 'Da dove vengono' }, [['all', 'Da: tutte le provenienze'], ['own', origins], ['via', 'Dei contatti'], ['meeting', 'Degli incontri']].map(([k, label]) => h('option', { value: k }, label))) : null;
+  originSel?.addEventListener('change', () => { origin = originSel.value; originSel.classList.toggle('on', origin !== 'all'); draw(); });
   const originOf = n => (n.meeting_id ? 'meeting' : n.via ? 'via' : 'own');
-  box.append(h('div.nt-head', h('h3', title, count), h('div.nt-tools', search, newBtn)), kinds, originBox, listBox);
+  const filters = h('div.nt-filters', kinds, originSel ? h('span.nt-grow') : null, originSel);
+  box.append(h('div.nt-head', h('h3', title, count), h('div.nt-tools', h('label.nt-searchbox', icon('search', { size: 14 }), search), newBtn)), filters, listBox);
 
   async function load() {
     try { notes = await get(url); } catch { return fill(listBox, h('p.muted', 'Note non disponibili.')); }
@@ -76,6 +80,9 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
     count.textContent = notes.length ? String(notes.length) : '';
     onCount?.(notes.length);
     newBtn.hidden = adding;
+    filters.hidden = !notes.length;
+    box.querySelector('.nt-searchbox').hidden = !notes.length;
+    drawKinds();
     const q = search.value.trim().toLowerCase();
     const shown = notes.filter(n => (filter === 'all' || n.kind === filter) && (origin === 'all' || originOf(n) === origin)
       && (!q || `${n.title} ${n.body} ${n.ticket_title || ''}`.toLowerCase().includes(q)));
@@ -85,7 +92,9 @@ export function notesPanel(box, { url, showTicket = false, onCount, title = 'Not
     if (!items.length) {
       items.push(notes.length
         ? h('p.muted.nt-none', 'Nessuna nota corrisponde.')
-        : h('div.nt-empty', h('strong', 'Nessuna nota.'), h('span.muted', 'Annota telefonate, riunioni e decisioni con la loro data: restano qui per tutti.')));
+        : h('div.nt-empty', h('span.nt-empty-ic', icon('file-text', { size: 20 })), h('strong', 'Ancora nessuna nota'),
+          h('span.muted', 'Telefonate, riunioni e decisioni con la loro data: restano qui per tutti.'),
+          h('button.btn.btn-sm', { type: 'button', on: { click: startNew } }, icon('plus', { size: 14 }), 'Scrivi la prima nota')));
     }
     fill(listBox, items);
   }
