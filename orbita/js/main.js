@@ -1,4 +1,5 @@
 // Avvio e navigazione (#/percorso?parametri).
+import { mioBigliettoView } from './biglietti.js';
 import { h, clear, avatar, loading } from './ui.js';
 import { get, post } from './api.js';
 import { store, loadUsers, loadProjects } from './store.js';
@@ -282,6 +283,9 @@ async function route() {
       break;
     case 'crm':
       await crmView(view, parts);
+      break;
+    case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10)
+      await mioBigliettoView(view);
       break;
     case 'impostazioni': // Impostazioni uniche (amministratori; Costi AI anche per chi ha «Costi AI: Tutto»)
       await renderImpostazioni(view, parts);

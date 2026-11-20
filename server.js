@@ -37,6 +37,7 @@ const { registerAudit } = require('./routes/audit');
 const { registerFleet } = require('./routes/fleet');
 const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
+const { registerBiglietti } = require('./routes/biglietti');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
@@ -236,6 +237,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerFleet(app, deps);
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
+  registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Planet, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
