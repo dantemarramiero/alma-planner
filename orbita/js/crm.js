@@ -12,7 +12,7 @@ import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
 import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
 import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.js';
-import { launchRoom, mieiProgetti, crmProjectPage } from './crm-progetti.js';
+import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
@@ -270,7 +270,7 @@ function leadList(rows, state, reload) {
     const open = () => { location.hash = `#/crm/scheda/${s.id}`; };
     return h('div.ld-row', { role: 'link', tabIndex: 0, on: { click: e => { if (!e.target.closest('a, button')) open(); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } } },
       h('div.ld-name', h('span.ld-logo', { style: { background: tint(s) } }, initialsOf(s.short_name || s.name)),
-        h('div.cv-grow', h('div.ld-name-t', h('a', { href: `#/crm/scheda/${s.id}` }, s.name), todoBang(s), s.missing_notes ? bang() : null),
+        h('div.cv-grow', h('div.ld-name-t', { 'data-sid': s.id }, h('a', { href: `#/crm/scheda/${s.id}` }, s.name), todoBang(s), s.missing_notes ? bang() : null),
           h('small', dots([data.meta.kinds[s.kind], s.asa[0] ? asaLabel(s.asa[0]) : null, s.city || (s.created_quick ? 'creata al volo' : null)]) || '—'))),
       h('div.ld-c', h('span.ld-stage', { class: STAGE_TONE[s.lead_stage] || '' }, stageLabel(s.lead_stage))),
       h('div.ld-c.ld-val', s.potential_value ? short(Number(s.potential_value)) : '—'),
@@ -281,7 +281,8 @@ function leadList(rows, state, reload) {
         s.phone ? h('a.ld-ico', { href: `tel:${s.phone}`, 'aria-label': `Chiama ${s.name}`, title: s.phone }, ic('phone', 14)) : h('span.ld-ico.off', { title: 'Nessun telefono nella scheda' }, ic('phone', 14)),
         s.email ? h('a.ld-ico', { href: `mailto:${s.email}`, 'aria-label': `Scrivi a ${s.name}`, title: s.email }, ic('mail', 14)) : h('span.ld-ico.off', { title: 'Nessuna email nella scheda' }, ic('mail', 14))));
   }));
-  // quanto ci conoscono: si legge dopo, solo per le righe che si vedono
+  // punti di contatto (bollino verde) e quanto ci conoscono: si leggono dopo, solo per le righe che si vedono
+  setTimeout(() => touchBadges([...body.querySelectorAll('.ld-name-t[data-sid]')].map(el => [Number(el.dataset.sid), el])), 0);
   post('/api/crm/rapporti', { ids: shown.map(s => s.id) }).then(rel => {
     for (const [id, cell] of warmCells) {
       const r = rel[id];

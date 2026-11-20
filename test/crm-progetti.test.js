@@ -135,3 +135,40 @@ test('collegamenti con il ruolo: all\'opportunità e al progetto, visibili dall\
   r = await F('DELETE', '/api/crm/collegamenti', { project: pid, contact_id: rup.id });
   assert.equal(r.body.links.length, 2);
 });
+
+test('punti di contatto: persona che conosciamo, partner che ha vinto con l\'ente (ANAC); introduzione e «Non c\'entra»', async () => {
+  const fId = await meId(F);
+  const ente = (await D('POST', '/api/crm/subjects/rapida', { name: 'Comune di Vasto' })).body;
+  await db.query('UPDATE crm_subjects SET owner_id = $2 WHERE id = $1', [ente.id, fId]);
+  const rup = (await D('POST', '/api/crm/contacts', { first_name: 'Anna', last_name: 'Ricci', links: [{ subject_id: ente.id, job: 'RUP lavori pubblici', is_primary: true }] })).body;
+  await db.query('UPDATE crm_contacts SET owner_id = $2 WHERE id = $1', [rup.id, fId]);
+  const { rows: [partner] } = await db.query(`INSERT INTO crm_subjects (name, roles, asa, vat) VALUES ('SolarEst S.r.l.', '{partner}', '{edilizia}', '01234567897') RETURNING id`);
+  await db.query(`INSERT INTO crm_anac_awards (cig, object, sa_name, region, province, category, amount, awarded_on, winners, month)
+    VALUES ('PCTEST0001', 'Impianti FV scuole', 'COMUNE DI VASTO', 'Abruzzo', 'Chieti', 'OG9', 900000, CURRENT_DATE - 60, '[{"cf": "01234567897", "name": "SOLAREST SRL", "role": ""}]', '202609')`);
+  const sig = (await E('POST', '/api/crm/radar/signals', { title: 'Nuova scuola di Vasto', entity: 'Comune di Vasto', bu: 'edilizia', kind: 'opera_finanziata', amount: 2000000 })).body;
+  await db.query('UPDATE crm_signals SET subject_id = $2 WHERE id = $1', [sig.id, ente.id]);
+  let r = (await E('GET', `/api/crm/punti-contatto?signal=${sig.id}`)).body;
+  const persona = r.items.find(i => i.type === 'persona');
+  assert.ok(persona, JSON.stringify(r.items));
+  assert.equal(persona.role, 'rup');
+  assert.equal(persona.knows.id, fId);
+  assert.deepEqual(persona.actions, ['collega', 'introduzione']);
+  const anac = r.items.find(i => i.type === 'anac');
+  assert.equal(anac.subject_id, partner.id);
+  assert.equal(anac.role, 'ati');
+  // collegato → non si ripropone; «Non c'entra» → nemmeno
+  await E('POST', '/api/crm/collegamenti', { signal: sig.id, contact_id: rup.id, role: 'rup' });
+  await E('POST', '/api/crm/punti-contatto/non-centra', { signal: sig.id, key: anac.key });
+  r = (await E('GET', `/api/crm/punti-contatto?signal=${sig.id}`)).body;
+  assert.ok(!r.items.some(i => i.type === 'persona' || i.type === 'anac'));
+  // «Chiedi un'introduzione»: un compito a chi conosce
+  const intro = await E('POST', '/api/crm/punti-contatto/introduzione', { signal: sig.id, user_id: fId, name: 'Anna Ricci' });
+  assert.equal(intro.status, 201);
+  const tk = (await F('GET', `/api/tickets/${intro.body.ticket_id}`)).body;
+  assert.match(tk.title, /Presentaci a Anna Ricci/);
+  assert.ok(tk.assignee_ids.includes(fId));
+  // conteggi per le liste
+  const counts = (await E('POST', '/api/crm/punti-contatto/conteggi', { subjects: [ente.id, partner.id] })).body;
+  assert.equal(counts[ente.id], 1);
+  assert.equal(counts[partner.id], undefined);
+});

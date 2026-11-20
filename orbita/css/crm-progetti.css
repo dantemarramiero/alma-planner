@@ -522,3 +522,28 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .lk-item b { display: block; font-size: 13px; color: var(--cv-ink); }
 .lk-item small { display: block; font-size: 11.5px; color: var(--cv-faint); }
 @media (max-width: 640px) { .lk-add { flex-wrap: wrap; } .lk-add .pv-relsearch { flex-basis: 100%; } }
+
+/* ── punti di contatto (canvas v9 «Collegamenti e punti di contatto») ───────────────────────────── */
+.tp-box { display: grid; gap: 10px; padding: 14px; border-radius: 18px; background: linear-gradient(135deg, #FFF6EC, #FFFBF6); border: 1.5px solid #FFD3AD; }
+.tp-box[hidden] { display: none; }
+.tp-h { display: flex; gap: 10px; align-items: center; }
+.tp-h b { display: block; font-size: 14px; color: var(--cv-ink); }
+.tp-h small { display: block; font-size: 11.5px; color: var(--cv-muted); }
+.tp-spark { width: 34px; height: 34px; flex: none; border-radius: 11px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #FF8A26, #FFB066); }
+.tp-item { display: flex; gap: 12px; align-items: flex-start; background: var(--cv-card); border-radius: 14px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.tp-item b { display: block; font-size: 13px; color: var(--cv-ink); }
+.tp-item small { display: block; font-size: 12px; line-height: 17px; color: var(--cv-faint); margin-top: 2px; }
+.tp-ic { width: 32px; height: 32px; flex: none; border-radius: 10px; display: grid; place-items: center; background: var(--cv-bl-t); color: var(--cv-bl); }
+.tp-item.gr .tp-ic { background: var(--cv-gr-t); color: var(--cv-gr); }
+.tp-item.or .tp-ic { background: #FFF1E5; color: #C25E0E; }
+.tp-item.rd .tp-ic { background: var(--cv-rd-t); color: var(--cv-rd); }
+.tp-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tp-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--cv-line-strong); background: var(--cv-card); font: inherit; font-size: 12px; font-weight: 600; color: var(--cv-text); cursor: pointer; text-decoration: none; }
+.tp-btn:hover { border-color: var(--cv-orange); }
+.tp-btn.pri { background: #FF8A26; border-color: #FF8A26; color: #fff; }
+.tp-btn.pri:hover { background: var(--cv-orange-d); }
+.tp-btn.ghost { border-color: transparent; background: transparent; color: var(--cv-faint); font-weight: 500; }
+.tp-btn:disabled { opacity: .5; cursor: progress; }
+.tp-badge { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 600; color: #1B7A45; background: #E8F5EC; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+:root[data-theme="dark"] .tp-box { background: var(--cv-or-t); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tp-box { background: var(--cv-or-t); } }
