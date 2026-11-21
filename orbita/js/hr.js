@@ -24,7 +24,7 @@ const notHr = c => fill(c, head('Riservato al team HR'), h('div.card.empty', 'Qu
 
 export async function hrView(c, parts, params) {
   const page = parts[1] || 'percorso';
-  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro'];
+  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia'];
   if (hrPages.includes(page) && !store.me.hr) return notHr(c);
   fill(c, loading());
   try {
@@ -38,6 +38,12 @@ export async function hrView(c, parts, params) {
       case 'pannello': return await pannelloView(c, params);
       case 'insieme': return await insiemeView(c);
       case 'registro': return await registroView(c);
+      // Fase 2 (ALM2-52): organigramma in sola lettura e il resto in hr-org.js
+      case 'organigramma': return (await import('./hr-org.js')).organigrammaView(c, params);
+      case 'costo': return (await import('./hr-org.js')).costoView(c);
+      case 'scenari': return (await import('./hr-org.js')).scenariView(c, Number(parts[2]) || null);
+      case 'cambi': return (await import('./hr-org.js')).cambiView(c);
+      case 'strategia': return (await import('./hr-org.js')).strategiaView(c);
       default: return await percorsoView(c);
     }
   } catch (err) {
@@ -260,6 +266,7 @@ async function personaView(c, key) {
   exclSel.addEventListener('change', async () => { await patch(`/api/hr/persone/${encodeURIComponent(key)}`, { esclusione: exclSel.value || null }); toast('Salvato'); personaView(c, key); });
   fill(c, h('a.hr-back', { href: '#/hr/persone' }, '‹ Persone'),
     head(`${p.nome} ${p.cognome}`, [p.incarico?.nome || p.qualifica, p.incarico?.area || p.bu, p.societa, p.data_assunzione ? `in azienda dal ${itDate(p.data_assunzione)}` : null].filter(Boolean).join(' · ')),
+    p.boss_url ? h('div.hr-row', { style: { marginBottom: '8px' } }, h('a.btn.btn-sm', { href: p.boss_url, target: '_blank', rel: 'noopener' }, 'Modifica su BOSS ↗')) : null,
     lockBar('Retribuzione visibile solo al team HR · questa apertura è registrata nel Registro.'),
     h('div.hr-grid3',
       h('div.hr-kpi', h('div.l', 'RAL attuale ⟳'), h('div.v', eur(p.ral)), h('div.small.muted', p.ral_dal ? `da BOSS · valida dal ${itDate(p.ral_dal)}` : 'nessuna RAL da BOSS'),

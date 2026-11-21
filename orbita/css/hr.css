@@ -115,3 +115,45 @@
 .hr-lever span { display: flex; justify-content: space-between; font-size: var(--ap-fs-sm); margin-bottom: 4px; }
 .hr-lever b { color: var(--ink); }
 .hr-lever input { width: 100%; accent-color: var(--orange); }
+
+/* Fase 2 (ALM2-52): organigramma in sola lettura, matrice, costo, scenari, cambi da BOSS */
+.hr-grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ap-space-3); margin-bottom: var(--ap-space-4); }
+@media (max-width: 900px) { .hr-grid4 { grid-template-columns: 1fr 1fr; } }
+.hr-chip.z-info { background: var(--blue-soft); color: var(--blue); }
+.hr-chip-dark { background: var(--ink); color: #fff; }
+.hr-alert.info { background: var(--blue-soft); color: var(--blue); margin: 0 0 var(--ap-space-3); }
+.hr-dark { background: var(--ink); border-color: var(--ink); color: #eee; }
+.hr-dark .hr-label { color: var(--orange); }
+.hr-li { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--ap-grey-100); }
+.hr-steps { margin: 0; padding-left: 20px; }
+.hr-steps li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--ap-grey-100); }
+.hr-cbar { display: inline-block; height: 12px; border-radius: 999px; background: var(--orange); vertical-align: middle; }
+.hr-cbar.v { background: repeating-linear-gradient(45deg, #FFD9B5, #FFD9B5 4px, var(--orange-soft) 4px, var(--orange-soft) 8px); margin-left: 2px; }
+/* albero: righe di riquadri con le linee che li uniscono */
+.hr-tree-wrap { overflow-x: auto; padding: 8px 4px 16px; }
+.hr-tree, .hr-tree ul { list-style: none; margin: 0; padding: 0; display: flex; justify-content: center; }
+.hr-tree ul { padding-top: 22px; position: relative; }
+.hr-tree li { position: relative; padding: 22px 6px 0; display: flex; flex-direction: column; align-items: center; }
+.hr-tree > li { padding-top: 0; }
+.hr-tree li::before, .hr-tree li::after { content: ""; position: absolute; top: 0; height: 22px; border-top: 1px solid var(--rule-strong); width: 50%; }
+.hr-tree li::before { right: 50%; } .hr-tree li::after { left: 50%; border-left: 1px solid var(--rule-strong); }
+.hr-tree li:only-child::before, .hr-tree li:only-child::after { display: none; }
+.hr-tree li:only-child { padding-top: 22px; }
+.hr-tree > li:only-child { padding-top: 0; }
+.hr-tree li:first-child::before, .hr-tree li:last-child::after { border: 0 none; }
+.hr-tree li:last-child::before { border-right: 1px solid var(--rule-strong); }
+.hr-tree ul::before { content: ""; position: absolute; top: 0; left: 50%; height: 22px; border-left: 1px solid var(--rule-strong); }
+.hr-tree li:only-child::after { display: block; left: 50%; width: 0; border-top: 0; border-left: 1px solid var(--rule-strong); }
+.hr-tree > li:only-child::after { display: none; }
+.hr-node { width: 190px; text-align: left; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 8px 10px; cursor: pointer; font: inherit; color: var(--ink); }
+.hr-node:hover { border-color: var(--orange); }
+.hr-node b { display: block; font-size: var(--ap-fs-sm); line-height: 1.25; }
+.hr-node.vac { border: 1.5px dashed var(--orange); background: var(--orange-soft); }
+.hr-node.match { outline: 2.5px solid var(--blue); outline-offset: 2px; }
+.hr-node-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.hr-node-chips .hr-chip { white-space: normal; }
+.hr-tree-toggle { margin-top: 4px; border: 1px solid var(--rule); background: var(--card); border-radius: 999px; font-size: 11px; padding: 0 8px; min-height: 20px; cursor: pointer; color: var(--mid); }
+/* matrice livello × area */
+.hr-matrix { display: grid; gap: 6px; align-items: center; min-width: 640px; }
+.hr-mcell { border-radius: 8px; padding: 8px; text-align: center; font: inherit; font-size: var(--ap-fs-sm); border: 1px solid var(--rule); cursor: pointer; background: rgba(255, 138, 38, var(--alpha, .2)); color: var(--ink); }
+.hr-mcell.hr-mnone { background: var(--bg); color: var(--muted); cursor: default; display: block; }

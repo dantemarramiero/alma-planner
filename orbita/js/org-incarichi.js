@@ -42,7 +42,7 @@ export async function renderOrganigramma(body, { parts = [], ruoli } = {}) {
   const nds = M.daSistemare.length;
   const top = pageTop({
     eyebrow: 'Impostazioni · organigramma', heading: title('', 'Organigramma'),
-    sub: 'Le frecce uniscono gli incarichi, non le persone: se cambia chi ricopre un incarico, chi gli riporta resta al suo posto. Le persone e gli account arrivano da Microsoft Entra.',
+    sub: RO ? 'Arriva da BOSS e qui si guarda soltanto: incarichi, riporti, aree e livelli si cambiano su BOSS. Le frecce uniscono gli incarichi, non le persone.' : 'Le frecce uniscono gli incarichi, non le persone: se cambia chi ricopre un incarico, chi gli riporta resta al suo posto. Le persone e gli account arrivano da Microsoft Entra.',
     actions: RO ? [h('span.cv-small.cv-muted', 'Si modifica su BOSS'), h('button.btn', { type: 'button', on: { click: () => importDialog(reload) } }, ic('upload', 15), 'Importa l\'export di BOSS')] : [h('button.btn', { type: 'button', on: { click: () => importDialog(reload) } }, ic('upload', 15), 'Importa da foglio'),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => incaricoDialog(null, reload) } }, ic('plus', 15), 'Nuovo incarico')],
   });
