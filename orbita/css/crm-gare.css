@@ -182,3 +182,6 @@ button.cg-chip:hover { border-color: var(--cv-orange); }
   .rg-row > :nth-child(4), .rg-row > :nth-child(5), .rg-row > :nth-child(6) { display: none; }
   .pt-cards { grid-template-columns: minmax(0, 1fr); }
 }
+/* «Da dove vengono i dati» sui fondi scuri della testata e della regione (ALM2-49) */
+.cg-kpi .fd-q, .rg-side-top .fd-q { color: rgba(255,255,255,.6); }
+.cg-kpi .fd-q { margin-top: 4px; font-size: 11px; }

@@ -7,6 +7,7 @@ import { get, post } from './api.js';
 import { ic, dots, pill, emptyState } from './crm-v2.js';
 import { bandBar, nice, crmCell } from './crm-concorrenza.js';
 import { openImpresaMercato } from './crm-impresa-mercato.js';
+import { sourceLine, basedOn } from './crm-fonti.js';
 
 const it1 = n => (n === null || n === undefined ? '—' : Number(n).toLocaleString('it-IT', { maximumFractionDigits: 1 }));
 const pct = n => (n === null || n === undefined ? '—' : `${it1(n)}%`);
@@ -80,7 +81,7 @@ export async function regioniSection(box, { st, buLabel, tabs, go, again }) {
     body = h('div.rg-grid', table, side);
     regionAside(side, { st, r, buLabel, go });
   }
-  fill(box, h('div.cg', hero, tabs, bar, body,
+  fill(box, h('div.cg', hero, tabs, bar, sourceLine({ cats: r.scope.categories, months: r.scope.months }, { count: r.italia.gare }), body,
     h('p.cv-hint', `«Conviene» = volume ${r.pesi.volume}% · margine ${r.pesi.margine}% · concorrenza ${r.pesi.concorrenza}% · vicinanza ${r.pesi.vicinanza}%. Fonte: ANAC, dati aperti (CC BY-SA 4.0).`)));
 }
 
@@ -100,7 +101,8 @@ async function regionAside(side, { st, r, buLabel, go }) {
     h('div.rg-side-top',
       h('div.pv-row', h('span.cg-k.cv-grow', `Regione · BU ${buLabel(st.rbu)}`)),
       h('div.pv-row', h('h2.cv-grow', d.region), h('b.rg-big', { class: tone(d.conviene) }, d.conviene === null ? '—' : String(d.conviene))),
-      h('div.rg-sks', kpi('Gare', String(d.gare)), kpi('Valore', eur(d.valore)), kpi('Ribasso', pct(d.ribasso)), kpi('Offerenti', it1(d.offerenti)))),
+      h('div.rg-sks', kpi('Gare', String(d.gare)), kpi('Valore', eur(d.valore)), kpi('Ribasso', pct(d.ribasso)), kpi('Offerenti', it1(d.offerenti))),
+      basedOn(d.n_real, d.gare, 'dichiarano ribasso e almeno 2 offerenti')),
     h('div.rg-sec', h('b.pv-card-t', d.conviene === null ? 'Com\'è' : 'Perché conviene'), d.perche.map(p => h('div.rg-why', { class: p.tone }, h('i'), h('span', p.text)))),
     h('div.rg-sec', h('div.pv-row', h('b.pv-card-t.cv-grow', 'Ribasso per fascia d\'importo'), h('small.rg-muted', 'barra = metà centrale · tacca = tipico')),
       d.bands.length ? h('div.cv-bands', d.bands.map(b => h('div.cv-bandrow', h('span', b.label), bandBar(b.p25, b.med, b.p75), h('span.num', h('b', pct(b.med)), h('span.cv-small.cv-muted', ` ${b.n}`)))))
@@ -152,7 +154,7 @@ export async function partnerSection(box, { st, buLabel, tabs, again }) {
       } } }, ic('calendar', 14), 'Proponi un incontro')));
   const list = r.partners.length ? h('div.pt-cards', r.partners.map(card))
     : h('section.pv-card', emptyState('handshake', r.region ? `Nessun partner possibile per ${buLabel(r.bu)} in ${r.region}: nessuna impresa ha vinto in ATI qui.` : 'Nessuna impresa ha vinto in ATI nelle categorie di questa BU.'));
-  fill(box, h('div.cg', tabs, bar, matrix,
+  fill(box, h('div.cg', tabs, bar, sourceLine({ months: st.months }), matrix,
     r.region ? h('div.pv-row.pt-title', h('b.cv-grow', `${r.region} · ${buLabel(r.bu)} `, h('span.rg-muted', `· ${r.partners.length} partner possibili`)), h('small.rg-muted', 'più gare in ATI prima')) : null,
     list,
     h('p.cv-hint', 'Partner possibile = impresa che vince nella regione nelle categorie della BU andando in ATI; non compaiono Almacis e le imprese segnate come concorrenti nel CRM. Fonte: ANAC, dati aperti (CC BY-SA 4.0).')));
