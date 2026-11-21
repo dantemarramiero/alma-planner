@@ -19,16 +19,20 @@ const M = '202606';
 const day = '2026-06-10';
 const FILES = {
   aggiudicazioni: csv([['cig', 'esito', 'data_aggiudicazione_definitiva', 'importo_aggiudicazione', 'ribasso_aggiudicazione', 'num_imprese_offerenti', 'criterio_aggiudicazione', 'flag_subappalto'],
-    ['EEEEEEEEE1', 'AGGIUDICATA', day, '900000', '19', '4', 'PREZZO PIU\' BASSO', 'true']]),
-  'categorie-opera': csv([['cig', 'id_categoria', 'cod_tipo_categoria'], ['EEEEEEEEE1', 'OG 1', 'P'], ['EEEEEEEEE1', 'OS 28', 'S'], ['EEEEEEEEE1', 'OG 11', 'S']]),
+    ['EEEEEEEEE1', 'AGGIUDICATA', day, '900000', '19', '4', 'PREZZO PIU\' BASSO', 'true'],
+    ['EEEEEEEEE2', 'AGGIUDICATA', day, '500000', '12', '', '', 'false']]), // offerenti non dichiarati
+  'categorie-opera': csv([['cig', 'id_categoria', 'cod_tipo_categoria'], ['EEEEEEEEE1', 'OG 1', 'P'], ['EEEEEEEEE1', 'OS 28', 'S'], ['EEEEEEEEE1', 'OG 11', 'S'], ['EEEEEEEEE2', 'OG 1', 'P']]),
   cig: csv([['cig', 'oggetto_lotto', 'importo_lotto', 'oggetto_principale_contratto', 'provincia', 'data_pubblicazione', 'cf_amministrazione_appaltante', 'denominazione_amministrazione_appaltante', 'sezione_regionale', 'cod_cpv'],
-    ['EEEEEEEEE1', 'Scuola', '1100000', 'LAVORI', 'CHIETI', '2026-03-01', '80000000001', 'COMUNE DI ORTONA', 'SEZIONE REGIONALE ABRUZZO', '45214200-3']]),
+    ['EEEEEEEEE1', 'Scuola', '1100000', 'LAVORI', 'CHIETI', '2026-03-01', '80000000001', 'COMUNE DI ORTONA', 'SEZIONE REGIONALE ABRUZZO', '45214200-3'],
+    ['EEEEEEEEE2', 'Palestra', '600000', 'LAVORI', 'CHIETI', '2026-03-01', '80000000001', 'COMUNE DI ORTONA', 'SEZIONE REGIONALE ABRUZZO', '45212200']]),
   aggiudicatari: csv([['cig', 'ruolo', 'codice_fiscale', 'denominazione'], ['EEEEEEEEE1', 'OPERATORE ECONOMICO MONOSOGGETTIVO', '01234567890', 'CMB COSTRUZIONI']]),
   lavorazioni: csv([['cig', 'cod_tipo_lavorazione', 'tipo_lavorazione'], ['EEEEEEEEE1', '13', 'MANUTENZIONE STRAORDINARIA']]),
   partecipanti: csv([['cig', 'ruolo', 'codice_fiscale', 'denominazione', 'tipo_soggetto'],
     ['EEEEEEEEE1', 'OPERATORE ECONOMICO MONOSOGGETTIVO', '01234567890', 'CMB COSTRUZIONI', 'IMPRESA'],
     ['EEEEEEEEE1', 'MANDATARIA', '09876543210', 'TADDEI SPA', 'IMPRESA'], ['EEEEEEEEE1', 'MANDANTE', '05555555555', 'EDIL SUD SRL', 'IMPRESA'],
-    ['EEEEEEEEE1', 'IMPRESA AUSILIARIA', '07777777777', 'PRESTA REQUISITI', 'IMPRESA'], ['ZZZZZZZZZ9', 'MANDATARIA', '08888888888', 'ALTRA GARA', 'IMPRESA']]),
+    ['EEEEEEEEE1', 'IMPRESA AUSILIARIA', '07777777777', 'PRESTA REQUISITI', 'IMPRESA'], ['ZZZZZZZZZ9', 'MANDATARIA', '08888888888', 'ALTRA GARA', 'IMPRESA'],
+    ['EEEEEEEEE2', 'OPERATORE ECONOMICO MONOSOGGETTIVO', '01234567890', 'CMB COSTRUZIONI', 'IMPRESA'], ['EEEEEEEEE2', 'MANDATARIA', '09876543210', 'TADDEI SPA', 'IMPRESA'],
+    ['EEEEEEEEE2', 'MANDANTE', '05555555555', 'EDIL SUD SRL', 'IMPRESA']]),
   subappalti: csv([['cig', 'id_subappalto', 'cf_subappaltante', 'data_autorizzazione', 'oggetto', 'cod_categoria', 'descrizione_categoria', 'classe_importo', 'descrizione_tipo_categoria', 'cod_cpv', 'descrizione_cpv', 'codice_fiscale', 'denominazione', 'ruolo', 'tipo_soggetto'],
     ['EEEEEEEEE1', '991', '01234567890', '2026-09-01', 'Impianti termici', 'OS 28', '', '', 'SCORPORABILE', '45331000', '', '06666666666', 'TERMO ABRUZZO SRL', '', 'IMPRESA'],
     ['ZZZZZZZZZ9', '992', '1', '2026-09-01', 'Altro', 'OG 1', '', '', 'PREVALENTE', '', '', '1', 'X', '', '']]),
@@ -49,12 +53,14 @@ test('ANAC dati in più: scorporabili, tipo di lavoro, partecipanti; poi subappa
   try {
     await migrate(db);
     const r = await A.importMonth(db, M, settings, { fetchImpl: fakeAnac });
-    assert.equal(r.kept, 1);
+    assert.equal(r.kept, 2);
+    const { rows: bc } = await db.query('SELECT cig, bidders, bidders_counted FROM crm_anac_awards ORDER BY cig');
+    assert.deepEqual(bc.map(x => [x.cig, x.bidders, x.bidders_counted]), [['EEEEEEEEE1', 4, false], ['EEEEEEEEE2', 2, true]]); // dichiarati 4; contati 2 (l'ATI una volta)
     const { rows: [a] } = await db.query('SELECT cats_sec, work_type, cpv FROM crm_anac_awards WHERE cig = $1', ['EEEEEEEEE1']);
     assert.deepEqual(a.cats_sec, ['OS28', 'OG11']);
     assert.equal(a.work_type, 'Manutenzione Straordinaria');
     assert.equal(a.cpv, '452142003');
-    const { rows: bid } = await db.query('SELECT cf, role FROM crm_anac_bidders ORDER BY cf');
+    const { rows: bid } = await db.query("SELECT cf, role FROM crm_anac_bidders WHERE cig = 'EEEEEEEEE1' ORDER BY cf");
     assert.deepEqual(bid.map(b => [b.cf, b.role]), [['01234567890', ''], ['05555555555', 'mandante'], ['09876543210', 'mandataria']]); // senza l'ausiliaria né altre gare
 
     const x = await A.importExtra(db, [M], { fetchImpl: fakeAnac });
