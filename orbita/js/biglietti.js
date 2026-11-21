@@ -192,6 +192,32 @@ export async function bigliettiTab(box) {
     tabs,
     h('div.cv-cols.w420.bv-cols', h('div.cv-stack', leads, reader), side));
   await chat.open(null);
+  if (/[?&]condivisi=/.test(location.hash)) await takeShared(chat);
+}
+
+// «Condividi» da Android (ALM2-48): il service worker ha messo le foto in «alma-condivisi»; qui le passiamo ad Alma
+// (restano da mandare, come dopo «Fotografa») e svuotiamo la cache. Il parametro si toglie per non riprenderle.
+async function takeShared(chat) {
+  history.replaceState(null, '', location.hash.replace(/[?&]condivisi=\d+/, ''));
+  if (!('caches' in window)) return;
+  try {
+    const cache = await caches.open('alma-condivisi');
+    const info = await cache.match('/condivisi/info').then(r => (r ? r.json() : null));
+    if (!info) { toast('Non sono arrivate foto: riprova a condividerle, oppure usa «Fotografa».'); return; }
+    const files = [];
+    for (let i = 0; i < info.foto; i += 1) {
+      const r = await cache.match(`/condivisi/foto/${i}`);
+      if (!r) continue;
+      const blob = await r.blob();
+      files.push(new File([blob], decodeURIComponent(r.headers.get('X-Nome') || `foto-${i + 1}.jpg`), { type: blob.type || 'image/jpeg' }));
+    }
+    await caches.delete('alma-condivisi');
+    if (files.length) await chat.addPhotos(files);
+    if (info.testo) chat.setText(info.testo);
+    if (files.length || info.testo) chat.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); // sul telefono la chat è sotto la piega
+    if (files.length) toast(files.length === 1 ? 'Foto arrivata: tocca Invia e Alma legge il biglietto' : `${files.length} foto arrivate: tocca Invia e Alma legge i biglietti`);
+    else if (info.testo) toast('Testo arrivato: tocca Invia e Alma prepara il contatto');
+  } catch { toast('Le foto condivise non si riescono ad aprire: usa «Scegli foto».'); }
 }
 
 // ── #/biglietto: il mio biglietto da solo ───────────────────────────────────────────────────────────
