@@ -201,6 +201,9 @@ label.crm-pick { cursor: pointer; }
 .crm-lineedit-row { display: flex; gap: var(--ap-space-1); align-items: center; }
 .crm-lineedit-row .input { flex: 1; min-width: 0; }
 .crm-lineedit-row .input.crm-w { flex: none; width: 80px; }
+/* campi che vanno a capo e crescono col testo (Playbook, Profili BU, Go/No-Go) */
+.input.crm-grow { field-sizing: content; min-height: 36px; resize: vertical; padding-top: 7px; padding-bottom: 7px; line-height: 1.4; }
+.crm-lineedit-row { align-items: flex-start; }
 .crm-set-foot { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; padding-top: var(--ap-space-3); margin-top: var(--ap-space-2); border-top: 1px solid var(--rule); }
 .crm-set-list { display: grid; gap: var(--ap-space-3); }
 .crm-set-item { display: grid; gap: var(--ap-space-2); }
