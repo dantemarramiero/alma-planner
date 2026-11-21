@@ -5,6 +5,7 @@
 import { h, fill, modal, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, put } from './api.js';
 import { icon } from './icons.js';
+import { sourceLine, basedOn, openSources } from './crm-fonti.js';
 
 const ic = (name, size = 16) => icon(name, { size });
 const pct = x => (x === null || x === undefined ? '—' : `${Number(x).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
@@ -73,20 +74,22 @@ export async function mercatoTab(ctx, f = {}) {
     h('span.nb-min0', 'Stai vedendo: ', h('b', [f.province ? `provincia di ${f.province}` : m.scope.regions.length ? m.scope.regions.join(', ') : 'tutta Italia', `${listCats(active)}`, `ultimi ${f.months} mesi`].join(' · '))),
     f.province ? h('button.nb-mx', { type: 'button', on: { click: () => again({ province: '' }) } }, f.province, ic('x', 12)) : null,
     h('span.grow'),
-    f.province ? h('button.nb-link', { type: 'button', on: { click: () => again({ province: '' }) } }, 'Mostra tutte le province') : null,
-    h('span.nb-small.muted.nb-who', ic('info', 13), `dati ANAC${st.month ? ` fino a ${monthLabel(st.month)}` : ''} · gare da ${eur(m.min_amount)}`));
+    f.province ? h('button.nb-link', { type: 'button', on: { click: () => again({ province: '' }) } }, 'Mostra tutte le province') : null);
+  // «Da dove vengono i dati» (ALM2-49, canvas v13): fonte, aggiornamento e periodo sempre visibili
+  const source = sourceLine({ iniziativa: id, months: f.months, province: f.province, cats: f.cats }, { count: m.kpi?.gare });
   const partial = st.missing.length ? h('div.nb-focus.soft', ic('hourglass'), h('div.grow', h('b', `${listCats(st.missing)}: `), `le gare di ${st.missing.length === 1 ? 'questa categoria' : 'queste categorie'} le carico stanotte dai dati ANAC. Intanto vedi ${listCats(st.loaded)}.`)) : null;
 
   // ── numeri ──
   const k = m.kpi;
   const counter = (name, n, label, cls = '') => h('div.nb-fc', { class: cls }, h('span.nb-fc-i', ic(name)), h('span.nb-fc-n', n), h('span.nb-fc-l', label));
+  const counterNote = (el, note) => { if (note) el.append(note); return el; };
   const counters = h('div.nb-fcs.six',
-    counter('trophy', num(k.gare), 'gare aggiudicate', 'or'), counter('euro', meur(k.valore), 'valore totale'), counter('scale', pct(k.ribasso), 'ribasso tipico'),
+    counter('trophy', num(k.gare), 'gare aggiudicate', 'or'), counter('euro', meur(k.valore), 'valore totale'), counterNote(counter('scale', pct(k.ribasso), 'ribasso tipico'), k.ribasso_n !== undefined ? basedOn(k.ribasso_n, k.gare, 'lo dichiarano con almeno 2 offerenti') : null),
     counter('users', k.offerenti ? num(k.offerenti) : '—', 'offerenti per gara'), counter('building', num(k.imprese), 'imprese vincitrici'),
     counter('handshake', num(k.noi), 'vinte da Almacis', k.noi ? '' : 'zero'));
 
   if (!k.gare) {
-    return fill(body, h('div.nb-col24', filters, seeing, partial, counters,
+    return fill(body, h('div.nb-col24', filters, seeing, source, partial, counters,
       h('section.nb-card', h('div.nb-empty-s', h('span.nb-ki.nota', ic('search')), h('span', `Nessuna gara aggiudicata${place} in ${listCats(active)} negli ultimi ${f.months} mesi. Prova 24 mesi o un'altra provincia.`)))));
   }
 
@@ -160,7 +163,7 @@ export async function mercatoTab(ctx, f = {}) {
         canEdit && w.role !== 'cliente' ? h('div.nb-mt8', btn(w.role === 'partner' ? 'Crea passo: proponi ATI' : 'Crea passo: chiedi subappalto', () => doAction(w), { small: true })) : null)))
       : h('div.nb-empty-s', h('span.nb-ki.nota', ic('handshake')), h('span', 'Nessun vincitore è ancora nel CRM come partner o fornitore. Dalla tabella «Chi vince» puoi aggiungerli.')));
 
-  fill(body, h('div.nb-col24', filters, seeing, partial, counters, winCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
+  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
 }
 
 // ── stati: «le carico stanotte» e «sto caricando» ─────────────────────────────────────────────
@@ -240,7 +243,8 @@ async function companyPanel(i, id, who, f = {}, crmData = {}, onChange) {
       c.buyers.length ? h('div', h('div.nb-lbl.nb-mb8', 'Per quali stazioni appaltanti'), c.buyers.map(b => h('div.nb-mrow.tight', h('span', b.name), h('span.nb-small.muted', `${b.gare} ${b.gare === 1 ? 'gara' : 'gare'} · ${meur(b.valore)}`)))) : null,
       h('div', h('div.nb-lbl.nb-mb8', 'Ultime gare vinte'), h('div.nb-scroll', h('table.nb-mtbl.small', h('thead', h('tr', ['CIG', 'Oggetto', 'Data', 'Importo', 'Ribasso'].map((x, n) => h('th', { class: n >= 3 ? 'r' : '' }, x)))),
         h('tbody', c.tenders.map(t => h('tr.static', h('td.mono', t.cig), h('td', h('div', t.object || '—'), h('div.nb-small.muted', [t.sa_name, t.ati ? 'in ATI' : ''].filter(Boolean).join(' · '))), h('td', day(t.awarded_on)), h('td.r', eur(t.amount)), h('td.r', pct(t.discount)))))))),
-      c.hint ? h('div.nb-mhint', ic('lightbulb', 15), h('span', c.hint)) : null),
+      c.hint ? h('div.nb-mhint', ic('lightbulb', 15), h('span', c.hint)) : null,
+      h('button.fd-btn.fd-inline', { type: 'button', on: { click: () => openSources({ cats: c.scope.categories, regions: i.profile?.regions || [], months: c.scope.months, cf: c.cf }) } }, icon('info', { size: 15 }), 'Da dove vengono i dati')),
     left: [h('a.nb-btn.ghost', { href: '#/crm/concorrenza', on: { click: () => m.close() } }, 'Vedi in Concorrenza')],
     actions: c.ours ? [] : c.subject ? [btn('Apri nel CRM', () => { m.close(); location.hash = `#/crm/scheda/${c.subject.id}`; }, { primary: true })]
       : [btn('Come partner', () => add('partner')), btn('Aggiungi come concorrente', () => add('concorrente'), { primary: true, ico: 'plus' })],

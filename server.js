@@ -40,6 +40,7 @@ const { registerEnergy } = require('./routes/energy');
 const { registerBiglietti } = require('./routes/biglietti');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
+const { registerCrmFonti } = require('./routes/crm-fonti');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
@@ -247,6 +248,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrmScrivo(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createMailFake() : null }); // CRM: «Persone con cui mi scrivo» dalla propria posta
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
+  registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
   registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerCrmPunti(app, deps); // CRM: punti di contatto trovati da soli (Collega · Chiedi un'introduzione · Non c'entra)
