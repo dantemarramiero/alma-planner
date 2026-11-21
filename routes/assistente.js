@@ -33,6 +33,7 @@ const GRAF = require('../lib/assistente-grafici');
 const chartView = ({ source, ...c }) => c;
 const express = require('express'); // il modello: OpenAI (Dante 17/11/2026)
 const { fakeClaude } = require('../lib/assistente-finto');
+const { registerBanco } = require('./assistente-banco');
 
 const BASE = '/api/alma';
 const SETTING = 'alma.settings';
@@ -400,7 +401,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     if (!s.enabled) throw new HttpError(403, 'Alma è spenta. Si accende in Impostazioni → Alma.', 'disabled');
     const month = (await monthCostUsd()) * s.usd_eur;
     if (month >= s.monthly_eur) throw new HttpError(429, `Alma ha finito la quota del mese (${s.monthly_eur} €). Riparte il 1° del mese prossimo, oppure un amministratore può alzarla in Impostazioni → Alma.`, 'month_limit');
-    const mine = (await todayCostUsd(req.user.id)) * s.usd_eur;
+    const mine = req.bench ? 0 : (await todayCostUsd(req.user.id)) * s.usd_eur; // il banco di prova non usa la quota personale
     if (mine >= s.daily_eur) throw new HttpError(429, `Per oggi hai usato tutta la tua quota di Alma (${s.daily_eur} €). Puoi tornare a usarla domani dalle 00:00.`, 'daily_limit');
     if (req.body?.conversation_id) await ownConversation(req, req.body.conversation_id);
     return { text, s, images, files };
@@ -1050,7 +1051,11 @@ MODALITÀ VOCE (stai parlando a voce, in tempo reale):
     res.json({ ok: true });
   });
 
+  // Banco di prova (Impostazioni → Alma): 60 domande con la risposta giusta, routes/assistente-banco.js
+  const banco = registerBanco(app, BASE, { db, chat, getter, ctxOf, adminOnly, settings, configured });
+
   return {
+    banco, // solo per i test
     setClient: fn => { call = fn || CLAUDE.openaiCall; route = fn ? null : CLAUDE.openaiRoute; routerPausedUntil = 0; }, // solo per i test
     setStreamTimeout: ms => { streamTimeoutMs = ms || 90 * 1000; }, // solo per i test
     setVoice: (t, s) => { if (t) transcribe = t; if (s) speak = s; }, // solo per i test
