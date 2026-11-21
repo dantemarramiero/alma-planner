@@ -419,6 +419,7 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
                                        FROM pm_roles r LEFT JOIN pm_profiles pp ON pp.role_id = r.id LEFT JOIN users u ON u.id = pp.user_id
                                       -- le schede vuote ancora da compilare non sono voci del mansionario
                                       WHERE NOT (r.status = 'missing' AND r.title = '' AND r.description = '' AND r.responsibilities = '[]'::jsonb)
+                                        AND r.merged_into IS NULL -- i ruoli collegati al mansionario di Alma HR (ALM2-52) non si mostrano più
                                       GROUP BY r.id ORDER BY (r.status = 'review') DESC, r.title`);
     res.json(rows);
   });

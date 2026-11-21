@@ -27,7 +27,7 @@ const OP = 'elisa.galli@almacis.it';
 
 before(async () => {
   db = await createDb({});
-  const made = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db });
+  const made = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN, ORG_EDITABLE: '1' }), { db });
   gov = made.gov;
   server = made.app.listen(0);
   server.keepAliveTimeout = 60000;

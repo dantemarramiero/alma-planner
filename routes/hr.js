@@ -60,7 +60,7 @@ const hrRoles = async db => (await db.query(`SELECT ${ROLE_COLS} FROM pm_roles W
 async function loadPeople(db, { withPay = false } = {}) {
   const [people, incarichi, principali, pay] = await Promise.all([
     db.query(`SELECT key, boss_id, nome, cognome, email, societa, bu, qualifica, ccnl, livello, contratto, part_time_pct::float AS part_time_pct,
-                     data_assunzione::text AS data_assunzione, scadenza::text AS scadenza, sesso, attivo, esclusione, role_id, source
+                     data_assunzione::text AS data_assunzione, scadenza::text AS scadenza, sesso, attivo, esclusione, role_id, source, boss_url
               FROM hr_people WHERE attivo ORDER BY cognome, nome`),
     db.query(`SELECT i.id, i.nome, lower(i.ricoperto_da) AS email, a.nome AS area, r.role_id FROM org_incarichi i
               LEFT JOIN org_aree a ON a.id = i.area_id LEFT JOIN hr_incarico_roles r ON r.incarico_id = i.id WHERE i.attivo`),
@@ -269,6 +269,7 @@ function registerHr(app, { db, gov }) {
       }
     });
     await log(req, 'modifica', 'ruoli sugli incarichi', { after: items });
+    await require('./hr-org').syncStrategyProfiles(db);
     res.json({ ok: true, n: items.length });
   });
 
@@ -437,7 +438,11 @@ function registerHr(app, { db, gov }) {
       part_time: parsed.people.filter(p => p.part_time_pct < 100).length,
     };
     if (req.query.applica !== '1') return res.json({ preview });
+    const org = require('./hr-org');
+    const before = await org.snapshot(db);
     await db.tx(async q => { await savePeople(q, parsed.people, 'import'); await deactivateMissing(q, parsed.people.map(p => p.key)); });
+    await org.recordEvents(db, before, await org.snapshot(db));
+    await org.syncStrategyProfiles(db);
     await log(req, 'modifica', 'import persone da export BOSS', { after: preview });
     res.json({ preview, applied: true });
   });
@@ -482,8 +487,10 @@ function registerHr(app, { db, gov }) {
 
 // Da BOSS via API (quando BOSS espone l'elenco; ticket nel team BOSS, Modulo People). Formato atteso:
 // { personale: [{ id, nome, cognome, email, societa, businessUnit, qualifica, codiceCCNL, livelloCCNL, contratto,
-//   partTimePct, dataAssunzione, scadenzaContratto, sesso, attivo,
-//   retribuzioni: [{ ralAnnua, adPersonamAnnuo, validoDal, validoAl }] }] }
+//   partTimePct, dataAssunzione, scadenzaContratto, sesso, attivo, bossUrl,
+//   retribuzioni: [{ ralAnnua, adPersonamAnnuo, validoDal, validoAl }] }],
+//   Fase 2, facoltativi: incarichi: [{ id, nome, businessUnitId, livelloOrganigrammaId, riportaAIncaricoId, ricopertoDaPersonaleId, attivo, bossUrl }],
+//   businessUnits: [{ id, nome, tipo, ordine, attiva }], livelli: [{ id, nome, ordine, approva, attivo }] }
 async function syncPeopleFromBoss(db, { url = process.env.BOSS_PERSONALE_URL, token = process.env.BOSS_PERSONALE_TOKEN, fetchImpl = fetch } = {}) {
   if (!url || !token) return { ok: false, reason: 'BOSS non è ancora collegato: si usa l\'import dell\'export mensile' };
   const r = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -495,12 +502,22 @@ async function syncPeopleFromBoss(db, { url = process.env.BOSS_PERSONALE_URL, to
       bu: p.businessUnit || null, qualifica: p.qualifica || null, ccnl: p.codiceCCNL || null, livello: p.livelloCCNL || null, contratto,
       part_time_pct: Number(p.partTimePct) || 100, data_assunzione: p.dataAssunzione || null, scadenza: p.scadenzaContratto || null,
       sesso: ['F', 'M'].includes(p.sesso) ? p.sesso : null, esclusione: H.exclusionOf(contratto, p.qualifica),
-      pay: (p.retribuzioni || []).filter(t => t.ralAnnua && t.validoDal).map(t => ({ ral: t.ralAnnua, ad_personam: t.adPersonamAnnuo || 0, valid_from: t.validoDal, valid_to: t.validoAl || null })) };
+      pay: (p.retribuzioni || []).filter(t => t.ralAnnua && t.validoDal).map(t => ({ ral: t.ralAnnua, ad_personam: t.adPersonamAnnuo || 0, valid_from: t.validoDal, valid_to: t.validoAl || null })),
+      boss_url: p.bossUrl || null };
     x.key = H.personKey(x);
     return x;
   });
-  await db.tx(async q => { await savePeople(q, people, 'boss'); await deactivateMissing(q, people.map(p => p.key)); });
-  return { ok: true, n: people.length };
+  const org = require('./hr-org');
+  const before = await org.snapshot(db);
+  await db.tx(async q => {
+    await savePeople(q, people, 'boss');
+    await deactivateMissing(q, people.map(p => p.key));
+    if (Array.isArray(data.incarichi)) await org.saveOrgFromBoss(q, data, people);
+    for (const p of people) if (p.boss_url) await q.query('UPDATE hr_people SET boss_url = $1 WHERE key = $2', [p.boss_url, p.key]);
+  });
+  await org.recordEvents(db, before, await org.snapshot(db));
+  await org.syncStrategyProfiles(db);
+  return { ok: true, n: people.length, incarichi: Array.isArray(data.incarichi) ? data.incarichi.length : null };
 }
 
-module.exports = { registerHr, syncPeopleFromBoss, ensureSeed };
+module.exports = { registerHr, syncPeopleFromBoss, ensureSeed, currentGrid, hrRoles, loadPeople };
