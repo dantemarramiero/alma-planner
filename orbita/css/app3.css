@@ -346,3 +346,15 @@
   :root:not([data-theme="light"]) .gr { color: #7FD1A0; } :root:not([data-theme="light"]) .pu { background: #2D2438; color: #C7A8EE; } :root:not([data-theme="light"]) .or { color: var(--a2-orange-d); }
   :root:not([data-theme="light"]) .a3-hero-img { background: var(--a2-soft); } :root:not([data-theme="light"]) .a3-check { border-color: #6B6660; }
 }
+@media (max-width: 760px) {
+  /* Hoshin Kanri in Agorà: una riga sola, «i miei» in arancione */
+  .a3-agora .a2-pulse { min-height: 56px; padding: 10px 14px; }
+  .a3-agora .a2-pulse-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .a2-pulse-me { color: #FFB27A; }
+  .a3-agora .a2-pulse > span:last-child { color: #BEBEBC; font-size: 18px; }
+}
+@media (max-width: 760px) {
+  .a3-agora .a2-pulse { gap: 10px; }
+  .a3-agora .a2-pulse-line { font-size: 13px; }
+  .a3-agora .a2-pulse-bar { width: 40px; }
+}

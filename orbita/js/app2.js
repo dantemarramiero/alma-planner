@@ -224,7 +224,45 @@ function progressAt(p, iso) {
   }
   return { act, exp, ok: act >= exp };
 }
-const surname = n => String(n || '').trim().split(/\s+/).pop().toLowerCase();
+// il responsabile di un A3 è scritto «D. Marramiero», «Marramiero Dante» o «Dante Marramiero»: è mio se le parole intere
+// sono nel mio nome e le iniziali corrispondono alle altre parole (così «E. Marramiero» non è Dante Marramiero)
+const nameWords = n => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\./g, ' ').split(/\s+/).filter(Boolean);
+function isMine(owner) {
+  const mine = nameWords(store.me.name);
+  const words = nameWords(owner);
+  const full = words.filter(w => w.length > 1);
+  const initials = words.filter(w => w.length === 1);
+  if (!full.length || !full.every(w => mine.includes(w))) return false;
+  const rest = mine.filter(w => !full.includes(w));
+  return initials.every(i => rest.some(w => w.startsWith(i)));
+}
+
+// polso dell'Hoshin Kanri: una riga scura; toccandola sale il foglio con True North, pillar e numeri (anche in Agorà)
+export function hoshinPulse(hk, today = todayISO()) {
+  if (!hk?.projects?.length && !hk?.true_north) return null;
+  const year = hk.year || new Date().getFullYear();
+  const pillars = hk.pillars || [];
+  const st = (hk.projects || []).map(p => progressAt(p, today));
+  const okN = st.filter(x => x.ok).length;
+  const avg = st.length ? Math.round(st.reduce((s, x) => s + x.act, 0) / st.length) : 0;
+  const mine = (hk.projects || []).filter(p => p.owner && isMine(p.owner));
+  const mineLate = mine.filter(p => !progressAt(p, today).ok).length;
+  const openTN = () => sheet(h('div.a2-tn',
+    h('span.a2-kicker.orange', `TRUE NORTH · HOSHIN KANRI ${year}`),
+    h('p.a2-tn-text', hk.true_north ? `“${hk.true_north}”` : 'Il True North non è ancora scritto.'),
+    h('div.a2-tn-pillars', pillars.map(p => h('span', { style: { '--pc': p.color || '#FF8A26' } }, p.name))),
+    h('div.a2-tn-nums',
+      h('span', h('small', 'A3 in linea'), h('strong.ok', `${okN} su ${st.length}`)),
+      h('span', h('small', 'Avanzamento'), h('strong', `${avg}%`)),
+      h('span', h('small', 'I miei A3'), h('strong.orange', mine.length ? `${mine.length}${mineLate ? ` · ${mineLate} in ritardo` : ''}` : '—'))),
+    h('a.a2-btn.orange.wide', { href: '#/strategy/hoshin' }, 'Apri l’Hoshin Kanri')), { label: 'True North', dark: true });
+  return h('button.a2-pulse', { type: 'button', 'aria-label': `Hoshin Kanri ${year}: apri True North, pillar e i miei A3`, on: { click: openTN } },
+    h('span.a2-pulse-t', h('span.a2-kicker.orange', `HOSHIN KANRI ${year}`),
+      h('span.a2-pulse-line', h('strong', `${okN} su ${st.length}`), ' A3 in linea · ', h('strong', `${avg}%`),
+        mine.length ? [' · i miei: ', h('strong.a2-pulse-me', mineLate ? `${mineLate} in ritardo` : 'in linea')] : null)),
+    h('span.a2-pulse-bar', h('i', { style: { width: `${Math.min(100, avg)}%` } })),
+    h('span', { 'aria-hidden': 'true' }, '›'));
+}
 
 // intestazione grande comune ai cinque posti: titolo e, a destra, cerca e la mia foto («Io»)
 function bigHead(title, { kicker, right } = {}) {
@@ -308,27 +346,7 @@ export async function oggiView(view) {
     quick('Ringrazia', 'heart', () => openGrazie(pillars, reload)));
 
   // polso della strategia: una riga; toccandola sale il foglio con True North, pillar e i miei A3
-  let pulse = null;
-  if (hk?.projects?.length || hk?.true_north) {
-    const st = (hk.projects || []).map(p => progressAt(p, home.today));
-    const okN = st.filter(x => x.ok).length;
-    const avg = st.length ? Math.round(st.reduce((s, x) => s + x.act, 0) / st.length) : 0;
-    const mine = (hk.projects || []).filter(p => surname(p.owner) && surname(p.owner) === surname(store.me.name));
-    const mineLate = mine.filter(p => !progressAt(p, home.today).ok).length;
-    const openTN = () => sheet(h('div.a2-tn',
-      h('span.a2-kicker.orange', `TRUE NORTH · HOSHIN KANRI ${hk.year || year}`),
-      h('p.a2-tn-text', hk.true_north ? `“${hk.true_north}”` : 'Il True North non è ancora scritto.'),
-      h('div.a2-tn-pillars', pillars.map(p => h('span', { style: { '--pc': p.color || '#FF8A26' } }, p.name))),
-      h('div.a2-tn-nums',
-        h('span', h('small', 'A3 in linea'), h('strong.ok', `${okN} su ${st.length}`)),
-        h('span', h('small', 'Avanzamento'), h('strong', `${avg}%`)),
-        h('span', h('small', 'I miei A3'), h('strong.orange', mine.length ? `${mine.length}${mineLate ? ` · ${mineLate} in ritardo` : ''}` : '—'))),
-      h('a.a2-btn.orange.wide', { href: '#/strategy/hoshin' }, 'Apri l’Hoshin Kanri')), { label: 'True North', dark: true });
-    pulse = h('button.a2-pulse', { type: 'button', on: { click: openTN } },
-      h('span.a2-pulse-t', h('span.a2-kicker.orange', `HOSHIN KANRI ${hk.year || year}`), h('span', h('strong', `${okN} su ${st.length}`), ' A3 in linea · ', h('strong', `${avg}%`))),
-      h('span.a2-pulse-bar', h('i', { style: { width: `${Math.min(100, avg)}%` } })),
-      h('span', { 'aria-hidden': 'true' }, '›'));
-  }
+  const pulse = hoshinPulse(hk, home.today);
 
   // scorrendo: la giornata, una news, le persone di oggi, il sondaggio
   const dayItems = [

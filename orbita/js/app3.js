@@ -8,7 +8,7 @@ import { get, post, patch } from './api.js';
 import { store, userById, firstName, activeProjects } from './store.js';
 import { icon } from './icons.js';
 import { homeView } from './feed.js';
-import { sheet, swipeRow, ticketSheet, ticketDone, ticketLater, openPlusAltro } from './app2.js';
+import { sheet, swipeRow, ticketSheet, ticketDone, ticketLater, openPlusAltro, hoshinPulse } from './app2.js';
 
 const ic = (name, size = 20) => icon(name, { size });
 const todayISO = () => toISODate(new Date());
@@ -129,7 +129,10 @@ export function agoraView(view, params) {
 
   // in evidenza, oggi in Almacis, sondaggio (solo su «Per te»)
   if (!filter) (async () => {
-    const home = await get('/api/welcome/home', { quiet: true }).catch(() => null);
+    const [home, hk] = await Promise.all([
+      get('/api/welcome/home', { quiet: true }).catch(() => null),
+      get(`/api/strategy?year=${new Date().getFullYear()}`, { quiet: true }).catch(() => null), // riga dell'Hoshin Kanri
+    ]);
     if (!home || !top.isConnected) return;
     const [{ mediaUrl }, { openPost, openComposer }] = await Promise.all([import('./media.js'), import('./feed.js')]);
     // senza post fissati dalla direzione: gli ultimi post con foto (la piazza non resta mai vuota)
@@ -177,7 +180,7 @@ export function agoraView(view, params) {
     const anyToday = (ppl.birthdays || []).some(p => p.in_days === 0) || (ppl.anniversaries || []).some(p => p.in_days === 0);
     const people = cards.length ? h('section.a3-sec', h('span.a3-sec-t', anyToday ? 'OGGI IN ALMACIS' : 'QUESTA SETTIMANA IN ALMACIS'), h('div.a3-prow', cards)) : null;
     const poll = home.poll ? pollCard(home.poll) : null;
-    fill(top, hero, people, poll);
+    fill(top, hero, hoshinPulse(hk, todayISO()), people, poll);
   })();
   return cleanup;
 }
