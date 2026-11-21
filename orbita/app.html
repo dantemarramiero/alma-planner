@@ -48,6 +48,7 @@
   <link rel="stylesheet" href="/css/crm-scrivo.css">
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
   <link rel="stylesheet" href="/css/notes-v2.css">
+  <link rel="stylesheet" href="/css/hr.css">
   <link rel="stylesheet" href="/css/refresh.css">
   <!-- barra di ricerca in alto e finestra Ctrl K (ALM2-46, canvas v10): dopo il refresh -->
   <link rel="stylesheet" href="/css/palette.css">
@@ -160,6 +161,20 @@
         <a href="#/strategy/obiettivi" data-nav="strategy-obiettivi"><span class="nav-ico" data-icon="target"></span>I miei obiettivi</a>
         <a href="#/strategy/team" data-nav="strategy-team" id="nav-pm-team" hidden><span class="nav-ico" data-icon="users"></span>Dashboard team</a>
         <a href="#/strategy/mansionario" data-nav="strategy-mansionario" id="nav-pm-mans" hidden><span class="nav-ico" data-icon="key-round"></span>Mansionario</a>
+      </nav>
+      <!-- menu di Alma HR (canvas «Alma HR», 21/11/2026): griglia, mansionario e il mio percorso per tutti, il resto solo al team HR -->
+      <nav class="nav" data-ws="hr" hidden>
+        <span class="nav-label">Per tutti</span>
+        <a href="#/hr/percorso" data-nav="hr-percorso"><span class="nav-ico" data-icon="trending-up"></span>Il mio percorso</a>
+        <a href="#/hr/griglia" data-nav="hr-griglia"><span class="nav-ico" data-icon="layers"></span>Salary grade</a>
+        <a href="#/hr/mansionario" data-nav="hr-mansionario"><span class="nav-ico" data-icon="book-open"></span>Mansionario</a>
+        <span class="nav-label nav-hr-team" hidden>Team HR</span>
+        <a href="#/hr/persone" data-nav="hr-persone" class="nav-hr-team" hidden><span class="nav-ico" data-icon="users"></span>Persone</a>
+        <a href="#/hr/ruoli" data-nav="hr-ruoli" class="nav-hr-team" hidden><span class="nav-ico" data-icon="id-card"></span>Ruoli sugli incarichi</a>
+        <a href="#/hr/mappatura" data-nav="hr-mappatura" class="nav-hr-team" hidden><span class="nav-ico" data-icon="bar-chart-3"></span>Mappatura</a>
+        <a href="#/hr/pannello" data-nav="hr-pannello" class="nav-hr-team" hidden><span class="nav-ico" data-icon="sliders-horizontal"></span>Pannello di controllo</a>
+        <a href="#/hr/insieme" data-nav="hr-insieme" class="nav-hr-team" hidden><span class="nav-ico" data-icon="grid-3x3"></span>Vista d'insieme</a>
+        <a href="#/hr/registro" data-nav="hr-registro" class="nav-hr-team" hidden><span class="nav-ico" data-icon="history"></span>Registro</a>
       </nav>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-sm rail-pin" id="rail-pin" type="button" aria-pressed="false"><span class="nav-ico" data-icon="pin"></span><span>Tieni aperta</span></button>
