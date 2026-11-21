@@ -6,6 +6,7 @@ import { h, fill, modal, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, put } from './api.js';
 import { icon } from './icons.js';
 import { sourceLine, basedOn, openSources } from './crm-fonti.js';
+import { qualifiedSection, soaBox, openSoaPanel } from './crm-soa.js';
 
 const ic = (name, size = 16) => icon(name, { size });
 const pct = x => (x === null || x === undefined ? '—' : `${Number(x).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
@@ -163,7 +164,10 @@ export async function mercatoTab(ctx, f = {}) {
         canEdit && w.role !== 'cliente' ? h('div.nb-mt8', btn(w.role === 'partner' ? 'Crea passo: proponi ATI' : 'Crea passo: chiedi subappalto', () => doAction(w), { small: true })) : null)))
       : h('div.nb-empty-s', h('span.nb-ki.nota', ic('handshake')), h('span', 'Nessun vincitore è ancora nel CRM come partner o fornitore. Dalla tabella «Chi vince» puoi aggiungerli.')));
 
-  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
+  // «Chi è qualificato in zona» (attestazioni SOA, canvas v13 · V13-SOA): si carica da sola, dopo il resto
+  const qualCard = qualifiedSection({ id, months: f.months, cats: f.cats, regions: m.scope.regions,
+    openCompany: c => (c.won ? companyPanel(i, id, { cf: c.cf, name: c.name }, f, crmData, again) : openSoaPanel(c, active)), onChange: again });
+  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, qualCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
 }
 
 // ── stati: «le carico stanotte» e «sto caricando» ─────────────────────────────────────────────
@@ -243,6 +247,7 @@ async function companyPanel(i, id, who, f = {}, crmData = {}, onChange) {
       c.buyers.length ? h('div', h('div.nb-lbl.nb-mb8', 'Per quali stazioni appaltanti'), c.buyers.map(b => h('div.nb-mrow.tight', h('span', b.name), h('span.nb-small.muted', `${b.gare} ${b.gare === 1 ? 'gara' : 'gare'} · ${meur(b.valore)}`)))) : null,
       h('div', h('div.nb-lbl.nb-mb8', 'Ultime gare vinte'), h('div.nb-scroll', h('table.nb-mtbl.small', h('thead', h('tr', ['CIG', 'Oggetto', 'Data', 'Importo', 'Ribasso'].map((x, n) => h('th', { class: n >= 3 ? 'r' : '' }, x)))),
         h('tbody', c.tenders.map(t => h('tr.static', h('td.mono', t.cig), h('td', h('div', t.object || '—'), h('div.nb-small.muted', [t.sa_name, t.ati ? 'in ATI' : ''].filter(Boolean).join(' · '))), h('td', day(t.awarded_on)), h('td.r', eur(t.amount)), h('td.r', pct(t.discount)))))))),
+      c.cf ? soaBox(c.cf, c.scope.categories) : null,
       c.hint ? h('div.nb-mhint', ic('lightbulb', 15), h('span', c.hint)) : null,
       h('button.fd-btn.fd-inline', { type: 'button', on: { click: () => openSources({ cats: c.scope.categories, regions: i.profile?.regions || [], months: c.scope.months, cf: c.cf }) } }, icon('info', { size: 15 }), 'Da dove vengono i dati')),
     left: [h('a.nb-btn.ghost', { href: '#/crm/concorrenza', on: { click: () => m.close() } }, 'Vedi in Concorrenza')],
