@@ -132,19 +132,22 @@ export function agoraView(view, params) {
     const home = await get('/api/welcome/home', { quiet: true }).catch(() => null);
     if (!home || !top.isConnected) return;
     const [{ mediaUrl }, { openPost, openComposer }] = await Promise.all([import('./media.js'), import('./feed.js')]);
-    const news = home.news || [];
+    // senza post fissati dalla direzione: gli ultimi post con foto (la piazza non resta mai vuota)
+    const pinnedNews = home.news || [];
+    const news = pinnedNews.length ? pinnedNews : (home.posts || []).filter(p => p.media_id).slice(0, 3);
+    const fromFeed = !pinnedNews.length;
     let hero = null;
     if (news.length) {
-      if (pinned) pinned.hidden = true; // i post in evidenza sono già nel riquadro grande
+      if (pinned && !fromFeed) pinned.hidden = true; // i post in evidenza sono già nel riquadro grande
       const track = h('div.a3-hero-track');
       const dots = h('span.a3-dots', { 'aria-hidden': 'true' }, news.map((_, i) => h('i', { class: i ? '' : 'on' })));
       for (const p of news) {
         const author = userById(p.author_id);
         const text = String(p.body || '').replace(/\s+/g, ' ').trim();
         track.append(h('button.a3-hero', { type: 'button', on: { click: () => openPost(p.id) } },
-          h('span.a3-hero-img', p.media_id ? h('img', { src: mediaUrl(p.media_id), alt: '', loading: 'lazy' }) : ic('megaphone', 28), h('span.a3-hero-badge', 'IN EVIDENZA')),
+          h('span.a3-hero-img', p.media_id ? h('img', { src: mediaUrl(p.media_id), alt: '', loading: 'lazy' }) : ic('megaphone', 28), h('span.a3-hero-badge', fromFeed ? 'DALLA BACHECA' : 'IN EVIDENZA')),
           h('span.a3-hero-b',
-            kicker(['NEWS AZIENDALE', author?.name?.toUpperCase(), timeAgo(p.created_at).toUpperCase()].filter(Boolean).join(' · '), 'or'),
+            kicker([fromFeed ? (p.kind === 'grazie' ? 'GRAZIE A…' : 'POST') : 'NEWS AZIENDALE', author?.name?.toUpperCase(), timeAgo(p.created_at).toUpperCase()].filter(Boolean).join(' · '), 'or'),
             h('strong', text.length > 110 ? `${text.slice(0, 110)}…` : text),
             h('small', `${p.likes || 0} mi piace · ${p.comments || 0} ${p.comments === 1 ? 'commento' : 'commenti'}`))));
       }
@@ -160,12 +163,19 @@ export function agoraView(view, params) {
       h('div.a3-pcard-top', h('a', { href: `#/u/${p.id}` }, avatar(userById(p.id) || p, 40)), h('span.a3-tag', { class: cls }, tag)),
       h('a.a3-pcard-t', { href: `#/u/${p.id}` }, h('strong', p.name), h('small', sub)),
       h('button.a3-btn.a3-pcard-b', { type: 'button', on: { click: () => openComposer({ text, onCreated: () => rerender() }) } }, cta));
+    // oggi prima; poi i prossimi 7 giorni, i nuovi arrivi del mese e gli eventi aziendali, così c'è sempre qualcosa
+    const when = d => (d === 0 ? 'Oggi' : d === 1 ? 'Domani' : `Tra ${d} giorni`);
+    const day = todayISO();
     const cards = [
-      ...(ppl.birthdays || []).filter(p => p.in_days === 0).map(p => card(p, 'Compleanno', 'or', p.job_title || 'Oggi', 'Fai gli auguri', `Tanti auguri @${handle(p.id)}! `)),
+      ...(ppl.birthdays || []).map(p => card(p, 'Compleanno', 'or', when(p.in_days), p.in_days === 0 ? 'Fai gli auguri' : 'Scrivigli', p.in_days === 0 ? `Tanti auguri @${handle(p.id)}! ` : `@${handle(p.id)} `)),
       ...(ppl.arrivals || []).slice(0, 4).map(p => card(p, 'Benvenuto', 'gr', p.job_title || 'Nuovo in Almacis', 'Saluta', `Benvenuto in Almacis @${handle(p.id)}! `)),
-      ...(ppl.anniversaries || []).filter(p => p.in_days === 0).map(p => card(p, `${p.years} ${p.years === 1 ? 'anno' : 'anni'}`, 'bl', 'In Almacis da oggi', 'Complimenti', `Complimenti @${handle(p.id)} per i ${p.years} anni in Almacis! `)),
+      ...(ppl.anniversaries || []).map(p => card(p, `${p.years} ${p.years === 1 ? 'anno' : 'anni'}`, 'bl', p.in_days === 0 ? 'In Almacis da oggi' : `${when(p.in_days)} in Almacis`, 'Complimenti', `Complimenti @${handle(p.id)} per i ${p.years} anni in Almacis! `)),
+      ...(home.events || []).slice(0, 3).map(e => h('div.a3-pcard',
+        h('div.a3-pcard-top', h('span.a3-ini.pu', ic('calendar', 18)), h('span.a3-tag.pu', 'Evento')),
+        h('span.a3-pcard-t', h('strong', e.title), h('small', [e.starts_on === day ? 'Oggi' : itDay(e.starts_on), e.place].filter(Boolean).join(' · '))))),
     ];
-    const people = cards.length ? h('section.a3-sec', h('span.a3-sec-t', 'OGGI IN ALMACIS'), h('div.a3-prow', cards)) : null;
+    const anyToday = (ppl.birthdays || []).some(p => p.in_days === 0) || (ppl.anniversaries || []).some(p => p.in_days === 0);
+    const people = cards.length ? h('section.a3-sec', h('span.a3-sec-t', anyToday ? 'OGGI IN ALMACIS' : 'QUESTA SETTIMANA IN ALMACIS'), h('div.a3-prow', cards)) : null;
     const poll = home.poll ? pollCard(home.poll) : null;
     fill(top, hero, people, poll);
   })();
@@ -439,7 +449,7 @@ export async function contactPage(view, id) {
       h('span.a3-ini.xl', { class: r?.[1] || 'gy' }, initialsOf(contactName(c))),
       h('div.a3-who-t', h('h1', contactName(c)),
         link ? h('span.a3-muted', link.job ? `${link.job} · ` : '', h('a', { href: `#/crm/scheda/${link.subject_id}` }, link.name)) : h('span.a3-muted', 'Senza azienda'),
-        r ? h('span.a3-tag', { class: r[1] }, `${r[0]}${c.owner_name ? ` · di ${firstName({ name: c.owner_name })}` : ''}`) : null)),
+        r ? h('span.a3-tag', { class: r[1] }, `${r[0]}${c.owner_name ? ` · di ${firstName({ id: c.owner_id, name: c.owner_name })}` : ''}`) : null)),
     h('nav.a3-quick', { 'aria-label': 'Contatta' },
       quick('Chiama', 'phone', 'gr', phone ? { href: `tel:${digits}` } : {}),
       quick('WhatsApp', 'message', 'gr', wa ? { href: wa, target: '_blank', rel: 'noopener' } : {}),
@@ -770,7 +780,7 @@ export async function compitiView(view, params) {
   const givenT = given.filter(t => (t.assignee_ids || []).some(i => i !== store.me.id) && !(t.assignee_ids || []).includes(store.me.id));
   const items = dati
     ? [...givenT.map(t => ({ kind: 't', t, due: due(t.due_date), title: t.title, meta: `a ${(t.assignee_ids || []).map(i => firstName(userById(i))).filter(Boolean).join(', ')}` })),
-      ...stepsGiven.steps.map(s => ({ kind: 's', s, due: s.due_date, title: s.title, meta: `a ${firstName({ name: s.owner_name })} · ${s.subject_name}` }))]
+      ...stepsGiven.steps.map(s => ({ kind: 's', s, due: s.due_date, title: s.title, meta: `a ${firstName({ id: s.owner_id, name: s.owner_name })} · ${s.subject_name}` }))]
     : [...liveMine.map(t => ({ kind: 't', t, due: due(t.due_date), title: t.title, meta: [t.project, t.created_by && t.created_by !== store.me.id ? `da ${firstName(userById(t.created_by))}` : null].filter(Boolean).join(' · ') || 'Ticket' })),
       ...steps.steps.map(s => ({ kind: 's', s, due: s.due_date, title: s.title, meta: `CRM · ${[s.contact_name, s.subject_name].filter(Boolean).join(' · ')}` })),
       ...(rda.inbox || []).map(t => ({ kind: 'r', t, due: today, title: `RDA: ${t.title}`, meta: `da decidere · ${userById(t.created_by)?.name || 'un collega'}` }))];
