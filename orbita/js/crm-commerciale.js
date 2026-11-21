@@ -46,7 +46,7 @@ function lineList(values, { placeholder = '', max = 300, numbered = false } = {}
   const renumber = () => numbered && [...rows.children].forEach((r, i) => { r.querySelector('.crm-plan-n').textContent = String(i + 1); });
   const add = (val = '') => {
     const row = h('div.crm-lineedit-row', numbered ? h('span.crm-plan-n') : null,
-      input({ value: val, placeholder, maxlength: max, 'aria-label': placeholder || 'Voce' }),
+      h('textarea.input.crm-grow', { rows: 1, placeholder, maxlength: max, 'aria-label': placeholder || 'Voce' }, val),
       h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Sposta su', on: { click: () => { if (row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling); renumber(); rows.dispatchEvent(new Event('input', { bubbles: true })); } } }, ic('chevron-up', 14)),
       h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Sposta giù', on: { click: () => { if (row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row); renumber(); rows.dispatchEvent(new Event('input', { bubbles: true })); } } }, ic('chevron-down', 14)),
       h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Togli', on: { click: () => { rows.dispatchEvent(new Event('input', { bubbles: true })); row.remove(); renumber(); } } }, ic('x', 14)));
@@ -56,8 +56,8 @@ function lineList(values, { placeholder = '', max = 300, numbered = false } = {}
   };
   values.forEach(x => add(x));
   return {
-    el: h('div', rows, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => add().querySelector('input').focus() } }, ic('plus', 14), 'Aggiungi')),
-    value: () => [...rows.querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean),
+    el: h('div', rows, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => add().querySelector('textarea').focus() } }, ic('plus', 14), 'Aggiungi')),
+    value: () => [...rows.querySelectorAll('textarea')].map(i => i.value.trim()).filter(Boolean),
   };
 }
 // parole come pillole con la ×, più un campo per aggiungerne
@@ -510,7 +510,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
     minIn.addEventListener('input', draw);
     draw();
     fill(body,
-      h('div.cv-cols', { style: { gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)' } },
+      h('div.cv-cols.cv-split',
         h('section.cv-card.pad', h('div.cv-row', h('div.cv-t5.cv-grow', { style: { fontSize: '15px' } }, 'Pesi del punteggio'), totalPill),
           h('p.cv-small.cv-muted', 'Ogni segnale prende da 0 a 100 punti: la somma di cinque criteri. I pesi devono fare 100.'),
           ws.map(w => w.el), h('div.cv-hr'),
@@ -596,10 +596,10 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
       fill(picker, h('div.cv-chips', pbs.map((p, i) => h('button.cv-chip', { type: 'button', class: i === cur ? 'on' : '', 'aria-pressed': String(i === cur), on: { click: () => { readCur(); cur = i; readCur = () => {}; draw(); } } }, p.name.split(' (')[0] || 'Nuovo playbook'))));
       const p = pbs[cur];
       if (!p) return fill(form, emptyState('list', 'Nessun playbook.'));
-      const name = input({ value: p.name, placeholder: 'Tipo di segnale', maxlength: 200, 'aria-label': 'Tipo di segnale' });
+      const name = h('textarea.input.crm-grow', { rows: 1, placeholder: 'Tipo di segnale', maxlength: 200, 'aria-label': 'Tipo di segnale' }, p.name || '');
       const bu = chipSet(asaOpts, p.bu || []);
       const steps = lineList(p.steps || [], { placeholder: 'Passo', numbered: true });
-      const check = input({ value: p.check, placeholder: 'Domanda di verifica (c\'è una trattativa?)', maxlength: 300, 'aria-label': 'Domanda di verifica' });
+      const check = h('textarea.input.crm-grow', { rows: 1, placeholder: 'Domanda di verifica (c\'è una trattativa?)', maxlength: 300, 'aria-label': 'Domanda di verifica', style: { flex: '1', minWidth: '0' } }, p.check || '');
       readCur = () => Object.assign(p, { name: name.value, bu: [...bu.values], steps: steps.value(), check: check.value });
       fill(form, fld('Tipo di segnale', name), fld('Vale per (nessuna = tutte le BU)', bu.el), h('div.cv-fld', h('span', 'Passi, in ordine'), steps.el),
         h('div.cv-row', { style: { border: '1px dashed var(--cv-line-strong)', borderRadius: '12px', padding: '8px 10px' } },
@@ -624,7 +624,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
     const addQ = (q = { text: '', weight: 0 }) => {
       const w = input({ type: 'number', min: 0, max: 100, value: q.weight, 'data-q': 'weight', 'aria-label': 'Peso', style: { width: '70px', minHeight: '32px', height: '32px', textAlign: 'right' } });
       w.addEventListener('input', sumQ);
-      const row = h('div.cv-row', { style: { gap: '8px' } }, input({ value: q.text, placeholder: 'Domanda', maxlength: 200, 'data-q': 'text', 'aria-label': 'Domanda', style: { minHeight: '32px', height: '32px', flex: '1', minWidth: '0', width: 'auto' } }), w,
+      const row = h('div.cv-row', { style: { gap: '8px', alignItems: 'flex-start' } }, h('textarea.input.crm-grow', { rows: 1, placeholder: 'Domanda', maxlength: 200, 'data-q': 'text', 'aria-label': 'Domanda', style: { flex: '1', minWidth: '0', width: 'auto' } }, q.text), w,
         h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Togli la domanda', on: { click: () => { row.remove(); sumQ(); dirty(); } } }, ic('x', 14)));
       qs.append(row);
       sumQ();
@@ -636,7 +636,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
       h('section.cv-card.pad', h('div.cv-t5', { style: { fontSize: '15px' } }, 'Regole e tempi'),
         h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(124px, 1fr))', gap: '10px' } }, nums.map(n => h('label.cv-num', h('div.cv-row', { style: { gap: '4px', alignItems: 'baseline' } }, n.el, h('span.cv-small.cv-muted', n.u)),
           h('div.cv-small.cv-t5', n.l), n.c ? h('div.cv-hint', n.c) : null))),
-        h('div.cv-cols', { style: { gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '16px' } },
+        h('div.cv-cols.cv-split', { style: { gap: '16px' } },
           h('div.cv-box.big', h('div.cv-row', h('span.cv-t5.cv-grow', 'Go/No-Go delle trattative private · PC-04'), pill('da ridiscutere', 'am')),
             h('div.cv-hint', 'Dante non è convinto delle 6 domande (14/11): resta così finché non si decide.'),
             h('div.cv-row', h('span.cv-small.cv-grow', 'Domande e pesi'), qTot), qs,

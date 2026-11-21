@@ -88,11 +88,16 @@ function registerCrmScrivo(app, { db, auth, radarFetch, mailFake }) {
     try {
       const t = mailFake ? 'fake' : await token(req);
       const get = mailFake ? mailFake.graph : graph;
-      const data = await get(t, 'GET', `/me/messages?$filter=${encodeURIComponent(`from/emailAddress/address eq '${email.replace(/'/g, "''")}'`)}&$select=subject,body,receivedDateTime&$top=1&$orderby=receivedDateTime desc`,
+      // Outlook vuole il campo dell'ordinamento come primo filtro, altrimenti risponde «The restriction or sort order is
+      // too complex for this operation» (Dante 21/11): la data va prima del mittente.
+      const filter = `receivedDateTime ge 1900-01-01T00:00:00Z and from/emailAddress/address eq '${email.replace(/'/g, "''")}'`;
+      const data = await get(t, 'GET', `/me/messages?$filter=${encodeURIComponent(filter)}&$select=subject,body,receivedDateTime&$top=1&$orderby=receivedDateTime desc`,
         { headers: { Prefer: 'outlook.body-content-type="text"' } });
       last = (data.value || [])[0] || null;
     } catch (err) {
-      if (![401, 403, 503, 400].includes(err.status)) throw err;
+      // se la posta non si legge, la proposta parte dall'intestazione (nome ed email): non deve fermare «Crea contatto»
+      if (![401, 403, 404, 502, 503, 400].includes(err.status)) throw err;
+      console.warn(`[scrivo] ultima email di ${email} non letta: ${err.message}`);
     }
     const text = last?.body?.content || '';
     let fields = S.fromSignature(text, { name: p?.name || '', email });
