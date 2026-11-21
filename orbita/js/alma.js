@@ -265,9 +265,13 @@ export function createChat(opts = {}) {
   const MAX_PHOTOS = 5;
   const placeholder = input.placeholder;
   const photoRow = h('div.al-photos');
-  const pickFile = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+  // file (20/11): PDF, Excel, Word, CSV e testo, al massimo 3 e circa 6 MB in tutto; non si salvano nemmeno loro
+  let docs = [];
+  const MAX_DOCS = 3;
+  const DOC_EXT = /\.(pdf|xlsx|xlsm|docx|csv|tsv|txt|md|json)$/i;
+  const pickFile = h('input', { type: 'file', accept: 'image/*,.pdf,.xlsx,.xlsm,.docx,.csv,.tsv,.txt,.md,.json', multiple: true, hidden: true });
   const takePhoto = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
-  const clipBtn = h('button.al-tool', { type: 'button', title: 'Allega foto (biglietti da visita)', 'aria-label': 'Allega foto' }, ic('paperclip', 16));
+  const clipBtn = h('button.al-tool', { type: 'button', title: 'Allega foto o file (PDF, Excel, Word, CSV)', 'aria-label': 'Allega foto o file' }, ic('paperclip', 16));
   const micBtn = h('button.al-tool.al-mic', { type: 'button', title: 'Detta la domanda', 'aria-label': 'Detta la domanda', hidden: true }, ic('mic', 16));
   const micTime = h('span.al-small.al-mictime', { hidden: true });
   let rec = null;
@@ -312,14 +316,23 @@ export function createChat(opts = {}) {
   camBtn.addEventListener('click', () => takePhoto.click());
   const drawPhotos = () => {
     fill(photoRow, photos.map((src, i) => h('span.al-photo', h('img', { src, alt: `Foto ${i + 1}` }),
-      h('button', { type: 'button', 'aria-label': 'Togli la foto', on: { click: () => { photos.splice(i, 1); drawPhotos(); } } }, ic('x', 12)))));
-    photoRow.hidden = !photos.length;
-    input.placeholder = photos.length ? 'Dove li hai conosciuti? (facoltativo)' : placeholder;
+      h('button', { type: 'button', 'aria-label': 'Togli la foto', on: { click: () => { photos.splice(i, 1); drawPhotos(); } } }, ic('x', 12)))),
+      docs.map((d, i) => h('span.al-doc', ic('file-text', 14), h('span', d.name),
+        h('button', { type: 'button', 'aria-label': `Togli ${d.name}`, on: { click: () => { docs.splice(i, 1); drawPhotos(); } } }, ic('x', 12)))));
+    photoRow.hidden = !photos.length && !docs.length;
+    input.placeholder = docs.length ? 'Cosa vuoi sapere del file? (facoltativo)' : photos.length ? 'Dove li hai conosciuti? (facoltativo)' : placeholder;
   };
+  const readDoc = f => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(f); });
   const addFiles = async files => {
     for (const f of [...files]) {
+      if (DOC_EXT.test(f.name) && !/^image\//.test(f.type)) {
+        if (docs.length >= MAX_DOCS) { toast(`Al massimo ${MAX_DOCS} file per domanda.`); continue; }
+        if (docs.reduce((a, d) => a + d.size, 0) + f.size > 6.5 * 1024 * 1024) { toast('I file sono troppo grandi: in tutto al massimo circa 6 MB.'); continue; }
+        try { docs.push({ name: f.name, size: f.size, data: await readDoc(f) }); } catch { toast(`«${f.name}» non si riesce ad aprire.`); }
+        continue;
+      }
       if (photos.length >= MAX_PHOTOS) { toast(`Al massimo ${MAX_PHOTOS} foto per domanda.`); break; }
-      if (!/^image\//.test(f.type)) { toast('Si possono allegare solo foto.'); continue; }
+      if (!/^image\//.test(f.type)) { toast('Si possono allegare foto, PDF, Excel, Word, CSV o testo.'); continue; }
       try { photos.push(await shrink(f)); } catch { toast('Questa foto non si riesce ad aprire: prova a fotografarla di nuovo.'); }
     }
     drawPhotos();
@@ -359,8 +372,9 @@ export function createChat(opts = {}) {
     input.disabled = true; sendBtn.disabled = true;
   }
 
-  const question = (text, foto = []) => h('div.al-qbox', foto.length ? h('div.al-qphotos', foto.map(src => (typeof src === 'string' ? h('img', { src, alt: 'Foto allegata' }) : null)),
-    foto.some(x => typeof x !== 'string') ? h('span.al-small.al-muted', ic('image', 13), `${foto.length} foto (non salvate)`) : null) : null, h('div.al-q', text));
+  const question = (text, foto = [], files = []) => h('div.al-qbox', foto.length ? h('div.al-qphotos', foto.map(src => (typeof src === 'string' ? h('img', { src, alt: 'Foto allegata' }) : null)),
+    foto.some(x => typeof x !== 'string') ? h('span.al-small.al-muted', ic('image', 13), `${foto.length} foto (non salvate)`) : null) : null,
+    files.length ? h('div.al-qphotos', files.map(n => h('span.al-doc', ic('file-text', 13), h('span', n)))) : null, h('div.al-q', text));
   function answerShell() {
     const steps = h('div.al-steps');
     const body = h('div.al-tx');
@@ -563,16 +577,18 @@ export function createChat(opts = {}) {
   }
 
   // ── invio con risposta in diretta (Server-Sent Events) ──
-  async function send(textArg, { retry = false, images = null } = {}) {
+  async function send(textArg, { retry = false, images = null, files = null } = {}) {
     if (busy) return;
     const imgs = images || (textArg ? [] : photos.slice());
+    const fls = files || (textArg ? [] : docs.map(d => ({ name: d.name, data: d.data })));
     const typed = String(textArg ?? input.value).trim();
-    const text = typed || (imgs.length ? (imgs.length === 1 ? 'Crea il contatto da questo biglietto da visita.' : 'Crea i contatti da questi biglietti da visita.') : '');
+    const text = typed || (fls.length ? (fls.length === 1 ? 'Leggi il file allegato e dimmi in breve cosa contiene.' : 'Leggi i file allegati e dimmi in breve cosa contengono.')
+      : imgs.length ? (imgs.length === 1 ? 'Crea il contatto da questo biglietto da visita.' : 'Crea i contatti da questi biglietti da visita.') : '');
     if (!text) return;
-    if (!textArg) { input.value = ''; grow(); photos = []; drawPhotos(); }
+    if (!textArg) { input.value = ''; grow(); photos = []; docs = []; drawPhotos(); }
     if (msgs.querySelector('.al-welcome')) clear(msgs);
     lastQuestion = text;
-    if (!retry) msgs.append(question(text, imgs));
+    if (!retry) msgs.append(question(text, imgs, fls.map(f => f.name)));
     const shell = answerShell();
     shell.body.append(h('span.al-dots', h('i'), h('i'), h('i')));
     msgs.append(shell.node);
@@ -583,12 +599,12 @@ export function createChat(opts = {}) {
     let finished = false;
     const showError = (msg, canRetry = true) => {
       fill(shell.body, h('div.al-err', ic('alert-triangle', 14), msg));
-      if (canRetry) shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true, images: imgs }); } } }, ic('refresh', 14), 'Riprova'));
+      if (canRetry) shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true, images: imgs, files: fls }); } } }, ic('refresh', 14), 'Riprova'));
     };
     try {
       const res = await fetch('/api/alma/chat/stream', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal,
         headers: { 'Content-Type': 'application/json', 'X-Alma': '1' },
-        body: JSON.stringify({ text, conversation_id: convId || undefined, context: opts.context ? opts.context() : undefined, retry: retry || undefined, images: imgs.length ? imgs : undefined }) });
+        body: JSON.stringify({ text, conversation_id: convId || undefined, context: opts.context ? opts.context() : undefined, retry: retry || undefined, images: imgs.length ? imgs : undefined, files: fls.length ? fls : undefined }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         showError(data.error || `Errore ${res.status}`, !['daily_limit', 'month_limit', 'not_configured', 'disabled'].includes(data.code));
@@ -629,7 +645,7 @@ export function createChat(opts = {}) {
       if (e.name === 'AbortError') {
         const said = draft.split('```blocchi')[0];
         fill(shell.body, said ? markdown(said, t => h('b', t.replace(/\{f\d+\}/g, ''))) : null, h('div.al-small.al-muted', 'Risposta fermata.'));
-        shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true, images: imgs }); } } }, ic('refresh', 14), 'Riprova'));
+        shell.extra.append(h('button.btn.btn-sm', { type: 'button', on: { click: () => { shell.node.remove(); send(text, { retry: true, images: imgs, files: fls }); } } }, ic('refresh', 14), 'Riprova'));
       } else showError('Non riesco a raggiungere Alma: controlla la connessione e riprova.');
     } finally { setBusy(null); input.focus({ preventScroll: true }); }
   }

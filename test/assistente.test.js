@@ -664,3 +664,25 @@ test('contatto facile (v8): nome libero, solo email, azienda al volo «da comple
   const ok4 = await D('POST', '/api/alma/azioni/' + r4.body.proposals[0].id + '/conferma', { solo: true });
   assert.match(ok4.body.reply, /Sara Colombo aggiunto al CRM/);
 });
+
+test('file nella domanda (20/11): PDF al modello così com\'è, Excel/CSV letti come testo, non si salvano; tipi non ammessi no', async () => {
+  const { writeXlsx } = require('../lib/xlsx');
+  const xlsx = writeXlsx({ Clienti: [['Cliente', 'Città'], ['Terna S.p.A.', 'Roma'], ['Comune di Lanciano', 'Lanciano']] });
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF').toString('base64');
+  let seen = null;
+  queue.push(params => { seen = params.messages.at(-1).content; return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Ho letto i file.' }] }; });
+  const files = [{ name: 'offerta.pdf', data: `data:application/pdf;base64,${pdf}` }, { name: 'lista.csv', data: `data:text/csv;base64,${Buffer.from('nome;città\nRossi;Pescara').toString('base64')}` },
+    ...(xlsx ? [{ name: 'clienti.xlsx', data: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${Buffer.from(xlsx).toString('base64')}` }] : [])];
+  const r = await D('POST', '/api/alma/chat', { text: '', files });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(seen.some(b => b.type === 'document' && b.title === 'offerta.pdf'), 'il PDF arriva al modello');
+  assert.ok(seen.some(b => b.type === 'text' && /Rossi;Pescara/.test(b.text)), 'il CSV arriva come testo');
+  if (xlsx) assert.ok(seen.some(b => b.type === 'text' && /foglio «Clienti»/.test(b.text) && /Terna S\.p\.A\. \| Roma/.test(b.text)), 'l\'Excel arriva come righe');
+  assert.ok(seen.some(b => b.type === 'text' && /file allegati a questa domanda/.test(b.text)));
+  const saved = (await db.query('SELECT content::text AS c FROM assistant_messages WHERE conversation_id = $1', [r.body.conversation_id])).rows.map(x => x.c).join(' ');
+  assert.ok(!saved.includes(pdf) && !saved.includes('Rossi;Pescara'), 'i file non si salvano');
+  const before = calls.length;
+  assert.equal((await D('POST', '/api/alma/chat', { text: 'ciao', files: [{ name: 'x.exe', data: 'data:application/octet-stream;base64,TVo=' }] })).status, 400);
+  assert.equal((await D('POST', '/api/alma/chat', { text: 'ciao', files: [{ name: 'finto.pdf', data: 'data:application/pdf;base64,aGVsbG8=' }] })).status, 400);
+  assert.equal(calls.length, before);
+});

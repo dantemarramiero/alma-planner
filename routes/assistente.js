@@ -18,6 +18,7 @@
 // Senza OPENAI_API_KEY: /status dice configured: false (la pagina spiega cosa manca), la chat risponde 503.
 const { HttpError } = require('../lib/http');
 const { getSetting, saveSetting } = require('../lib/settings');
+const { readXlsx, unzip } = require('../lib/xlsx');
 const TOOLS = require('../lib/assistente-strumenti');
 const ACTIONS = require('../lib/assistente-azioni');
 const RICEVUTE = require('../lib/assistente-ricevute');
@@ -53,12 +54,60 @@ function imagesOf(body) {
     return { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
   });
 }
-// Le foto vanno nel messaggio della domanda di adesso (quello con il segno «foto allegate…»).
+// File nella domanda (20/11/2026): PDF, Excel, CSV, Word, testo. Il PDF arriva al modello così com'è; Excel, CSV,
+// Word e testo si leggono qui e arrivano come testo (righe e colonne). Non si salvano: valgono per questa domanda,
+// nel messaggio salvato resta «[N file allegati…: nomi]».
+const MAX_FILES = 3;
+const MAX_FILE_CHARS = 9 * 1024 * 1024; // data URL (≈ 6,5 MB di file)
+const MAX_FILE_TEXT = 40000;
+const FILE_MARK = 'file allegati a questa domanda';
+const FILE_RE = /^data:([\w.+/-]*);base64,([A-Za-z0-9+/=]+)$/;
+function filesOf(body) {
+  const list = Array.isArray(body?.files) ? body.files : [];
+  if (list.length > MAX_FILES) throw new HttpError(400, `Al massimo ${MAX_FILES} file per domanda.`);
+  if (list.reduce((a, f) => a + String(f?.data || '').length, 0) > MAX_FILE_CHARS) throw new HttpError(400, 'I file sono troppo grandi: in tutto al massimo circa 6 MB.');
+  return list.map(f => {
+    const name = String(f?.name || 'file').replace(/[\r\n"]/g, ' ').slice(0, 120);
+    const m = typeof f?.data === 'string' ? FILE_RE.exec(f.data) : null;
+    if (!m) throw new HttpError(400, `«${name}» non si riesce a leggere.`);
+    const ext = (name.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+    const buf = Buffer.from(m[2], 'base64');
+    const cut = t => (t.length > MAX_FILE_TEXT ? `${t.slice(0, MAX_FILE_TEXT)}\n[… tagliato: il file continua]` : t);
+    if (ext === 'pdf' || m[1] === 'application/pdf') {
+      if (buf.subarray(0, 4).toString() !== '%PDF') throw new HttpError(400, `«${name}» non è un PDF valido.`);
+      return { block: { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: m[2] }, title: name }, name };
+    }
+    if (ext === 'xlsx' || ext === 'xlsm') {
+      let sheets;
+      try { sheets = readXlsx(buf); } catch { throw new HttpError(400, `«${name}» non è un Excel (.xlsx) valido.`); }
+      const parts = Object.entries(sheets).map(([sheet, rows]) => {
+        const list = (Array.isArray(rows) ? rows : []).filter(r => Array.isArray(r) ? r.some(c => String(c ?? '').trim()) : r);
+        const lines = list.slice(0, 400).map(r => (Array.isArray(r) ? r : Object.values(r || {})).map(c => String(c ?? '').replace(/\s+/g, ' ').trim()).join(' | '));
+        return `— foglio «${sheet}» (${list.length} righe${list.length > 400 ? ', qui le prime 400' : ''}) —\n${lines.join('\n')}`;
+      });
+      return { block: { type: 'text', text: cut(`[File Excel «${name}»]\n${parts.join('\n\n')}`) }, name };
+    }
+    if (ext === 'docx') {
+      let xml;
+      try { xml = unzip(buf)('word/document.xml'); } catch { xml = null; }
+      if (!xml) throw new HttpError(400, `«${name}» non è un documento Word (.docx) valido.`);
+      const text = xml.replace(/<\/w:p>/g, '\n').replace(/<w:tab\/>/g, '\t').replace(/<[^>]+>/g, '')
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
+      return { block: { type: 'text', text: cut(`[Documento Word «${name}»]\n${text}`) }, name };
+    }
+    if (['csv', 'txt', 'tsv', 'md', 'json'].includes(ext) || /^text\//.test(m[1])) {
+      return { block: { type: 'text', text: cut(`[File «${name}»]\n${buf.toString('utf8').replace(/^﻿/, '')}`) }, name };
+    }
+    throw new HttpError(400, `«${name}»: si possono allegare PDF, Excel (.xlsx), Word (.docx), CSV, testo o foto.`);
+  });
+}
+
+// Foto e file vanno nel messaggio della domanda di adesso (quello con il segno «foto/file allegati…»).
 function withImages(messages, images) {
   if (!images.length) return messages;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.role === 'user' && Array.isArray(m.content) && m.content.some(b => b.type === 'text' && String(b.text).includes(PHOTO_MARK))) {
+    if (m.role === 'user' && Array.isArray(m.content) && m.content.some(b => b.type === 'text' && (String(b.text).includes(PHOTO_MARK) || String(b.text).includes(FILE_MARK)))) {
       messages[i] = { ...m, content: [...m.content, ...images] };
       break;
     }
@@ -340,7 +389,9 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
   }
   async function checks(req) {
     const images = imagesOf(req.body);
+    const files = filesOf(req.body);
     let text = String(req.body?.text || '').trim();
+    if (!text && files.length) text = files.length === 1 ? 'Leggi il file allegato e dimmi in breve cosa contiene.' : 'Leggi i file allegati e dimmi in breve cosa contengono.';
     if (!text && images.length) text = images.length === 1 ? 'Crea il contatto da questo biglietto da visita.' : 'Crea i contatti da questi biglietti da visita.';
     if (!text) throw new HttpError(400, 'Scrivi una domanda.');
     if (text.length > MAX_TEXT) throw new HttpError(400, `La domanda è troppo lunga (al massimo ${MAX_TEXT} caratteri).`);
@@ -352,14 +403,15 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     const mine = (await todayCostUsd(req.user.id)) * s.usd_eur;
     if (mine >= s.daily_eur) throw new HttpError(429, `Per oggi hai usato tutta la tua quota di Alma (${s.daily_eur} €). Puoi tornare a usarla domani dalle 00:00.`, 'daily_limit');
     if (req.body?.conversation_id) await ownConversation(req, req.body.conversation_id);
-    return { text, s, images };
+    return { text, s, images, files };
   }
 
   const busy = new Set(); // una risposta alla volta per conversazione
 
   // live (POST /chat/stream): { emit(evento, dati), signal, reason() → 'stop' | 'timeout' }.
   async function chat(req, live = null) {
-    const { text, s, images } = await checks(req);
+    const { text, s, images, files } = await checks(req);
+    const attach = [...images, ...files.map(f => f.block)]; // arrivano al modello solo in questa domanda
     const emit = live ? live.emit : () => {};
     const signal = live ? live.signal : null;
     const reuse = await retrying(req, text);
@@ -384,8 +436,9 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       const ctx = reuse ? null : await CONTESTO.resolve(CONTESTO.normalize(req.body?.context), getter(req));
       const ctxState = { free: 0, suspicious: 0 };
       if (!reuse) {
-        const photoNote = images.length ? `\n[${images.length} ${PHOTO_MARK}: le vedi solo adesso; i dati che leggi sulle foto valgono come detti dall'utente]` : '';
-        const meta = { ...(ctx ? { contesto: { route: ctx.route, label: CONTESTO.label(ctx) } } : {}), ...(images.length ? { foto: images.length } : {}) };
+        const photoNote = (images.length ? `\n[${images.length} ${PHOTO_MARK}: le vedi solo adesso; i dati che leggi sulle foto valgono come detti dall'utente]` : '')
+          + (files.length ? `\n[${files.length} ${FILE_MARK}: ${files.map(f => `«${f.name}»`).join(', ')}; li vedi solo adesso, per le domande dopo riassumi quello che serve]` : '');
+        const meta = { ...(ctx ? { contesto: { route: ctx.route, label: CONTESTO.label(ctx) } } : {}), ...(images.length ? { foto: images.length } : {}), ...(files.length ? { file: files.map(f => f.name) } : {}) };
         await addMessage(conv.id, 'user', [...(ctx ? [{ type: 'text', text: CONTESTO.block(ctx, ctxState) }] : []), { type: 'text', text: text + photoNote }], text,
           Object.keys(meta).length ? meta : null);
       }
@@ -398,7 +451,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         return { conversation_id: conv.id, title: conv.title, reply: quick.reply, steps: [], proposals: quick.proposals, trace_id: traceId };
       }
       // «Fallo a barre», «in tabella»…: si cambia il tipo dell'ultimo grafico, senza chiamare il modello.
-      const newType = req.body?.conversation_id && !images.length ? GRAF.tipoDaTesto(text) : null;
+      const newType = req.body?.conversation_id && !attach.length ? GRAF.tipoDaTesto(text) : null;
       if (newType) {
         const { rows: [lastChart] } = await db.query(`SELECT meta FROM assistant_messages WHERE conversation_id = $1 AND role = 'assistant' AND display IS NOT NULL
           AND meta ? 'charts' ORDER BY id DESC LIMIT 1`, [conv.id]);
@@ -464,8 +517,8 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         }
         return out;
       };
-      let model = images.length ? CLAUDE.MODELS.sonnet : CLAUDE.pickModel(text, s.model_mode); // le foto le legge il modello più preciso
-      if (!images.length && s.model_mode === 'auto' && route && Date.now() >= routerPausedUntil) {
+      let model = attach.length ? CLAUDE.MODELS.sonnet : CLAUDE.pickModel(text, s.model_mode); // foto e file li legge il modello più preciso
+      if (!attach.length && s.model_mode === 'auto' && route && Date.now() >= routerPausedUntil) {
         const t0 = Date.now();
         try {
           const r = await route(text, prevQuestion);
@@ -511,7 +564,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
           { steps, proposals: await shownProposals(), ...(ricevute ? { ricevute } : {}), ...(b.blocchi ? { blocchi: b.blocchi } : {}), ...(turnCharts.length ? { charts: turnCharts } : {}) });
       };
       for (let step = 0; step < MAX_STEPS; step++) {
-        const messages = CLAUDE.cacheTail(withImages(await history(conv.id), images));
+        const messages = CLAUDE.cacheTail(withImages(await history(conv.id), attach));
         const params = { max_tokens: 8000, system, tools: toolDefs, messages, output_config: { effort: 'medium' }, context_management };
         let response = await ask(params, model);
         // Haiku rifiuta (non ha il fallback lato server): si ripete la stessa richiesta su Sonnet.
@@ -558,7 +611,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         stopNow();
         if (step === MAX_STEPS - 1) {
           await addMessage(conv.id, 'user', [{ type: 'text', text: 'Fermati qui e rispondi con quello che hai.' }]);
-          const r2 = await ask({ max_tokens: 4000, system, tools: toolDefs, tool_choice: { type: 'none' }, messages: CLAUDE.cacheTail(withImages(await history(conv.id), images)), output_config: { effort: 'low' }, context_management }, model);
+          const r2 = await ask({ max_tokens: 4000, system, tools: toolDefs, tool_choice: { type: 'none' }, messages: CLAUDE.cacheTail(withImages(await history(conv.id), attach)), output_config: { effort: 'low' }, context_management }, model);
           const c2 = plainBlocks(r2.content);
           await finish(c2, DIFESA.cleanReply(textOf(c2)) || 'Ci sono volute troppe ricerche: prova a fare una domanda più precisa.');
         }

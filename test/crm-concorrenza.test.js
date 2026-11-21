@@ -208,3 +208,12 @@ test('«Cerca un\'impresa» (v11): per nome o P.IVA tra chi ha vinto, anche fuor
   assert.equal((await E('GET', '/api/crm/concorrenza/cerca?q=0987654')).body.imprese[0].cf, '09876543210');
   assert.deepEqual((await E('GET', '/api/crm/concorrenza/cerca?q=x')).body.imprese, []);
 });
+
+test('ANAC: intestazioni da browser e errore chiaro se il firewall risponde con una pagina (20/11)', async () => {
+  const { monthsAvailable } = require('../lib/crm-anac');
+  let sent = null;
+  const page = async (url, opts) => { sent = opts.headers; return { ok: true, headers: { get: () => 'text/html; charset=UTF-8' }, json: async () => { throw new Error('non JSON'); } }; };
+  await assert.rejects(monthsAvailable({ fetchImpl: page }), /ANAC ha rifiutato/);
+  assert.match(sent['User-Agent'], /Chrome\//);
+  assert.equal(sent.Accept, '*/*');
+});
