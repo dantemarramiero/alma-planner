@@ -123,7 +123,9 @@ export async function organigrammaView(c, params) {
     t.senza_ruolo ? (d.is_hr ? h('a.hr-chip.z-warn', { href: '#/hr/ruoli' }, `${t.senza_ruolo} senza ruolo`) : h('span.hr-chip.z-warn', `${t.senza_ruolo} senza ruolo`)) : null,
     h('span.hr-chip', `span medio ${k1(t.span)}`), h('span.hr-chip', d.sync.at ? `⟳ BOSS ${fmtDateTime(d.sync.at)}${d.sync.api ? '' : ' (export)'}` : 'non ancora sincronizzato')));
   fill(c, head('Organigramma', 'Da BOSS, in sola lettura: ruolo e grade del mansionario sopra ogni incarico, i vacanti con la loro fascia. Si cambia su BOSS.',
-    h('div.hr-row', h('button.btn', { type: 'button', on: { click: doveSiCambia } }, icon('info', { size: 16 }), ' Cosa si cambia dove'), d.boss_base ? bossBtn(d.boss_base, 'Apri BOSS ↗') : null)),
+    h('div.hr-row', h('button.btn', { type: 'button', on: { click: doveSiCambia } }, icon('info', { size: 16 }), ' Cosa si cambia dove'),
+      h('button.btn', { type: 'button', title: 'Stampa la vista aperta, o salvala in PDF dalla finestra di stampa', on: { click: () => { document.body.classList.add('hr-print'); window.print(); setTimeout(() => document.body.classList.remove('hr-print'), 500); } } }, icon('download', { size: 16 }), ' Stampa / PDF'),
+      d.boss_base ? bossBtn(d.boss_base, 'Apri BOSS ↗') : null)),
     tabs, h('div.hr-row.hr-filters', search, vista === 'albero' ? areaSel : null, vista === 'albero' ? mostraSel : null), statsBox, body);
   draw();
 }
@@ -151,7 +153,8 @@ export function doveSiCambia() {
 export async function costoView(c) {
   const d = await get('/api/hr/costo');
   const max = Math.max(1, ...d.aree.map(a => a.monte + a.vacanti_rif));
-  fill(c, head('Costo dell\'organigramma', 'Quanto costa ogni area oggi (RAL da BOSS) e quanto costerebbe coprire i vacanti al riferimento della loro fascia.'),
+  fill(c, head('Costo dell\'organigramma', 'Quanto costa ogni area oggi (RAL da BOSS) e quanto costerebbe coprire i vacanti al riferimento della loro fascia.',
+    h('a.btn', { href: '/api/hr/costo.xlsx', download: '' }, icon('download', { size: 16 }), ' Esporta Excel')),
     lockBar('Solo team HR · registrata nel Registro.'),
     h('div.hr-grid4',
       h('div.hr-kpi', h('div.l', 'Monte RAL attuale ⟳'), h('div.v', keur(d.totale.monte)), h('div.small.muted', `${d.totale.persone} persone`)),

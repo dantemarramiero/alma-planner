@@ -133,7 +133,7 @@ async function saveOrgFromBoss(q, data, people) {
 // ── un solo mansionario con Alma Strategy ─────────────────────────────────────────────────────────────────
 // Il ruolo di una persona in Strategy = il ruolo del suo incarico (principale) o quello dato in HR alla persona;
 // il responsabile = chi ricopre l'incarico a cui riporta. Si scrive solo quando Alma HR lo sa: altrimenti resta quello di prima.
-async function syncStrategyProfiles(db) {
+async function computeDerived(db) {
   const [users, inc, princ, hp] = await Promise.all([
     db.query('SELECT id, lower(email) AS email FROM users WHERE email IS NOT NULL'),
     db.query(`SELECT i.id, lower(i.ricoperto_da) AS email, i.riporta_a_id, r.role_id FROM org_incarichi i LEFT JOIN hr_incarico_roles r ON r.incarico_id = i.id WHERE i.attivo`),
@@ -144,7 +144,7 @@ async function syncStrategyProfiles(db) {
   const incBy = new Map(inc.rows.map(i => [i.id, i]));
   const princBy = new Map(princ.rows.map(p => [p.email, p.incarico_principale_id]));
   const hpRole = new Map(hp.rows.map(p => [p.email, p.role_id]));
-  let n = 0;
+  const out = new Map();
   for (const u of users.rows) {
     const mine = inc.rows.filter(i => i.email === u.email);
     const main = mine.find(i => i.id === princBy.get(u.email)) || mine.find(i => i.role_id) || mine[0];
@@ -153,12 +153,20 @@ async function syncStrategyProfiles(db) {
     let cur = main?.riporta_a_id;
     const seen = new Set();
     while (cur && !seen.has(cur)) { seen.add(cur); const up = incBy.get(cur); if (!up) break; if (up.email && userBy.get(up.email) && up.email !== u.email) { managerId = userBy.get(up.email); break; } cur = up.riporta_a_id; } // salta i vacanti
-    if (!roleId && !managerId) continue;
+    if (roleId || managerId) out.set(u.id, { role_id: roleId, manager_id: managerId });
+  }
+  return out;
+}
+// Per Alma Strategy: ruolo e responsabile che Alma HR conosce per una persona (vuoto se non li conosce).
+async function derivedFor(db, userId) { return (await computeDerived(db)).get(userId) || {}; }
+async function syncStrategyProfiles(db) {
+  let n = 0;
+  for (const [userId, d] of await computeDerived(db)) {
     const { rowCount } = await db.query(
       `INSERT INTO pm_profiles (user_id, role_id, manager_id) VALUES ($1, $2, $3)
        ON CONFLICT (user_id) DO UPDATE SET role_id = COALESCE($2, pm_profiles.role_id), manager_id = COALESCE($3, pm_profiles.manager_id)
        WHERE pm_profiles.role_id IS DISTINCT FROM COALESCE($2, pm_profiles.role_id) OR pm_profiles.manager_id IS DISTINCT FROM COALESCE($3, pm_profiles.manager_id)`,
-      [u.id, roleId, managerId]);
+      [userId, d.role_id, d.manager_id]);
     n += rowCount;
   }
   return n;
@@ -190,6 +198,20 @@ function registerHrOrg(app, { db, gov }) {
     const aree = areaStats(d, true);
     await log(req, 'costo dell\'organigramma', { kind: 'accesso' });
     res.json({ coeff: d.coeff, aree, totale: { persone: aree.reduce((t, a) => t + a.persone, 0), monte: aree.reduce((t, a) => t + a.monte, 0), costo: aree.reduce((t, a) => t + a.costo, 0), vacanti: aree.reduce((t, a) => t + a.vacanti, 0), vacanti_rif: aree.reduce((t, a) => t + a.vacanti_rif, 0), rientro: st.cost } });
+  });
+
+  app.get('/api/hr/costo.xlsx', async (req, res) => {
+    hrOnly(req);
+    const d = await orgData(db, { withPay: true });
+    const aree = areaStats(d, true);
+    const { writeXlsx } = require('../lib/xlsx');
+    const sum = k => aree.reduce((t, a) => t + (a[k] || 0), 0);
+    const rows = [["RISERVATO · Alma HR · costo dell'organigramma"], ['Area', 'Persone', 'Monte RAL (€)', 'Costo azienda stimato (€)', 'Vacanti', 'Vacanti al riferimento (€)'],
+      ...aree.map(a => [a.nome, a.persone, a.monte, a.costo, a.vacanti, a.vacanti_rif]), ['Totale', sum('persone'), sum('monte'), sum('costo'), sum('vacanti'), sum('vacanti_rif')],
+      [], [`Costo azienda = RAL × ${d.coeff}`]];
+    await log(req, "export del costo dell'organigramma", { kind: 'accesso' });
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .set('Content-Disposition', 'attachment; filename="costo-organigramma-riservato.xlsx"').send(writeXlsx({ Costo: rows }));
   });
 
   // ── scenari ──
@@ -305,4 +327,4 @@ function registerHrOrg(app, { db, gov }) {
   });
 }
 
-module.exports = { registerHrOrg, snapshot, recordEvents, saveOrgFromBoss, syncStrategyProfiles, orgData };
+module.exports = { registerHrOrg, snapshot, recordEvents, saveOrgFromBoss, syncStrategyProfiles, derivedFor, orgData };

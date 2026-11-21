@@ -177,3 +177,56 @@ test('i ruoli di Alma Strategy si collegano al mansionario e poi spariscono', as
   const adm = (await api(ADMIN, 'GET', '/api/pm/admin/roles')).body;
   assert.ok(!adm.some(x => x.id === old.id), 'in Alma Strategy il ruolo vecchio non si vede più');
 });
+
+test('completamento: ruolo a più persone, piano di rientro, totale, export, privacy', async () => {
+  const list = (await api(HRP, 'GET', '/api/hr/persone')).body.people;
+  const anna = list.find(p => p.cognome === 'Bassi');
+  const roles = (await api(HRP, 'GET', '/api/hr/incarichi')).body.roles;
+  const az = roles.find(r => r.title === 'Assistente di commessa · Senior');
+  const r = await api(HRP, 'POST', '/api/hr/persone/ruolo', { keys: [anna.key], role_id: az.id });
+  assert.equal(r.body.n, 1);
+  assert.equal((await api(LUCA, 'POST', '/api/hr/persone/ruolo', { keys: [anna.key], role_id: az.id })).status, 403);
+  const after = (await api(HRP, 'GET', '/api/hr/persone')).body.people.find(p => p.key === anna.key);
+  assert.equal(after.role.title, 'Assistente di commessa · Senior');
+  // Anna 32.000 in G2 è in linea: per il piano serve qualcuno sotto il minimo
+  await db.query("UPDATE hr_pay SET ral = 25000 WHERE person_key = $1", [anna.key]);
+  const pre = (await api(HRP, 'GET', '/api/hr/mappatura')).body;
+  const row = pre.people.find(p => p.key === anna.key);
+  assert.equal(row.toMin, 3000);
+  assert.equal(pre.rientro_senza_piano >= 1, true);
+  await api(HRP, 'PUT', `/api/hr/rientro/${encodeURIComponent(anna.key)}`, { anno: 2027, quota: 'meta' });
+  const m = (await api(HRP, 'GET', '/api/hr/mappatura')).body;
+  assert.deepEqual(m.rientro_per_anno, { 2027: 1500, 2028: 1500 });
+  const s = (await api(HRP, 'GET', `/api/hr/persone/${encodeURIComponent(anna.key)}`)).body;
+  assert.deepEqual(s.variabile.pct, [0, 5]);
+  assert.equal(s.totale.totale, 25000 + Math.round(25000 * 2.5 / 100));
+  const x = await fetch(`${base}/api/hr/costo.xlsx`, { headers: { cookie: cookies[HRP] } });
+  assert.equal(x.status, 200);
+  assert.match(x.headers.get('content-type'), /spreadsheet/);
+  assert.equal((await fetch(`${base}/api/hr/costo.xlsx`, { headers: { cookie: cookies[LUCA] } })).status, 403);
+  const pv = await api(ADMIN, 'GET', '/api/hr/privacy');
+  assert.ok(pv.body.team.some(t => t.email === HRP));
+  assert.equal((await api(LUCA, 'GET', '/api/hr/privacy')).status, 403);
+});
+
+test('Strategy: le proposte sulle schede HR vanno al team HR; ruolo e responsabile non si cambiano a mano', async () => {
+  const { rows: [eva] } = await db.query("SELECT id FROM users WHERE lower(email) = 'eva.neri@almacis.it'");
+  await login('eva.neri@almacis.it');
+  const person = (await api('eva.neri@almacis.it', 'GET', '/api/pm/person')).body;
+  const roleId = person.profile?.role_id || person.role?.id;
+  assert.ok(roleId, 'Eva ha il ruolo dal suo incarico');
+  const { rows: [before] } = await db.query('SELECT version FROM pm_roles WHERE id = $1', [roleId]);
+  const req = await api('eva.neri@almacis.it', 'POST', '/api/pm/requests', { changes: [{ field: 'resp', index: 0, after: 'Coordinare le squadre della zona' }] });
+  assert.equal(req.status, 201);
+  assert.equal(req.body.approver_id, null, 'ruolo del mansionario HR: decide il team HR, non il responsabile');
+  const pending = (await api(HRP, 'GET', '/api/pm/requests')).body;
+  assert.ok(pending.some(x => x.id === req.body.id));
+  const dec = await api(HRP, 'POST', `/api/pm/requests/${req.body.id}/decide`, { decisions: [{ decision: 'ok' }] });
+  assert.equal(dec.status, 200);
+  const { rows: [after] } = await db.query('SELECT version, responsibilities FROM pm_roles WHERE id = $1', [roleId]);
+  assert.equal(after.version, before.version + 1, 'accettata: nasce la versione dopo (presa visione da rifare)');
+  assert.equal(after.responsibilities[0], 'Coordinare le squadre della zona');
+  const put = await api(ADMIN, 'PUT', `/api/pm/admin/profiles/${eva.id}`, { role_id: null, manager_id: null, team: 'Reti' });
+  assert.equal(put.status, 400);
+  assert.match(put.body.error, /Alma HR/);
+});

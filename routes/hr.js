@@ -185,12 +185,18 @@ function registerHr(app, { db, gov }) {
     hrOnly(req);
     const [people, roles, g] = await Promise.all([loadPeople(db, { withPay: true }), hrRoles(db), currentGrid(db)]);
     const byId = new Map(roles.map(r => [r.id, r]));
+    // proposta di ruolo per chi non ce l'ha: la proposta sull'incarico (mappatura v11), altrimenti dalla qualifica di BOSS
+    const { rows: props } = await db.query('SELECT lower(i.ricoperto_da) AS email, r.proposed_id FROM org_incarichi i JOIN hr_incarico_roles r ON r.incarico_id = i.id WHERE i.attivo AND r.role_id IS NULL AND r.proposed_id IS NOT NULL');
+    const propBy = new Map(props.map(x => [x.email, x.proposed_id]));
+    const { suggestHrRole } = require('../lib/hr-org');
     const out = people.map(p => {
       const role = byId.get(p.role_id);
+      const propRole = !role && !p.esclusione ? (byId.get(propBy.get(p.email)) || suggestHrRole(p.qualifica || p.incarico?.nome || '', roles)) : null;
       const band = role ? H.bandOf(g.bands, role.grade) : null;
       return { key: p.key, nome: p.nome, cognome: p.cognome, email: p.email, societa: p.societa, bu: p.incarico?.area || p.bu, incarico: p.incarico, qualifica: p.qualifica,
         ccnl: p.ccnl, livello: p.livello, contratto: p.contratto, part_time_pct: p.part_time_pct, scadenza: p.scadenza, esclusione: p.esclusione, source: p.source,
         role: role ? { id: role.id, title: H.roleTitle(role), grade: role.grade } : null,
+        proposed: propRole ? { id: propRole.id, title: H.roleTitle(propRole), grade: propRole.grade, why: propBy.get(p.email) ? 'dalla mappatura v11' : 'dalla qualifica di BOSS' } : null,
         position: !p.esclusione && band ? H.position(p.ral, p.part_time_pct, band, g.rules) : null };
     });
     const { rows: [s] } = await db.query('SELECT max(synced_at) AS at FROM hr_people');
@@ -218,6 +224,13 @@ function registerHr(app, { db, gov }) {
       peers: peers.length ? { n: peers.length, median: Math.round(peers[Math.floor(peers.length / 2)]), percentile: myFte ? Math.round(peers.filter(x => x <= myFte).length / peers.length * 100) : null } : null,
       promotion: next && p.ral ? { title: H.roleTitle(next), grade: next.grade, band: H.bandOf(g.bands, next.grade), ral: H.promotionRal(p.ral, H.bandOf(g.bands, next.grade), g.rules) } : null,
       ccnl_link: role ? g.rules.ccnl?.[role.grade] || null : null,
+      variabile: role && g.rules.variabile?.[role.grade] ? { pct: g.rules.variabile[role.grade], su: g.rules.variabileSu?.[role.grade] || '' } : null,
+      // retribuzione totale (tavola H, punto 5): RAL + ad personam + premio variabile a metà del suo target; welfare, auto e trasferte quando BOSS li passa
+      totale: p.ral && role ? (() => {
+        const vb = g.rules.variabile?.[role.grade] || [0, 0];
+        const vt = Math.round(p.ral * (vb[0] + vb[1]) / 2 / 100);
+        return { ral: p.ral, ad_personam: p.ad_personam || 0, variabile_target: vt, totale: p.ral + (p.ad_personam || 0) + vt };
+      })() : null,
     });
   });
 
@@ -235,6 +248,46 @@ function registerHr(app, { db, gov }) {
     if (!rowCount) throw new HttpError(404, 'Persona non trovata');
     await log(req, 'modifica', 'persona', { person: key, after: req.body });
     res.json({ ok: true });
+  });
+
+  // Un ruolo a più persone insieme (tavola A): sull'incarico se lo ricoprono, altrimenti sulla persona.
+  app.post(`${BASE}/persone/ruolo`, async (req, res) => {
+    hrOnly(req);
+    const keys = Array.isArray(req.body.keys) ? req.body.keys.map(String).slice(0, 500) : [];
+    const roleId = v.int(req.body.role_id, 'ruolo', { min: 1 });
+    if (!keys.length || !roleId) throw new HttpError(400, 'Scegli le persone e il ruolo');
+    const people = (await loadPeople(db)).filter(p => keys.includes(p.key));
+    await db.tx(async q => {
+      for (const p of people) {
+        if (p.incarico) {
+          await q.query(`INSERT INTO hr_incarico_roles (incarico_id, role_id, confirmed_by, confirmed_at) VALUES ($1, $2, $3, now())
+                         ON CONFLICT (incarico_id) DO UPDATE SET role_id = EXCLUDED.role_id, confirmed_by = EXCLUDED.confirmed_by, confirmed_at = now()`, [p.incarico.id, roleId, req.user.id]);
+        } else await q.query('UPDATE hr_people SET role_id = $1 WHERE key = $2', [roleId, p.key]);
+      }
+    });
+    await log(req, 'modifica', 'ruolo assegnato a più persone', { after: { persone: people.length, role_id: roleId } });
+    await require('./hr-org').syncStrategyProfiles(db);
+    res.json({ ok: true, n: people.length, sugli_incarichi: people.filter(p => p.incarico).length });
+  });
+
+  // Piano di rientro di chi è sotto il minimo (tavola G): anno, tutto o metà.
+  app.put(`${BASE}/rientro/:key`, async (req, res) => {
+    hrOnly(req);
+    const key = String(req.params.key);
+    if (req.body.anno === null) { await db.query('DELETE FROM hr_rientro WHERE person_key = $1', [key]); return res.json({ ok: true }); }
+    const anno = v.int(req.body.anno, 'anno', { min: 2026, max: 2035 });
+    const quota = v.oneOf(req.body.quota || 'tutto', 'quota', ['tutto', 'meta']);
+    await db.query(`INSERT INTO hr_rientro (person_key, anno, quota, updated_by) VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (person_key) DO UPDATE SET anno = EXCLUDED.anno, quota = EXCLUDED.quota, updated_by = EXCLUDED.updated_by, updated_at = now()`, [key, anno, quota, req.user.id]);
+    await log(req, 'modifica', 'piano di rientro', { person: key, after: { anno, quota } });
+    res.json({ ok: true });
+  });
+
+  // Alma HR in Impostazioni › Privacy (tavola I): chi ha il ruolo «Team HR». Amministratori e team HR.
+  app.get(`${BASE}/privacy`, async (req, res) => {
+    if (!isHr(req) && !gov.isAdmin(req)) throw new HttpError(403, 'Riservato');
+    const { rows } = await db.query(`SELECT a.email, a.assigned_at, u.name FROM role_assignments a LEFT JOIN users u ON lower(u.email) = a.email WHERE a.role_key = 'hr' ORDER BY a.email`);
+    res.json({ team: rows });
   });
 
   // Incarichi con il loro ruolo e la proposta.
@@ -334,8 +387,20 @@ function registerHr(app, { db, gov }) {
     const st = H.stats(rows, g.bands, g.rules);
     const list = rows.filter(p => p.grade && p.ral && !p.esclusione).map(p => ({ key: p.key, nome: `${p.nome} ${p.cognome}`, role: p.role, grade: p.grade, ral: p.ral,
       part_time_pct: p.part_time_pct, band: H.bandOf(g.bands, p.grade), ...H.position(p.ral, p.part_time_pct, H.bandOf(g.bands, p.grade), g.rules) }));
+    const { rows: plan } = await db.query('SELECT person_key, anno, quota FROM hr_rientro');
+    const planBy = new Map(plan.map(x => [x.person_key, x]));
+    const perAnno = {};
+    for (const p of list) {
+      const pl = planBy.get(p.key);
+      p.rientro = pl ? { anno: pl.anno, quota: pl.quota } : null;
+      if (!pl || !p.toMin) continue;
+      if (pl.quota === 'meta') {
+        perAnno[pl.anno] = (perAnno[pl.anno] || 0) + Math.round(p.toMin / 2);
+        perAnno[pl.anno + 1] = (perAnno[pl.anno + 1] || 0) + p.toMin - Math.round(p.toMin / 2);
+      } else perAnno[pl.anno] = (perAnno[pl.anno] || 0) + p.toMin;
+    }
     await log(req, 'accesso', 'mappatura');
-    res.json({ stats: st, people: list, bands: g.bands, rules: g.rules,
+    res.json({ stats: st, people: list, rientro_per_anno: perAnno, rientro_senza_piano: list.filter(p => p.toMin && !p.rientro).length, bands: g.bands, rules: g.rules,
       senza_ruolo: rows.filter(p => !p.grade && !p.esclusione).length, esclusi: rows.filter(p => p.esclusione).length, senza_ral: rows.filter(p => p.grade && !p.ral && !p.esclusione).length });
   });
 

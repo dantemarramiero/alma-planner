@@ -103,7 +103,10 @@ async function percorsoView(c) {
         h('p', r.description), h('div.hr-row', h('a.btn.btn-sm', { href: `#/hr/mansionario?ruolo=${r.id}` }, 'Scheda del ruolo'), sign)),
       h('div.card.hr-pad', h('div.hr-label', 'Prossimo passo'), d.next ? [h('div.hr-big', `${d.next.title} (G${d.next.grade})`),
         h('div.muted', `fascia ${k1(d.next.band.min)} – ${k1(d.next.band.mid)} – ${k1(d.next.band.max)} k€`),
-        h('p', d.next.criteria || 'I criteri per il passaggio sono nella scheda del ruolo.')] : h('p.muted', 'Sei al vertice del tuo binario.'))),
+        d.next.criteria ? h('ul.hr-check', d.next.criteria.split(/\n|(?<=\.)\s+(?=[A-ZÀ-Ý])/).map(x => x.trim()).filter(Boolean).map(x => h('li', h('span.hr-box', { 'aria-hidden': 'true' }), x)))
+          : h('p', 'I criteri per il passaggio sono nella scheda del ruolo.'),
+        h('p.small.muted', 'Oggi la spunta la mette il tuo responsabile nel colloquio; quando BOSS passerà i dati delle commesse (complessità chiuse in autonomia), i criteri misurabili si spunteranno da soli.')] : h('p.muted', 'Sei al vertice del tuo binario.'))),
+    h('div.card.hr-pad', h('div.hr-label', 'Le mie scadenze'), h('p.small.muted', 'Formazione sulla sicurezza, patentini e visite mediche compariranno qui quando BOSS li passerà ad Alma: oggi non arrivano.')),
     h('div.card.hr-pad', h('div.hr-label', 'Il mio binario'), ladder,
       h('p.muted.small', 'Si vedono il tuo binario e quello vicino: cambiare binario è una strada possibile, non solo salire.')));
 }
@@ -205,16 +208,39 @@ async function personeView(c, params) {
   const bu = h('select.select', h('option', { value: '' }, 'Tutte le BU'), bus.map(b => h('option', { value: b }, b)));
   const filt = h('select.select', [['', 'Tutti'], ['senza', 'Senza ruolo'], ['fuori', 'Fuori fascia'], ['esclusi', 'Fuori dalla griglia']].map(([k, l]) => h('option', { value: k, selected: params.get('f') === k }, l)));
   const body = h('tbody');
+  const picked = new Set();
+  const roleList = (await get('/api/hr/incarichi')).roles;
+  const bulkRole = h('select.select', h('option', { value: '' }, 'Scegli il ruolo…'), roleList.map(r => h('option', { value: r.id }, `${r.title} · G${r.grade}`)));
+  const bulkCount = h('b');
+  const assign = async (keys, roleId) => {
+    const r = await post('/api/hr/persone/ruolo', { keys, role_id: roleId });
+    toast(`Ruolo assegnato a ${r.n} ${r.n === 1 ? 'persona' : 'persone'}${r.sugli_incarichi ? ` (${r.sugli_incarichi} sul loro incarico)` : ''}`);
+    personeView(c, params);
+  };
+  const bulk = h('div.hr-bulk', { hidden: true }, bulkCount, bulkRole,
+    h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => { if (!bulkRole.value) return toast('Scegli il ruolo', 'err'); assign([...picked], Number(bulkRole.value)); } } }, 'Assegna ruolo alle selezionate'),
+    h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
+      const groups = new Map();
+      for (const k of picked) { const p = d.people.find(x => x.key === k); if (p?.proposed) (groups.get(p.proposed.id) || groups.set(p.proposed.id, []).get(p.proposed.id)).push(k); }
+      if (!groups.size) return toast('Nessuna proposta ✦ fra le selezionate', 'err');
+      for (const [roleId, keys] of groups) await post('/api/hr/persone/ruolo', { keys, role_id: roleId });
+      toast('Proposte confermate'); personeView(c, params);
+    } } }, 'Conferma le proposte ✦'));
+  const syncBulk = () => { bulk.hidden = !picked.size; bulkCount.textContent = `${picked.size} selezionate`; };
   const draw = () => {
     const t = q.value.trim().toLowerCase();
     const rows = d.people.filter(p => (!t || `${p.nome} ${p.cognome} ${p.incarico?.nome || ''} ${p.qualifica || ''}`.toLowerCase().includes(t)) && (!bu.value || p.bu === bu.value)
       && (filt.value !== 'senza' || (!p.role && !p.esclusione)) && (filt.value !== 'fuori' || ['sotto', 'sopra'].includes(p.position?.zone)) && (filt.value !== 'esclusi' || p.esclusione));
     fill(body, rows.length ? rows.map(p => h('tr', { on: { click: () => { location.hash = `#/hr/persona/${encodeURIComponent(p.key)}`; } } },
+      h('td', { on: { click: e => e.stopPropagation() } }, p.esclusione ? null : h('input', { type: 'checkbox', checked: picked.has(p.key), 'aria-label': `Seleziona ${p.nome} ${p.cognome}`, on: { change: e => { if (e.target.checked) picked.add(p.key); else picked.delete(p.key); syncBulk(); } } })),
       h('td', h('b', `${p.cognome} ${p.nome}`)), h('td', p.incarico?.nome || h('span.muted', p.qualifica || '—')), h('td', p.bu || '—'),
       h('td.small', [p.ccnl, p.livello].filter(Boolean).join(' · ') || '—'), h('td.small', [p.contratto, p.part_time_pct < 100 ? `part-time ${p.part_time_pct}%` : null, p.scadenza ? `→ ${itDate(p.scadenza)}` : null].filter(Boolean).join(' · ') || '—'),
-      h('td', p.esclusione ? h('span.hr-chip', EXCL[p.esclusione]) : p.role ? p.role.title : h('span.hr-chip.z-warn', 'senza ruolo')),
+      h('td', p.esclusione ? h('span.hr-chip', EXCL[p.esclusione]) : p.role ? p.role.title : p.proposed
+        ? h('span.hr-row', { on: { click: e => e.stopPropagation() } }, h('span.hr-chip.z-ai', { title: p.proposed.why }, `✦ ${p.proposed.title}?`),
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => assign([p.key], p.proposed.id) } }, 'Conferma'))
+        : h('span.hr-chip.z-warn', 'senza ruolo')),
       h('td', p.role && !p.esclusione ? `G${p.role.grade}` : '—'), h('td', p.esclusione ? '—' : zoneChip(p.position))))
-      : h('tr', h('td.empty', { colSpan: 8 }, d.people.length ? 'Nessuno con questi filtri' : 'Ancora nessuna persona: carica l\'export mensile di BOSS')));
+      : h('tr', h('td.empty', { colSpan: 9 }, d.people.length ? 'Nessuno con questi filtri' : 'Ancora nessuna persona: carica l\'export mensile di BOSS')));
     count.textContent = `${rows.length} di ${d.people.length}`;
   };
   const count = h('span.muted');
@@ -224,9 +250,10 @@ async function personeView(c, params) {
     h('div.hr-row', h('button.btn', { type: 'button', on: { click: () => importPeople(() => personeView(c, params)) } }, icon('upload', { size: 16 }), ' Carica export BOSS'),
       d.boss_api ? h('button.btn', { type: 'button', on: { click: async () => { const r = await post('/api/hr/boss/sync'); toast(r.ok ? `${r.n} persone da BOSS` : r.reason, r.ok ? 'ok' : 'err'); personeView(c, params); } } }, icon('refresh-cw', { size: 16 }), ' Aggiorna da BOSS') : null)),
     lockBar('Vista del team HR: la posizione in fascia non arriva a nessun altro.'),
+    bulk,
     h('div.hr-row.hr-filters', q, bu, filt, count, h('span.hr-chip', d.synced_at ? `ultimo aggiornamento ${fmtDateTime(d.synced_at)}` : 'mai caricato'),
       senza ? h('a.hr-chip.z-warn', { href: '#/hr/ruoli' }, `${senza} senza ruolo → assegna`) : null),
-    h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['Persona', 'Incarico ⟳', 'BU ⟳', 'CCNL · livello ⟳', 'Contratto ⟳', 'Ruolo', 'Grade', 'Posizione in fascia'].map(x => h('th', x)))), body)),
+    h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['', 'Persona', 'Incarico ⟳', 'BU ⟳', 'CCNL · livello ⟳', 'Contratto ⟳', 'Ruolo', 'Grade', 'Posizione in fascia'].map(x => h('th', x)))), body)),
     h('p.small.muted', '⟳ = arriva da BOSS: oggi con l\'export mensile, poi via API ogni notte. Part-time riportati a tempo pieno per il confronto con la fascia.'));
   draw();
 }
@@ -282,6 +309,10 @@ async function personaView(c, key) {
           h('label.field', h('span', 'Griglia'), exclSel))),
       h('div.card.hr-pad', h('div.hr-label', 'Storico ⟳ (da BOSS)'),
         d.history.length ? h('table.hr-t', h('tr', h('th', 'Dal'), h('th', 'RAL'), h('th', 'Ad personam')), d.history.map(x => h('tr', h('td', itDate(x.valid_from)), h('td', eur(x.ral)), h('td', x.ad_personam ? eur(x.ad_personam) : '—')))) : h('p.muted', 'Nessuna retribuzione'),
+        d.totale ? [h('div.hr-label', 'Retribuzione totale (stima)'), h('table.hr-t',
+          h('tr', h('td', 'RAL ⟳'), h('td', eur(d.totale.ral))), h('tr', h('td', 'Ad personam ⟳'), h('td', d.totale.ad_personam ? eur(d.totale.ad_personam) : '—')),
+          h('tr', h('td', `Premio variabile target (${d.variabile.pct[0]}–${d.variabile.pct[1]}%)`), h('td', eur(d.totale.variabile_target))), h('tr', h('td', h('b', 'Totale')), h('td', h('b', eur(d.totale.totale))))),
+          h('p.small.muted', `Premio su: ${d.variabile.su}. Welfare, auto e indennità di trasferta compariranno quando BOSS li passerà ad Alma.`)] : null,
         d.promotion ? [h('div.hr-label', `Se diventasse ${d.promotion.title} (G${d.promotion.grade})`), h('p.small', `Regola delle promozioni: il valore più alto tra il minimo del nuovo grade (${k1(d.promotion.band.min)} k€) e la RAL attuale + la % del pannello → `, h('b', eur(d.promotion.ral)))] : null,
         d.ccnl_link ? h('p.small.muted', `Livello CCNL collegato al grade: ${d.ccnl_link.link} · minimo ${k1(d.ccnl_link.minimo)} k€`) : null)));
 }
@@ -360,9 +391,23 @@ async function mappaturaView(c) {
   const filt = h('select.select', [['fuori', 'Fuori fascia'], ['sotto', 'Sotto il minimo'], ['sopra', 'Sopra il massimo'], ['ruolo', 'Ruolo forse sbagliato'], ['', 'Tutti']].map(([kx, l]) => h('option', { value: kx }, l)));
   const draw = () => {
     const rows = d.people.filter(p => filt.value === '' || (filt.value === 'fuori' ? ['sotto', 'sopra'].includes(p.zone) : filt.value === 'ruolo' ? p.wrong : p.zone === filt.value)).sort((a, b) => a.pct - b.pct);
+    const anno = new Date().getFullYear() + 1;
+    const planSel = p => {
+      const sel = h('select.select.select-sm', { 'aria-label': `Piano di rientro di ${p.nome}` }, h('option', { value: '' }, 'Nessun piano'),
+        [anno, anno + 1, anno + 2].flatMap(y => [h('option', { value: `${y}|tutto`, selected: p.rientro?.anno === y && p.rientro.quota === 'tutto' }, `${y} · tutto`),
+          h('option', { value: `${y}|meta`, selected: p.rientro?.anno === y && p.rientro.quota === 'meta' }, `${y} e ${y + 1} · metà e metà`)]));
+      sel.addEventListener('click', e => e.stopPropagation());
+      sel.addEventListener('change', async () => {
+        const [y, qq] = sel.value.split('|');
+        await api('PUT', `/api/hr/rientro/${encodeURIComponent(p.key)}`, sel.value ? { anno: Number(y), quota: qq } : { anno: null });
+        toast('Piano salvato'); mappaturaView(c);
+      });
+      return sel;
+    };
     fill(tbody, rows.length ? rows.map(p => h('tr', { on: { click: () => { location.hash = `#/hr/persona/${encodeURIComponent(p.key)}`; } } },
-      h('td', h('b', p.nome)), h('td', `${p.role} · G${p.grade}`), h('td', eur(p.ralFte)), h('td.small', `${k1(p.band.min)} – ${k1(p.band.mid)} – ${k1(p.band.max)}`), h('td', zoneChip(p)), h('td', p.toMin ? `+${eur(p.toMin)}` : '—')))
-      : h('tr', h('td.empty', { colSpan: 6 }, 'Nessuno')));
+      h('td', h('b', p.nome)), h('td', `${p.role} · G${p.grade}`), h('td', eur(p.ralFte)), h('td.small', `${k1(p.band.min)} – ${k1(p.band.mid)} – ${k1(p.band.max)}`), h('td', zoneChip(p)), h('td', p.toMin ? `+${eur(p.toMin)}` : '—'),
+      h('td', p.toMin ? planSel(p) : null)))
+      : h('tr', h('td.empty', { colSpan: 7 }, 'Nessuno')));
   };
   filt.addEventListener('input', draw);
   const eq = st.equity.filter(e => e.gap !== null);
@@ -382,7 +427,11 @@ async function mappaturaView(c) {
           eq.map(e => h('tr', h('td', `G${e.grade}`), h('td', e.f), h('td', e.m), h('td', Math.abs(e.gap) > d.rules.equityAlarm ? h('span.hr-chip.z-bad', `${k1(e.gap)}%`) : `${k1(e.gap)}%`)))) : h('p.small.muted', 'Servono donne e uomini nello stesso grade per calcolarlo.'),
           h('p.small.muted', `${d.esclusi} fuori dalla griglia · ${d.senza_ral} senza RAL da BOSS`)))),
     h('div.hr-row.hr-filters', h('b', 'Anomalie'), filt),
-    h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['Persona', 'Ruolo · grade', 'RAL a tempo pieno', 'Fascia k€', 'Posizione', 'Per arrivare al minimo'].map(x => h('th', x)))), tbody)));
+    h('div.card.hr-pad', h('div.hr-label', 'Piano di rientro per anno'),
+      Object.keys(d.rientro_per_anno || {}).length ? h('div.hr-row', Object.entries(d.rientro_per_anno).sort().map(([y, v]) => h('span.hr-chip.z-hi', `${y}: +${eur(v)}`))) : h('p.small.muted', 'Ancora nessun piano: sceglilo nella tabella qui sotto, persona per persona.'),
+      d.rientro_senza_piano ? h('p.small', `${d.rientro_senza_piano} persone sotto il minimo non hanno ancora un piano.`) : null,
+      h('p.small.muted', 'Il costo per anno entra nel budget della revisione retributiva (Fase 5).')),
+    h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['Persona', 'Ruolo · grade', 'RAL a tempo pieno', 'Fascia k€', 'Posizione', 'Per arrivare al minimo', 'Piano di rientro'].map(x => h('th', x)))), tbody)));
   draw();
 }
 
@@ -392,7 +441,7 @@ async function pannelloView(c, params) {
   const tab = params.get('tab') || 'fasce';
   const draft = d.versions.find(v => !v.applied_at);
   const base = draft || d.current;
-  const tabs = [['fasce', 'Grade e fasce'], ['ruoli', 'Ruoli → grade'], ['regole', 'Zone, soglie, offerte'], ['merito', 'Merito e promozioni'], ['ccnl', 'Minimi CCNL e mercato'], ['versioni', 'Versioni']];
+  const tabs = [['fasce', 'Grade e fasce'], ['ruoli', 'Ruoli → grade'], ['regole', 'Zone, soglie, offerte'], ['merito', 'Merito e promozioni'], ['variabile', 'Premio variabile'], ['ccnl', 'Minimi CCNL e mercato'], ['versioni', 'Versioni']];
   const body = h('div');
   fill(c, head('Pannello di controllo del salary grade', 'Un solo posto per tutti i numeri: griglia, schede, mappatura, mansionario e offerte li leggono da qui. Cambi un numero una volta, cambia ovunque. Le RAL restano su BOSS.',
     h('a.btn', { href: '#/hr/insieme' }, icon('grid-3x3', { size: 16 }), ' Vista d\'insieme')),
@@ -444,7 +493,8 @@ function panEdit(body, d, base, tab, c, params) {
     editor = h('div.hr-form',
       h('div.hr-label', 'Zone della fascia (% del riferimento)'), h('div.hr-grid2', pair(r.zone, 'low', 'Ingresso sotto il'), pair(r.zone, 'high', 'Alta sopra il')),
       h('div.hr-label', '«Ruolo forse sbagliato»'), h('div.hr-grid2', pair(r.wrongRole, 'low', 'sotto il'), pair(r.wrongRole, 'high', 'sopra il')),
-      h('div.hr-grid2', pair(r, 'equityAlarm', 'Allarme divario donne/uomini (%)'), h('div')),
+      h('div.hr-grid2', pair(r, 'equityAlarm', 'Allarme divario donne/uomini (%)'),
+        h('label.field', h('span', 'Costo azienda = RAL × (contributi, TFR, INAIL)'), numInput(r.costCoeff ?? 1.38, v => { r.costCoeff = v; refresh(); }, 0.01))),
       h('div.hr-label', 'Regole della griglia (avvisi)'), h('div.hr-grid2',
         h('label.field', h('span', 'Salto tra grade min–max %'), h('div.hr-row', numInput(r.stepRange[0], v => { r.stepRange[0] = v; refresh(); }, 1), numInput(r.stepRange[1], v => { r.stepRange[1] = v; refresh(); }, 1))),
         h('label.field', h('span', 'Sovrapposizione min–max %'), h('div.hr-row', numInput(r.overlapRange[0], v => { r.overlapRange[0] = v; refresh(); }, 1), numInput(r.overlapRange[1], v => { r.overlapRange[1] = v; refresh(); }, 1)))),
@@ -459,6 +509,18 @@ function panEdit(body, d, base, tab, c, params) {
       h('div.hr-grid2', h('label.field', h('span', 'Promozione: RAL attuale + %'), numInput(r.promoPct, v => { r.promoPct = v; refresh(); }, 0.5)),
         h('label.field', h('span', 'Budget aumenti (% del monte salari)'), numInput(r.budgetPct, v => { r.budgetPct = v; refresh(); }, 0.1))),
       h('p.small.muted', 'Promozione: il valore più alto tra il minimo del nuovo grade e la RAL attuale + questa %. La matrice e il budget servono alla revisione retributiva (Fase 5).'));
+  } else if (tab === 'variabile') {
+    const r = state.rules;
+    r.variabile ||= {}; r.variabileSu ||= {};
+    editor = h('div.hr-form', h('div.hr-label', 'Premio variabile target, in % della RAL'),
+      h('table.hr-t.hr-edit', h('tr', h('th', 'Grade'), h('th', 'Da %'), h('th', 'A %'), h('th', 'Su cosa si misura')),
+        [1, 2, 3, 4, 5, 6, 7, 8].map(g => {
+          r.variabile[g] ||= [0, 0];
+          const su = h('input.input', { value: r.variabileSu[g] || '' });
+          su.addEventListener('input', () => { r.variabileSu[g] = su.value; });
+          return h('tr', h('td', h('b', `G${g}`)), h('td', numInput(r.variabile[g][0], v => { r.variabile[g][0] = v; }, 1)), h('td', numInput(r.variabile[g][1], v => { r.variabile[g][1] = v; }, 1)), h('td', su));
+        })),
+      h('p.small.muted', 'La sicurezza è un cancello: con un infortunio grave per colpa organizzativa il premio legato alla commessa non scatta. Valutate anche il premio di risultato detassato e la conversione in welfare. Nella scheda persona la retribuzione totale usa la metà della forchetta.'));
   } else {
     const r = state.rules;
     editor = h('div.hr-form', h('p.small.muted', 'Il minimo di fascia non può scendere sotto il minimo tabellare del livello CCNL collegato (blocca il salvataggio). I minimi arriveranno da BOSS (ParametroLivello); il mercato da una fonte annuale.'),
@@ -517,14 +579,21 @@ function panVersions(body, d, c, params) {
 }
 
 // ── Vista d'insieme (team HR) ───────────────────────────────────────────────────────────────────────────────
-function genBands({ g1, lo, hi, w }) {
+function genBands({ g1, lo, hi, w, plus = 0, overrides = {} }) {
   const out = []; let ref = g1;
-  for (let g = 1; g <= 8; g++) { if (g > 1) ref *= 1 + (g <= 4 ? lo : hi) / 100; out.push({ grade: g, min: Math.round(ref * (1 - w / 100) * 10) / 10, mid: Math.round(ref * 10) / 10, max: Math.round(ref * (1 + w / 100) * 10) / 10 }); }
+  const k = 1 + (plus || 0) / 100;
+  for (let g = 1; g <= 8; g++) {
+    if (g > 1) ref *= 1 + (g <= 4 ? lo : hi) / 100;
+    const auto = { grade: g, min: Math.round(ref * (1 - w / 100) * k * 10) / 10, mid: Math.round(ref * k * 10) / 10, max: Math.round(ref * (1 + w / 100) * k * 10) / 10 };
+    out.push(overrides[g] ? { ...auto, ...overrides[g], grade: g, manual: true } : auto); // le eccezioni fatte a mano restano anche se si muovono le leve
+  }
   return out;
 }
 async function insiemeView(c) {
   const d = await get('/api/hr/pannello');
   const p = { ...d.defaults.params, ...(d.current.params || {}) };
+  p.overrides = { ...(p.overrides || {}) };
+  p.plus = p.plus || 0;
   const rules = { ...d.defaults.rules, ...d.current.rules };
   const slider = (kx, label, min, max, step, fmt) => {
     const out = h('b', fmt(p[kx]));
@@ -538,7 +607,7 @@ async function insiemeView(c) {
   const redraw = () => {
     const bands = genBands(p);
     const pos = (k, b) => (k < b.min ? 'bad' : k > b.max ? 'hi' : 'ok');
-    fill(chart, [...bands].reverse().map(b => h('div.hr-grow', h('div.hr-grow-g', `G${b.grade}`),
+    fill(chart, [...bands].reverse().map(b => h('div.hr-grow', h('button.hr-grow-g.hr-gbtn', { type: 'button', title: 'Ritocca a mano questa fascia', on: { click: () => ritocca(b) } }, `G${b.grade}`, b.manual ? h('small', 'a mano') : h('small', 'ritocca')),
       bandBar(b, { ccnl: rules.ccnl?.[b.grade]?.minimo, market: rules.market?.[b.grade], dots: dots.filter(x => x.grade === b.grade).map(x => ({ k: x.k, zone: pos(x.k, b) })) }),
       h('div.small', h('b', `${k1(b.min)} · ${k1(b.mid)} · ${k1(b.max)}`), ' k€'))), h('div.hr-grow.hr-grow-scale', h('span'), scaleRow(), h('span')));
     clearTimeout(timer);
@@ -555,6 +624,14 @@ async function insiemeView(c) {
         : [...r.check.errors.map(e => h('div.hr-alert.bad', icon('alert-triangle', { size: 14 }), h('span', e))), ...r.check.warnings.map(w => h('div.hr-alert.warn', icon('alert-triangle', { size: 14 }), h('span', w)))]);
     }, 200);
   };
+  function ritocca(b) {
+    const mk = v => h('input.input.hr-num', { type: 'number', step: 0.5, value: v });
+    const mn = mk(b.min), md = mk(b.mid), mx = mk(b.max);
+    const m = modal({ title: `Ritocca a mano la fascia G${b.grade}`, body: h('div.hr-form', h('div.hr-grid3', h('label.field', h('span', 'Min k€'), mn), h('label.field', h('span', 'Riferimento k€'), md), h('label.field', h('span', 'Max k€'), mx)),
+      h('p.small.muted', 'Il ritocco resta anche se muovi le leve. «Togli il ritocco» torna al valore calcolato.')),
+      actions: [h('button.btn', { type: 'button', on: { click: () => { delete p.overrides[b.grade]; m.close(); redraw(); } } }, 'Togli il ritocco'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => { p.overrides[b.grade] = { min: Number(mn.value), mid: Number(md.value), max: Number(mx.value) }; m.close(); redraw(); } } }, 'Applica')] });
+  }
   const saveDraft = async () => {
     const draft = d.versions.find(v => !v.applied_at);
     const r = await post('/api/hr/pannello/bozza', { id: draft?.id, label: draft?.label || `Griglia ${new Date().getFullYear() + 1}`, bands: genBands(p), rules, params: p });
@@ -563,6 +640,7 @@ async function insiemeView(c) {
   };
   fill(c, head('Vista d\'insieme', 'Quattro leve generano tutta la griglia; il grafico mostra fasce, persone vere, minimi CCNL e mercato, e i totali si aggiornano mentre muovi.',
     h('div.hr-row', h('button.btn', { type: 'button', on: { click: () => { Object.assign(p, d.defaults.params, d.current.params || {}); insiemeView(c); } } }, 'Torna alla griglia in vigore'),
+      h('button.btn', { type: 'button', on: { click: () => { p.plus = Math.round(((1 + (p.plus || 0) / 100) * 1.03 - 1) * 1000) / 10; toast(`Tutte le fasce +${k1(p.plus)}% rispetto alle leve`); redraw(); } } }, 'Tutte +3%'),
       h('button.btn.btn-primary', { type: 'button', on: { click: saveDraft } }, 'Salva come bozza'))),
     lockBar('Solo team HR · RAL da BOSS riportate a tempo pieno · operai, apprendisti, tirocini e staff leasing esclusi.'),
     h('div.card.hr-pad', h('div.hr-levers',
