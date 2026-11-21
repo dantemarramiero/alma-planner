@@ -58,16 +58,20 @@ export async function openSources(params, ready = null) {
       h('div.fd-min0', h('b', s.name), h('small', s.what, s.period?.from ? ` ${periodText(s.period)}` : '')),
       h('span.fd-pill', { class: tone }, s.status === 'ok' || s.status === 'vecchia' ? `${label} ${day(s.updated_at)}` : label));
   };
-  const bar = f => h('div.fd-bar', h('span', f.label),
-    h('span.fd-track', h('span.fd-fill', { class: f.pct >= 80 ? 'hi' : 'mid', style: { width: `${f.pct ?? 0}%` } })),
-    h('b', f.pct === null ? '—' : `${f.pct}%`));
+  // i dati in più (partecipanti, categorie secondarie, CUP) arrivano con il giro di stanotte: finché sono zero, «in arrivo»
+  const bar = f => (f.extra && !f.n
+    ? h('div.fd-bar', h('span', f.label), h('span.fd-track'), h('b.fd-soon', 'in arrivo'))
+    : h('div.fd-bar', h('span', f.label),
+      h('span.fd-track', h('span.fd-fill', { class: f.info ? 'info' : f.pct >= 80 ? 'hi' : 'mid', style: { width: `${f.pct ?? 0}%` } })),
+      h('b', f.pct === null ? '—' : `${f.pct}%`)));
   const q = d.quality;
   fill(body,
     h('div.fd-lbl', 'Fonti'),
     h('div.fd-srcs', d.sources.map(src)),
     h('div.fd-lbl', q.n ? `Quanto sono completi i dati di queste ${num(q.n)} gare` : 'Quanto sono completi i dati'),
     q.n ? h('div.fd-bars', q.fields.map(bar)) : h('p.fd-none', 'Nessuna gara in questo perimetro: prova un periodo più lungo o altre zone.'),
-    q.n ? h('p.fd-note', `Il ribasso tipico si calcola solo sulle gare con almeno 2 offerenti e un ribasso vero: qui ${num(q.discount_real)} su ${num(q.n)}.`) : null,
+    q.n ? h('p.fd-note', `Il ribasso tipico si calcola solo sulle gare con almeno 2 offerenti e un ribasso vero: qui ${num(q.discount_real)} su ${num(q.n)}.`,
+      q.subcontracts ? ` Subappalti autorizzati su queste gare: ${num(q.subcontracts)}.` : '', ' In blu i dati che non tutte le gare hanno per natura (non mancano).') : null,
     h('div.fd-lbl', 'Cosa non c\'è'),
     h('ul.fd-lim', d.limits.map(t => h('li', t))));
   const anac = d.sources.find(s => s.key === 'anac');

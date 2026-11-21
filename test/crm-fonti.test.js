@@ -33,6 +33,9 @@ before(async () => {
     await db.query(`INSERT INTO crm_anac_awards (cig, category, region, base_amount, amount, discount, bidders, winners, awarded_on, month) VALUES ($1, $2, $3, 100000, $4, $5, $6, $7, $8, '202611')`,
       [cig, cat, reg, amt, disc, bid, win, day(20)]);
   }
+  await db.query("UPDATE crm_anac_awards SET cats_sec = ARRAY['OS30'], cup = 'J12B2400' WHERE cig = 'C1'");
+  await db.query("INSERT INTO crm_anac_bidders (cig, cf, name) VALUES ('C1', '01234567890', 'ROSSI SRL'), ('C1', '09999999999', 'BIANCHI SPA'), ('C2', '09999999999', 'BIANCHI SPA')");
+  await db.query("INSERT INTO crm_anac_subcontracts (id, cig, cf, name) VALUES ('S1', 'C1', '08888888888', 'VERDI SRL')");
   await db.query(`INSERT INTO crm_anac_imports (month, awards, kept, error, at) VALUES ('202611', 100, 5, '', now()), ('202610', 0, 0, 'ANAC 500', now())`);
 });
 after(async () => { server?.close(); await db?.close(); });
@@ -60,6 +63,10 @@ test('completezza misurata sulle gare del perimetro', async () => {
   assert.equal(f.bidders, 75);
   assert.equal(f.category, 100);
   assert.equal(q.discount_real, 2);
+  assert.equal(f.known_bidders, 50, 'partecipanti noti su 2 gare su 4');
+  assert.equal(f.cats_sec, 25);
+  assert.equal(f.cup, 25);
+  assert.equal(q.subcontracts, 1);
   const one = await D('GET', '/api/crm/fonti?cats=OG10&regions=Abruzzo&cf=01234567890');
   assert.equal(one.body.quality.n, 3, 'solo le gare vinte da quell\'impresa');
 });
