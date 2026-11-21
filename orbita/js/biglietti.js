@@ -166,8 +166,8 @@ export async function bigliettiTab(box) {
   fill(box, loading());
   let d = await get('/api/biglietto');
   const tabs = h('div');
-  const drawTabs = n => fill(tabs, tabsBar([['tutti', 'Tutti i contatti'], ['biglietti', 'Biglietti da visita', n || null]], 'biglietti',
-    k => { location.hash = k === 'tutti' ? '#/crm/contatti' : '#/crm/contatti/biglietti'; }));
+  const drawTabs = n => fill(tabs, tabsBar([['tutti', 'Tutti i contatti'], ['scrivo', 'Persone con cui mi scrivo'], ['biglietti', 'Biglietti da visita', n || null]], 'biglietti',
+    k => { location.hash = k === 'tutti' ? '#/crm/contatti' : `#/crm/contatti/${k}`; }));
   drawTabs(d.leads_new);
   const side = h('div.cv-stack.bv-side');
   const drawSide = () => fill(side, myCardPanels(d, nd => { d = nd; drawSide(); }));
