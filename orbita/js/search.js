@@ -1,8 +1,9 @@
-// Ricerca unica: casella in cima alla barra laterale (su computer), lente nella barra in alto (sul telefono),
+// Ricerca unica: barra in alto con la finestra Ctrl K (su computer, palette.js), lente nella barra in alto (sul telefono),
 // pagina #/search?q=… con i risultati per gruppo. «/» o Ctrl+K portano alla ricerca da qualsiasi pagina.
-import { h, clear, fill, avatar, loading, debounce } from './ui.js';
+import { h, fill, avatar, loading, debounce } from './ui.js';
 import { icon } from './icons.js';
 import { get } from './api.js';
+import { setupTopbar } from './palette.js';
 
 const ICON = { ticket: 'square-check', project: 'folder', note: 'file-text', email: 'mail', person: 'user', post: 'image' };
 
@@ -68,49 +69,18 @@ export function searchView(view, params) {
   const update = debounce(() => {
     q = input.value.trim();
     history.replaceState(null, '', `#/search${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-    syncSidebar(q);
     run();
   }, 250);
   input.addEventListener('input', update);
   run();
 }
 
-// ── casella nella barra laterale e scorciatoie ───────────────────────────────
-let sideInput = null;
-function syncSidebar(q) { if (sideInput && document.activeElement !== sideInput) sideInput.value = q; }
+// ── barra in alto e scorciatoie (ALM2-46, canvas v10) ─────────────────────────
+// La casella sotto il logo non c'è più: sul computer la barra fissa al centro in alto e la finestra Ctrl K
+// (palette.js); sul telefono resta la lente nella barra in alto. Ctrl K, ⌘K e «/» funzionano da ogni pagina.
 
 export function setupSearch() {
-  const go = q => {
-    const hash = `#/search${q ? `?q=${encodeURIComponent(q)}` : ''}`;
-    if (location.hash.startsWith('#/search')) {
-      // già nella pagina: aggiorna la sua casella
-      const big = document.querySelector('.search-big');
-      if (big) { big.value = q; big.dispatchEvent(new Event('input')); return; }
-    }
-    location.hash = hash;
-  };
-
-  // computer: casella sotto il logo
-  const brand = document.querySelector('.sidebar .brand-side');
-  if (brand) {
-    sideInput = h('input.input', { type: 'search', placeholder: 'Cerca…  (/)', 'aria-label': 'Cerca in Alma Space' });
-    const box = h('div.side-search', icon('search', { size: 16 }), sideInput);
-    brand.after(box);
-    sideInput.addEventListener('input', debounce(() => { const q = sideInput.value.trim(); if (q.length >= 2 || location.hash.startsWith('#/search')) go(q); }, 300));
-    sideInput.addEventListener('keydown', e => { if (e.key === 'Enter') go(sideInput.value.trim()); if (e.key === 'Escape') sideInput.blur(); });
-  }
-
-  // telefono: lente nella barra in alto
+  setupTopbar();
   const icons = document.querySelector('.m-top .m-icons');
   if (icons) icons.prepend(h('a.m-ico', { href: '#/search', 'aria-label': 'Cerca', 'data-nav': 'search' }, icon('search', { size: 24 })));
-
-  // «/» o Ctrl+K da qualsiasi pagina (non mentre si scrive)
-  document.addEventListener('keydown', e => {
-    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
-    const shortcut = (e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing);
-    if (!shortcut) return;
-    e.preventDefault();
-    if (sideInput && sideInput.offsetParent) sideInput.focus();
-    else location.hash = '#/search';
-  });
 }
