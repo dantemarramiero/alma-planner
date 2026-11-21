@@ -166,3 +166,23 @@ test('«Lasciami i tuoi contatti» spento: niente modulo', async () => {
   assert.doesNotMatch(html, /Lasciami i tuoi contatti/);
   assert.equal((await D('PATCH', '/api/biglietto', { show_mobile: 'sì' })).status, 400);
 });
+
+test('«Condividi» da Android (ALM2-48): manifest con share_target, service worker e ripiego del server', async () => {
+  const man = await (await fetch(`${base}/manifest.webmanifest`)).json();
+  assert.equal(man.share_target.action, '/condividi');
+  assert.equal(man.share_target.method, 'POST');
+  assert.equal(man.share_target.enctype, 'multipart/form-data');
+  assert.deepEqual(man.share_target.params.files[0].accept, ['image/*']);
+  const sw = await (await fetch(`${base}/sw.js`)).text();
+  assert.match(sw, /pathname !== '\/condividi'/);
+  assert.match(sw, /#\/crm\/contatti\/biglietti\?condivisi=/);
+  // senza service worker il POST arriva al server: con login si va ai biglietti, senza al login
+  const fd = new FormData();
+  fd.append('foto', new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), 'biglietto.jpg');
+  const withLogin = await fetch(`${base}/condividi`, { method: 'POST', redirect: 'manual', headers: { cookie: cookieD }, body: fd });
+  assert.equal(withLogin.status, 303);
+  assert.equal(withLogin.headers.get('location'), '/app#/crm/contatti/biglietti?condivisi=0');
+  const anon = await fetch(`${base}/condividi`, { method: 'POST', redirect: 'manual', body: fd });
+  assert.equal(anon.status, 303);
+  assert.match(anon.headers.get('location'), /^\/auth\/login/);
+});

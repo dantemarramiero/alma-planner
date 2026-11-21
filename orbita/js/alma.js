@@ -672,7 +672,7 @@ export function createChat(opts = {}) {
     }
     scrollDown();
   }
-  return { el, open, send, addPhotos: addFiles, focus: () => input.focus(), get id() { return convId; }, get lastQuestion() { return lastQuestion; } };
+  return { el, open, send, addPhotos: addFiles, setText: t => { input.value = t; grow(); input.focus({ preventScroll: true }); }, focus: () => input.focus(), get id() { return convId; }, get lastQuestion() { return lastQuestion; } };
 }
 
 // ── pagina #/alma/dashboard: i grafici tenuti, rifatti con i dati di oggi (canvas V5-Alma) ─────────────────
