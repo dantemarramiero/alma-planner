@@ -234,7 +234,14 @@ export function postCard(p, opts = {}) {
     } } : null,
   ]) } }, icon('more', { size: 20 }));
 
-  const head = h('header.post-head',
+  // post del giorno di un cantiere (storie dai cantieri): a nome del cantiere, con il link al diario
+  const head = p.kind === 'cantiere' ? h('header.post-head.post-site',
+    h('a.post-site-ico', { href: `#/cantieri/${p.cantiere_id}`, 'aria-label': `Diario del cantiere ${p.cantiere_name || ''}` }, icon('hard-hat', { size: 20 })),
+    h('div.grow', h('a.post-site-name', { href: `#/cantieri/${p.cantiere_id}` }, h('strong', p.cantiere_name || 'Cantiere')),
+      h('div.post-meta', [`${p.media.length} ${p.media.length === 1 ? 'foto' : 'foto'} ${p.cantiere_day === new Date().toLocaleDateString('sv-SE') ? 'oggi' : ''}`.trim(),
+        p.cantiere_people ? `${p.cantiere_people} ${p.cantiere_people === 1 ? 'persona' : 'persone'}` : null, timeAgo(p.created_at)].filter(Boolean).join(' · '))),
+    h('a.post-site-diario', { href: `#/cantieri/${p.cantiere_id}` }, 'Diario ›'),
+    more) : h('header.post-head',
     h('a', { href: `#/u/${p.author_id}` }, ringAvatar(author, 36, { onStory: opts.onStory })),
     p.kind === 'grazie'
       ? h('div.grow', h('div', userLink(author), h('span.post-arrow', ' → '), userById(p.thanked_id) ? userLink(userById(p.thanked_id)) : h('strong', 'un collega')),
@@ -244,7 +251,7 @@ export function postCard(p, opts = {}) {
     more);
 
   const hasMedia = p.media.length > 0;
-  const caption = p.body ? captionBlock(author, p.body, { withName: hasMedia }) : null;
+  const caption = p.body ? captionBlock(author, p.body, { withName: hasMedia && p.kind !== 'cantiere' }) : null; // nel post del cantiere ogni riga ha già il suo nome
 
   const actions = h('div.post-actions',
     h('button.btn-icon.like', { type: 'button', class: p.liked ? 'on' : '', title: p.liked ? 'Non mi piace più' : 'Mi piace', on: { click: () => toggleLike() } },

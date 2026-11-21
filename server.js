@@ -38,6 +38,7 @@ const { registerFleet } = require('./routes/fleet');
 const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { registerBiglietti } = require('./routes/biglietti');
+const { registerCantieri, syncFromBoss } = require('./routes/cantieri');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmFonti } = require('./routes/crm-fonti');
@@ -63,6 +64,7 @@ const { registerAssistente } = require('./routes/assistente');
 const { createGovernance } = require('./lib/impostazioni');
 const { registerImpostazioni, startOrgNightly } = require('./routes/impostazioni');
 const { registerOrganigramma } = require('./routes/organigramma');
+const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -235,6 +237,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerProjectMeetings(app, deps);
   registerMedia(app, deps);
   registerFeed(app, deps);
+  registerCantieri(app, deps); // storie dai cantieri: foto, diario, post del giorno (cantieri = commesse BOSS, BSAL-1725)
   registerStories(app, deps);
   registerNotifications(app, deps);
   registerRda(app, deps);
@@ -259,6 +262,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
+  registerHr(app, deps); // Alma HR: persone da BOSS, ruoli sugli incarichi, mansionario, salary grade (RAL solo al team HR)
   registerOrganigramma(app, deps); // organigramma a incarichi, come BOSS (Impostazioni → Organigramma e ruoli)
   registerImpostazioni(app, deps); // Impostazioni uniche: organigramma e ruoli, utenti, costi AI, privacy, registro, integrazioni
   registerAudit(app, deps);
@@ -290,6 +294,10 @@ if (require.main === module) {
     startOrgNightly({ db, auth, gov }); // organigramma da Entra ogni notte alle 3
     setInterval(() => audit.purge(730).catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
+    // cantieri da BOSS (BSAL-1725): ogni ora, solo quando BOSS_CANTIERI_URL e BOSS_CANTIERI_TOKEN ci sono
+    // Alma HR: persone e RAL da BOSS ogni notte, solo quando BOSS_PERSONALE_URL e BOSS_PERSONALE_TOKEN ci sono
+    if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
+    if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Space su ${config.baseUrl} (porta ${config.port})`);
       if (!auth.msConfigured) {

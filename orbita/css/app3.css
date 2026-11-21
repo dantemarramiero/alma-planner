@@ -358,3 +358,93 @@
   .a3-agora .a2-pulse-line { font-size: 13px; }
   .a3-agora .a2-pulse-bar { width: 40px; }
 }
+/* ── Storie dai cantieri (canvas app 3.0, C1–C5) ── */
+@media (max-width: 760px) {
+  .a3-cfoto { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 16px; border-radius: 18px; background: #E0731A; color: #fff !important; text-decoration: none; }
+  .a3-cfoto[hidden] { display: none; }
+  .a3-cfoto-ico { width: 40px; height: 40px; border-radius: 20px; background: rgba(255,255,255,.2); display: grid; place-items: center; flex: none; }
+  .a3-cfoto-t { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .a3-cfoto-t strong { font-size: 17px; }
+  .a3-cfoto-t small { font-size: 13px; color: #FFE8D4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a3-cfoto > span:last-child { font-size: 20px; }
+  /* storie dei cantieri: angoli squadrati e casco, così si distinguono dalle persone */
+  .a3-site-stories { display: contents; }
+  .a3-site-ring { width: 62px; height: 62px; border-radius: 20px; padding: 2px; border: 2px solid #E0731A; box-sizing: border-box; display: flex; }
+  .a3-site-ring > span { flex: 1; border-radius: 16px; background: var(--a2-orange-t); color: var(--a2-orange-d); display: grid; place-items: center; }
+  /* fotocamera: il cantiere in alto */
+  .a3-cam-chip { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; background: rgba(0,0,0,.45); color: #fff; font: inherit; font-size: 14px; font-weight: 500; max-width: 270px; cursor: pointer; }
+  .a3-cam-chip svg:first-child { color: #FFB27A; }
+  /* pubblica */
+  .a3-pub { gap: 14px; padding-bottom: 32px; }
+  .a3-pub-img { position: relative; margin: 0 -16px; height: 360px; background: #2C2C2C; }
+  .a3-pub-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .a3-pub-back { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 12px; background: rgba(0,0,0,.35) !important; }
+  .a3-pub-when { position: absolute; bottom: 12px; left: 12px; font-size: 12px; color: #fff; background: rgba(0,0,0,.45); border-radius: 999px; padding: 5px 10px; }
+  .a3-pub-thumbs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+  .a3-pub-thumb { position: relative; flex: none; width: 64px; height: 64px; border-radius: 10px; overflow: hidden; }
+  .a3-pub-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .a3-pub-thumb button { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 11px; border: 0; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; padding: 0; }
+  .a3-pub-add { flex: none; width: 64px; height: 64px; border-radius: 10px; border: 2px dashed #BEBEBC; background: none; color: var(--a2-muted); display: grid; place-items: center; cursor: pointer; }
+  .a3-site-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -16px; padding-right: 16px; }
+  .a3-site-chips .a3-chip { flex: none; min-height: 44px; }
+  .a3-site-chips .a3-chip.on svg { color: #FFB27A; }
+  .a3-voice.a3-mic.a3-mic-or { background: #E0731A !important; color: #fff !important; border-radius: 20px; }
+  .a3-pub-info { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; font-size: 14px; }
+  .a3-pub-info span { display: flex; align-items: center; gap: 8px; }
+  .a3-pub-info svg { color: #1F6A41; }
+  .a3-btn.a3-pub-go { width: 100%; min-height: 58px; border-radius: 16px; border: 0; background: #E0731A; color: #fff; font-size: 17px; font-weight: 700; }
+  .a3-site-row { width: 100%; border: 0; font: inherit; text-align: left; cursor: pointer; }
+  /* storia a schermo intero */
+  .a3-story { position: fixed; inset: 0; z-index: 80; background: #111; color: #fff; }
+  .a3-story-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .a3-story-bars { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 10px; right: 10px; display: flex; gap: 4px; z-index: 2; }
+  .a3-story-bars span { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.35); overflow: hidden; }
+  .a3-story-bars i { display: block; height: 100%; width: 0; background: #fff; }
+  .a3-story-bars i.full { width: 100%; }
+  .a3-story-bars i.run { animation: a3-bar 6s linear forwards; }
+  @keyframes a3-bar { to { width: 100%; } }
+  .a3-story-head { position: absolute; top: calc(22px + env(safe-area-inset-top)); left: 12px; right: 4px; display: flex; align-items: center; gap: 10px; z-index: 2; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  .a3-story-site { width: 40px; height: 40px; border-radius: 12px; background: #FFF1E5; color: #B54E0A; display: grid; place-items: center; flex: none; }
+  .a3-story-who { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .a3-story-who strong { font-size: 15px; }
+  .a3-story-who small { font-size: 12px; }
+  .a3-story-x { width: 44px; height: 44px; border: 0; background: none; color: #fff; display: grid; place-items: center; cursor: pointer; }
+  .a3-story-prev, .a3-story-next { position: absolute; top: 90px; bottom: 170px; width: 40%; border: 0; background: none; z-index: 1; cursor: pointer; }
+  .a3-story-prev { left: 0; }
+  .a3-story-next { right: 0; }
+  .a3-story-foot { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 10px; z-index: 2; }
+  .a3-story-foot p { margin: 0; font-size: 16px; line-height: 1.4; }
+  .a3-story-foot small { font-size: 12px; color: #DCDCDA; }
+  .a3-story-btns .a3-btn { min-height: 48px; text-decoration: none; }
+  /* diario */
+  .a3-diario .a3-bar .a3-chip { min-height: 40px; font-size: 13px; font-weight: 500; }
+  .a3-ini.sq.or svg { color: var(--a2-orange-d); }
+  .a3-ini.xl.sq { border-radius: 16px; width: 56px; height: 56px; }
+  .a3-nums3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 0; }
+  .a3-nums3 span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .a3-nums3 span + span { border-left: 1px solid var(--a2-line); }
+  .a3-nums3 strong { font-size: 20px; color: var(--a2-ink); }
+  .a3-nums3 small { font-size: 12px; color: var(--a2-muted); }
+  .a3-seg.a3-seg3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .a3-diario-body { display: flex; flex-direction: column; gap: 16px; }
+  .a3-dday { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .a3-dday small { font-size: 12px; }
+  .a3-dgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+  .a3-dph { position: relative; aspect-ratio: 1; border: 0; padding: 0; border-radius: 6px; overflow: hidden; background: var(--a2-soft); cursor: pointer; }
+  .a3-dph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .a3-dhide { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 11px; border: 0; background: rgba(0,0,0,.5); color: #fff; display: grid; place-items: center; padding: 0; }
+  .a3-pd { position: relative; aspect-ratio: 4 / 3; border-radius: 16px; overflow: hidden; background: #2C2C2C; }
+  .a3-pd > img, .a3-pd-after img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .a3-pd-after { position: absolute; inset: 0; }
+  .a3-pd-l, .a3-pd-r { position: absolute; bottom: 10px; font-size: 12px; color: #fff; background: rgba(0,0,0,.5); border-radius: 999px; padding: 4px 10px; }
+  .a3-pd-l { left: 10px; }
+  .a3-pd-r { right: 10px; }
+  .a3-pd-range { width: 100%; accent-color: #E0731A; }
+  .a3-vbar { display: block; height: 4px; border-radius: 2px; background: var(--a2-line); overflow: hidden; }
+  .a3-vbar i { display: block; height: 100%; width: 0; background: #E0731A; transition: width .3s; }
+  /* post del giorno del cantiere in bacheca */
+  .post-head.post-site { align-items: center; }
+  .post-site-ico { width: 40px; height: 40px; border-radius: 12px; background: var(--a2-orange-t); color: var(--a2-orange-d); display: grid; place-items: center; flex: none; }
+  .post-site-name { color: var(--a2-ink); text-decoration: none; }
+  .post-site-diario { font-size: 13px; font-weight: 500; color: var(--a2-orange-d); text-decoration: none; white-space: nowrap; }
+}

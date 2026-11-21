@@ -8,6 +8,7 @@ import { get, post, patch } from './api.js';
 import { store, userById, firstName, activeProjects } from './store.js';
 import { icon } from './icons.js';
 import { homeView } from './feed.js';
+import { fotoButton, siteStories } from './cantieri.js';
 import { sheet, swipeRow, ticketSheet, ticketDone, ticketLater, openPlusAltro, hoshinPulse } from './app2.js';
 
 const ic = (name, size = 20) => icon(name, { size });
@@ -44,7 +45,7 @@ function setCompitiBadge(n) {
 }
 
 // dettatura: registra dal microfono e restituisce il testo (stessa trascrizione di Alma)
-function voiceButton({ onText, label = 'Tocca e parla', big = false }) {
+export function voiceButton({ onText, label = 'Tocca e parla', big = false }) {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return null;
   let rec = null;
   const txt = h('span', label);
@@ -101,7 +102,8 @@ export function agoraView(view, params) {
   const top = h('div.a3-piazza');
   const col = view.querySelector('.feed-col');
   const stories = col?.querySelector('.stories, .stories-bar, .story-bar') || null;
-  col?.prepend(head, today);
+  col?.prepend(head, today, fotoButton()); // «Foto dal cantiere» (storie dai cantieri, C1)
+  siteStories(stories); // le storie dei cantieri davanti a quelle delle persone
   if (stories) stories.after(pills); else today.after(pills);
   pills.after(top);
   const pinned = col?.querySelectorAll('.feed-list')[0];
@@ -150,7 +152,7 @@ export function agoraView(view, params) {
         track.append(h('button.a3-hero', { type: 'button', on: { click: () => openPost(p.id) } },
           h('span.a3-hero-img', p.media_id ? h('img', { src: mediaUrl(p.media_id), alt: '', loading: 'lazy' }) : ic('megaphone', 28), h('span.a3-hero-badge', fromFeed ? 'DALLA BACHECA' : 'IN EVIDENZA')),
           h('span.a3-hero-b',
-            kicker([fromFeed ? (p.kind === 'grazie' ? 'GRAZIE A…' : 'POST') : 'NEWS AZIENDALE', author?.name?.toUpperCase(), timeAgo(p.created_at).toUpperCase()].filter(Boolean).join(' · '), 'or'),
+            kicker([fromFeed ? (p.kind === 'grazie' ? 'GRAZIE A…' : p.kind === 'cantiere' ? 'DAI CANTIERI' : 'POST') : 'NEWS AZIENDALE', p.kind === 'cantiere' ? null : author?.name?.toUpperCase(), timeAgo(p.created_at).toUpperCase()].filter(Boolean).join(' · '), 'or'),
             h('strong', text.length > 110 ? `${text.slice(0, 110)}…` : text),
             h('small', `${p.likes || 0} mi piace · ${p.comments || 0} ${p.comments === 1 ? 'commento' : 'commenti'}`))));
       }
@@ -211,6 +213,7 @@ export function openPlus() {
   const contactOk = Boolean(store.me.crm);
   const close = sheet(h('div.a3-plus',
     h('div.a3-sheet-head', h('h2', 'Cosa vuoi fare?'), h('button.a3-round', { type: 'button', 'aria-label': 'Chiudi', on: { click: () => close() } }, ic('x', 20))),
+    h('a.a3-cfoto', { href: '#/cantieri/foto', on: { click: () => close() } }, h('span.a3-cfoto-ico', ic('camera', 22)), h('span.a3-cfoto-t', h('strong', 'Foto dal cantiere'), h('small', 'Va nella storia e nel diario del cantiere')), h('span', { 'aria-hidden': 'true' }, '›')),
     h('div.a3-grid2',
       contactOk ? big('Contatto o lead', 'Nome, azienda, telefono', 'user-plus', 'dark', () => contactSheet()) : null,
       contactOk ? big('Scansiona biglietto', 'Alma lo legge per te', 'scan-line', 'tint', () => { location.hash = '#/crm/scansiona'; }) : null,

@@ -64,6 +64,7 @@
 .cv-cols { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
 .cv-cols.w400 { grid-template-columns: minmax(0, 1fr) 400px; }
 .cv-cols.w420 { grid-template-columns: minmax(0, 1fr) 420px; }
+.cv-cols.cv-split { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
 .cv-stack { display: grid; gap: 24px; min-width: 0; grid-template-columns: minmax(0, 1fr); align-content: start; }
 
 /* ── testi ── */
@@ -379,7 +380,7 @@ button.cv-li-main:hover .cv-li-t, a.cv-li-main:hover .cv-li-t { color: var(--cv-
 
 /* ── responsive ── */
 @media (max-width: 1180px) {
-  .cv-cols, .cv-cols.w400, .cv-cols.w420 { grid-template-columns: minmax(0, 1fr); }
+  .cv-cols, .cv-cols.w400, .cv-cols.w420, .cv-cols.cv-split { grid-template-columns: minmax(0, 1fr); }
   .cv-pipe { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
   .cv-pipe > div:nth-child(2n) { border-right: 0; }
 }
@@ -672,3 +673,9 @@ button.rk-stat:hover { background: rgba(255,255,255,.12); }
 @media (max-width: 1180px) { .rk-hero { grid-template-columns: minmax(0, 1fr); } .rk-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1100px) { .rk-board { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) { .rk-hero { padding: 18px 16px; border-radius: 20px; } .rk-h1 { font-size: 26px; } .rk-bar .select { flex: 1 1 140px; max-width: none; } .rk-search { width: 100%; } .rk-bar-r { margin-left: 0; width: 100%; } .rk-bar-r .select { flex: 1; } }
+/* Impostazioni sul telefono: nelle righe con più pulsanti il testo prende tutta la riga, i pulsanti vanno sotto a destra */
+@media (max-width: 760px) {
+  .cv-sbody .cv-li { flex-wrap: wrap; row-gap: 6px; }
+  .cv-sbody .cv-li-main { flex-basis: calc(100% - 56px); }
+  .cv-sbody .cv-li-main + * { margin-left: auto; }
+}

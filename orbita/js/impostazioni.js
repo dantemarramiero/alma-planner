@@ -19,6 +19,8 @@ const SECTIONS = [
   ['moduli', 'Moduli', 'impostazioni di un solo modulo', 'grid'],
 ];
 const eur = n => `€ ${Number(n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// «2 g fa», «ora»: per le frasi che iniziano con «Aggiornato», «Ultimo accesso»…
+const ago = iso => { const t = timeAgo(iso); return /^\d/.test(t) ? `${t} fa` : t; };
 const roleTone = k => (k === 'admin' ? 'or' : '');
 const LEVEL_TONE = { all: 'gr', bu: 'bl', own: 'or', none: '' };
 const monthLabel = m => new Date(`${m}-01T12:00:00`).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase());
@@ -63,7 +65,7 @@ async function panoramica(body, { go }) {
     head('amministratori', '', 'Impostazioni', 'Valgono per tutto il software: Agorà, Project, CRM, Mezzi, Energy, IT e Alma. Le impostazioni proprie di un modulo sono sotto «Moduli».'),
     h('div.imp-grid',
       tile('organigramma', 'network', 'Organigramma e ruoli', `Incarichi, livelli e aree come in BOSS; le persone${org ? ` (${org.people})` : ''} da Microsoft Entra. I ruoli di Alma Space si legano a qualifiche e reparti.`,
-        org ? `Aggiornato ${timeAgo(org.synced_at)}` : 'Mai letto da Microsoft', org ? 'gr' : 'am'),
+        org ? `Aggiornato ${ago(org.synced_at)}` : 'Mai letto da Microsoft', org ? 'gr' : 'am'),
       tile('utenti', 'users', 'Utenti', 'Chi è entrato in Alma Space, quando, con quale ruolo. Chi non è ancora entrato si invita da qui.',
         `${p.users.entered} entrati · ${p.users.never} non ancora`),
       tile('costi', 'coins', 'Costi AI', 'Quanto spende l\'AI per persona e per tutta l\'azienda, con i tetti al mese e al giorno.',
@@ -115,7 +117,7 @@ async function ruoliEntra(body) {
         actions: [{ label: 'Chiudi' }] }) } }) : null)),
     h('div.imp-two',
       card({ title: 'Ruoli di Alma Space', icon: 'key-round', right: h('button.btn.btn-sm', { type: 'button', on: { click: () => roleDialog(o, null, reload) } }, ic('plus', 14), 'Nuovo ruolo') },
-        h('p.cv-small.cv-muted.imp-pad', 'Ogni persona ha il ruolo dato a mano oppure il primo, dall\'alto, la cui regola vale per lei. Gli amministratori non sono più una variabile del server.'),
+        h('p.cv-small.cv-muted.imp-pad', 'Ogni persona ha il ruolo dato a mano oppure il primo, dall\'alto, la cui regola vale per lei. Anche gli amministratori si scelgono da qui.'),
         h('div.cv-tblwrap', h('table.cv-tbl',
           h('thead', h('tr', h('th', 'Ruolo'), h('th', 'Chi lo ha'), h('th.num', 'Persone'))),
           h('tbody', o.roles.map(r => h('tr.cv-click', { tabindex: 0, on: { click: () => roleDialog(o, r, reload), keydown: e => { if (e.key === 'Enter') roleDialog(o, r, reload); } } },
@@ -217,12 +219,11 @@ async function utenti(body, { parts }) {
     }
     const list = d.users.filter(u => (tab === 'sospesi' ? u.suspended_at : !u.suspended_at)).filter(match);
     fill(table, list.length ? h('div.cv-tblwrap', h('table.cv-tbl',
-      h('thead', h('tr', h('th', 'Persona'), h('th', 'Ruolo'), h('th', 'Reparto (Entra)'), h('th', 'Primo accesso'), h('th', 'Ultimo accesso'), h('th.num', 'Sessioni'), h('th', 'Stato'), h('th', ''))),
+      h('thead', h('tr', h('th', 'Persona'), h('th', 'Ruolo'), h('th', 'Reparto (Entra)'), h('th', 'Ultimo accesso'), h('th', 'Stato'), h('th', ''))),
       h('tbody', list.map(u => h('tr',
         h('td', h('div.cv-row', av(u.name, roleTone(u.role)), h('div', h('b', u.name), h('div.cv-small.cv-muted', u.email)))),
         h('td', pill(u.role_label, roleTone(u.role))), h('td', u.department || '—'),
-        h('td', u.first_login ? fmtDate(u.first_login, { year: true }) : '—'),
-        h('td', u.last_login ? timeAgo(u.last_login) : '—'), h('td.num', String(u.sessions)), h('td', status(u)),
+        h('td', u.last_login ? h('div', timeAgo(u.last_login), h('div.cv-small.cv-muted', [u.first_login ? `dal ${fmtDate(u.first_login, { year: true })}` : null, `${u.sessions} ${u.sessions === 1 ? 'sessione' : 'sessioni'}`].filter(Boolean).join(' · '))) : '—'), h('td', status(u)),
         h('td', u.id === store.me.id ? null : u.suspended_at
           ? h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/impostazioni/utenti/${u.id}/riattiva`); toast(`${u.name} riattivato`); utenti(body, { parts }); } } }, 'Riattiva')
           : h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => {
@@ -435,7 +436,7 @@ async function registro(body) {
       select([['', 'Tutti i moduli'], ...meta.modules.map(m => [m, m])], f.modulo, { 'aria-label': 'Modulo', on: { change: e => { f.modulo = e.target.value; load(); } } }),
       select([['1', 'Oggi e ieri'], ['7', 'Ultimi 7 giorni'], ['30', 'Ultimi 30 giorni'], ['365', 'Ultimo anno'], ['730', 'Ultimi 2 anni']], f.giorni, { 'aria-label': 'Periodo', on: { change: e => { f.giorni = e.target.value; load(); } } })));
   fill(body,
-    head('registro', '', 'Registro', 'Ogni accesso e ogni modifica, con com\'era prima e com\'è dopo dove c\'è. Il registro non si modifica e non si cancella; si tiene per 24 mesi.', [csv]),
+    head('registro', '', 'Registro', 'Ogni accesso e ogni modifica, con il prima e il dopo quando ci sono. Il registro non si modifica e non si cancella; si tiene per 24 mesi.', [csv]),
     h('section.cv-card', filters, tableBox, foot));
   await load();
 }
@@ -460,8 +461,8 @@ async function integrazioni(body) {
             try { const r = await post('/api/impostazioni/integrazioni/microsoft/prova'); testOut.textContent = `Risponde in ${r.ms} ms · ${r.name || ''}`; toast('Microsoft 365 risponde'); } finally { e.currentTarget.disabled = false; }
           } } }, 'Prova il collegamento') : null)),
       h('div.imp-svcs',
-        svc('Accesso', 'Login con l\'account Microsoft, controllo ogni 12 ore', ms.last_login ? `Ultimo accesso ${timeAgo(ms.last_login)}` : 'Nessun accesso ancora', ms.configured ? 'gr' : 'am'),
-        svc('Organigramma', 'Persone, responsabili, reparti da Entra, ogni notte', ms.org ? `Aggiornato ${timeAgo(ms.org.synced_at)}` : 'Mai letto', ms.org ? 'gr' : 'am'),
+        svc('Accesso', 'Login con l\'account Microsoft, controllo ogni 12 ore', ms.last_login ? `Ultimo accesso ${ago(ms.last_login)}` : 'Nessun accesso ancora', ms.configured ? 'gr' : 'am'),
+        svc('Organigramma', 'Persone, responsabili, reparti da Entra, ogni notte', ms.org ? `Aggiornato ${ago(ms.org.synced_at)}` : 'Mai letto', ms.org ? 'gr' : 'am'),
         svc('OneDrive', 'Documenti dei progetti nella cartella «Alma Planet»', ms.configured ? 'Funziona' : 'Non configurato', ms.configured ? 'gr' : 'am'),
         svc('Outlook', 'Email nei progetti, calendario, incontri, promemoria', ms.configured ? 'Funziona' : 'Non configurato', ms.configured ? 'gr' : 'am'),
         svc('Teams', 'Chat in «Messaggi»', ms.configured ? 'Funziona' : 'Non configurato', ms.configured ? 'gr' : 'am'),
@@ -477,7 +478,7 @@ async function integrazioni(body) {
           h('p.cv-small.cv-muted', 'I permessi si danno e si tolgono nel portale di Entra, non da qui.')))),
     card({ title: 'Altri collegamenti già usati dai moduli', icon: 'link', cls: 'pad' },
       h('div.imp-perm', h('span', h('b', 'OpenAI'), h('span.cv-small.cv-muted', ' · Alma per scritto e a voce, ricerche AI del CRM; i costi sono in «Costi AI»')), pill(d.openai ? 'Funziona' : 'Chiave mancante', d.openai ? 'gr' : 'am')),
-      h('div.imp-perm', h('span', h('b', 'ANAC dati aperti'), h('span.cv-small.cv-muted', ' · gare e concorrenza nel CRM')), pill(d.radar_last_run ? `Ultimo giro ${timeAgo(d.radar_last_run)}` : 'Nessun giro ancora', d.radar_last_run ? 'gr' : '')),
+      h('div.imp-perm', h('span', h('b', 'ANAC dati aperti'), h('span.cv-small.cv-muted', ' · gare e concorrenza nel CRM')), pill(d.radar_last_run ? `Ultimo giro ${ago(d.radar_last_run)}` : 'Nessun giro ancora', d.radar_last_run ? 'gr' : '')),
       h('div.imp-perm', h('span', h('b', 'Zoho CRM'), h('span.cv-small.cv-muted', ' · importazione da file, in CRM → Impostazioni')), pill('Solo importazione'))));
 }
 

@@ -452,7 +452,7 @@ function livelliTab(box, reload) {
     h('section.cv-card.pad',
       h('div.cv-row', { style: { justifyContent: 'space-between' } }, h('h3.cv-t', 'Livelli dell\'organigramma'), h('button.btn.btn-sm', { type: 'button', on: { click: async () => { const nome = await promptDialog('Nuovo livello', { label: 'Nome del livello', ok: 'Aggiungi' }); if (nome) { await post('/api/organigramma/livelli', { nome, approva: true }); reload(); } } } }, ic('plus', 14), 'Livello')),
       h('p.cv-small.cv-muted', { style: { margin: 0 } }, 'Ordine 1 = in cima. Un incarico riporta sempre a uno di livello più alto; un vice si fa con un livello in più. Un livello non si cancella: si disattiva. Il riordino che rompe dei riporti viene rifiutato.'),
-      h('div.oi-tblwrap', h('table.cv-tbl', h('thead', h('tr', h('th', 'Ordine'), h('th', 'Livello'), h('th', 'Approva le richieste'), h('th', 'Attivo'), h('th.num', 'Incarichi'))),
+      h('div.oi-tblwrap', h('table.cv-tbl.oi-lvtbl', h('thead', h('tr', h('th', 'Ordine'), h('th', 'Livello'), h('th', 'Approva'), h('th', 'Attivo'), h('th.num', 'Incarichi'))),
         h('tbody', M.livelli.map((l, n) => h('tr',
           h('td', h('div.cv-row', { style: { gap: '2px' } }, String(l.ordine), h('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: n === 0, 'aria-label': `Sposta su ${l.nome}`, on: { click: () => sposta(n, -1) } }, ic('chevron-up', 14)),
             h('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: n === ids.length - 1, 'aria-label': `Sposta giù ${l.nome}`, on: { click: () => sposta(n, 1) } }, ic('chevron-down', 14)))),

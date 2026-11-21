@@ -884,7 +884,7 @@ async function settingsView(view) {
   const voice = toggle(s.voice, null, { 'aria-label': 'Voce' });
   const monthly = money(s.monthly_eur), daily = money(s.daily_eur);
   const mode = h('select.select', Object.entries(s.modes).map(([k, l]) => h('option', { value: k, selected: k === s.model_mode }, l)));
-  const line = (title, sub, ctl) => h('div.al-setrow', h('div.al-grow', h('div.al-t5', title), sub ? h('div.al-small.al-muted', sub) : null), ctl);
+  const line = (title, sub, ctl, stack) => h(stack ? 'div.al-setrow.al-stack' : 'div.al-setrow', h('div.al-grow', h('div.al-t5', title), sub ? h('div.al-small.al-muted', sub) : null), ctl);
   const st = s.stats;
   const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
     const r = await put('/api/alma/settings', { enabled: on.input.checked, actions: acts.input.checked, voice: voice.input.checked, model_mode: mode.value,
@@ -899,7 +899,7 @@ async function settingsView(view) {
     line('Per persona al giorno', null, h('span.al-eur', daily, '€')),
     line('Può preparare ticket, note, passi e contatti', 'sempre da confermare', acts.el),
     line('Voce', 'dettatura con il microfono e «Ascolta» (OpenAI)', voice.el),
-    line('Modelli', 'Uno veloce per le domande semplici, uno più forte per le analisi', mode),
+    line('Modelli', 'Uno veloce per le domande semplici, uno più forte per le analisi', mode, true),
     h('div.al-row', { style: { marginTop: '12px' } }, save),
     h('p.al-hint', `Questo mese: ${eur(st.month.cost_eur)} · ${st.month.answers} risposte${st.month.avg_cent !== null ? ` · ${String(st.month.avg_cent).replace('.', ',')} cent l'una` : ''} · ${st.month.users} persone`),
     st.by_model.length ? h('p.al-hint', st.by_model.map(m => `${m.label}: ${eur(m.cost_eur)} (${m.calls} chiamate)`).join(' · ')) : null);
