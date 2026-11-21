@@ -32,9 +32,9 @@
   .a3-agora .feed-col { display: flex; flex-direction: column; gap: 14px; }
   .a3-agora a, .a3-today a { text-decoration: none; }
   /* «Scrivi ai colleghi…» torna in Agorà (le vecchie regole del telefono la nascondevano) */
-  .a3-agora .composer.composer-v2 { display: flex !important; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; border-radius: 18px; background: var(--a2-card); border: 1px solid var(--a2-line); box-shadow: none; }
+  .a3-agora .composer.composer-v2 { display: flex !important; flex-wrap: nowrap !important; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; border-radius: 18px; background: var(--a2-card); border: 1px solid var(--a2-line); box-shadow: none; }
   .a3-agora .composer-v2 .avatar { width: 32px; height: 32px; font-size: 12px; }
-  .a3-agora .composer-v2 .composer-fake { flex: 1; font-size: 15px; color: var(--a2-muted); }
+  .a3-agora .composer-v2 .composer-fake { flex: 1; min-width: 0; font-size: 15px; color: var(--a2-muted); border: 0 !important; background: none !important; padding: 0 !important; min-height: 0 !important; box-shadow: none !important; }
   .a3-agora .composer-v2 .composer-act { font-size: 0; gap: 0; padding: 8px; color: var(--a2-orange-d); background: none; border: 0; }
   .a3-today { display: flex; align-items: stretch; background: var(--a2-card); border: 1px solid var(--a2-line); border-radius: 18px; padding: 12px 14px; gap: 12px; }
   .a3-today a { display: flex; flex-direction: column; gap: 2px; color: var(--a2-text); min-width: 0; }
@@ -102,6 +102,9 @@
   .a3-search-in { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 16px; color: var(--a2-ink); }
   .a3-mic { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 12px; background: var(--a2-bg) !important; color: var(--a2-ink) !important; }
   .a3-mic > span:last-child { display: none; }
+  .a3-mic { display: grid; place-items: center; }
+  .a3-mic .a3-voice-ico { width: auto; height: auto; background: none; color: inherit; }
+  .a3-mic.rec .a3-voice-ico { background: none; color: var(--a2-red); }
 
   /* ── fogli dal basso: + , contatto, nota, compito ── */
   .a3-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
@@ -123,6 +126,8 @@
   .a3-small > span.or { color: var(--a2-orange-d); } .a3-small > span.bl { color: var(--a2-blue); }
   .a3-more { align-self: center; min-height: 44px; border: 0; background: none; font: inherit; font-size: 14px; color: var(--a2-muted); cursor: pointer; }
   .a3-form { display: flex; flex-direction: column; gap: 14px; }
+  .a3-form a, .a3-plus a, .a3-sheet-head a { text-decoration: none; }
+  .a3-form > .a3-link { align-self: center; }
   .a3-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .a3-f > span, .a3-roles legend { font-size: 12px; font-weight: 500; color: var(--a2-muted); }
   .a3-in { width: 100%; box-sizing: border-box; height: 50px; padding: 0 14px; border-radius: 12px; border: 1px solid #DCDCDA; background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 16px; }
@@ -134,7 +139,11 @@
   .a3-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid #DCDCDA; background: var(--a2-card); color: var(--a2-text); font: inherit; font-size: 14px; cursor: pointer; }
   .a3-chip.on { background: var(--a2-dark); border-color: var(--a2-dark); color: #fff; font-weight: 500; }
   .a3-chip.x.on { background: var(--a2-orange-t); border-color: transparent; color: var(--a2-orange-d); }
-  .a3-chip.soft { background: var(--a2-line); border-color: transparent; cursor: default; font-size: 13px; }
+  .a3-chip.soft { background: var(--a2-line); border-color: transparent; cursor: default; font-size: 13px; padding: 0 12px; min-height: 36px; }
+  .a3-who-row .a3-chip.x { font-size: 13px; min-height: 36px; padding: 0 8px 0 12px; }
+  /* nei fogli alti il pulsante principale sta in fondo, come nel canvas */
+  .a2-sheet.tall > .a3-form { flex: 1; }
+  .a2-sheet.tall > .a3-form > .a3-btn.primary.wide:last-child { margin-top: auto; }
   .a3-date { position: absolute; inset: 0; opacity: 0; height: 100%; }
   .a3-who-row { display: flex; flex-wrap: wrap; gap: 8px; }
   .a3-who-row > .a3-picker { flex: 1; }
@@ -245,5 +254,12 @@
   .a3-mio-leads span:nth-child(2) { flex: 1; }
 
   /* barra in basso: il + arancione come nel canvas */
-  body .m-tabs .m-plus2 > span { background: #E0731A; }
+  body .m-tabs .m-plus2 > span { background: #E0731A; width: 56px; height: 56px; border-radius: 50%; box-shadow: 0 6px 16px rgba(224,115,26,.4); }
+}
+@media (max-width: 760px) {
+  /* il mio biglietto: solo il biglietto da mostrare, niente barra né pulsante di Alma (canvas) */
+  body.a3-orange .m-tabs, body.a3-orange .al-fab, body.a3-orange .alma-fab { display: none !important; }
+  .a3-mio .a3-bar { display: grid; grid-template-columns: 1fr auto 1fr; }
+  .a3-mio .a3-bar > :last-child { justify-self: end; }
+  .a3-mio .a3-bar > * { align-self: center; }
 }

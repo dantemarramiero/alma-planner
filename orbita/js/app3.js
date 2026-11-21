@@ -85,6 +85,15 @@ export function agoraView(view, params) {
   const cleanup = homeView(view, params);
   view.querySelector('.bacheca')?.classList.add('a3-agora');
   view.querySelector('.m-today')?.remove();
+  // «Scrivi ai colleghi…» su una riga, con la sola fotocamera (canvas app 3.0)
+  const composer = view.querySelector('.composer-v2');
+  if (composer) {
+    const fake = composer.querySelector('.composer-fake');
+    if (fake) fake.textContent = 'Scrivi ai colleghi…';
+    const acts = composer.querySelectorAll('.composer-act');
+    acts[1]?.remove();
+    if (acts[0]) { acts[0].replaceChildren(ic('camera', 20)); acts[0].setAttribute('aria-label', 'Post con foto'); }
+  }
   const hr = new Date().getHours();
   const hello = hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
   const date = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
@@ -127,7 +136,7 @@ export function openPlus() {
   const small = (label, ico, cls, run) => h('button.a3-small', { type: 'button', on: { click: () => { close(); run(); } } }, h('span', { class: cls }, ic(ico, 20)), label);
   const contactOk = Boolean(store.me.crm);
   const close = sheet(h('div.a3-plus',
-    h('div.a3-sheet-head', h('h2', 'Cosa vuoi fare?')),
+    h('div.a3-sheet-head', h('h2', 'Cosa vuoi fare?'), h('button.a3-round', { type: 'button', 'aria-label': 'Chiudi', on: { click: () => close() } }, ic('x', 20))),
     h('div.a3-grid2',
       contactOk ? big('Contatto o lead', 'Nome, azienda, telefono', 'user-plus', 'dark', () => contactSheet()) : null,
       contactOk ? big('Scansiona biglietto', 'Alma lo legge per te', 'scan-line', 'tint', () => { location.hash = '#/crm/scansiona'; }) : null,
@@ -563,11 +572,11 @@ export async function scanPage(view, params) {
   video.setAttribute('playsinline', '');
   const pick = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
   const native = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
-  const flashBtn = h('button.a3-cam-round', { type: 'button', 'aria-label': 'Flash', hidden: true }, ic('flash', 22));
+  const flashBtn = h('button.a3-cam-round', { type: 'button', 'aria-label': 'Flash', style: { visibility: 'hidden' } }, ic('flash', 22));
   let torch = false;
   flashBtn.addEventListener('click', async () => {
     torch = !torch;
-    try { await stream?.getVideoTracks()[0].applyConstraints({ advanced: [{ torch }] }); flashBtn.classList.toggle('on', torch); } catch { flashBtn.hidden = true; }
+    try { await stream?.getVideoTracks()[0].applyConstraints({ advanced: [{ torch }] }); flashBtn.classList.toggle('on', torch); } catch { flashBtn.style.visibility = 'hidden'; }
   });
 
   const shrinkFrom = (src, w, hgt) => {
@@ -644,7 +653,7 @@ export async function scanPage(view, params) {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     video.srcObject = stream;
     const caps = stream.getVideoTracks()[0].getCapabilities?.() || {};
-    flashBtn.hidden = !caps.torch;
+    flashBtn.style.visibility = caps.torch ? 'visible' : 'hidden';
   } catch {
     // niente fotocamera dal browser (permesso negato, iPhone vecchio…): si usa la fotocamera del telefono
     fill(view.querySelector('.a3-cam-view'), h('button.a3-cam-fallback', { type: 'button', on: { click: () => native.click() } }, ic('camera', 34), 'Tocca per fotografare il biglietto'));
