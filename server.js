@@ -40,6 +40,8 @@ const { registerEnergy } = require('./routes/energy');
 const { registerBiglietti } = require('./routes/biglietti');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
+const { registerCrmScrivo } = require('./routes/crm-scrivo');
+const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
 const { registerCrmCollegamenti } = require('./routes/crm-collegamenti');
 const { registerCrmPunti } = require('./routes/crm-punti');
@@ -239,6 +241,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerFleet(app, deps);
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
+  registerCrmScrivo(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createMailFake() : null }); // CRM: «Persone con cui mi scrivo» dalla propria posta
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
