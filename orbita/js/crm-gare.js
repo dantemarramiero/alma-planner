@@ -7,6 +7,7 @@ import { ic, dots, pill, emptyState, cvModal } from './crm-v2.js';
 import { bandBar, nice, crmCell } from './crm-concorrenza.js';
 import { openImpresaMercato } from './crm-impresa-mercato.js';
 import { regioniSection, partnerSection } from './crm-gare-regioni.js';
+import { sourceLine, basedOn } from './crm-fonti.js';
 
 const eur = n => (n === null || n === undefined || n === '' ? '—' : Number(n) >= 1e6 ? `${(Number(n) / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : Number(n) >= 1e4 ? `${Math.round(Number(n) / 1e3).toLocaleString('it-IT')} k€` : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 0 })} €`);
 const pct = n => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%`);
@@ -64,7 +65,8 @@ export async function gareHub(box, data, section, { openSignal } = {}) {
       [['Gare aggiudicate', num(k.gare), `per ${eur(k.valore)}`, ''], ['Ribasso tipico', pct(k.ribasso), k.p25 !== null && k.p25 !== undefined ? `metà delle gare tra ${pct(k.p25)} e ${pct(k.p75)}` : 'servono gare con più offerenti', 'or'],
         ['Imprese che vincono', num(r.winners.length), r.winners.length ? `la prima, ${nice(r.winners[0].name)}, ne vince ${r.winners[0].vinte}` : '—', ''],
         ['Vinte da noi', num(k.noi), k.gare ? `quota ${pct((100 * k.noi) / k.gare)} · ${eur(k.noi_valore)}` : '—', 'gr']]
-        .map(([l, v, s, tone]) => h('div.cg-kpi', { class: tone }, h('span.cg-k', l), h('b', v), h('small', s)))),
+        .map(([l, v, s, tone]) => h('div.cg-kpi', { class: tone }, h('span.cg-k', l), h('b', v), h('small', s),
+          l === 'Ribasso tipico' && k.gare ? basedOn(k.con_ribasso, k.gare, 'lo dichiarano con almeno 2 offerenti') : null))),
     h('div.cg-search', ic('search', 15), search, found));
 
   // ── sezioni e filtri (uguali per tutte e tre) ──
@@ -84,7 +86,8 @@ export async function gareHub(box, data, section, { openSignal } = {}) {
   else if (sec === 'chi-vince') fill(body, chiVince(r, st, openCo, again));
   else if (sec === 'vinte-da-altri') fill(body, vinteAltri(pb, buLabel, g => openSignal?.(g.id, () => again(), data, pb.vinte_altri)));
   else fill(body, primaBando(pb, buLabel, g => openSignal?.(g.id, () => again(), data, STAGES.flatMap(([s]) => pb.stages[s] || []))));
-  fill(box, h('div.cg', hero, tabs, filters, body,
+  const source = sourceLine({ cats: sc.categories, regions: st.regions ? [] : sc.regions, months: st.months }, { count: k.gare }); // «Da dove vengono i dati» (ALM2-49)
+  fill(box, h('div.cg', hero, tabs, filters, source, body,
     h('p.cv-hint', 'Fonte: ANAC, dati aperti (licenza CC BY-SA 4.0). Categorie e zone dai profili delle BU.')));
 }
 
