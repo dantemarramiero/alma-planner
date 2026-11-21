@@ -46,6 +46,7 @@ test('il mio biglietto: si crea al primo accesso, con link e QR', async () => {
   assert.equal(r.status, 200);
   assert.match(r.body.url, /\/biglietto\/[A-Za-z0-9_-]{12}$/);
   assert.match(r.body.qr, /^<svg/);
+  assert.match(r.body.face, /bvd-front[\s\S]*bvd-back[\s\S]*bvd-qr/); // fronte con il logo, retro con contatti e QR
   assert.equal(r.body.card.scans, 0);
   const again = await D('GET', '/api/biglietto');
   assert.equal(again.body.url, r.body.url, 'stesso link alla seconda volta');
@@ -61,7 +62,10 @@ test('pagina pubblica, campi da mostrare e vCard', async () => {
   const page = await fetch(`${base}/biglietto/${token}`);
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /almacis-logo\.png/);
+  assert.match(html, /almacis-logo-white\.png/); // biglietto digitale: fronte scuro con il logo a scritta bianca (Dante 21/11)
+  assert.match(html, /bvd-front/);
+  assert.match(html, /Salva contatto/);
+  assert.match(html, /EST\. 1955/);
   assert.match(html, /Direttore commerciale/);
   assert.match(html, /333 123 4567/);
   assert.doesNotMatch(html, /085 111 2222/, 'il telefono dell\'ufficio è nascosto');
@@ -165,4 +169,24 @@ test('«Lasciami i tuoi contatti» spento: niente modulo', async () => {
   const html = await (await fetch(r.body.url.replace(/^https?:\/\/[^/]+/, base))).text();
   assert.doesNotMatch(html, /Lasciami i tuoi contatti/);
   assert.equal((await D('PATCH', '/api/biglietto', { show_mobile: 'sì' })).status, 400);
+});
+
+test('«Condividi» da Android (ALM2-48): manifest con share_target, service worker e ripiego del server', async () => {
+  const man = await (await fetch(`${base}/manifest.webmanifest`)).json();
+  assert.equal(man.share_target.action, '/condividi');
+  assert.equal(man.share_target.method, 'POST');
+  assert.equal(man.share_target.enctype, 'multipart/form-data');
+  assert.deepEqual(man.share_target.params.files[0].accept, ['image/*']);
+  const sw = await (await fetch(`${base}/sw.js`)).text();
+  assert.match(sw, /pathname !== '\/condividi'/);
+  assert.match(sw, /#\/crm\/contatti\/biglietti\?condivisi=/);
+  // senza service worker il POST arriva al server: con login si va ai biglietti, senza al login
+  const fd = new FormData();
+  fd.append('foto', new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), 'biglietto.jpg');
+  const withLogin = await fetch(`${base}/condividi`, { method: 'POST', redirect: 'manual', headers: { cookie: cookieD }, body: fd });
+  assert.equal(withLogin.status, 303);
+  assert.equal(withLogin.headers.get('location'), '/app#/crm/contatti/biglietti?condivisi=0');
+  const anon = await fetch(`${base}/condividi`, { method: 'POST', redirect: 'manual', body: fd });
+  assert.equal(anon.status, 303);
+  assert.match(anon.headers.get('location'), /^\/auth\/login/);
 });

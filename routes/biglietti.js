@@ -11,6 +11,7 @@ const { rateLimit } = require('../lib/security');
 const { toBuffer } = require('../lib/media');
 const { getter, caller } = require('../lib/loopback');
 const { contactPreview, contactExecute, contactUndo } = require('../lib/assistente-azioni');
+const { faceHtml } = require('../lib/biglietto-face');
 
 const UNDO_MS = 10 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -68,7 +69,7 @@ function registerBiglietti(app, { db, config, notifier, baseUrl }) {
 <meta name="robots" content="noindex,nofollow"><title>${esc(title)}</title>
 <link rel="icon" href="/brand/almacis/almacis-mark.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&amp;display=swap">
-<link rel="stylesheet" href="/css/biglietto.css"></head>
+<link rel="stylesheet" href="/css/biglietto.css"><link rel="stylesheet" href="/css/biglietto-digitale.css"></head>
 <body class="bv-pub">${body}</body></html>`;
   const ico = (d, extra = '') => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${d}</svg>`;
   const I = {
@@ -82,23 +83,9 @@ function registerBiglietti(app, { db, config, notifier, baseUrl }) {
     web: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
   };
-  const initials = name => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
-
+  // pagina pubblica: il biglietto digitale (fronte e retro, lib/biglietto-face.js), i pulsanti, «Lasciami i tuoi contatti»
   function cardHtml(token, x, { thanks = false, error = '', form = {} } = {}) {
     const first = splitName(x.name).first || x.name;
-    const quick = [
-      x.mobile || x.phone ? `<a href="tel:${esc(digits(x.mobile || x.phone))}"><span>${ico(I.phone)}</span>Chiama</a>` : '',
-      x.mobile ? `<a href="https://wa.me/${esc(waNumber(x.mobile))}"><span>${ico(I.chat)}</span>WhatsApp</a>` : '',
-      `<a href="mailto:${esc(x.email)}"><span>${ico(I.mail)}</span>Email</a>`,
-      x.linkedin ? `<a href="${esc(x.linkedin)}" rel="noopener"><span>${ico(I.in)}</span>LinkedIn</a>` : '',
-    ].filter(Boolean);
-    const lines = [
-      x.mobile ? `<li>${ico(I.phone)}<span><a href="tel:${esc(digits(x.mobile))}">${esc(x.mobile)}</a><small>Cellulare</small></span></li>` : '',
-      x.phone ? `<li>${ico(I.phone)}<span><a href="tel:${esc(digits(x.phone))}">${esc(x.phone)}</a><small>Ufficio</small></span></li>` : '',
-      `<li>${ico(I.mail)}<span><a href="mailto:${esc(x.email)}">${esc(x.email)}</a><small>Email</small></span></li>`,
-      `<li>${ico(I.web)}<span><a href="https://www.almacis.it" rel="noopener">almacis.it</a><small>Sito</small></span></li>`,
-      x.address ? `<li>${ico(I.pin)}<span>${esc(x.address)}<small>Sede</small></span></li>` : '',
-    ].filter(Boolean).join('');
     const f = k => esc(form[k] || '');
     const leave = !x.accept_leads ? '' : thanks
       ? `<div class="bv-thanks" role="status">${ico(I.check)}<div><b>Grazie, ${esc(first)} ha ricevuto i tuoi contatti.</b><span>Ti ricontatterà presto.</span></div></div>`
@@ -119,17 +106,15 @@ function registerBiglietti(app, { db, config, notifier, baseUrl }) {
     <button type="submit" class="bv-send">Invia a ${esc(first)}</button>
   </form>
 </details>`;
-    return page(`${x.name} · Almacis`, `<main class="bv-wrap">
-  <header class="bv-hero"><img src="/brand/almacis/almacis-logo.png" alt="Almacis" width="806" height="212" class="bv-logo"></header>
-  <section class="bv-card" aria-label="Biglietto da visita">
-    ${x.photo ? `<img class="bv-avt" src="/biglietto/${esc(token)}/foto" alt="">` : `<span class="bv-avt" aria-hidden="true">${esc(initials(x.name))}</span>`}
-    <h1>${esc(x.name)}</h1>
-    ${x.role ? `<p class="bv-role">${esc(x.role)}</p>` : ''}
-    ${x.unit ? `<p class="bv-unit">${esc(x.unit)}</p>` : ''}
-    <a class="bv-save" href="/biglietto/${esc(token)}/contatto.vcf">${ico(I.add)}Salva nella rubrica</a>
-    <nav class="bv-quick" aria-label="Contatta">${quick.join('')}</nav>
-  </section>
-  <ul class="bv-lines">${lines}</ul>
+    return page(`${x.name} · Almacis`, `<main class="bv-wrap bvd-wrap"><div class="bvd-eyebrow">Almacis · Solving Generation</div>
+  <h1 class="bvd-title">${esc(x.name)}<span>.</span></h1>
+  ${faceHtml(x)}
+  <nav class="bvd-actions" aria-label="Azioni">
+    <a class="bvd-btn bvd-primary" href="/biglietto/${esc(token)}/contatto.vcf">${ico(I.add)}Salva contatto</a>
+    ${x.mobile || x.phone ? `<a class="bvd-btn" href="tel:${esc(digits(x.mobile || x.phone))}">${ico(I.phone)}Chiama</a>` : ''}
+    ${x.mobile ? `<a class="bvd-btn" href="https://wa.me/${esc(waNumber(x.mobile))}" rel="noopener">${ico(I.chat)}WhatsApp</a>` : ''}
+    <a class="bvd-btn" href="https://www.almacis.it" rel="noopener">${ico(I.web)}Visita il sito</a>
+  </nav>
   ${leave}
   <footer class="bv-foot">Almacis · <a href="https://www.almacis.it/privacy" rel="noopener">Privacy</a> · Questa pagina non usa cookie.</footer>
 </main>`);
@@ -213,7 +198,7 @@ function registerBiglietti(app, { db, config, notifier, baseUrl }) {
       card: { role: card.role, mobile: card.mobile, phone: card.phone, linkedin: card.linkedin, address: card.address, show_mobile: card.show_mobile, show_phone: card.show_phone,
         show_linkedin: card.show_linkedin, show_address: card.show_address, accept_leads: card.accept_leads, scans: card.scans, saves: card.saves },
       profile: { name: u.name, email: u.email, job_title: u.job_title || '', unit: u.department || u.asa || '', avatar_id: u.avatar_id },
-      view: publicView(card, u), url: cardUrl(card.token), qr: await qrSvg(card.token), leads_new: n,
+      view: publicView(card, u), url: cardUrl(card.token), qr: await qrSvg(card.token), face: faceHtml(publicView(card, u), { qr: await qrSvg(card.token) }), leads_new: n,
       leads_total: (await db.query('SELECT count(*)::int AS n FROM business_card_leads WHERE user_id = $1', [req.user.id])).rows[0].n,
     };
   }

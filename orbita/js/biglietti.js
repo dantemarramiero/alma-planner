@@ -11,7 +11,9 @@ const LOGO = '/brand/almacis/almacis-logo.png';
 const svgOf = markup => { const box = h('span.bv-qr'); box.innerHTML = markup; return box; }; // SVG fatto dal server (libreria qrcode)
 
 // ── «Il mio biglietto»: anteprima, QR, azioni, numeri e cosa mostra ───────────────────────────────────
+// il biglietto digitale (fronte e retro con il QR), disegnato dal server come nella pagina pubblica (Dante 21/11/2026)
 function preview(d) {
+  if (d.face) { const box = h('div.bv-face'); box.innerHTML = d.face; box.firstElementChild?.classList.add('bvd-stack'); return box; }
   const x = d.view;
   return h('div.bv-mini',
     h('div.bv-mini-l',
@@ -166,8 +168,8 @@ export async function bigliettiTab(box) {
   fill(box, loading());
   let d = await get('/api/biglietto');
   const tabs = h('div');
-  const drawTabs = n => fill(tabs, tabsBar([['tutti', 'Tutti i contatti'], ['biglietti', 'Biglietti da visita', n || null]], 'biglietti',
-    k => { location.hash = k === 'tutti' ? '#/crm/contatti' : '#/crm/contatti/biglietti'; }));
+  const drawTabs = n => fill(tabs, tabsBar([['tutti', 'Tutti i contatti'], ['scrivo', 'Persone con cui mi scrivo'], ['biglietti', 'Biglietti da visita', n || null]], 'biglietti',
+    k => { location.hash = k === 'tutti' ? '#/crm/contatti' : `#/crm/contatti/${k}`; }));
   drawTabs(d.leads_new);
   const side = h('div.cv-stack.bv-side');
   const drawSide = () => fill(side, myCardPanels(d, nd => { d = nd; drawSide(); }));
@@ -192,6 +194,32 @@ export async function bigliettiTab(box) {
     tabs,
     h('div.cv-cols.w420.bv-cols', h('div.cv-stack', leads, reader), side));
   await chat.open(null);
+  if (/[?&]condivisi=/.test(location.hash)) await takeShared(chat);
+}
+
+// «Condividi» da Android (ALM2-48): il service worker ha messo le foto in «alma-condivisi»; qui le passiamo ad Alma
+// (restano da mandare, come dopo «Fotografa») e svuotiamo la cache. Il parametro si toglie per non riprenderle.
+async function takeShared(chat) {
+  history.replaceState(null, '', location.hash.replace(/[?&]condivisi=\d+/, ''));
+  if (!('caches' in window)) return;
+  try {
+    const cache = await caches.open('alma-condivisi');
+    const info = await cache.match('/condivisi/info').then(r => (r ? r.json() : null));
+    if (!info) { toast('Non sono arrivate foto: riprova a condividerle, oppure usa «Fotografa».'); return; }
+    const files = [];
+    for (let i = 0; i < info.foto; i += 1) {
+      const r = await cache.match(`/condivisi/foto/${i}`);
+      if (!r) continue;
+      const blob = await r.blob();
+      files.push(new File([blob], decodeURIComponent(r.headers.get('X-Nome') || `foto-${i + 1}.jpg`), { type: blob.type || 'image/jpeg' }));
+    }
+    await caches.delete('alma-condivisi');
+    if (files.length) await chat.addPhotos(files);
+    if (info.testo) chat.setText(info.testo);
+    if (files.length || info.testo) chat.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); // sul telefono la chat è sotto la piega
+    if (files.length) toast(files.length === 1 ? 'Foto arrivata: tocca Invia e Alma legge il biglietto' : `${files.length} foto arrivate: tocca Invia e Alma legge i biglietti`);
+    else if (info.testo) toast('Testo arrivato: tocca Invia e Alma prepara il contatto');
+  } catch { toast('Le foto condivise non si riescono ad aprire: usa «Scegli foto».'); }
 }
 
 // ── #/biglietto: il mio biglietto da solo ───────────────────────────────────────────────────────────

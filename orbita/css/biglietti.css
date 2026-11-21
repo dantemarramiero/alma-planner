@@ -88,3 +88,4 @@
   .bv-two { grid-template-columns: 1fr; }
   .bv-reader .al-chat { min-height: 320px; }
 }
+.bv-face { margin: 2px 0 4px; }
