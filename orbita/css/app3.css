@@ -263,3 +263,18 @@
   .a3-mio .a3-bar > :last-child { justify-self: end; }
   .a3-mio .a3-bar > * { align-self: center; }
 }
+@media (max-width: 760px) {
+  /* barra in basso: pallino rosso intero sopra l'icona (prima veniva tagliato e l'icona sembrava fuori centro),
+     + centrato dentro la barra come nel canvas */
+  body .m-tabs .m-tab span.m-tab-ico { overflow: visible; max-width: none; width: 24px; height: 24px; }
+  body .m-tabs .m-tab span.m-tab-ico .nav-badge { position: absolute; overflow: visible; max-width: none; top: -7px; left: auto; right: -12px; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+    border-radius: 9px; border: 2px solid #fff; background: var(--a2-red); color: #fff; font-size: 10px; font-weight: 700; line-height: 14px; display: grid; place-items: center; }
+  body .m-tabs .m-tab span.m-tab-ico .nav-badge[hidden] { display: none; }
+  body .m-tabs .m-plus2 { display: grid; place-items: center; }
+  body .m-tabs .m-plus2 > span { margin: 0 !important; display: grid; place-items: center; }
+  body .m-tabs .m-plus2 > span svg { display: block; }
+}
+@media (max-width: 760px) {
+  /* microfono della ricerca CRM: icona al centro del quadratino */
+  .a3-voice.a3-mic { display: grid; place-items: center; justify-content: center; gap: 0; }
+}
