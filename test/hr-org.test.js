@@ -230,3 +230,25 @@ test('Strategy: le proposte sulle schede HR vanno al team HR; ruolo e responsabi
   assert.equal(put.status, 400);
   assert.match(put.body.error, /Alma HR/);
 });
+
+test('ambito: funzioni, Business Unit o una sola area su mappatura, costo, organigramma e impatto', async () => {
+  const aree = (await api(LUCA, 'GET', '/api/hr/aree')).body.aree;
+  const reti = aree.find(a => a.nome === 'Reti BP/MP');
+  assert.equal(reti.tipo, 'operativa');
+  const tutto = (await api(HRP, 'GET', '/api/hr/mappatura')).body.stats.counted;
+  const bu = (await api(HRP, 'GET', '/api/hr/mappatura?ambito=bu')).body.stats.counted;
+  const fun = (await api(HRP, 'GET', '/api/hr/mappatura?ambito=funzioni')).body.stats.counted;
+  const una = (await api(HRP, 'GET', `/api/hr/mappatura?ambito=${reti.id}`)).body.stats.counted;
+  assert.ok(tutto >= 1);
+  assert.ok(bu >= 1 && bu <= tutto, "chi non ha un'area (nessun incarico) conta solo in «Tutta l'azienda»");
+  assert.equal(fun, 0);
+  assert.equal(una, bu, 'le persone di prova nelle BU sono tutte nelle Reti');
+  assert.equal((await api(HRP, 'GET', '/api/hr/costo?ambito=funzioni')).body.aree.length, 0);
+  assert.ok((await api(HRP, 'GET', '/api/hr/costo?ambito=bu')).body.aree.some(a => a.nome === 'Reti BP/MP'));
+  const org = (await api(LUCA, 'GET', '/api/hr/organigramma?ambito=funzioni')).body;
+  assert.equal(org.incarichi.length, 0);
+  assert.equal(org.ambito, 'funzioni');
+  const imp = (await api(HRP, 'POST', '/api/hr/pannello/impatto', { ambito: 'funzioni' })).body;
+  assert.equal(imp.before.counted, 0);
+  assert.equal((await api(HRP, 'GET', '/api/hr/mappatura?ambito=xyz')).status, 200, 'un ambito sconosciuto vale come tutta l\'azienda');
+});

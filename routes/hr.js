@@ -58,16 +58,18 @@ const hrRoles = async db => (await db.query(`SELECT ${ROLE_COLS} FROM pm_roles W
 // Persone con ruolo, grade e RAL attuale. Il ruolo: quello dell'incarico (principale, se più d'uno), altrimenti quello
 // dato a mano alla persona.
 async function loadPeople(db, { withPay = false } = {}) {
-  const [people, incarichi, principali, pay] = await Promise.all([
+  const [people, incarichi, principali, pay, aree] = await Promise.all([
     db.query(`SELECT key, boss_id, nome, cognome, email, societa, bu, qualifica, ccnl, livello, contratto, part_time_pct::float AS part_time_pct,
                      data_assunzione::text AS data_assunzione, scadenza::text AS scadenza, sesso, attivo, esclusione, role_id, source, boss_url
               FROM hr_people WHERE attivo ORDER BY cognome, nome`),
-    db.query(`SELECT i.id, i.nome, lower(i.ricoperto_da) AS email, a.nome AS area, r.role_id FROM org_incarichi i
+    db.query(`SELECT i.id, i.nome, lower(i.ricoperto_da) AS email, a.nome AS area, a.id AS area_id, a.tipo AS area_tipo, r.role_id FROM org_incarichi i
               LEFT JOIN org_aree a ON a.id = i.area_id LEFT JOIN hr_incarico_roles r ON r.incarico_id = i.id WHERE i.attivo`),
     db.query('SELECT lower(email) AS email, incarico_principale_id FROM org_persone WHERE incarico_principale_id IS NOT NULL'),
     withPay ? db.query(`SELECT DISTINCT ON (person_key) person_key, ral::float AS ral, ad_personam::float AS ad_personam, valid_from::text AS valid_from
                         FROM hr_pay WHERE valid_from <= $1 ORDER BY person_key, valid_from DESC`, [todayIso()]) : { rows: [] },
+    db.query('SELECT id, nome, tipo FROM org_aree'),
   ]);
+  const areaByName = new Map(aree.rows.map(a => [H.norm(a.nome), a]));
   const princ = new Map(principali.rows.map(r => [r.email, r.incarico_principale_id]));
   const byEmail = new Map();
   for (const i of incarichi.rows) if (i.email) (byEmail.get(i.email) || byEmail.set(i.email, []).get(i.email)).push(i);
@@ -75,7 +77,8 @@ async function loadPeople(db, { withPay = false } = {}) {
   return people.rows.map(p => {
     const mine = (p.email && byEmail.get(p.email)) || [];
     const inc = mine.find(i => i.id === princ.get(p.email)) || mine[0] || null;
-    return { ...p, incarico: inc ? { id: inc.id, nome: inc.nome, area: inc.area } : null, role_id: inc?.role_id || p.role_id || null,
+    const a = inc?.area_id ? { id: inc.area_id, nome: inc.area, tipo: inc.area_tipo } : areaByName.get(H.norm(p.bu)) || null;
+    return { ...p, incarico: inc ? { id: inc.id, nome: inc.nome, area: inc.area } : null, area: a ? { id: a.id, nome: a.nome, tipo: a.tipo } : null, role_id: inc?.role_id || p.role_id || null,
       ...(withPay ? { ral: payBy.get(p.key)?.ral || null, ad_personam: payBy.get(p.key)?.ad_personam || 0, ral_dal: payBy.get(p.key)?.valid_from || null } : {}) };
   });
 }
@@ -100,6 +103,15 @@ async function savePeople(q, people, source) {
 // chi non è più nell'elenco completo di BOSS non è più attivo (resta nello storico)
 const deactivateMissing = (q, keys) => q.query('UPDATE hr_people SET attivo = false WHERE attivo AND NOT (key = ANY($1))', [keys]);
 
+
+// ambito: '' (tutta l'azienda) · 'funzioni' · 'bu' · id di un'area
+const inScope = (area, ambito) => {
+  if (!ambito) return true;
+  if (ambito === 'funzioni') return area?.tipo === 'funzionale';
+  if (ambito === 'bu') return area?.tipo === 'operativa';
+  return String(area?.id ?? '') === String(ambito);
+};
+const ambitoOf = req => { const a = String(req.query.ambito ?? req.body?.ambito ?? '').trim(); return /^(funzioni|bu|\d+)$/.test(a) ? a : ''; };
 
 function registerHr(app, { db, gov }) {
   const isHr = req => gov.roleOf(req.user.email).key === 'hr';
@@ -193,7 +205,7 @@ function registerHr(app, { db, gov }) {
       const role = byId.get(p.role_id);
       const propRole = !role && !p.esclusione ? (byId.get(propBy.get(p.email)) || suggestHrRole(p.qualifica || p.incarico?.nome || '', roles)) : null;
       const band = role ? H.bandOf(g.bands, role.grade) : null;
-      return { key: p.key, nome: p.nome, cognome: p.cognome, email: p.email, societa: p.societa, bu: p.incarico?.area || p.bu, incarico: p.incarico, qualifica: p.qualifica,
+      return { key: p.key, nome: p.nome, cognome: p.cognome, email: p.email, societa: p.societa, bu: p.incarico?.area || p.bu, area: p.area, incarico: p.incarico, qualifica: p.qualifica,
         ccnl: p.ccnl, livello: p.livello, contratto: p.contratto, part_time_pct: p.part_time_pct, scadenza: p.scadenza, esclusione: p.esclusione, source: p.source,
         role: role ? { id: role.id, title: H.roleTitle(role), grade: role.grade } : null,
         proposed: propRole ? { id: propRole.id, title: H.roleTitle(propRole), grade: propRole.grade, why: propBy.get(p.email) ? 'dalla mappatura v11' : 'dalla qualifica di BOSS' } : null,
@@ -383,7 +395,8 @@ function registerHr(app, { db, gov }) {
     hrOnly(req);
     const [people, roles, g] = await Promise.all([loadPeople(db, { withPay: true }), hrRoles(db), currentGrid(db)]);
     const byId = new Map(roles.map(r => [r.id, r]));
-    const rows = people.map(p => ({ ...p, grade: byId.get(p.role_id)?.grade || null, role: byId.get(p.role_id) ? H.roleTitle(byId.get(p.role_id)) : null }));
+    const ambito = ambitoOf(req);
+    const rows = people.filter(p => inScope(p.area, ambito)).map(p => ({ ...p, grade: byId.get(p.role_id)?.grade || null, role: byId.get(p.role_id) ? H.roleTitle(byId.get(p.role_id)) : null }));
     const st = H.stats(rows, g.bands, g.rules);
     const list = rows.filter(p => p.grade && p.ral && !p.esclusione).map(p => ({ key: p.key, nome: `${p.nome} ${p.cognome}`, role: p.role, grade: p.grade, ral: p.ral,
       part_time_pct: p.part_time_pct, band: H.bandOf(g.bands, p.grade), ...H.position(p.ral, p.part_time_pct, H.bandOf(g.bands, p.grade), g.rules) }));
@@ -430,7 +443,8 @@ function registerHr(app, { db, gov }) {
     const rules = body.rules || g.rules;
     const bands = body.bands.length ? body.bands : g.bands;
     const byId = new Map(roles.map(r => [r.id, r]));
-    const rows = people.map(p => ({ ...p, grade: byId.get(p.role_id)?.grade || null }));
+    const ambito = ambitoOf(req);
+    const rows = people.filter(p => inScope(p.area, ambito)).map(p => ({ ...p, grade: byId.get(p.role_id)?.grade || null }));
     const before = H.stats(rows, g.bands, g.rules);
     const after = H.stats(rows, bands, rules);
     const moved = rows.filter(p => p.grade && p.ral && !p.esclusione && H.position(p.ral, p.part_time_pct, H.bandOf(g.bands, p.grade), g.rules)?.zone !== H.position(p.ral, p.part_time_pct, H.bandOf(bands, p.grade), rules)?.zone).length;
@@ -585,4 +599,4 @@ async function syncPeopleFromBoss(db, { url = process.env.BOSS_PERSONALE_URL, to
   return { ok: true, n: people.length, incarichi: Array.isArray(data.incarichi) ? data.incarichi.length : null };
 }
 
-module.exports = { registerHr, syncPeopleFromBoss, ensureSeed, currentGrid, hrRoles, loadPeople };
+module.exports = { registerHr, syncPeopleFromBoss, ensureSeed, currentGrid, hrRoles, loadPeople, inScope, ambitoOf };

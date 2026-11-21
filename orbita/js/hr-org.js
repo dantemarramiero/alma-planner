@@ -5,6 +5,7 @@
 import { h, fill, toast, modal, confirmDialog, promptDialog, loading, fmtDateTime, debounce } from './ui.js';
 import { get, post, patch } from './api.js';
 import { icon } from './icons.js';
+import { ambitoSelect, ambQs } from './hr.js';
 
 const eur = n => (n == null ? '—' : `${Math.round(n).toLocaleString('it-IT')} €`);
 const keur = n => (n == null ? '—' : `${Math.round(n / 1000).toLocaleString('it-IT')} k€`);
@@ -17,7 +18,8 @@ const bossBtn = (url, label = 'Modifica su BOSS ↗') => (url ? h('a.btn.btn-sm'
 
 // ── Organigramma ────────────────────────────────────────────────────────────────────────────────────────────
 export async function organigrammaView(c, params) {
-  const d = await get('/api/hr/organigramma');
+  const d = await get(`/api/hr/organigramma?${ambQs()}`);
+  const amb = await ambitoSelect(() => organigrammaView(c, params));
   const vista = ['albero', 'area', 'matrice'].includes(params.get('vista')) ? params.get('vista') : 'albero';
   let area = params.get('area') || '';
   let mostra = params.get('mostra') || 'ruolo';
@@ -126,7 +128,7 @@ export async function organigrammaView(c, params) {
     h('div.hr-row', h('button.btn', { type: 'button', on: { click: doveSiCambia } }, icon('info', { size: 16 }), ' Cosa si cambia dove'),
       h('button.btn', { type: 'button', title: 'Stampa la vista aperta, o salvala in PDF dalla finestra di stampa', on: { click: () => { document.body.classList.add('hr-print'); window.print(); setTimeout(() => document.body.classList.remove('hr-print'), 500); } } }, icon('download', { size: 16 }), ' Stampa / PDF'),
       d.boss_base ? bossBtn(d.boss_base, 'Apri BOSS ↗') : null)),
-    tabs, h('div.hr-row.hr-filters', search, vista === 'albero' ? areaSel : null, vista === 'albero' ? mostraSel : null), statsBox, body);
+    tabs, h('div.hr-row.hr-filters', amb, search, vista === 'albero' ? areaSel : null, vista === 'albero' ? mostraSel : null), statsBox, body);
   draw();
 }
 
@@ -151,11 +153,13 @@ export function doveSiCambia() {
 
 // ── Costo (solo HR) ─────────────────────────────────────────────────────────────────────────────────────────
 export async function costoView(c) {
-  const d = await get('/api/hr/costo');
+  const d = await get(`/api/hr/costo?${ambQs()}`);
+  const amb = await ambitoSelect(() => costoView(c));
   const max = Math.max(1, ...d.aree.map(a => a.monte + a.vacanti_rif));
   fill(c, head('Costo dell\'organigramma', 'Quanto costa ogni area oggi (RAL da BOSS) e quanto costerebbe coprire i vacanti al riferimento della loro fascia.',
-    h('a.btn', { href: '/api/hr/costo.xlsx', download: '' }, icon('download', { size: 16 }), ' Esporta Excel')),
+    h('a.btn', { href: `/api/hr/costo.xlsx?${ambQs()}`, download: '' }, icon('download', { size: 16 }), ' Esporta Excel')),
     lockBar('Solo team HR · registrata nel Registro.'),
+    h('div.hr-row.hr-filters', amb),
     h('div.hr-grid4',
       h('div.hr-kpi', h('div.l', 'Monte RAL attuale ⟳'), h('div.v', keur(d.totale.monte)), h('div.small.muted', `${d.totale.persone} persone`)),
       h('div.hr-kpi', h('div.l', 'Costo azienda stimato'), h('div.v', keur(d.totale.costo)), h('div.small.muted', `RAL × ${k1(d.coeff)} (Pannello › Zone, soglie)`)),

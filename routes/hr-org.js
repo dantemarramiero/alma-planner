@@ -178,14 +178,29 @@ function registerHrOrg(app, { db, gov }) {
   const log = (req, action, extra = {}) => db.query('INSERT INTO hr_log (user_id, kind, action, before, after) VALUES ($1, $2, $3, $4, $5)',
     [req.user.id, extra.kind || 'modifica', action, extra.before ? JSON.stringify(extra.before) : null, extra.after ? JSON.stringify(extra.after) : null]);
 
+  // Le aree con il loro tipo, per il filtro dell'ambito (tutti).
+  app.get('/api/hr/aree', async (_req, res) => {
+    const { rows } = await db.query('SELECT id, nome, tipo FROM org_aree WHERE attiva ORDER BY ordine, nome');
+    res.json({ aree: rows });
+  });
+  const scoped = (d, ambito) => {
+    if (!ambito) return d;
+    const { inScope } = hrMod();
+    const area = id => d.aree.find(a => a.id === id) || null;
+    return { ...d, incarichi: d.incarichi.filter(i => inScope(area(i.area_id), ambito)), people: d.people.filter(p => inScope(p.area, ambito)),
+      aree: d.aree.filter(a => inScope(a, ambito)) };
+  };
+
   app.get('/api/hr/organigramma', async (req, res) => {
     const hr = isHr(req);
     if (req.privacy?.persone === 'none' && !hr) throw new HttpError(403, 'L\'organigramma non è tra le cose che puoi vedere');
-    const d = await orgData(db, { withPay: hr });
+    const ambito = hrMod().ambitoOf(req);
+    const full = await orgData(db, { withPay: hr });
+    const d = scoped(full, ambito);
     const { rows: [s] } = await db.query('SELECT max(synced_at) AS at, bool_or(source = \'boss\') AS boss FROM hr_people');
     if (hr) await log(req, 'organigramma con i costi', { kind: 'accesso' });
     res.json({
-      aree: d.aree, livelli: d.livelli, incarichi: d.incarichi, is_hr: hr, aree_stats: areaStats(d, hr),
+      aree: full.aree, livelli: d.livelli, incarichi: d.incarichi, is_hr: hr, aree_stats: areaStats(d, hr), ambito,
       totali: O.orgStats(d.incarichi, id => d.roles.find(r => r.id === id)?.grade || null),
       sync: { at: s.at, boss: Boolean(s.boss), api: Boolean(process.env.BOSS_PERSONALE_URL) }, boss_base: process.env.BOSS_APP_URL || null,
     });
@@ -193,7 +208,7 @@ function registerHrOrg(app, { db, gov }) {
 
   app.get('/api/hr/costo', async (req, res) => {
     hrOnly(req);
-    const d = await orgData(db, { withPay: true });
+    const d = scoped(await orgData(db, { withPay: true }), hrMod().ambitoOf(req));
     const st = H.stats(d.people.map(p => ({ ...p, grade: d.roles.find(r => r.id === p.role_id)?.grade || null })), d.grid.bands, d.grid.rules);
     const aree = areaStats(d, true);
     await log(req, 'costo dell\'organigramma', { kind: 'accesso' });
@@ -202,7 +217,7 @@ function registerHrOrg(app, { db, gov }) {
 
   app.get('/api/hr/costo.xlsx', async (req, res) => {
     hrOnly(req);
-    const d = await orgData(db, { withPay: true });
+    const d = scoped(await orgData(db, { withPay: true }), hrMod().ambitoOf(req));
     const aree = areaStats(d, true);
     const { writeXlsx } = require('../lib/xlsx');
     const sum = k => aree.reduce((t, a) => t + (a[k] || 0), 0);

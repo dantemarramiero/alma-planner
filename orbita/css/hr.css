@@ -171,3 +171,8 @@
   body.hr-print .hr-tree-wrap { overflow: visible; }
   body.hr-print .hr-node { break-inside: avoid; }
 }
+
+/* ambito delle analisi: tutta l'azienda · funzioni · Business Unit · una sola area */
+.hr-ambito-wrap { display: inline-flex; align-items: center; gap: 6px; background: var(--orange-soft); border: 1px solid #FFD9B5; border-radius: var(--radius-pill); padding: 2px 4px 2px 12px; }
+.hr-ambito-wrap > span { font-size: var(--ap-fs-xs); font-weight: 700; color: var(--orange-dark); text-transform: uppercase; letter-spacing: .05em; }
+.hr-ambito-wrap .select { border: 0; background: transparent; min-width: 200px; width: auto; }
