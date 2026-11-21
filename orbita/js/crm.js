@@ -160,6 +160,7 @@ export async function crmView(container, parts = []) {
   else if (tab === 'concorrenza') await gareHub(body, data, parts[2], { openSignal });
   else if (tab === 'lead') await leadTab(body, parts[2], again);
   else if (tab === 'contatti') await contactsTab(body, again);
+  else if (tab === 'clienti' || tab === 'fornitori') await roleListTab(body, tab, again); // stesso disegno dei Lead (21/11)
   else await subjectsTab(body, tab, again);
 }
 
@@ -465,6 +466,122 @@ async function subjectsTab(box, tab, again) {
     const noun = { clienti: 'clienti', fornitori: 'fornitori', partner: 'partner', concorrenti: 'concorrenti', tutte: 'anagrafiche' }[sub];
     lead.textContent = `${rows.length.toLocaleString('it-IT')} ${noun} · ${rows.filter(s => s.next_step).length.toLocaleString('it-IT')} con un prossimo passo${sub === 'clienti' ? ' · un lead diventa cliente da solo alla prima commessa in BOSS' : ''}`;
     fill(list, subjectTable(rows, sub, state.q || state.key || state.cat || state.role, state, load));
+  }
+  await load();
+}
+
+// ── Clienti e Fornitori con lo stesso disegno di Lead e Contatti (Dante 21/11/2026) ──
+// Testata scura con i riquadri (tipo di cliente / categoria del fornitore) che filtrano, tre avvisi che filtrano,
+// elenco a righe: il nome apre la scheda, telefono ed email a un tocco. Partner, Concorrenti e Tutte restano su subjectsTab.
+const CLIENT_GROUPS = [['pubblici', 'Enti pubblici', s => s.kind === 'ente_pubblico'], ['partecipate', 'Partecipate e consorzi', s => ['partecipata', 'consorzio'].includes(s.kind)],
+  ['imprese', 'Imprese', s => s.kind === 'impresa'], ['privati', 'Altri privati', s => !['ente_pubblico', 'partecipata', 'consorzio', 'impresa'].includes(s.kind)]];
+const CAT_SHORT = { materiali: 'Materiali', subappalti: 'Subappalti', noli: 'Noli', servizi_cantiere: 'Servizi di cantiere', professionisti: 'Professionisti', mezzi: 'Mezzi', servizi_generali: 'Servizi generali' };
+const tintOf = name => ['#C25E0E', '#4B6B8A', '#5A6B7A', '#7A5A6B', '#6B7A5A', '#5A7A6B', '#7A6B5A'][[...String(name)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % 7];
+async function roleListTab(box, tab, again) {
+  const sup = tab === 'fornitori';
+  const role = sup ? 'fornitore' : 'cliente';
+  const noun = sup ? 'fornitori' : 'clienti';
+  const state = { q: '', owner: ownerDefault(), fn: '', key: false, tile: '', alert: '', page: 0 };
+  const hero = h('div');
+  const alerts = h('div');
+  const content = h('div', loading());
+  let all = [];
+  fill(box, hero, alerts, filterRow(state, () => { state.page = 0; load(); }, { key: true, again }), content);
+  const week = addDaysIso(7);
+  const TILES = sup ? Object.keys(data.meta.supplierCategories).map(k => [k, CAT_SHORT[k] || data.meta.supplierCategories[k], s => (s.supplier_categories || []).includes(k)]) : CLIENT_GROUPS;
+  const ALERTS = sup
+    ? { categoria: s => !(s.supplier_categories || []).length, referente: s => !s.contacts, piva: s => !s.vat && !s.tax_code }
+    : { passo: s => !s.next_step, ritardo: s => s.next_step_date && late(s.next_step_date), referente: s => !s.contacts };
+  async function load() {
+    all = (await get(`/api/crm/subjects${qs({ role, asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`)).subjects.filter(s => !state.key || s.key_account);
+    drawTop();
+    draw();
+  }
+  const pick = (k, v) => { state[k] = state[k] === v ? '' : v; state.page = 0; drawTop(); draw(); };
+  function drawTop() {
+    const withStep = all.filter(s => s.next_step_date && String(s.next_step_date).slice(0, 10) <= week).length;
+    fill(hero, h('section.ld-hero',
+      h('div.ld-hero-top',
+        h('div.cv-grow', h('div.ld-kicker', 'Anagrafiche'), h('h1.ld-h1', sup ? 'Fornitori' : 'Clienti'),
+          h('p.ld-sub', `${all.length.toLocaleString('it-IT')} ${noun} · ${withStep} con un prossimo passo questa settimana${sup ? '' : ' · un lead diventa cliente da solo alla prima commessa in BOSS'}`)),
+        h('div.ld-acts',
+          h('button.ld-ghost', { type: 'button', on: { click: () => exportCsv(all, sup ? 'Fornitori' : 'Clienti') } }, ic('download', 13), 'Esporta'),
+          h('button.ld-ghost.pri', { type: 'button', on: { click: () => subjectForm({ preset: { roles: [role] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } }, ic('plus', 13), sup ? 'Nuovo fornitore' : 'Nuovo cliente'))),
+      h('div.ld-funnel.flat', { class: `${state.tile ? 'has-on' : ''} ${TILES.length > 4 ? 'many' : ''}` }, TILES.map(([k, l, test], i) => {
+        const n = all.filter(test).length;
+        const on = state.tile === k;
+        return h('button.ld-step', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), style: { '--a': String(Math.min(0.25 + i * (0.54 / Math.max(TILES.length - 1, 1)), 0.79)) }, on: { click: () => pick('tile', k) } },
+          h('div.ld-bar', h('b', n.toLocaleString('it-IT'))),
+          h('span.ld-step-l', l), h('small', on ? 'filtro attivo · tocca per toglierlo' : n ? `${all.filter(x => test(x) && x.next_step).length} con un prossimo passo` : 'nessuno'));
+      }))));
+    const card = (key, icn, tone, t, s) => {
+      const n = all.filter(ALERTS[key]).length;
+      const on = state.alert === key;
+      const click = n || on;
+      return h(click ? 'button.ld-alert' : 'div.ld-alert', { type: click ? 'button' : undefined, class: `${tone} ${on ? 'on' : ''}`, on: click ? { click: () => pick('alert', key) } : undefined },
+        h('span.ld-alert-ic', ic(icn, 17)), h('span.ld-alert-b', h('b', t(n)), h('small', on ? 'Mostro solo questi: tocca per tornare a tutti.' : s(n))));
+    };
+    const num = n => n.toLocaleString('it-IT');
+    fill(alerts, h('div.ld-alerts', sup ? [
+      card('categoria', 'list', 'or', n => `${num(n)} senza categoria`, n => (n ? 'Non si trovano quando cerchi un fornitore per categoria.' : 'Ogni fornitore ha la sua categoria.')),
+      card('referente', 'users', 'rd', n => `${num(n)} senza referente`, n => (n ? 'Nessuna persona collegata: chi chiamiamo?' : 'Ogni fornitore ha almeno un referente.')),
+      card('piva', 'file-text', 'bl', n => `${num(n)} senza P. IVA`, n => (n ? 'Serve per la qualifica in Vittoria e per BOSS.' : 'Tutti hanno P. IVA o codice fiscale.')),
+    ] : [
+      card('passo', 'target', 'or', n => `${num(n)} senza prossimo passo`, n => (n ? 'Clienti senza una cosa da fare in agenda.' : 'Ogni cliente ha un prossimo passo.')),
+      card('ritardo', 'clock', 'rd', n => `${num(n)} passi in ritardo`, n => (n ? 'Prossimi passi con la data già passata.' : 'Nessun passo in ritardo.')),
+      card('referente', 'users', 'bl', n => `${num(n)} senza referente`, n => (n ? 'Nessuna persona collegata al cliente.' : 'Ogni cliente ha almeno un referente.')),
+    ]));
+  }
+  function draw() {
+    const test = TILES.find(([k]) => k === state.tile)?.[2];
+    const rows = all.filter(s => (!test || test(s)) && (!state.alert || ALERTS[state.alert](s)));
+    if (!rows.length) return fill(content, h('section.cv-card', emptyState(sup ? 'truck' : 'building', state.q || state.tile || state.alert || state.key || asaChoice() || state.owner ? `Nessun ${sup ? 'fornitore' : 'cliente'} con questi filtri.` : `Ancora nessun ${sup ? 'fornitore' : 'cliente'}.`)));
+    const pages = Math.ceil(rows.length / PAGE);
+    const page = Math.min(state.page, pages - 1);
+    const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
+    const warmCells = new Map();
+    const body = h('div.ld-rows', shown.map(s => {
+      const open = () => { location.hash = `#/crm/scheda/${s.id}`; };
+      let col2, col3;
+      if (sup) {
+        const cats = (s.supplier_categories || []).map(k => CAT_SHORT[k] || data.meta.supplierCategories[k]);
+        col2 = h('div.ld-c.ld-tags', cats.length ? [h('span.ld-stage.bl', cats[0]), cats.length > 1 ? h('span.ld-stage', { title: cats.slice(1).join(', ') }, `+${cats.length - 1}`) : null] : h('span.cv-muted', 'Nessuna'));
+        col3 = h('div.ld-c.ld-val', s.contacts ? `${s.contacts} ${s.contacts === 1 ? 'persona' : 'persone'}` : h('span.cv-muted', 'Nessuno'));
+      } else {
+        col2 = h('div.ld-c.ld-tags', s.asa.length ? [h('span.ld-stage', asaLabel(s.asa[0])), s.asa.length > 1 ? h('span.ld-stage', { title: s.asa.slice(1).map(asaLabel).join(', ') }, `+${s.asa.length - 1}`) : null] : h('span.cv-muted', '—'));
+        const warm = h('div.ld-warm', h('i', h('span', { style: { width: '0%' } })), h('small', '…'));
+        warmCells.set(s.id, warm);
+        col3 = h('div.ld-c', warm);
+      }
+      return h('div.ld-row', { role: 'link', tabIndex: 0, on: { click: e => { if (!e.target.closest('a, button')) open(); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } } },
+        h('div.ld-name', h('span.ld-logo', { style: { background: tintOf(s.name) } }, initialsOf(s.short_name || s.name)),
+          h('div.cv-grow', h('div.ld-name-t', { 'data-sid': s.id }, h('a', { href: `#/crm/scheda/${s.id}`, title: `Apri la scheda di ${s.name}` }, s.name), s.key_account ? h('span.ld-star', { title: 'Key account' }, ic('star', 12)) : null, todoBang(s), s.missing_notes ? bang() : null),
+            h('small', dots([data.meta.kinds[s.kind], s.city, s.status !== 'attivo' && data.meta.status[s.status]]) || '—'))),
+        col2, col3,
+        h('div.ld-c.ld-owner', s.owner_name ? [av(s.owner_name, 'or'), h('span', s.owner_name)] : h('span.cv-muted', '—')),
+        h('div.ld-c.ld-next', s.next_step ? [h('span', s.next_step), h('small', { class: late(s.next_step_date) ? 'late' : '' }, s.next_step_date ? (late(s.next_step_date) ? `in ritardo · ${day(s.next_step_date)}` : `entro ${day(s.next_step_date)}`) : '')]
+          : [h('span.cv-muted', 'Nessun passo'), h('small', 'da decidere')]),
+        h('div.ld-c.ld-acts2',
+          s.phone ? h('a.ld-ico', { href: `tel:${s.phone}`, 'aria-label': `Chiama ${s.name}`, title: s.phone }, ic('phone', 14)) : h('span.ld-ico.off', { title: 'Nessun telefono nella scheda' }, ic('phone', 14)),
+          s.email ? h('a.ld-ico', { href: `mailto:${s.email}`, 'aria-label': `Scrivi a ${s.name}`, title: s.email }, ic('mail', 14)) : h('span.ld-ico.off', { title: 'Nessuna email nella scheda' }, ic('mail', 14))));
+    }));
+    setTimeout(() => touchBadges([...body.querySelectorAll('.ld-name-t[data-sid]')].map(el => [Number(el.dataset.sid), el])), 0);
+    if (warmCells.size) {
+      post('/api/crm/rapporti', { ids: shown.map(s => s.id) }).then(rel => {
+        for (const [id, cell] of warmCells) {
+          const r = rel[id];
+          const pct = r ? (r.level === 'forte' ? 85 : r.level === 'media' ? 55 : 25) : 6;
+          fill(cell, h('i', h('span', { class: r?.level || '', style: { width: `${pct}%` } })), h('small', r ? `${r.level}${r.why ? ` · ${r.why}` : ''}` : 'nessuno ci conosce'));
+        }
+      }).catch(() => { for (const cell of warmCells.values()) fill(cell, h('small', '—')); });
+    }
+    fill(content, h('section.ld-list', { class: sup ? 'fo-list' : 'cl-list' },
+      h('div.ld-head', h('span', sup ? 'Fornitore' : 'Cliente'), h('span', sup ? 'Categorie' : 'ASA'), h('span', sup ? 'Referenti' : 'Ci conoscono'), h('span', 'Responsabile'), h('span', 'Prossimo passo'), h('span')),
+      body,
+      h('div.cv-tfoot', `Righe ${page * PAGE + 1}–${page * PAGE + shown.length} di ${rows.length.toLocaleString('it-IT')}`, h('span.cv-grow'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => exportCsv(rows, sup ? 'Fornitori' : 'Clienti') } }, ic('download', 14), 'Esporta'),
+        pages > 1 ? [h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina prima', disabled: page === 0 || undefined, on: { click: () => { state.page = page - 1; draw(); } } }, ic('chevron-left', 15)),
+          h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina dopo', disabled: page >= pages - 1 || undefined, on: { click: () => { state.page = page + 1; draw(); } } }, ic('chevron-right', 15))] : null)));
   }
   await load();
 }
