@@ -5,6 +5,7 @@
 // ricade sull'azienda. Il lead diventa cliente da solo alla prima commessa in BOSS; opportunità in BOSS, qualifiche
 // dei fornitori in Vittoria. Ovunque abbia senso i campi sono elenchi da cui scegliere (Dante 13/11).
 import { bigliettiTab } from './biglietti.js';
+import { scrivoTab } from './crm-scrivo.js';
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
@@ -134,6 +135,7 @@ export async function crmView(container, parts = []) {
   if (parts[1] === 'progetti') return mieiProgetti(container);
   if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
+  if (parts[1] === 'contatti' && parts[2] === 'scrivo') { const body = h('div.cv'); fill(container, body); return scrivoTab(body); } // persone con cui mi scrivo (canvas v10, ALM2-46)
   if (parts[1] === 'contatti' && parts[2] === 'biglietti') { const body = h('div.cv'); fill(container, body); return bigliettiTab(body); } // biglietti da visita (canvas v10)
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'incontro' && Number(parts[2])) { // dalla notifica «mancano le note»
@@ -1102,9 +1104,13 @@ async function contactsTab(box, again) {
   const content = h('div', loading());
   let all = [];
   let loaded = false;
-  let cards = 0;
-  get('/api/biglietto', { quiet: true }).then(r => { cards = r?.leads_new || 0; if (loaded) drawTop(); }).catch(() => {});
-  fill(box, hero, alerts, h('div.cv-filters', filterRow(state, () => { state.page = 0; load(); }, { search: 'Cerca per nome, email o azienda', fn: false, again })), content);
+  // «Tutti i contatti» · «Persone con cui mi scrivo» · «Biglietti da visita» (canvas v10); il numero = contatti lasciati dal mio QR da confermare
+  const contactsTabs = h('div.ct-tabs');
+  const drawContactsTabs = n => fill(contactsTabs, cvTabs([['tutti', 'Tutti i contatti'], ['scrivo', 'Persone con cui mi scrivo'], ['biglietti', 'Biglietti da visita', n || null]], 'tutti',
+    k => { if (k !== 'tutti') location.hash = `#/crm/contatti/${k}`; }));
+  drawContactsTabs(0);
+  get('/api/biglietto', { quiet: true }).then(r => drawContactsTabs(r?.leads_new)).catch(() => {});
+  fill(box, hero, contactsTabs, alerts, h('div.cv-filters', filterRow(state, () => { state.page = 0; load(); }, { search: 'Cerca per nome, email o azienda', fn: false, again })), content);
   const noCo = c => !c.links.some(l => !l.date_to);
   const noReach = c => !dirty(c) && !c.email && !c.mobile && !c.phone;
   const hasRole = (c, r) => c.links.some(l => !l.date_to && (l.roles || []).includes(r));
@@ -1123,7 +1129,6 @@ async function contactsTab(box, again) {
         h('div.cv-grow', h('div.ld-kicker', 'Anagrafiche'), h('h1.ld-h1', 'Contatti'),
           h('p.ld-sub', `${all.length.toLocaleString('it-IT')} persone · ${linked.toLocaleString('it-IT')} collegate a un'azienda`)),
         h('div.ld-acts',
-          h('a.ld-ghost', { href: '#/crm/contatti/biglietti' }, ic('id-card', 13), 'Biglietti da visita', cards ? h('span.ld-count', String(cards)) : null),
           h('button.ld-ghost.pri', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, ic('plus', 13), 'Nuovo contatto'))),
       h('div.ld-funnel.flat', { class: state.role ? 'has-on' : '' }, CT_ROLES.map(([k, l], i) => {
         const n = all.filter(c => hasRole(c, k)).length;
@@ -1532,3 +1537,7 @@ function importCard() {
     h('p.cv-small.cv-muted', 'L\'export «Aziende» così com\'è (le classifico io: lead, clienti, fornitori, partner, concorrenti) oppure l\'Excel di controllo corretto a mano; poi l\'export «Contatti», che si collegano da soli alla loro azienda, e l\'export «Commesse» (CSV), che fa diventare clienti i committenti. Prima vedi il riepilogo; quello che c\'è già non si tocca.'),
     drop, out);
 }
+
+// «+ Nuovo» della barra in alto (palette.js, canvas v10): contatto e azienda da qualsiasi pagina
+export const newContact = () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } });
+export const newSubject = () => subjectForm({ onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } });

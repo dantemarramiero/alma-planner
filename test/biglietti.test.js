@@ -46,6 +46,7 @@ test('il mio biglietto: si crea al primo accesso, con link e QR', async () => {
   assert.equal(r.status, 200);
   assert.match(r.body.url, /\/biglietto\/[A-Za-z0-9_-]{12}$/);
   assert.match(r.body.qr, /^<svg/);
+  assert.match(r.body.face, /bvd-front[\s\S]*bvd-back[\s\S]*bvd-qr/); // fronte con il logo, retro con contatti e QR
   assert.equal(r.body.card.scans, 0);
   const again = await D('GET', '/api/biglietto');
   assert.equal(again.body.url, r.body.url, 'stesso link alla seconda volta');
@@ -61,7 +62,10 @@ test('pagina pubblica, campi da mostrare e vCard', async () => {
   const page = await fetch(`${base}/biglietto/${token}`);
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /almacis-logo\.png/);
+  assert.match(html, /almacis-logo-white\.png/); // biglietto digitale: fronte scuro con il logo a scritta bianca (Dante 21/11)
+  assert.match(html, /bvd-front/);
+  assert.match(html, /Salva contatto/);
+  assert.match(html, /EST\. 1955/);
   assert.match(html, /Direttore commerciale/);
   assert.match(html, /333 123 4567/);
   assert.doesNotMatch(html, /085 111 2222/, 'il telefono dell\'ufficio è nascosto');

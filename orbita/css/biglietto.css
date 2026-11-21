@@ -56,3 +56,13 @@ body.bv-pub{margin:0;background:#F7F6F3;color:var(--ap-text);font-family:var(--a
 .bv-missing{padding-top:var(--ap-space-5)}
 .bv-missing p{color:var(--ap-grey-700)}
 .bv-pub :focus-visible{outline:none;box-shadow:var(--ap-focus)}
+
+/* biglietto digitale in cima alla pagina pubblica (Dante 21/11/2026) */
+body.bv-pub { background: radial-gradient(ellipse at 14% 5%, #FFFFFF 0, transparent 48%), linear-gradient(138deg, #E9EBEF, #DCE1E5); min-height: 100vh; }
+.bv-wrap.bvd-wrap { max-width: 1120px; padding: 40px 20px 32px; }
+.bvd-eyebrow { letter-spacing: .25em; font-size: 12px; color: #707880; font-weight: 700; text-align: center; text-transform: uppercase; }
+.bvd-title { text-align: center; font-size: clamp(25px, 3vw, 38px); letter-spacing: -.035em; margin: 12px 0 34px; color: #30343A; font-weight: 700; }
+.bvd-title span { color: var(--ap-accent); }
+.bvd-wrap .bv-leave, .bvd-wrap .bv-thanks { max-width: 560px; margin-left: auto; margin-right: auto; margin-top: 26px; }
+.bvd-wrap .bv-foot { margin-top: 26px; }
+@media (max-width: 850px) { .bv-wrap.bvd-wrap { max-width: 560px; padding: 28px 16px 28px; } .bvd-title { margin-bottom: 22px; } }

@@ -11,7 +11,9 @@ const LOGO = '/brand/almacis/almacis-logo.png';
 const svgOf = markup => { const box = h('span.bv-qr'); box.innerHTML = markup; return box; }; // SVG fatto dal server (libreria qrcode)
 
 // ── «Il mio biglietto»: anteprima, QR, azioni, numeri e cosa mostra ───────────────────────────────────
+// il biglietto digitale (fronte e retro con il QR), disegnato dal server come nella pagina pubblica (Dante 21/11/2026)
 function preview(d) {
+  if (d.face) { const box = h('div.bv-face'); box.innerHTML = d.face; box.firstElementChild?.classList.add('bvd-stack'); return box; }
   const x = d.view;
   return h('div.bv-mini',
     h('div.bv-mini-l',
@@ -166,8 +168,8 @@ export async function bigliettiTab(box) {
   fill(box, loading());
   let d = await get('/api/biglietto');
   const tabs = h('div');
-  const drawTabs = n => fill(tabs, tabsBar([['tutti', 'Tutti i contatti'], ['biglietti', 'Biglietti da visita', n || null]], 'biglietti',
-    k => { location.hash = k === 'tutti' ? '#/crm/contatti' : '#/crm/contatti/biglietti'; }));
+  const drawTabs = n => fill(tabs, tabsBar([['tutti', 'Tutti i contatti'], ['scrivo', 'Persone con cui mi scrivo'], ['biglietti', 'Biglietti da visita', n || null]], 'biglietti',
+    k => { location.hash = k === 'tutti' ? '#/crm/contatti' : `#/crm/contatti/${k}`; }));
   drawTabs(d.leads_new);
   const side = h('div.cv-stack.bv-side');
   const drawSide = () => fill(side, myCardPanels(d, nd => { d = nd; drawSide(); }));

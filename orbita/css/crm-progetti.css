@@ -561,7 +561,7 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .ld-funnel.flat.has-on .ld-step:not(.on) { opacity: .45; }
 .ld-funnel.flat.has-on .ld-step:not(.on):hover { opacity: .8; }
 .ld-funnel.flat .ld-step:focus-visible { outline: none; box-shadow: var(--ap-focus); }
-.ld-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #FF8A26; color: #fff; font-size: 11px; display: inline-grid; place-items: center; }
+.ct-tabs { margin-bottom: 14px; }
 .ld-logo.round { border-radius: 50%; }
 .ct-list .ld-head, .ct-list .ld-row { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.9fr) minmax(0, .9fr) minmax(0, 1.7fr) minmax(0, 1.2fr) 72px; }
 .ld-co a { display: inline-flex; gap: 6px; align-items: center; max-width: 100%; font-size: 13px; color: var(--cv-text); text-decoration: none; }
