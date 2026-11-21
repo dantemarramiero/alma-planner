@@ -102,9 +102,10 @@ function composerCard(onCreated) {
     act('heart', 'Ringrazia', () => openGrazieLoading(() => onCreated?.())));
 }
 
-export function openComposer({ onCreated, photos: pickNow = false } = {}) {
+export function openComposer({ onCreated, photos: pickNow = false, text: initial = '' } = {}) {
   const photos = []; // { id?, url, uploading }
   const text = h('textarea.input.composer-text', { placeholder: 'Scrivi un post… usa @ per menzionare un collega e # per un argomento', maxLength: 5000, autofocus: true });
+  if (initial) text.value = initial; // app sul telefono: «Fai gli auguri», «Saluta»… partono con la @menzione
   const strip = h('div.photo-strip');
   const publish = h('button.btn.btn-primary', { type: 'button' }, 'Pubblica');
 

@@ -3,7 +3,7 @@
 // nota, dare un compito, mostrare il proprio biglietto e scansionare quello degli altri. Barra in basso:
 // Agorà · CRM · + · Compiti · Avvisi. Tutto il resto (Esplora, Io) si apre dalla foto in alto.
 // Usa solo API che esistono già (contatti, aziende, note e passi del CRM, ticket, biglietto, Alma per leggere i biglietti).
-import { h, fill, avatar, loading, toast, toISODate, addDays, debounce } from './ui.js';
+import { h, fill, avatar, loading, toast, toISODate, addDays, debounce, timeAgo } from './ui.js';
 import { get, post, patch } from './api.js';
 import { store, userById, firstName, activeProjects } from './store.js';
 import { icon } from './icons.js';
@@ -80,53 +80,114 @@ function voiceButton({ onText, label = 'Tocca e parla', big = false }) {
   return btn;
 }
 
-// ═══ Agorà: la bacheca di sempre con in cima saluto, il mio QR e la riga «Oggi» ═══════════════════════════
+// ═══ Agorà come piazza (controproposta approvata da Dante il 21/11/2026, artboard AgoraB/AgoraB2) ═════════════
+// In alto: saluto, il mio QR, una riga sottile per il lavoro, storie, filtri che restano in alto, la news in evidenza
+// grande e «Oggi in Almacis» (compleanni, nuovi arrivi, anniversari con un pulsante); poi il sondaggio e la bacheca.
+const AGORA_FILTERS = [['', 'Per te'], ['news', 'News'], ['cantieri', 'Dai cantieri'], ['grazie', 'Grazie']];
 export function agoraView(view, params) {
-  const cleanup = homeView(view, params);
+  const filter = AGORA_FILTERS.some(([k]) => k && k === params.get('filtro')) ? params.get('filtro') : '';
+  const cleanup = homeView(view, filter ? new URLSearchParams({ filtro: filter }) : new URLSearchParams());
   view.querySelector('.bacheca')?.classList.add('a3-agora');
   view.querySelector('.m-today')?.remove();
-  // «Scrivi ai colleghi…» su una riga, con la sola fotocamera (canvas app 3.0)
-  const composer = view.querySelector('.composer-v2');
-  if (composer) {
-    const fake = composer.querySelector('.composer-fake');
-    if (fake) fake.textContent = 'Scrivi ai colleghi…';
-    const acts = composer.querySelectorAll('.composer-act');
-    acts[1]?.remove();
-    if (acts[0]) { acts[0].replaceChildren(ic('camera', 20)); acts[0].setAttribute('aria-label', 'Post con foto'); }
-  }
-  const hr = new Date().getHours();
-  const hello = hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  view.querySelector('.composer-v2')?.remove(); // per scrivere c'è il + («Post in Agorà»)
   const date = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
   const head = h('header.a3-head',
-    h('div.a3-head-t', h('span.a3-eyebrow', date), h('h1.a3-hello', `${hello}, `, h('strong', firstName(store.me)))),
+    h('div.a3-head-t', h('span.a3-eyebrow', `ALMA AGORÀ · ${date}`), h('h1.a3-hello', 'Ciao, ', h('strong', firstName(store.me)))),
     h('div.a3-head-r', roundLink('#/biglietto', 'Il mio biglietto da visita', 'qr-code'), meBtn()));
-  const meet = h('a.a3-today-l', { href: '#/settimana' }, kicker('OGGI', 'blue'), h('strong', '…'));
-  const todo = h('a.a3-today-r', { href: '#/compiti' }, kicker('DA FARE', 'or'), h('strong', '…'));
-  const strip = h('div.a3-today', meet, todo);
+  const today = h('a.a3-oggi', { href: '#/compiti' }, h('span.a3-oggi-dot'), h('span.a3-oggi-t', '…'), h('span.a3-oggi-n'));
+  const pills = h('nav.a3-pills.a3-sticky', { 'aria-label': 'Filtro' },
+    AGORA_FILTERS.map(([k, l]) => h('a.a3-pill', { href: k ? `#/benvenuto?filtro=${k}` : '#/benvenuto', class: k === filter ? 'on' : '', 'aria-current': k === filter ? 'page' : null }, l)),
+    h('a.a3-pill', { href: '#/persone' }, 'Persone'));
+  const top = h('div.a3-piazza');
   const col = view.querySelector('.feed-col');
-  col?.prepend(head, strip);
+  const stories = col?.querySelector('.stories, .stories-bar, .story-bar') || null;
+  col?.prepend(head, today);
+  if (stories) stories.after(pills); else today.after(pills);
+  pills.after(top);
+  const pinned = col?.querySelectorAll('.feed-list')[0];
+
+  // riga del lavoro: prossimo incontro e compiti di oggi
   (async () => {
-    const today = todayISO();
+    const day = todayISO();
     const [cal, tickets, steps] = await Promise.all([
-      get(`/api/calendar?start=${today}T00:00:00&end=${today}T23:59:59`, { quiet: true }).catch(() => null),
+      get(`/api/calendar?start=${day}T00:00:00&end=${day}T23:59:59`, { quiet: true }).catch(() => null),
       get('/api/tickets?assignee=me&status=open', { quiet: true }).catch(() => []),
       store.me.crm ? get('/api/crm/steps?di=me', { quiet: true }).catch(() => null) : null,
     ]);
     const now = new Date();
     const next = (cal?.events || []).filter(e => !e.allDay && new Date(e.end || e.start) > now).sort((a, b) => String(a.start).localeCompare(String(b.start)))[0];
-    if (next) {
-      const mins = Math.round((new Date(next.start) - now) / 60000);
-      fill(meet, kicker(mins <= 0 ? 'ADESSO' : mins < 60 ? `TRA ${mins} MIN` : `ALLE ${hhmm(next.start)}`, 'blue'), h('strong', next.title || 'Incontro'));
-      if (next.onlineUrl) Object.assign(meet, { href: next.onlineUrl, target: '_blank', rel: 'noopener' });
-    } else fill(meet, kicker('OGGI', 'blue'), h('strong', cal && !cal.outlookError ? 'Nessun incontro' : 'Calendario'));
     const due = t => String(t.due_date || '').slice(0, 10);
-    const n = (tickets || []).filter(t => (!t.rda_state || t.rda_state === 'accepted') && due(t) && due(t) <= today).length
-      + (steps?.steps || []).filter(s => s.due_date <= today).length;
-    const late = (tickets || []).some(t => due(t) && due(t) < today) || (steps?.steps || []).some(s => s.late);
-    fill(todo, kicker(late ? 'IN RITARDO' : 'OGGI', late ? 'red' : 'or'), h('strong', n ? `${n} ${n === 1 ? 'compito' : 'compiti'} ›` : 'Tutto fatto ›'));
+    const n = (tickets || []).filter(t => (!t.rda_state || t.rda_state === 'accepted') && due(t) && due(t) <= day).length
+      + (steps?.steps || []).filter(s => s.due_date <= day).length;
+    const late = (tickets || []).some(t => due(t) && due(t) < day) || (steps?.steps || []).some(s => s.late);
+    fill(today.querySelector('.a3-oggi-t'), next ? [h('strong', hhmm(next.start)), ` ${next.title || 'Incontro'}`] : (cal && !cal.outlookError ? 'Nessun incontro oggi' : 'La mia giornata'));
+    const nEl = today.querySelector('.a3-oggi-n');
+    nEl.textContent = n ? `${n} ${n === 1 ? 'compito' : 'compiti'} ›` : 'Tutto fatto ›';
+    nEl.classList.toggle('red', late);
     setCompitiBadge(n);
   })();
+
+  // in evidenza, oggi in Almacis, sondaggio (solo su «Per te»)
+  if (!filter) (async () => {
+    const home = await get('/api/welcome/home', { quiet: true }).catch(() => null);
+    if (!home || !top.isConnected) return;
+    const [{ mediaUrl }, { openPost, openComposer }] = await Promise.all([import('./media.js'), import('./feed.js')]);
+    const news = home.news || [];
+    let hero = null;
+    if (news.length) {
+      if (pinned) pinned.hidden = true; // i post in evidenza sono già nel riquadro grande
+      const track = h('div.a3-hero-track');
+      const dots = h('span.a3-dots', { 'aria-hidden': 'true' }, news.map((_, i) => h('i', { class: i ? '' : 'on' })));
+      for (const p of news) {
+        const author = userById(p.author_id);
+        const text = String(p.body || '').replace(/\s+/g, ' ').trim();
+        track.append(h('button.a3-hero', { type: 'button', on: { click: () => openPost(p.id) } },
+          h('span.a3-hero-img', p.media_id ? h('img', { src: mediaUrl(p.media_id), alt: '', loading: 'lazy' }) : ic('megaphone', 28), h('span.a3-hero-badge', 'IN EVIDENZA')),
+          h('span.a3-hero-b',
+            kicker(['NEWS AZIENDALE', author?.name?.toUpperCase(), timeAgo(p.created_at).toUpperCase()].filter(Boolean).join(' · '), 'or'),
+            h('strong', text.length > 110 ? `${text.slice(0, 110)}…` : text),
+            h('small', `${p.likes || 0} mi piace · ${p.comments || 0} ${p.comments === 1 ? 'commento' : 'commenti'}`))));
+      }
+      track.addEventListener('scroll', () => {
+        const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+        [...dots.children].forEach((d, j) => d.classList.toggle('on', j === i));
+      }, { passive: true });
+      hero = h('section.a3-hero-wrap', track, news.length > 1 ? dots : null);
+    }
+    const handle = id => userById(id)?.handle || String(userById(id)?.email || '').split('@')[0];
+    const ppl = home.people || {};
+    const card = (p, tag, cls, sub, cta, text) => h('div.a3-pcard',
+      h('div.a3-pcard-top', h('a', { href: `#/u/${p.id}` }, avatar(userById(p.id) || p, 40)), h('span.a3-tag', { class: cls }, tag)),
+      h('a.a3-pcard-t', { href: `#/u/${p.id}` }, h('strong', p.name), h('small', sub)),
+      h('button.a3-btn.a3-pcard-b', { type: 'button', on: { click: () => openComposer({ text, onCreated: () => rerender() }) } }, cta));
+    const cards = [
+      ...(ppl.birthdays || []).filter(p => p.in_days === 0).map(p => card(p, 'Compleanno', 'or', p.job_title || 'Oggi', 'Fai gli auguri', `Tanti auguri @${handle(p.id)}! `)),
+      ...(ppl.arrivals || []).slice(0, 4).map(p => card(p, 'Benvenuto', 'gr', p.job_title || 'Nuovo in Almacis', 'Saluta', `Benvenuto in Almacis @${handle(p.id)}! `)),
+      ...(ppl.anniversaries || []).filter(p => p.in_days === 0).map(p => card(p, `${p.years} ${p.years === 1 ? 'anno' : 'anni'}`, 'bl', 'In Almacis da oggi', 'Complimenti', `Complimenti @${handle(p.id)} per i ${p.years} anni in Almacis! `)),
+    ];
+    const people = cards.length ? h('section.a3-sec', h('span.a3-sec-t', 'OGGI IN ALMACIS'), h('div.a3-prow', cards)) : null;
+    const poll = home.poll ? pollCard(home.poll) : null;
+    fill(top, hero, people, poll);
+  })();
   return cleanup;
+}
+
+// sondaggio aperto: si vota con un tocco, poi le percentuali
+function pollCard(first) {
+  const box = h('section.a3-card.a3-poll');
+  const draw = p => {
+    const voted = p.my_vote !== null && p.my_vote !== undefined;
+    fill(box, kicker(p.open === false ? 'SONDAGGIO · CHIUSO' : 'SONDAGGIO', 'blue'), h('strong.a3-poll-q', p.question),
+      p.options.map((o, i) => {
+        const pct = p.total ? Math.round(p.counts[i] * 100 / p.total) : 0;
+        return h('button.a3-opt', { type: 'button', disabled: p.open === false, class: p.my_vote === i ? 'on' : '', 'aria-pressed': String(p.my_vote === i),
+          on: { click: async () => draw(await post(`/api/welcome/polls/${p.id}/vote`, { choice: i })) } },
+        voted ? h('i', { style: { width: `${pct}%` } }) : null, h('span', o), voted ? h('b', `${pct}%`) : null);
+      }),
+      h('small.a3-muted', `${p.total} ${p.total === 1 ? 'risposta' : 'risposte'}${voted ? ' · hai votato' : ''}`));
+  };
+  draw(first);
+  return box;
 }
 
 // ═══ «+»: le quattro azioni grandi ═══════════════════════════════════════════════════════════════════════
