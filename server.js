@@ -66,6 +66,7 @@ const { createGovernance } = require('./lib/impostazioni');
 const { registerImpostazioni, startOrgNightly } = require('./routes/impostazioni');
 const { registerOrganigramma } = require('./routes/organigramma');
 const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
+const { registerHrOrg } = require('./routes/hr-org');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -86,6 +87,8 @@ function readConfig(env = process.env) {
     clientId: env.MS_CLIENT_ID?.trim(),
     clientSecret: env.MS_CLIENT_SECRET?.trim(),
     devLogin: !production && env.DEV_LOGIN === '1',
+    // Alma HR fase 2 (Dante 21/11/2026): l'organigramma si modifica su BOSS; in Alma resta solo l'import. ORG_EDITABLE=1 lo riapre (test).
+    orgEditable: env.ORG_EDITABLE === '1',
     // Amministratori dell'intranet (post in evidenza, moderazione): email separate da virgole.
     adminEmails: (env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
     // Alma, l'assistente: la chiave di Claude (senza, Alma resta spenta) e la modalità finta per provarla in locale.
@@ -265,6 +268,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
   registerHr(app, deps); // Alma HR: persone da BOSS, ruoli sugli incarichi, mansionario, salary grade (RAL solo al team HR)
+  registerHrOrg(app, deps); // Alma HR fase 2: organigramma in sola lettura (dati da BOSS), costo, scenari, cambi da BOSS, Strategy
   registerOrganigramma(app, deps); // organigramma a incarichi, come BOSS (Impostazioni → Organigramma e ruoli)
   registerImpostazioni(app, deps); // Impostazioni uniche: organigramma e ruoli, utenti, costi AI, privacy, registro, integrazioni
   registerAudit(app, deps);

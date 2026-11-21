@@ -294,6 +294,10 @@ async function costi(body, { parts }) {
 
 // ── Privacy e visibilità ───────────────────────────────────────────────────────────────────────
 async function privacy(body) {
+  await privacyBase(body);
+  await appendHrPrivacy(body).catch(() => {}); // Alma HR: chi vede RAL e mappatura (sola lettura qui)
+}
+async function privacyBase(body) {
   const p = await get('/api/impostazioni/privacy');
   const matrix = JSON.parse(JSON.stringify(p.matrix));
   let changes = 0;
@@ -511,4 +515,28 @@ function dialog({ title, body, actions = [], left = [] }) {
   };
   m = cvModal({ title, body, actions: actions.map(btn), left: left.map(btn) });
   return m;
+}
+
+// ── Alma HR in Privacy (tavola I): le regole decise da Dante il 21/11/2026 e chi ha il ruolo «Team HR» ──────────
+async function appendHrPrivacy(body) {
+  const d = await get('/api/hr/privacy', { quiet: true });
+  const Y = () => h('td', { style: { textAlign: 'center', color: 'var(--green)', fontWeight: 700 } }, '✓');
+  const N = () => h('td', { style: { textAlign: 'center', color: 'var(--muted)' } }, '—');
+  const T = t => h('td.cv-small', { style: { textAlign: 'center' } }, t);
+  const rows = [
+    ['Griglia salary grade e regole', Y(), Y(), Y(), Y()],
+    ['Schede del mansionario', Y(), Y(), Y(), Y()],
+    ['Organigramma con ruolo e grade', Y(), Y(), Y(), Y()],
+    ['Chi ha quale ruolo e grade', Y(), Y(), T('sé'), N()],
+    ['RAL, storico, posizione in fascia', Y(), N(), N(), N()],
+    ['Mappatura, costo, scenari, registro', Y(), N(), N(), N()],
+    ['Modifica mansionario, griglia e pannello', Y(), N(), N(), N()],
+  ];
+  body.append(h('section.cv-card', { style: { marginTop: '16px' } },
+    h('div.cv-ch', h('h3.cv-t', 'Alma HR'), h('span.cv-small.cv-muted', 'Regole fisse, controllate dal server a ogni richiesta')),
+    h('div.cv-tblwrap', h('table.cv-tbl', h('thead', h('tr', ['Cosa', 'Team HR', 'Responsabile (suo ramo)', 'Dipendente (sé)', 'Tutti'].map(x => h('th', x)))),
+      h('tbody', rows.map(([l, ...c]) => h('tr', h('td', l), ...c))))),
+    h('div', { style: { padding: '12px 16px' } },
+      h('div.cv-small', h('b', `Chi ha il ruolo «Team HR» (${d.team.length}): `), d.team.length ? d.team.map(t => t.name || t.email).join(', ') : 'nessuno'),
+      h('p.cv-small.cv-muted', { style: { margin: '6px 0 0' } }, 'Il ruolo si dà e si toglie in Organigramma e ruoli › Ruoli. Ogni apertura di una RAL e ogni export finiscono nel registro di Alma HR. Gli amministratori senza il ruolo «Team HR» non vedono le RAL.'))));
 }

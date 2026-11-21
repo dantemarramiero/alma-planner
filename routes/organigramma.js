@@ -171,15 +171,22 @@ function propostaEntra(state) {
   };
 }
 
-function registerOrganigramma(app, { db, gov }) {
+function registerOrganigramma(app, { db, gov, config = {} }) {
   const BASE = '/api/organigramma';
+  // Alma HR fase 2 (ALM2-52): il data entry dell'organigramma si fa su BOSS. In Alma restano la vista e l'import
+  // dell'export di BOSS; ogni altra modifica risponde 403 (salvo ORG_EDITABLE=1, per i test e i casi d'emergenza).
+  const readOnly = !config.orgEditable;
+  app.use(BASE, (req, _res, next) => {
+    if (!readOnly || ['GET', 'HEAD'].includes(req.method) || req.path === '/anteprima' || req.path === '/import') return next();
+    next(new HttpError(403, "L'organigramma si modifica su BOSS: in Alma si guarda soltanto"));
+  });
   const adminOnly = req => { if (!gov.isAdmin(req)) throw new HttpError(403, 'L\'organigramma lo cambiano gli amministratori'); };
   const log = (q, req, azione, oggetto, prima, dopo, n = 0) => q.query('INSERT INTO org_cambi (user_id, azione, oggetto, prima, dopo, persone_cambiate) VALUES ($1, $2, $3, $4, $5, $6)',
     [req.user.id, azione, oggetto || null, prima ? JSON.stringify(prima) : null, dopo ? JSON.stringify(dopo) : null, n]);
 
   app.get(BASE, async (req, res) => {
     adminOnly(req);
-    res.json(vista(await loadState(db)));
+    res.json({ ...vista(await loadState(db)), readonly: readOnly });
   });
 
   app.post(`${BASE}/anteprima`, async (req, res) => {

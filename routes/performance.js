@@ -106,8 +106,15 @@ const ROLE_FIELDS = {
 const cleanRole = body => { const out = {}; for (const [k, fn] of Object.entries(ROLE_FIELDS)) if (body[k] !== undefined) out[k] = fn(body[k], k); return out; };
 const OBJ_FIELDS = ['responsibility', 'pillar', 'objective', 'kpi', 'formula', 'unit', 'source', 'frequency', 'target', 'notes', 'obstacles', 'last_value'];
 
-function registerPerformance(app, { db, isAdmin, notifier }) {
+function registerPerformance(app, { db, isAdmin, notifier, gov }) {
   const admin = req => Boolean(isAdmin(req));
+  // Alma HR (tavola R): le schede del mansionario HR le cura il team HR; chi ha il ruolo «Team HR»
+  const isHr = req => Boolean(gov && req?.user?.email && gov.roleOf(req.user.email).key === 'hr');
+  const hrUserIds = async () => {
+    if (!gov) return [];
+    const { rows } = await db.query('SELECT id, email FROM users WHERE email IS NOT NULL AND suspended_at IS NULL');
+    return rows.filter(u => gov.roleOf(u.email).key === 'hr').map(u => u.id);
+  };
   // il team HR (team «HR» nel profilo) vede le schede di tutti, senza modificarle
   async function isHR(userId) {
     const { rows: [r] } = await db.query("SELECT lower(trim(team)) = 'hr' AS hr FROM pm_profiles WHERE user_id = $1", [userId]);
@@ -199,8 +206,10 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
     await db.query("UPDATE pm_change_requests SET status = 'withdrawn' WHERE user_id = $1 AND status = 'pending'", [req.user.id]);
     const { rows: [r] } = await db.query(
       'INSERT INTO pm_change_requests (user_id, role_id, changes, approver_id) VALUES ($1, $2, $3, $4) RETURNING *',
-      [req.user.id, role.id, JSON.stringify(changes), p.manager_id || null]);
-    if (p.manager_id) await notify([p.manager_id], req.user.id, `ti chiede di approvare ${changes.length === 1 ? '1 modifica' : `${changes.length} modifiche`} alla sua scheda.`, `/strategy/scheda/${req.user.id}`);
+      [req.user.id, role.id, JSON.stringify(changes), role.hr_family ? null : (p.manager_id || null)]);
+    // ruolo del mansionario di Alma HR: decide il team HR (nasce la versione dopo, con la presa visione)
+    if (role.hr_family) await notify(await hrUserIds(), req.user.id, `propone ${changes.length === 1 ? '1 modifica' : `${changes.length} modifiche`} alla scheda del ruolo «${role.title}».`, `/strategy/scheda/${req.user.id}`);
+    else if (p.manager_id) await notify([p.manager_id], req.user.id, `ti chiede di approvare ${changes.length === 1 ? '1 modifica' : `${changes.length} modifiche`} alla sua scheda.`, `/strategy/scheda/${req.user.id}`);
     res.status(201).json(r);
   });
 
@@ -215,7 +224,9 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
   app.get('/api/pm/requests', async (req, res) => {
     const { rows } = await db.query(
       `SELECT cr.id, cr.user_id, cr.created_at, cr.changes, u.name FROM pm_change_requests cr JOIN users u ON u.id = cr.user_id
-        WHERE cr.status = 'pending' AND (cr.approver_id = $1 OR ($2 AND cr.approver_id IS NULL)) ORDER BY cr.created_at`, [req.user.id, admin(req)]);
+        WHERE cr.status = 'pending' AND (cr.approver_id = $1 OR ($2 AND cr.approver_id IS NULL)
+              OR ($3 AND cr.approver_id IS NULL AND EXISTS (SELECT 1 FROM pm_roles r WHERE r.id = cr.role_id AND r.hr_family IS NOT NULL)))
+        ORDER BY cr.created_at`, [req.user.id, admin(req), isHr(req)]);
     res.json(rows);
   });
 
@@ -224,7 +235,8 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
     const id = v.int(req.params.id, 'richiesta', { min: 1 });
     const { rows: [cr] } = await db.query("SELECT * FROM pm_change_requests WHERE id = $1 AND status = 'pending'", [id]);
     if (!cr) throw new HttpError(404, 'Richiesta non trovata o già decisa');
-    if (!(cr.approver_id === req.user.id || admin(req))) throw new HttpError(403, 'Le modifiche le approva il responsabile della persona');
+    const { rows: [crRole] } = await db.query('SELECT hr_family FROM pm_roles WHERE id = $1', [cr.role_id]);
+    if (!(cr.approver_id === req.user.id || admin(req) || (crRole?.hr_family && isHr(req)))) throw new HttpError(403, 'Le modifiche le approva il responsabile della persona');
     const decisions = Array.isArray(req.body?.decisions) ? req.body.decisions : [];
     if (decisions.length !== cr.changes.length) throw new HttpError(400, 'Decidi ogni modifica: accetta o rifiuta');
     const changes = cr.changes.map((c, i) => {
@@ -242,7 +254,7 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
         }
         next.responsibilities = next.responsibilities.filter(Boolean).slice(0, 5);
         const keys = Object.keys(next);
-        await q.query(`UPDATE pm_roles SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')}, status = 'confirmed', confirmed_by = $${keys.length + 2}, confirmed_at = now() WHERE id = $1`,
+        await q.query(`UPDATE pm_roles SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')}, status = 'confirmed', confirmed_by = $${keys.length + 2}, confirmed_at = now()${role.hr_family && changes.some(x => x.decision === 'ok') ? ', version = version + 1, version_at = now()' : ''} WHERE id = $1`,
           [role.id, ...keys.map(k => (Array.isArray(next[k]) ? JSON.stringify(next[k]) : next[k])), req.user.id]);
       }
       await q.query("UPDATE pm_change_requests SET status = 'decided', changes = $2, decided_by = $3, decided_at = now() WHERE id = $1", [id, JSON.stringify(changes), req.user.id]);
@@ -419,6 +431,7 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
                                        FROM pm_roles r LEFT JOIN pm_profiles pp ON pp.role_id = r.id LEFT JOIN users u ON u.id = pp.user_id
                                       -- le schede vuote ancora da compilare non sono voci del mansionario
                                       WHERE NOT (r.status = 'missing' AND r.title = '' AND r.description = '' AND r.responsibilities = '[]'::jsonb)
+                                        AND r.merged_into IS NULL -- i ruoli collegati al mansionario di Alma HR (ALM2-52) non si mostrano più
                                       GROUP BY r.id ORDER BY (r.status = 'review') DESC, r.title`);
     res.json(rows);
   });
@@ -451,6 +464,10 @@ function registerPerformance(app, { db, isAdmin, notifier }) {
     const managerId = b.manager_id === null || b.manager_id === '' ? null : v.int(b.manager_id, 'responsabile', { min: 1 });
     if (managerId === userId) throw new HttpError(400, 'Una persona non può essere responsabile di se stessa');
     const team = v.text(b.team ?? '', 'team', { max: 120 }) ?? '';
+    // Alma HR (tavola R): se ruolo e responsabile li sa Alma HR (incarico e riporto da BOSS), non si cambiano a mano
+    const derived = await require('./hr-org').derivedFor(db, userId);
+    if (derived.role_id && roleId !== derived.role_id) throw new HttpError(400, 'Il ruolo viene dall\'incarico in Alma HR: si cambia in Alma HR › Ruoli sugli incarichi');
+    if (derived.manager_id && managerId !== derived.manager_id) throw new HttpError(400, 'Il responsabile viene dall\'organigramma di BOSS: si cambia su BOSS');
     await db.query(`INSERT INTO pm_profiles (user_id, role_id, manager_id, team) VALUES ($1,$2,$3,$4)
                     ON CONFLICT (user_id) DO UPDATE SET role_id = $2, manager_id = $3, team = $4`, [userId, roleId, managerId, team]);
     res.json({ ok: true });

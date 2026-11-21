@@ -13,6 +13,9 @@ const NODO_L = 208, NODO_A = 60, GAP_O = 44, GAP_V = 76, GAP_PILA = 8, RIENTRO =
 const norm = s => String(s || '').trim().toLowerCase();
 let M = null; // il modello caricato
 let sel = null; // incarico scelto
+// Alma HR fase 2 (ALM2-52, Dante 21/11/2026): l'organigramma si modifica su BOSS. In sola lettura spariscono le modifiche;
+// resta l'import dell'export di BOSS. Il server fa lo stesso controllo (ORG_EDITABLE=1 riapre le modifiche).
+let RO = false;
 
 const colore = a => (a ? `oi-c${(M.aree.indexOf(a) % 5) + 1}` : 'oi-c0');
 const area = id => M.aree.find(a => a.id === id);
@@ -34,12 +37,13 @@ export async function renderOrganigramma(body, { parts = [], ruoli } = {}) {
   const go = (t, v) => { location.hash = `#/impostazioni/organigramma/${t}${v ? `/${v}` : ''}`; };
   fill(body, loading());
   M = await get('/api/organigramma');
+  RO = Boolean(M.readonly);
   const reload = () => renderOrganigramma(body, { parts, ruoli });
   const nds = M.daSistemare.length;
   const top = pageTop({
     eyebrow: 'Impostazioni · organigramma', heading: title('', 'Organigramma'),
-    sub: 'Le frecce uniscono gli incarichi, non le persone: se cambia chi ricopre un incarico, chi gli riporta resta al suo posto. Le persone e gli account arrivano da Microsoft Entra.',
-    actions: [h('button.btn', { type: 'button', on: { click: () => importDialog(reload) } }, ic('upload', 15), 'Importa da foglio'),
+    sub: RO ? 'Arriva da BOSS e qui si guarda soltanto: incarichi, riporti, aree e livelli si cambiano su BOSS. Le frecce uniscono gli incarichi, non le persone.' : 'Le frecce uniscono gli incarichi, non le persone: se cambia chi ricopre un incarico, chi gli riporta resta al suo posto. Le persone e gli account arrivano da Microsoft Entra.',
+    actions: RO ? [h('span.cv-small.cv-muted', 'Si modifica su BOSS'), h('button.btn', { type: 'button', on: { click: () => importDialog(reload) } }, ic('upload', 15), 'Importa l\'export di BOSS')] : [h('button.btn', { type: 'button', on: { click: () => importDialog(reload) } }, ic('upload', 15), 'Importa da foglio'),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => incaricoDialog(null, reload) } }, ic('plus', 15), 'Nuovo incarico')],
   });
   const tabs = h('nav.oi-tabs', { 'aria-label': 'Sezioni dell\'organigramma' }, TABS.map(([k, l]) => h('a', { href: `#/impostazioni/organigramma/${k}`, class: k === tab ? 'on' : '', 'aria-current': k === tab ? 'page' : undefined }, l)));
@@ -270,7 +274,7 @@ function perArea(box, f) {
   if (ds.length) {
     out.push(h('section.cv-card.oi-dscard', blocco('ds', 'Da sistemare', [h('b.rd', 'Da sistemare'), pill(String(ds.length), 'rd')],
       h('div.oi-acc-b', ds.map(d => h('div.oi-li', h('span', h('b', d.testo), ` · ${d.nome}`),
-        d.tipo === 'persona' ? h('button.btn.btn-sm', { type: 'button', on: { click: () => riportoPersonaDialog(d.email, () => location.reload()) } }, 'Scegli a chi riporta')
+        d.tipo === 'persona' ? (RO ? pill('da sistemare su BOSS', 'am') : h('button.btn.btn-sm', { type: 'button', on: { click: () => riportoPersonaDialog(d.email, () => location.reload()) } }, 'Scegli a chi riporta'))
           : d.motivo === 'esterno_senza_account' ? pill('invitalo da Utenti', 'am') : h('button.btn.btn-sm', { type: 'button', on: { click: () => f.select(d.id) } }, 'Apri')))))));
   }
   const areaBox = a => {
@@ -311,7 +315,7 @@ async function schedaIncarico(box, id, reload, close) {
     chi ? h('div.oi-kv.col', h('span.cv-small.cv-muted', `Chi approva le richieste di ${chi.nome.split(' ')[0]}`), h('span', approvaTxt(chi.chiApprova))) : null,
     h('div.oi-kv', h('span.cv-small.cv-muted', 'Riporti diretti'), h('span', `${i.figli.length} incarichi · ${i.riporti.length} persone`)),
     h('div.oi-kv', h('span.cv-small.cv-muted', 'Nel ramo'), h('span', `${i.nelRamo} persone`)),
-    h('div.oi-acts',
+    RO ? h('div.oi-acts', h('p.cv-small.cv-muted', { style: { margin: 0 } }, 'L\'organigramma si modifica su BOSS: qui si guarda soltanto.')) : h('div.oi-acts',
       h('button.btn.btn-primary', { type: 'button', on: { click: () => riportoIncaricoDialog(i, reload) } }, 'Cambia riporto e livello'),
       h('button.btn', { type: 'button', on: { click: () => ricopertoDialog(i, reload) } }, 'Cambia chi lo ricopre'),
       h('div.cv-row', { style: { gap: '6px' } },
@@ -422,15 +426,15 @@ function personeTab(box, reload) {
       h('tbody', list.map(p => h('tr', { class: ds.has(p.email) ? 'oi-trbad' : '' },
         h('td', h('div.cv-row', av(p.nome, p.esterno ? 'bl' : ''), h('div', h('b', p.nome), h('div.cv-small.cv-muted', p.esterno ? `${p.email} · esterno${p.account ? '' : ' senza account'}` : p.jobTitle || p.email)))),
         h('td', p.incarichi.length ? h('div.cv-row', { style: { flexWrap: 'wrap', gap: '4px' } }, p.incarichi.map(id => pill(`${incarico(id)?.nome}${id === p.incaricoPrincipaleId && p.incarichi.length > 1 ? ' · principale' : ''}`, id === p.incaricoPrincipaleId ? 'or' : ''))) : h('span.cv-muted', 'nessuno')),
-        h('td', p.incarichi.length ? h('span.cv-muted', `da ${incarico(p.incaricoPrincipaleId)?.nome}`) : h('button.btn.btn-sm', { type: 'button', on: { click: () => riportoPersonaDialog(p.email, reload) } }, p.riportaAIncaricoId ? incarico(p.riportaAIncaricoId)?.nome : 'Scegli…')),
-        h('td', sel_(optsAree(), p.businessUnitId, { 'aria-label': `Area di ${p.nome}`, style: { minHeight: '32px', height: '32px' }, on: { change: e => azione({ azione: 'areaPersona', email: p.email, businessUnitId: e.target.value ? Number(e.target.value) : null }, reload, 'Area cambiata') } })),
+        h('td', p.incarichi.length ? h('span.cv-muted', `da ${incarico(p.incaricoPrincipaleId)?.nome}`) : RO ? h('span', p.riportaAIncaricoId ? incarico(p.riportaAIncaricoId)?.nome : '—') : h('button.btn.btn-sm', { type: 'button', on: { click: () => riportoPersonaDialog(p.email, reload) } }, p.riportaAIncaricoId ? incarico(p.riportaAIncaricoId)?.nome : 'Scegli…')),
+        h('td', sel_(optsAree(), p.businessUnitId, { disabled: RO, 'aria-label': `Area di ${p.nome}`, style: { minHeight: '32px', height: '32px' }, on: { change: e => azione({ azione: 'areaPersona', email: p.email, businessUnitId: e.target.value ? Number(e.target.value) : null }, reload, 'Area cambiata') } })),
         h('td', approvaTxt(p.chiApprova))))))) : emptyState('users', 'Nessuno con questi filtri.'));
   };
   const n = k => M.persone.filter(p => (k === 'incarichi' ? p.incarichi.length : k === 'esterni' ? p.esterno : ds.has(p.email))).length;
   fill(box, h('section.cv-card',
     h('div.cv-ch', seg([['tutte', 'Tutte', M.persone.length], ['incarichi', 'Con incarichi', n('incarichi')], ['esterni', 'Esterni', n('esterni')], ['ds', 'Da sistemare', n('ds') || null]], filtro, k => { filtro = k; draw(); }, { label: 'Quali persone' }),
       h('div.cv-ch-r', h('input.input', { type: 'search', placeholder: 'Cerca per nome', 'aria-label': 'Cerca', on: { input: debounce(e => { q = norm(e.target.value); draw(); }, 150) } }),
-        h('button.btn', { type: 'button', on: { click: () => esternoDialog(reload) } }, ic('user-plus', 15), 'Persona esterna'))),
+        RO ? null : h('button.btn', { type: 'button', on: { click: () => esternoDialog(reload) } }, ic('user-plus', 15), 'Persona esterna'))),
     table, h('div.cv-cardfoot.cv-small.cv-muted', 'Chi ricopre incarichi parte dal suo incarico principale; gli altri riportano a un incarico. L\'area è separata dagli incarichi. Le persone nuove di Entra arrivano ogni notte.')));
   draw();
 }
@@ -447,22 +451,22 @@ function livelliTab(box, reload) {
   const uso = id => M.incarichi.filter(i => i.livelloOrganigrammaId === id).length;
   const ids = M.livelli.map(l => l.id);
   const sposta = async (n, d) => { const x = [...ids]; [x[n], x[n + d]] = [x[n + d], x[n]]; await post('/api/organigramma/livelli/ordine', { ids: x }); toast('Livelli riordinati'); reload(); };
-  const areaChip = a => h('button.oi-areachip', { type: 'button', class: a.attiva ? '' : 'off', on: { click: () => areaDialog(a, reload) } }, sq(a), a.nome, h('i', String(M.persone.filter(p => p.businessUnitId === a.id).length)));
+  const areaChip = a => h('button.oi-areachip', { type: 'button', disabled: RO, class: a.attiva ? '' : 'off', on: { click: () => { if (!RO) areaDialog(a, reload); } } }, sq(a), a.nome, h('i', String(M.persone.filter(p => p.businessUnitId === a.id).length)));
   fill(box, h('div.oi-two-col',
     h('section.cv-card.pad',
-      h('div.cv-row', { style: { justifyContent: 'space-between' } }, h('h3.cv-t', 'Livelli dell\'organigramma'), h('button.btn.btn-sm', { type: 'button', on: { click: async () => { const nome = await promptDialog('Nuovo livello', { label: 'Nome del livello', ok: 'Aggiungi' }); if (nome) { await post('/api/organigramma/livelli', { nome, approva: true }); reload(); } } } }, ic('plus', 14), 'Livello')),
+      h('div.cv-row', { style: { justifyContent: 'space-between' } }, h('h3.cv-t', 'Livelli dell\'organigramma'), RO ? null : h('button.btn.btn-sm', { type: 'button', on: { click: async () => { const nome = await promptDialog('Nuovo livello', { label: 'Nome del livello', ok: 'Aggiungi' }); if (nome) { await post('/api/organigramma/livelli', { nome, approva: true }); reload(); } } } }, ic('plus', 14), 'Livello')),
       h('p.cv-small.cv-muted', { style: { margin: 0 } }, 'Ordine 1 = in cima. Un incarico riporta sempre a uno di livello più alto; un vice si fa con un livello in più. Un livello non si cancella: si disattiva. Il riordino che rompe dei riporti viene rifiutato.'),
       h('div.oi-tblwrap', h('table.cv-tbl.oi-lvtbl', h('thead', h('tr', h('th', 'Ordine'), h('th', 'Livello'), h('th', 'Approva'), h('th', 'Attivo'), h('th.num', 'Incarichi'))),
         h('tbody', M.livelli.map((l, n) => h('tr',
-          h('td', h('div.cv-row', { style: { gap: '2px' } }, String(l.ordine), h('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: n === 0, 'aria-label': `Sposta su ${l.nome}`, on: { click: () => sposta(n, -1) } }, ic('chevron-up', 14)),
-            h('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: n === ids.length - 1, 'aria-label': `Sposta giù ${l.nome}`, on: { click: () => sposta(n, 1) } }, ic('chevron-down', 14)))),
-          h('td', h('input.input', { value: l.nome, 'aria-label': 'Nome del livello', style: { minHeight: '32px', height: '32px' }, on: { change: async e => { await patch(`/api/organigramma/livelli/${l.id}`, { nome: e.target.value }); reload(); } } })),
-          h('td', h('label.cv-row', h('input', { type: 'checkbox', checked: l.approva, on: { change: async e => { await patch(`/api/organigramma/livelli/${l.id}`, { approva: e.target.checked }); reload(); } } }), l.approva ? 'sì' : 'no')),
-          h('td', h('input', { type: 'checkbox', checked: l.attivo, 'aria-label': 'Attivo', on: { change: async e => { await patch(`/api/organigramma/livelli/${l.id}`, { attivo: e.target.checked }); reload(); } } })),
+          h('td', h('div.cv-row', { style: { gap: '2px' } }, String(l.ordine), h('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: RO || n === 0, 'aria-label': `Sposta su ${l.nome}`, on: { click: () => sposta(n, -1) } }, ic('chevron-up', 14)),
+            h('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: RO || n === ids.length - 1, 'aria-label': `Sposta giù ${l.nome}`, on: { click: () => sposta(n, 1) } }, ic('chevron-down', 14)))),
+          h('td', h('input.input', { value: l.nome, disabled: RO, 'aria-label': 'Nome del livello', style: { minHeight: '32px', height: '32px' }, on: { change: async e => { await patch(`/api/organigramma/livelli/${l.id}`, { nome: e.target.value }); reload(); } } })),
+          h('td', h('label.cv-row', h('input', { type: 'checkbox', checked: l.approva, disabled: RO, on: { change: async e => { await patch(`/api/organigramma/livelli/${l.id}`, { approva: e.target.checked }); reload(); } } }), l.approva ? 'sì' : 'no')),
+          h('td', h('input', { type: 'checkbox', checked: l.attivo, disabled: RO, 'aria-label': 'Attivo', on: { change: async e => { await patch(`/api/organigramma/livelli/${l.id}`, { attivo: e.target.checked }); reload(); } } })),
           h('td.num', String(uso(l.id)))))))),
       h('p.cv-small.cv-muted', { style: { margin: 0 } }, 'Chi non ricopre incarichi non approva mai.')),
     h('section.cv-card.pad',
-      h('div.cv-row', { style: { justifyContent: 'space-between' } }, h('h3.cv-t', 'Aree'), h('button.btn.btn-sm', { type: 'button', on: { click: () => areaDialog(null, reload) } }, ic('plus', 14), 'Area')),
+      h('div.cv-row', { style: { justifyContent: 'space-between' } }, h('h3.cv-t', 'Aree'), RO ? null : h('button.btn.btn-sm', { type: 'button', on: { click: () => areaDialog(null, reload) } }, ic('plus', 14), 'Area')),
       [['funzionale', 'Funzionali'], ['operativa', 'Operative · Area Lavori (etichetta di raggruppamento, non un\'area)'], ['altro', 'Altro']].map(([t, l]) => h('div', h('div.cv-small.cv-muted', { style: { marginBottom: '8px' } }, l), h('div.oi-areas', M.aree.filter(a => a.tipo === t).map(areaChip)))),
       h('p.cv-small.cv-muted', { style: { margin: 0 } }, 'Le aree restano piatte: dicono dove va il costo e quali commesse si vedono. Le regioni sono incarichi dentro l\'area, non sotto-aree.'))));
 }
@@ -511,11 +515,11 @@ function importDialog(reload) {
     ultimo = { tipo: 'file', buf };
     mostra(await api('POST', '/api/organigramma/import', buf, { raw: true, headers: { 'Content-Type': 'application/octet-stream' } }));
   } } });
-  const m = cvModal({ title: 'Importa l\'organigramma', wide: true,
+  const m = cvModal({ title: RO ? 'Importa l\'export di BOSS' : 'Importa l\'organigramma', wide: true,
     body: h('div.oi-form',
       h('p.cv-small.cv-muted', { style: { margin: 0 } }, 'Un foglio con poche colonne, poi si corregge nell\'editor. Il file entra tutto o non entra. Gli incarichi si riconoscono dal nome: quelli che ci sono già si aggiornano.'),
       h('div.oi-drop', file, h('a.btn.btn-sm', { href: '/api/organigramma/modello.xlsx' }, ic('download', 14), 'Scarica il modello vuoto'),
-        h('button.btn.btn-sm', { type: 'button', on: { click: async () => { ultimo = { tipo: 'entra' }; mostra(await post('/api/organigramma/proposta-entra')); } } }, 'Proponi dai responsabili di Entra')),
+        RO ? null : h('button.btn.btn-sm', { type: 'button', on: { click: async () => { ultimo = { tipo: 'entra' }; mostra(await post('/api/organigramma/proposta-entra')); } } }, 'Proponi dai responsabili di Entra')),
       out),
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'), applica] });
   applica.addEventListener('click', async () => {
