@@ -135,6 +135,19 @@ a.al-li:hover .al-t5 { color: var(--cv-orange-d); }
 
 /* ── impostazioni ── */
 .al-setgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.al-setcol { display: grid; gap: 24px; align-content: start; min-width: 0; }
+/* banco di prova (board V5-Impostazioni) */
+.al-bn-top { display: flex; gap: 16px; align-items: center; padding: 6px 0 4px; }
+.al-bn-score { font-size: 30px; font-weight: var(--ap-fw-bold); line-height: 1.1; color: var(--ap-text-strong); font-variant-numeric: tabular-nums; }
+.al-bn-score.gr { color: var(--green); } .al-bn-score.am { color: var(--amber); } .al-bn-score.rd { color: var(--red); }
+.al-bn-bar { height: 6px; border-radius: 999px; background: var(--cv-line-2); margin-top: 8px; overflow: hidden; }
+.al-bn-bar i { display: block; height: 100%; background: var(--orange); border-radius: 999px; transition: width .4s; }
+.al-bn-row { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--cv-line-2); cursor: pointer; }
+.al-bn-row.skip { cursor: default; opacity: .7; }
+.al-bn-ic { flex: none; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--cv-line-2); color: var(--ap-text-muted); }
+.al-bn-ic.gr { background: var(--green-soft); color: var(--green); } .al-bn-ic.rd { background: var(--red-soft); color: var(--red); }
+.al-bn-ans { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--cv-line-2); white-space: pre-wrap; }
+.al-bn-more { border: 0; background: none; color: var(--orange); font: inherit; font-size: 13px; padding: 6px 0 0; cursor: pointer; text-align: left; }
 .al-setcard { padding: 22px 24px; display: grid; gap: 10px; }
 .al-setrow { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--cv-line-2); }
 .al-eur { display: inline-flex; gap: 6px; align-items: center; color: var(--cv-muted); }

@@ -940,12 +940,74 @@ async function settingsView(view) {
   const regole = h('section.cv-card.al-setcard', h('div.al-lbl', 'Regole'), h('div.al-small.al-muted', 'Valgono per tutti, in ogni risposta.'), rules,
     h('div.al-row', { style: { gap: '8px' } }, newRule, h('button.btn', { type: 'button', on: { click: addRule } }, ic('plus', 15), 'Aggiungi')));
 
+  const banco = benchCard();
+
   fill(view, h('div.cv',
     settingsCrumb('Alma, l’assistente'),
     h('div.cv-top', h('div.cv-top-l', h('div.cv-eyebrow', 'Impostazioni · amministratori'), h('h1.cv-h1', h('b', 'Alma'), ', l\'assistente'),
       h('p.cv-sub', 'Quanto può spendere, cosa può fare, come risponde.')),
       h('div.cv-top-r', h('a.btn', { href: '#/alma' }, ic('sparkles', 15), 'Apri Alma'))),
-    h('div.al-setgrid', general, risposte, regole)));
+    h('div.al-setgrid', general, h('div.al-setcol', banco.el, regole), risposte)));
+  banco.draw();
   drawRisposte();
   drawRules();
+}
+
+// Banco di prova (21/11/2026, board V5-Impostazioni): 60 domande fisse, la risposta giusta letta dai dati di oggi.
+// «Esegui» lancia un giro in sottofondo (circa 10 minuti, 1–2 € di OpenAI); la card mostra l'avanzamento, poi punteggio,
+// confronto con il giro prima, numeri inventati, proposte giuste e le domande una per una (prima le sbagliate).
+function benchCard() {
+  const el = h('section.cv-card.al-setcard.al-bn');
+  let timer = null, all = false;
+  const num = (n, d = 1) => Number(n).toLocaleString('it-IT', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const eur = usd => `${num((usd || 0) * 0.92, 2)} €`;
+  const tone = sc => (sc === null ? '' : sc >= 90 ? 'gr' : sc >= 75 ? 'am' : 'rd');
+  async function run() {
+    const ok = await confirmDialog('Eseguire il banco di prova? Sono 60 domande ad Alma con la tua utenza, tre alla volta: ci vogliono circa 10 minuti e 1–2 € di OpenAI. Le schede che prepara non si confermano e poi si cancellano.', { ok: 'Esegui' }).catch(() => false);
+    if (!ok) return;
+    const r = await post('/api/alma/banco/esegui', {}).catch(() => null);
+    if (r) draw();
+  }
+  const row = (d, prev) => {
+    const was = prev && prev.esiti ? prev.esiti[d.id] : undefined;
+    const change = was === undefined || d.saltata ? null : was && !d.ok ? pill('prima giusta', 'rd') : !was && d.ok ? pill('prima sbagliata', 'gr') : null;
+    const answer = h('div.al-bn-ans.al-small', { hidden: true }, d.risposta || '(nessuna risposta)');
+    return h('div.al-bn-row', { class: d.saltata ? 'skip' : '', on: { click: () => { if (!d.saltata) answer.hidden = !answer.hidden; } } },
+      h('span.al-bn-ic', { class: d.saltata ? '' : d.ok ? 'gr' : 'rd' }, ic(d.saltata ? 'circle' : d.ok ? 'check' : 'x', 14)),
+      h('div.al-grow', h('div.al-small.al-t5', d.testo || `Domanda ${d.id} (${d.area})`),
+        h('div.al-small.al-muted', d.saltata ? d.saltata : [d.area, d.ok ? (d.proposta ? 'scheda giusta' : 'giusta') : d.note, `${num(d.secondi)} s`].filter(Boolean).join(' · ')), answer),
+      change);
+  };
+  async function draw() {
+    clearTimeout(timer);
+    const b = await get('/api/alma/banco').catch(() => null);
+    if (!b) return fill(el, h('div.al-lbl', 'Banco di prova'), h('p.al-small.al-muted', 'Il banco di prova non si riesce a leggere.'));
+    const last = b.ultimo, prev = b.precedente;
+    const busy = !!last && last.status === 'in_corso';
+    const head = h('div.al-row', h('div.al-lbl.al-grow', 'Banco di prova'),
+      h('button.btn.btn-sm', { type: 'button', disabled: busy, on: { click: run } }, ic(busy ? 'refresh-cw' : 'play', 14), busy ? 'In corso…' : 'Esegui'));
+    if (!last) {
+      return fill(el, head, h('p.al-small.al-muted', `${b.domande} domande fisse su ticket, progetti, RDA, CRM, gare, persone, mezzi e proposte. La risposta giusta si legge dai dati del momento; ogni giro dice quante risposte sono giuste, se Alma inventa numeri e se prepara le schede giuste. Un giro costa circa 1–2 €.`));
+    }
+    const details = (last.details || []).slice().sort((a, c) => (a.saltata ? 2 : a.ok ? 1 : 0) - (c.saltata ? 2 : c.ok ? 1 : 0) || a.id - c.id);
+    const asked = last.total - last.skipped;
+    const score = busy ? null : last.score;
+    const top = busy
+      ? h('div.al-bn-top', h('div', h('div.al-bn-score', `${last.done}/${last.total}`), h('div.al-small.al-muted', 'domande fatte')),
+        h('div.al-grow.al-small.al-muted', `${last.passed} giuste finora · ${last.invented} numeri inventati · ${eur(last.cost_usd)}`,
+          h('div.al-bn-bar', h('i', { style: { width: `${Math.round((100 * last.done) / (last.total || 60))}%` } }))))
+      : h('div.al-bn-top', h('div', h('div.al-bn-score', { class: tone(score) }, score === null ? '—' : num(score)),
+        h('div.al-small.al-muted', prev && prev.score !== null ? `punteggio · prima ${num(prev.score)}` : 'punteggio')),
+        h('div.al-grow.al-small.al-muted', [`${last.passed} giuste su ${asked}`, last.skipped ? `${last.skipped} saltate (mancano i dati)` : null,
+          `${last.invented} ${last.invented === 1 ? 'numero inventato' : 'numeri inventati'}`, `${last.proposals_ok} proposte corrette su ${last.proposals_n}`,
+          `${eur(last.cost_usd)} · ${fmtDateTime(last.finished_at || last.started_at)}`].filter(Boolean).join(' · ')));
+    const warn = last.status === 'interrotto' ? h('div.al-warn', h('div', ic('alert-triangle', 13), `Giro interrotto: ${last.error || 'motivo sconosciuto'}`)) : null;
+    const wrong = details.filter(d => !d.saltata && !d.ok);
+    const shown = all ? details : wrong.length ? wrong : details.filter(d => !d.saltata).slice(0, 5);
+    const more = !all && details.length > shown.length ? h('button.al-bn-more', { type: 'button', on: { click: () => { all = true; draw(); } } }, `Mostra tutte le ${details.length} domande`)
+      : all ? h('button.al-bn-more', { type: 'button', on: { click: () => { all = false; draw(); } } }, 'Solo le sbagliate') : null;
+    fill(el, head, top, warn, !busy && !wrong.length && asked ? h('p.al-small.al-muted', 'Tutte giuste.') : null, h('div', shown.map(d => row(d, prev))), more);
+    if (busy) timer = setTimeout(() => { if (el.isConnected) draw(); }, 4000);
+  }
+  return { el, draw };
 }
