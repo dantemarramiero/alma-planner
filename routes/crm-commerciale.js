@@ -54,6 +54,15 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
                          LEFT JOIN crm_contacts c ON c.id = st.contact_id`;
 
   // ── prossimi passi ─────────────────────────────────────────────────────────────────────────
+  // App sul telefono 3.0 (Dante 20/11/2026), pagina «Compiti»: ?di=me i miei passi aperti, ?di=dati quelli che ho dato ad altri
+  app.get('/api/crm/steps', async (req, res) => {
+    const dati = req.query.di === 'dati';
+    const { rows } = await db.query(
+      `${STEP_SELECT} WHERE st.done_at IS NULL AND ${dati ? 'st.created_by = $1 AND st.owner_id IS DISTINCT FROM $1' : 'st.owner_id = $1'}
+        ORDER BY st.due_date, st.sort, st.id LIMIT 300`, [req.user.id]);
+    const today = todayRome();
+    res.json({ today, steps: rows.map(s => ({ ...s, due_date: dayOf(s.due_date), late: dayOf(s.due_date) < today })) });
+  });
   app.get('/api/crm/subjects/:id/steps', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     await subjectById(req, id);
@@ -74,6 +83,11 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
       [id, f.contact_id || null, f.title, f.channel || '', f.due_date, f.owner_id, f.draft || '', req.user.id]);
     await syncNext(id);
     res.status(201).json(st);
+    // un passo dato a un collega (app sul telefono: «Dai un compito») gli arriva come avviso
+    if (notifier && st.owner_id && st.owner_id !== req.user.id) {
+      notifier.notify({ userIds: [st.owner_id], actorId: req.user.id, kind: 'crm', body: `ti ha dato un compito nel CRM su ${s.name}: «${st.title.slice(0, 140)}»`, link: `/crm/scheda/${id}` })
+        .catch(err => console.warn('[crm] avviso del passo non inviato', err.message));
+    }
   });
   app.patch('/api/crm/steps/:id', async (req, res) => {
     const st = await stepById(v.int(req.params.id, 'id', { min: 1 }));

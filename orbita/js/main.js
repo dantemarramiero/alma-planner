@@ -30,7 +30,8 @@ import { icon } from './icons.js';
 import { startPwa } from './pwa.js';
 import { notifSettingsView } from './notif-settings.js';
 import { renderImpostazioni } from './impostazioni.js';
-import { oggiView, lavoroView, inboxView, esploraView, ioView, markPlace, trackRecent, isRoot } from './app2.js';
+import { lavoroView, inboxView, esploraView, ioView, markPlace, trackRecent, isRoot } from './app2.js';
+import { agoraView, crmHome, contactPage as contactPage3, scanPage, mioBiglietto, compitiView } from './app3.js';
 import { isMobile } from './ui.js';
 import { almaView, setupAlma } from './alma.js';
 
@@ -243,9 +244,12 @@ async function route() {
     case 'search':
       searchView(view, params);
       break;
-    case 'benvenuto': // sul telefono la Home è «Oggi» (app 2.0, 13/11)
-      if (isMobile()) await oggiView(view);
+    case 'benvenuto': // sul telefono la Home è Alma Agorà (app 3.0, 20/11): la bacheca con la riga «Oggi»
+      if (isMobile()) cleanup = agoraView(view, params);
       else await welcomeView(view);
+      break;
+    case 'compiti': // telefono: ticket, passi del CRM e RDA in una lista sola
+      if (isMobile()) await compitiView(view, params); else location.replace('#/settimana');
       break;
     // i cinque posti dell'app sul telefono; sul computer portano alla pagina che c'era già
     case 'lavoro':
@@ -282,10 +286,17 @@ async function route() {
       await strategyView(view, parts);
       break;
     case 'crm':
-      await crmView(view, parts);
+      // telefono (app 3.0): CRM essenziale, scheda del contatto e scansione dei biglietti; il resto come sul computer
+      if (isMobile() && !parts[1]) await crmHome(view, params);
+      else if (isMobile() && parts[1] === 'persona' && Number(parts[2])) await contactPage3(view, Number(parts[2]));
+      else if (isMobile() && parts[1] === 'scansiona') cleanup = (await scanPage(view, params)) || null;
+      else if (parts[1] === 'persona') location.replace(`#/crm/contatti/${Number(parts[2]) || ''}`); // link del telefono aperto dal computer
+      else if (parts[1] === 'scansiona') location.replace('#/crm/contatti/biglietti');
+      else await crmView(view, parts);
       break;
-    case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10)
-      await mioBigliettoView(view);
+    case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10; sul telefono la versione dell'app 3.0)
+      if (isMobile() && !params.get('modifica')) cleanup = (await mioBiglietto(view)) || null;
+      else await mioBigliettoView(view);
       break;
     case 'impostazioni': // Impostazioni uniche (amministratori; Costi AI anche per chi ha «Costi AI: Tutto»)
       await renderImpostazioni(view, parts);

@@ -1,0 +1,280 @@
+/* Alma Space 3.0 sul telefono (canvas «Alma Space · app 3.0 telefono», approvato da Dante il 20/11/2026).
+   Agorà · CRM · + · Compiti · Avvisi. Solo sotto i 760px; usa i colori di app2.css (--a2-*), quindi anche il tema scuro. */
+.a3-page { display: none; }
+
+@media (max-width: 760px) {
+  .a3-page { display: flex; flex-direction: column; gap: 14px; color: var(--a2-text); padding-bottom: 24px; }
+  .a3-page a { text-decoration: none; }
+
+  /* ── intestazioni ── */
+  .a3-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .a3-head-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .a3-head-r { display: flex; align-items: center; gap: 8px; flex: none; }
+  .a3-eyebrow { font-size: 12px; font-weight: 500; letter-spacing: .06em; color: var(--a2-muted); }
+  .a3-hello { margin: 0; font-size: 28px; font-weight: 300; color: var(--a2-ink); line-height: 1.15; }
+  .a3-hello strong { font-weight: 700; }
+  .a3-title { margin: 0; font-size: 28px; font-weight: 700; color: var(--a2-ink); }
+  .a3-round { width: 44px; height: 44px; border-radius: 22px; background: var(--a2-card); border: 1px solid var(--a2-line); display: grid; place-items: center; color: var(--a2-ink); box-sizing: border-box; }
+  .a3-me { display: block; border-radius: 50%; }
+  .a3-me .avatar { width: 44px; height: 44px; font-size: 15px; }
+  .a3-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+  .a3-bar > strong { font-size: 16px; color: var(--a2-ink); }
+  .a3-back { display: flex; align-items: center; gap: 2px; min-height: 44px; color: var(--a2-text); font-size: 16px; }
+  .a3-textbtn { border: 0; background: none; font: inherit; font-size: 16px; color: var(--a2-text); min-height: 44px; padding: 0 6px; cursor: pointer; }
+  .a3-textbtn.strong { color: var(--a2-orange-d); font-weight: 700; }
+  .a3-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--a2-muted); }
+  .a3-kicker.blue { color: var(--a2-blue); } .a3-kicker.or { color: var(--a2-orange-d); } .a3-kicker.red { color: var(--a2-red); } .a3-kicker.lt { color: #FFB27A; }
+  .a3-muted { color: var(--a2-muted); font-size: 14px; }
+  .a3-muted.center, .a3-link.center { text-align: center; align-self: center; }
+
+  /* ── Agorà: la bacheca con saluto e riga «Oggi» ── */
+  .a3-agora .feed-head, .a3-agora .side-col, .a3-agora .home > aside { display: none !important; }
+  .a3-agora .feed-col { display: flex; flex-direction: column; gap: 14px; }
+  .a3-agora a, .a3-today a { text-decoration: none; }
+  /* «Scrivi ai colleghi…» torna in Agorà (le vecchie regole del telefono la nascondevano) */
+  .a3-agora .composer.composer-v2 { display: flex !important; flex-wrap: nowrap !important; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; border-radius: 18px; background: var(--a2-card); border: 1px solid var(--a2-line); box-shadow: none; }
+  .a3-agora .composer-v2 .avatar { width: 32px; height: 32px; font-size: 12px; }
+  .a3-agora .composer-v2 .composer-fake { flex: 1; min-width: 0; font-size: 15px; color: var(--a2-muted); border: 0 !important; background: none !important; padding: 0 !important; min-height: 0 !important; box-shadow: none !important; }
+  .a3-agora .composer-v2 .composer-act { font-size: 0; gap: 0; padding: 8px; color: var(--a2-orange-d); background: none; border: 0; }
+  .a3-today { display: flex; align-items: stretch; background: var(--a2-card); border: 1px solid var(--a2-line); border-radius: 18px; padding: 12px 14px; gap: 12px; }
+  .a3-today a { display: flex; flex-direction: column; gap: 2px; color: var(--a2-text); min-width: 0; }
+  .a3-today-l { flex: 1; padding-right: 12px; border-right: 1px solid var(--a2-line); }
+  .a3-today-r { min-width: 100px; }
+  .a3-today strong { font-size: 14px; color: var(--a2-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── righe, liste, schede ── */
+  .a3-card { background: var(--a2-card); border: 1px solid var(--a2-line); border-radius: 16px; overflow: hidden; }
+  .a3-sec { display: flex; flex-direction: column; gap: 8px; }
+  .a3-sec-t { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--a2-muted); }
+  .a3-sec-t.red { color: var(--a2-red); } .a3-sec-t.ink { color: var(--a2-ink); }
+  .a3-list-wrap { display: flex; flex-direction: column; gap: 14px; }
+  .a3-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; min-height: 60px; box-sizing: border-box; color: var(--a2-text); background: var(--a2-card); }
+  .a3-list > * + * { border-top: 1px solid var(--a2-soft); }
+  .a3-row-t { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; color: inherit; }
+  .a3-row-t strong { font-size: 15px; color: var(--a2-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a3-row-t small { font-size: 13px; color: var(--a2-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a3-ini { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none; }
+  .a3-ini.sq { border-radius: 12px; }
+  .a3-ini.xl { width: 64px; height: 64px; border-radius: 32px; font-size: 22px; }
+  .a3-tag { font-size: 12px; font-weight: 500; border-radius: 999px; padding: 3px 10px; flex: none; }
+  .or { background: var(--a2-orange-t); color: var(--a2-orange-d); }
+  .gr { background: var(--a2-green-t); color: #1F6A41; }
+  .bl { background: var(--a2-blue-t); color: var(--a2-blue); }
+  .pu { background: #F3ECFA; color: #6A4A96; }
+  .gy { background: var(--a2-soft); color: var(--a2-text); }
+  .wh { background: var(--a2-card); color: var(--a2-ink); border: 1px solid var(--a2-line); }
+  .a3-check { width: 28px; height: 28px; border-radius: 14px; border: 2px solid #BEBEBC; background: var(--a2-card); flex: none; cursor: pointer; padding: 0; }
+  .a3-check.red { border-color: var(--a2-red); }
+  .a3-check:active { background: var(--a2-green-t); border-color: var(--a2-green); }
+  .a3-due { font-size: 12px; font-weight: 500; color: var(--a2-muted); flex: none; }
+  .a3-due.red { color: var(--a2-red); }
+  .a3-list .a2-swipe { border-radius: 0; }
+  .a3-tap { cursor: pointer; }
+  .a3-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 36px 16px; color: var(--a2-muted); }
+  .a3-empty strong { color: var(--a2-ink); font-size: 16px; }
+  .a3-hint { margin: 0; text-align: center; font-size: 12px; color: var(--a2-muted); }
+
+  /* ── pulsanti e controlli ── */
+  .a3-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 54px; padding: 0 18px; border-radius: 14px; border: 1px solid var(--a2-line); background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+  .a3-btn.primary { background: var(--a2-dark); color: #fff; border-color: var(--a2-dark); font-weight: 700; font-size: 16px; }
+  .a3-btn.light { min-height: 40px; border-radius: 999px; background: #fff; color: #2C2C2C; border: 0; font-weight: 700; font-size: 14px; }
+  .a3-btn.wide { width: 100%; }
+  .a3-btn:disabled { opacity: .6; }
+  .a3-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .a3-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .a3-act { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--a2-line); background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; }
+  .a3-act svg { color: var(--a2-orange-d); flex: none; }
+  .a3-act.dark { background: var(--a2-dark); border-color: var(--a2-dark); color: #fff; }
+  .a3-act.dark svg { color: #FFB27A; }
+  .a3-pills { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+  .a3-pill { flex: none; padding: 8px 14px; border-radius: 999px; background: var(--a2-card); border: 1px solid var(--a2-line); color: var(--a2-text); font-size: 14px; }
+  .a3-pill.on { background: var(--a2-dark); border-color: var(--a2-dark); color: #fff; font-weight: 500; }
+  .a3-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: var(--a2-line); }
+  .a3-seg a { text-align: center; padding: 10px 0; border-radius: 11px; color: var(--a2-text); font-size: 14px; font-weight: 500; }
+  .a3-seg a.on { background: var(--a2-card); color: var(--a2-ink); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .a3-add { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border-radius: 14px; border: 1px dashed #BEBEBC; background: var(--a2-card); color: var(--a2-muted); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+  .a3-add svg { color: var(--a2-orange-d); }
+  .a3-more-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; }
+  .a3-more-links a, .a3-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--a2-orange-d); font-size: 14px; font-weight: 500; }
+
+  /* ── ricerca ── */
+  .a3-search { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 6px 0 14px; border-radius: 14px; background: var(--a2-card); border: 1px solid var(--a2-line); color: var(--a2-muted); }
+  .a3-search-in { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 16px; color: var(--a2-ink); }
+  .a3-mic { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 12px; background: var(--a2-bg) !important; color: var(--a2-ink) !important; }
+  .a3-mic > span:last-child { display: none; }
+  .a3-mic { display: grid; place-items: center; }
+  .a3-mic .a3-voice-ico { width: auto; height: auto; background: none; color: inherit; }
+  .a3-mic.rec .a3-voice-ico { background: none; color: var(--a2-red); }
+
+  /* ── fogli dal basso: + , contatto, nota, compito ── */
+  .a3-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .a3-sheet-head h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--a2-ink); text-align: left; }
+  .a3-plus { display: flex; flex-direction: column; gap: 12px; }
+  .a3-plus .a3-sheet-head h2 { font-size: 22px; }
+  .a3-big { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 14px; min-height: 118px; padding: 16px; border-radius: 20px; border: 1px solid var(--a2-line); background: var(--a2-card); color: var(--a2-ink); font: inherit; text-align: left; cursor: pointer; }
+  .a3-big-t { display: flex; flex-direction: column; gap: 3px; }
+  .a3-big-t strong { font-size: 17px; line-height: 1.2; }
+  .a3-big-t small { font-size: 13px; line-height: 1.3; color: var(--a2-muted); }
+  .a3-big.dark { background: var(--a2-dark); border-color: var(--a2-dark); color: #fff; }
+  .a3-big.dark .a3-big-ico { color: #FFB27A; } .a3-big.dark small { color: #DCDCDA; }
+  .a3-big.tint { background: var(--a2-orange-t); border-color: transparent; }
+  .a3-big.tint .a3-big-ico { color: var(--a2-orange-d); } .a3-big.tint small { color: #6B4A2E; }
+  .a3-big.white.pu, .a3-big.white.gr { background: var(--a2-card); }
+  .a3-big.pu .a3-big-ico { color: #6A4A96; } .a3-big.gr .a3-big-ico { color: #1F6A41; }
+  .a3-small { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--a2-line); background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .a3-small > span { background: none; display: grid; }
+  .a3-small > span.or { color: var(--a2-orange-d); } .a3-small > span.bl { color: var(--a2-blue); }
+  .a3-more { align-self: center; min-height: 44px; border: 0; background: none; font: inherit; font-size: 14px; color: var(--a2-muted); cursor: pointer; }
+  .a3-form { display: flex; flex-direction: column; gap: 14px; }
+  .a3-form a, .a3-plus a, .a3-sheet-head a { text-decoration: none; }
+  .a3-form > .a3-link { align-self: center; }
+  .a3-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .a3-f > span, .a3-roles legend { font-size: 12px; font-weight: 500; color: var(--a2-muted); }
+  .a3-in { width: 100%; box-sizing: border-box; height: 50px; padding: 0 14px; border-radius: 12px; border: 1px solid #DCDCDA; background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 16px; }
+  .a3-in:focus, .a3-note:focus { outline: 0; border-color: #E0731A; box-shadow: 0 0 0 3px rgba(255,138,38,.25); }
+  select.a3-in { appearance: auto; }
+  .a3-roles { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .a3-roles[hidden] { display: none; }
+  .a3-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .a3-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid #DCDCDA; background: var(--a2-card); color: var(--a2-text); font: inherit; font-size: 14px; cursor: pointer; }
+  .a3-chip.on { background: var(--a2-dark); border-color: var(--a2-dark); color: #fff; font-weight: 500; }
+  .a3-chip.x.on { background: var(--a2-orange-t); border-color: transparent; color: var(--a2-orange-d); }
+  .a3-chip.soft { background: var(--a2-line); border-color: transparent; cursor: default; font-size: 13px; padding: 0 12px; min-height: 36px; }
+  .a3-who-row .a3-chip.x { font-size: 13px; min-height: 36px; padding: 0 8px 0 12px; }
+  /* nei fogli alti il pulsante principale sta in fondo, come nel canvas */
+  .a2-sheet.tall > .a3-form { flex: 1; }
+  .a2-sheet.tall > .a3-form > .a3-btn.primary.wide:last-child { margin-top: auto; }
+  .a3-date { position: absolute; inset: 0; opacity: 0; height: 100%; }
+  .a3-who-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .a3-who-row > .a3-picker { flex: 1; }
+  .a3-picker { position: relative; display: flex; flex-direction: column; gap: 6px; width: 100%; }
+  .a3-picker[hidden] { display: none; }
+  .a3-suggest { background: var(--a2-card); border: 1px solid var(--a2-line); border-radius: 14px; box-shadow: 0 10px 24px rgba(44,30,10,.12); overflow: hidden; }
+  .a3-suggest[hidden] { display: none; }
+  .a3-sug { display: flex; width: 100%; align-items: center; gap: 10px; min-height: 50px; padding: 0 14px; border: 0; background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+  .a3-sug + .a3-sug { border-top: 1px solid var(--a2-soft); }
+  .a3-sug > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a3-sug > small { font-size: 12px; color: var(--a2-muted); flex: none; }
+  .a3-sug > small.a3-tag { padding: 3px 8px; }
+  .a3-sug svg { color: var(--a2-muted); flex: none; }
+  .a3-sug.new svg { color: var(--a2-orange-d); }
+  .a3-dictate { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--a2-dark); color: #fff; }
+  .a3-dictate > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+  .a3-dictate strong { font-size: 15px; } .a3-dictate small { font-size: 12px; color: #DCDCDA; }
+  .a3-dictate-ico { width: 40px; height: 40px; border-radius: 20px; background: #E0731A; display: grid; place-items: center; flex: none; }
+  .a3-note { width: 100%; box-sizing: border-box; min-height: 160px; padding: 14px; border-radius: 16px; border: 1px solid #DCDCDA; background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 16px; line-height: 1.45; resize: vertical; }
+  .a3-voice-wrap { display: flex; justify-content: center; }
+  .a3-voice { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; font: inherit; font-size: 13px; color: var(--a2-text); cursor: pointer; }
+  .a3-voice.big { flex-direction: column; }
+  .a3-voice-ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 20px; background: #E0731A; color: #fff; }
+  .a3-voice.big .a3-voice-ico { width: 72px; height: 72px; border-radius: 36px; box-shadow: 0 0 0 8px rgba(224,115,26,.18); }
+  .a3-voice.rec .a3-voice-ico { background: var(--a2-red); animation: a3-pulse 1.1s ease-in-out infinite; }
+  @keyframes a3-pulse { 50% { box-shadow: 0 0 0 14px rgba(192,57,43,.18); } }
+  .a3-people { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .a3-person { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 60px; border: 0; background: none; font: inherit; font-size: 12px; color: var(--a2-text); cursor: pointer; padding: 0; }
+  .a3-person .avatar { width: 48px; height: 48px; font-size: 14px; box-sizing: border-box; border: 3px solid transparent; }
+  .a3-person.on .avatar { border-color: #E0731A; }
+  .a3-person.on { font-weight: 700; color: var(--a2-ink); }
+  .a3-person-more { width: 48px; height: 48px; border-radius: 24px; border: 2px dashed #BEBEBC; display: grid; place-items: center; color: var(--a2-muted); box-sizing: border-box; }
+  .a3-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--a2-line); background: var(--a2-card); font-size: 15px; color: var(--a2-ink); }
+  .a3-toggle input { width: 22px; height: 22px; accent-color: #E0731A; }
+
+  /* ── scheda del contatto ── */
+  .a3-who { display: flex; align-items: center; gap: 14px; }
+  .a3-who-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: flex-start; }
+  .a3-who-t h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--a2-ink); }
+  .a3-who-t a { color: var(--a2-orange-d); }
+  .a3-quick { display: flex; justify-content: space-between; padding: 0 6px; }
+  .a3-q { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 64px; border: 0; background: none; font: inherit; font-size: 12px; color: var(--a2-text); cursor: pointer; padding: 0; }
+  .a3-q > span { width: 52px; height: 52px; border-radius: 26px; display: grid; place-items: center; box-sizing: border-box; }
+  .a3-q.off { opacity: .4; pointer-events: none; }
+  .a3-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 76px; padding: 12px; border-radius: 16px; border: 1px solid var(--a2-line); background: var(--a2-card); color: var(--a2-ink); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .a3-tile > span { background: none; display: grid; }
+  .a3-next { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--a2-dark); color: #fff; }
+  .a3-next > div { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .a3-next strong { font-size: 15px; }
+  .a3-log { padding: 4px 14px; }
+  .a3-log-i { display: flex; gap: 12px; padding: 10px 0; }
+  .a3-log-i + .a3-log-i { border-top: 1px solid var(--a2-soft); }
+  .a3-log-i > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .a3-log-i strong { font-size: 14px; color: var(--a2-ink); font-weight: 500; }
+  .a3-log-i small { font-size: 12px; color: var(--a2-muted); }
+  .a3-dot { width: 10px; height: 10px; border-radius: 5px; margin-top: 5px; flex: none; }
+  .a3-dot.pu { background: #6A4A96; } .a3-dot.bl { background: var(--a2-blue); } .a3-dot.gr { background: var(--a2-green); } .a3-dot.or { background: #E0731A; }
+
+  /* ── fotocamera per i biglietti ── */
+  body.a3-dark, body.a3-dark .main { background: #1E1D1B !important; }
+  body.a3-dark .m-tabs, body.a3-dark .m-top, body.a3-dark .al-fab, body.a3-dark .alma-fab { display: none !important; }
+  body.a3-dark .main { padding: 0 !important; }
+  .a3-cam { position: fixed; inset: 0; z-index: 40; background: #1E1D1B; color: #fff; display: flex; flex-direction: column; }
+  .a3-cam-top { display: flex; align-items: center; justify-content: space-between; padding: calc(12px + env(safe-area-inset-top)) 12px 10px; }
+  .a3-cam-top strong { font-size: 16px; }
+  .a3-cam-round { width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255,255,255,.14); color: #fff; display: grid; place-items: center; cursor: pointer; }
+  .a3-cam-round[hidden] { visibility: hidden; display: grid; }
+  .a3-cam-round.on { background: #fff; color: #1E1D1B; }
+  .a3-cam-view { position: relative; flex: 1; background: #3A3631; display: grid; place-items: center; overflow: hidden; }
+  .a3-cam-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .a3-cam-frame { position: relative; width: 82%; aspect-ratio: 85 / 52; }
+  .a3-cam-frame i { position: absolute; width: 34px; height: 34px; border: 0 solid #FFB27A; }
+  .a3-cam-frame i:nth-child(1) { top: -6px; left: -6px; border-top-width: 4px; border-left-width: 4px; border-top-left-radius: 14px; }
+  .a3-cam-frame i:nth-child(2) { top: -6px; right: -6px; border-top-width: 4px; border-right-width: 4px; border-top-right-radius: 14px; }
+  .a3-cam-frame i:nth-child(3) { bottom: -6px; left: -6px; border-bottom-width: 4px; border-left-width: 4px; border-bottom-left-radius: 14px; }
+  .a3-cam-frame i:nth-child(4) { bottom: -6px; right: -6px; border-bottom-width: 4px; border-right-width: 4px; border-bottom-right-radius: 14px; }
+  .a3-cam-hint { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; font-size: 13px; color: #EFEFEF; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  .a3-cam-fallback { display: flex; flex-direction: column; align-items: center; gap: 12px; border: 0; background: none; color: #fff; font: inherit; font-size: 15px; cursor: pointer; padding: 40px; }
+  .a3-cam-bottom { display: flex; align-items: center; justify-content: space-around; padding: 18px 24px calc(22px + env(safe-area-inset-bottom)); }
+  .a3-cam-side { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 64px; min-height: 56px; justify-content: center; border: 0; background: none; color: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+  .a3-shutter { width: 78px; height: 78px; border-radius: 39px; border: 4px solid #fff; background: none; display: grid; place-items: center; padding: 0; cursor: pointer; }
+  .a3-shutter span { width: 62px; height: 62px; border-radius: 31px; background: #fff; }
+  .a3-shutter:active span { transform: scale(.92); }
+  .a3-reader .a3-chat { display: flex; flex-direction: column; min-height: 50dvh; }
+  .a3-scan-intro { display: flex; flex-direction: column; gap: 12px; }
+  .a3-scan-thumbs { display: flex; gap: 10px; overflow-x: auto; }
+  .a3-scan-thumbs img { height: 110px; border-radius: 10px; border: 1px solid var(--a2-line); }
+  .a3-scan-add { width: 80px; height: 110px; border-radius: 10px; border: 2px dashed #BEBEBC; background: none; color: var(--a2-muted); display: grid; place-items: center; flex: none; cursor: pointer; }
+
+  /* ── il mio biglietto ── */
+  body.a3-orange, body.a3-orange .main { background: #E0731A !important; }
+  body.a3-orange .m-top { display: none !important; }
+  .a3-mio { gap: 18px; }
+  .a3-bar.light > strong, .a3-textbtn.light { color: #fff; }
+  .a3-mio .a3-cam-round { background: rgba(255,255,255,.22); }
+  .a3-mio-card { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 22px; border-radius: 26px; background: #fff; color: #2C2C2C; box-shadow: 0 18px 40px rgba(80,35,0,.28); }
+  .a3-mio-card .a3-muted { color: #6B6B6B; font-size: 13px; line-height: 1.4; }
+  .a3-mio-who { display: flex; align-items: center; gap: 12px; align-self: stretch; }
+  .a3-mio-who .avatar { width: 54px; height: 54px; font-size: 18px; }
+  .a3-mio-who > div { display: flex; flex-direction: column; gap: 2px; }
+  .a3-mio-who strong { font-size: 19px; } .a3-mio-who span { font-size: 13px; color: #6B6B6B; }
+  .a3-qr { width: min(250px, 70vw); aspect-ratio: 1; padding: 10px; box-sizing: border-box; border: 1px solid #ECEAE6; border-radius: 14px; background: #fff; }
+  .a3-qr svg { width: 100%; height: 100%; display: block; }
+  .a3-mio .a3-btn { border: 0; }
+  .a3-mio .a3-btn:not(.primary) { background: #fff; color: #2C2C2C; }
+  .a3-mio-leads { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border-radius: 14px; background: rgba(255,255,255,.18); color: #fff; font-size: 15px; }
+  .a3-mio-leads b { min-width: 24px; height: 24px; border-radius: 12px; background: #fff; color: var(--a2-orange-d); font-size: 13px; display: grid; place-items: center; }
+  .a3-mio-leads span:nth-child(2) { flex: 1; }
+
+  /* barra in basso: il + arancione come nel canvas */
+  body .m-tabs .m-plus2 > span { background: #E0731A; width: 56px; height: 56px; border-radius: 50%; box-shadow: 0 6px 16px rgba(224,115,26,.4); }
+}
+@media (max-width: 760px) {
+  /* il mio biglietto: solo il biglietto da mostrare, niente barra né pulsante di Alma (canvas) */
+  body.a3-orange .m-tabs, body.a3-orange .al-fab, body.a3-orange .alma-fab { display: none !important; }
+  .a3-mio .a3-bar { display: grid; grid-template-columns: 1fr auto 1fr; }
+  .a3-mio .a3-bar > :last-child { justify-self: end; }
+  .a3-mio .a3-bar > * { align-self: center; }
+}
+@media (max-width: 760px) {
+  /* barra in basso: pallino rosso intero sopra l'icona (prima veniva tagliato e l'icona sembrava fuori centro),
+     + centrato dentro la barra come nel canvas */
+  body .m-tabs .m-tab span.m-tab-ico { overflow: visible; max-width: none; width: 24px; height: 24px; }
+  body .m-tabs .m-tab span.m-tab-ico .nav-badge { position: absolute; overflow: visible; max-width: none; top: -7px; left: auto; right: -12px; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+    border-radius: 9px; border: 2px solid #fff; background: var(--a2-red); color: #fff; font-size: 10px; font-weight: 700; line-height: 14px; display: grid; place-items: center; }
+  body .m-tabs .m-tab span.m-tab-ico .nav-badge[hidden] { display: none; }
+  body .m-tabs .m-plus2 { display: grid; place-items: center; }
+  body .m-tabs .m-plus2 > span { margin: 0 !important; display: grid; place-items: center; }
+  body .m-tabs .m-plus2 > span svg { display: block; }
+}
+@media (max-width: 760px) {
+  /* microfono della ricerca CRM: icona al centro del quadratino */
+  .a3-voice.a3-mic { display: grid; place-items: center; justify-content: center; gap: 0; }
+}
