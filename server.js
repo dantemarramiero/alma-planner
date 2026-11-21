@@ -159,6 +159,9 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
     if (!req.user) return res.redirect(`/auth/login?returnTo=${encodeURIComponent(`/m/${token}`)}`);
     res.redirect(`/app#/mezzi/qr/${token}`);
   });
+  // «Condividi» da Android (ALM2-48): di solito il service worker risponde da solo; se non c'è ancora (prima apertura),
+  // il POST arriva qui e si va comunque ai biglietti, senza le foto.
+  app.post('/condividi', (req, res) => res.redirect(303, req.user ? '/app#/crm/contatti/biglietti?condivisi=0' : '/auth/login?returnTo=/app'));
   // Ogni deploy serve JS e CSS da /b/<deploy>/…: un browser con file vecchi in cache non può riusarli
   // (mescolare moduli vecchi e nuovi rompeva Gantt, chat e organigramma). I percorsi relativi degli
   // import restano sotto lo stesso /b/<deploy>/, quindi tutta l'app arriva dalla stessa versione.
