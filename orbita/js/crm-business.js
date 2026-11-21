@@ -113,6 +113,14 @@ export async function businessView(container, parts = [], crmData = {}) {
   fill(container, loading());
   const d = await get('/api/crm/business');
   const ctx = { crmData, ai: d.ai, refresh: () => businessView(container, parts, crmData) };
+  // #/crm/business/nuova: «Crea iniziativa» da Concorrenza e gare → Regioni (21/11), con nome e descrizione già scritti
+  if (parts[0] === 'nuova') {
+    let preset = {};
+    try { preset = JSON.parse(sessionStorage.getItem('nb.preset') || '{}'); sessionStorage.removeItem('nb.preset'); } catch { /* niente */ }
+    history.replaceState(null, '', '#/crm/business');
+    ctx.refresh = () => businessView(container, [], crmData);
+    setTimeout(() => initiativeForm(ctx, preset), 0);
+  }
   const head = h('div.page-head.nb-head', h('div', h('div.en-eyebrow', 'Alma CRM · Strategia commerciale'), h('h1', 'Nuovi ', h('b', 'business')),
     h('div.sub', 'Le aree d\'affari in cui stiamo provando a entrare.')),
   d.initiatives.length ? h('div.nb-actions', viewSeg('elenco'), btn('Chiedi un\'idea', () => ideaDialog(ctx), { ico: 'lightbulb' }), btn('Nuova iniziativa', () => initiativeForm({ ...ctx }), { primary: true, ico: 'plus' })) : null);

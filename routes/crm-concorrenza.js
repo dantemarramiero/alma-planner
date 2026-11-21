@@ -8,6 +8,7 @@ const { HttpError, v } = require('../lib/http');
 const { loadSettings, managerOf } = require('../lib/crm-commerciale');
 const { syncAnac, isRunning, normCat } = require('../lib/crm-anac');
 const { overview, estimate, awardByCig, isOurs, scopeOf, linkSubjects } = require('../lib/crm-concorrenza');
+const { regionsView, regionDetail, partnersView } = require('../lib/crm-concorrenza-regioni');
 
 const STAGES = ['programmata', 'finanziata', 'progetto', 'determina'];
 const anacUrl = cig => `https://dati.anticorruzione.it/superset/dashboard/dettaglio_cig/?cig=${encodeURIComponent(cig)}`;
@@ -67,20 +68,63 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
   });
 
   // impresa di ANAC → scheda del CRM (concorrente o partner); se c'è già, si aggiunge il ruolo
-  app.post('/api/crm/concorrenza/scheda', async (req, res) => {
+  // un'impresa dei dati ANAC nel CRM (o il ruolo aggiunto se c'è già): { id, created }
+  async function ensureSubject(req, role) {
     const name = v.text(req.body.name, 'Impresa', { max: 200, required: true });
     const cf = String(req.body.cf || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
-    const role = req.body.role === 'partner' ? 'partner' : 'concorrente';
     const found = [{ cf, name }];
     await linkSubjects(db, found);
     if (found[0].subject) {
       if (!found[0].subject.roles.includes(role)) await db.query('UPDATE crm_subjects SET roles = array_append(roles, $2) WHERE id = $1', [found[0].subject.id, role]);
-      return res.json({ id: found[0].subject.id, created: false });
+      return { id: found[0].subject.id, name: found[0].subject.name, created: false };
     }
-    const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, vat, roles, asa, owner_id, origin, created_by) VALUES ($1, $2, $3, '{}', $4, 'ANAC', $4) RETURNING id`,
+    const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, vat, roles, asa, owner_id, origin, created_by) VALUES ($1, $2, $3, '{}', $4, 'ANAC', $4) RETURNING id, name`,
       [name, /^\d{11}$/.test(cf) ? cf : '', [role], req.user.id]);
-    res.status(201).json({ id: s.id, created: true });
+    return { id: s.id, name: s.name, created: true };
+  }
+  app.post('/api/crm/concorrenza/scheda', async (req, res) => {
+    const s = await ensureSubject(req, req.body.role === 'partner' ? 'partner' : 'concorrente');
+    res.status(s.created ? 201 : 200).json({ id: s.id, created: s.created });
   });
+
+  // ── Regioni e Partner (canvas v12, Dante 21/11/2026) ─────────────────────────────────────────
+  const monthsOf = (c, q) => ([12, 24].includes(Number(q)) ? Number(q) : Math.min(24, c.settings.concorrenza.months || 24));
+  const busOf = c => Object.keys(c.settings.profiles).filter(k => (c.settings.profiles[k].soa || []).length || (c.settings.concorrenza.cpv?.[k] || []).length);
+  app.get('/api/crm/concorrenza/regioni', async (req, res) => {
+    const c = await ctx(req);
+    const bus = busOf(c);
+    const bu = buOk(c, String(req.query.bu || c.myBus.find(b => bus.includes(b)) || bus[0] || ''));
+    res.json({ ...(await regionsView(db, c.settings, bu || null, { months: monthsOf(c, req.query.months) })), bus });
+  });
+  app.get('/api/crm/concorrenza/regioni/:region', async (req, res) => {
+    const c = await ctx(req);
+    const bu = buOk(c, String(req.query.bu || ''));
+    const d = await regionDetail(db, c.settings, bu || null, req.params.region, { months: monthsOf(c, req.query.months) });
+    if (!d) throw new HttpError(404, 'Nessuna gara in questa regione con questi filtri');
+    res.json(d);
+  });
+  app.get('/api/crm/concorrenza/partner', async (req, res) => {
+    const c = await ctx(req);
+    const bu = req.query.bu ? buOk(c, String(req.query.bu)) : (c.myBus.find(b => busOf(c).includes(b)) || '');
+    res.json(await partnersView(db, c.settings, { months: monthsOf(c, req.query.months), bus: busOf(c), bu, region: String(req.query.region || '') }));
+  });
+  // «Proponi un incontro»: l'impresa nel CRM come partner e un passo «Incontro» a chi lo chiede, entro una settimana
+  app.post('/api/crm/concorrenza/incontro', async (req, res) => {
+    const s = await ensureSubject(req, 'partner');
+    const bu = req.body.bu && c0(req.body.bu);
+    const where = String(req.body.region || '').slice(0, 60);
+    const due = new Date(Date.now() + 7 * 864e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const title = `Incontro con ${s.name}: partner${bu ? ` per ${bu}` : ''}${where ? ` in ${where}` : ''}`.slice(0, 300);
+    const { rows: [st] } = await db.query(`INSERT INTO crm_steps (subject_id, title, channel, due_date, owner_id, created_by) VALUES ($1, $2, 'incontro', $3, $4, $4) RETURNING id`,
+      [s.id, title, due, req.user.id]);
+    await db.query( // il primo passo aperto torna sulla scheda (come in routes/crm-commerciale.js)
+      `UPDATE crm_subjects s SET next_step = COALESCE(x.title, ''), next_step_date = x.due_date
+         FROM (SELECT $1::int AS id) k LEFT JOIN LATERAL (
+           SELECT title, due_date FROM crm_steps WHERE subject_id = $1 AND done_at IS NULL ORDER BY due_date, sort, id LIMIT 1) x ON true
+        WHERE s.id = k.id`, [s.id]);
+    res.status(201).json({ subject_id: s.id, step_id: st.id, created: s.created, due_date: due });
+  });
+  const c0 = x => String(x).replace(/_/g, ' ').slice(0, 40);
 
   // ── Prima del bando ─────────────────────────────────────────────────────────────────────────
   // «Cerca un'impresa» (v11 · Concorrenza e gare): per nome o P.IVA tra chi ha vinto gare ANAC, anche se non è nel CRM
