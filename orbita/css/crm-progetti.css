@@ -442,11 +442,11 @@ a.rk-run:hover { text-decoration: underline; }
 .ld-ghost.pri { background: #FF8A26; }
 .ld-ghost.pri:hover { background: var(--cv-orange-d); }
 .ld-funnel { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.ld-step { display: grid; gap: 6px; padding: 0 6px; min-width: 0; }
-.ld-bar { height: 54px; display: flex; align-items: center; padding: 0 14px 0 22px; background: linear-gradient(90deg, rgba(255,138,38, var(--a)), rgba(255,138,38, calc(var(--a) + .1)));
+.ld-step { display: grid; gap: 6px; padding: 0 6px; min-width: 0; text-align: center; }
+.ld-bar { height: 54px; display: flex; align-items: center; justify-content: center; padding: 0 8%; background: linear-gradient(90deg, rgba(255,138,38, var(--a)), rgba(255,138,38, calc(var(--a) + .1)));
   clip-path: polygon(0 0, 92% 0, 100% 50%, 92% 100%, 0 100%, 8% 50%); }
-.ld-bar.first { padding-left: 14px; border-radius: 14px 0 0 14px; clip-path: polygon(0 0, 92% 0, 100% 50%, 92% 100%, 0 100%); }
-.ld-bar.last { border-radius: 0 14px 14px 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 8% 50%); }
+.ld-bar.first { padding: 0 8% 0 0; border-radius: 14px 0 0 14px; clip-path: polygon(0 0, 92% 0, 100% 50%, 92% 100%, 0 100%); }
+.ld-bar.last { padding: 0 0 0 8%; border-radius: 0 14px 14px 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 8% 50%); }
 .ld-bar b { font-size: 22px; font-weight: 700; }
 .ld-step-l { font-size: 12.5px; font-weight: 600; }
 .ld-step small { font-size: 11.5px; color: rgba(255,255,255,.55); }
@@ -458,7 +458,7 @@ button.ld-alert:hover { border-color: var(--cv-line-strong); box-shadow: var(--c
 .ld-alert:focus-visible, .ld-row:focus-visible { outline: none; box-shadow: var(--ap-focus); }
 .ld-alert-ic { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; }
 .ld-alert.rd .ld-alert-ic { background: var(--cv-rd-t); color: var(--cv-rd); }
-.ld-alert.or .ld-alert-ic { background: #FFF1E5; color: #C25E0E; }
+.ld-alert.or .ld-alert-ic { background: var(--cv-or-t); color: #C25E0E; }
 .ld-alert.bl .ld-alert-ic { background: var(--cv-bl-t); color: var(--cv-bl); }
 .ld-alert-b { display: grid; gap: 2px; }
 .ld-alert-b b { font-size: 13.5px; color: var(--cv-ink); }
@@ -495,7 +495,7 @@ button.ld-alert:hover { border-color: var(--cv-line-strong); box-shadow: var(--c
 a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .ld-ico.off { opacity: .35; }
 @media (max-width: 1100px) { .ld-head { display: none; } .ld-row { grid-template-columns: minmax(0, 1fr) auto; } .ld-row > .ld-c:not(.ld-acts2):not(:nth-child(2)) { display: none; } }
-@media (max-width: 760px) { .ld-funnel, .ld-alerts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; } .ld-bar, .ld-bar.first, .ld-bar.last { clip-path: none; border-radius: 12px; padding-left: 14px; } .ld-h1 { font-size: 26px; } }
+@media (max-width: 760px) { .ld-funnel, .ld-alerts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; } .ld-bar, .ld-bar.first, .ld-bar.last { clip-path: none; border-radius: 12px; padding: 0 12px; } .ld-h1 { font-size: 26px; } }
 .an-cand.li { cursor: default; }
 .an-cand.li:hover { border-color: var(--cv-line); background: var(--cv-card); }
 
@@ -551,3 +551,29 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .an-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .an-grid.c3 .an-dl { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 1100px) { .an-grid.c3 { grid-template-columns: minmax(0, 1fr); } .an-grid.c3 .an-dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Contatti con lo stesso disegno dei Lead (21/11/2026): riquadri arrotondati al posto delle frecce, cliccabili come filtro */
+.ld-funnel.flat { gap: 10px; }
+.ld-funnel.flat .ld-step { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: 14px; }
+.ld-funnel.flat .ld-bar { clip-path: none; border-radius: 14px; padding: 0 12px; transition: box-shadow .15s; }
+.ld-funnel.flat .ld-step:hover .ld-bar { box-shadow: inset 0 0 0 2px rgba(255,255,255,.35); }
+.ld-funnel.flat .ld-step.on .ld-bar { background: #FF8A26; box-shadow: inset 0 0 0 2px #fff; }
+.ld-funnel.flat.has-on .ld-step:not(.on) { opacity: .45; }
+.ld-funnel.flat.has-on .ld-step:not(.on):hover { opacity: .8; }
+.ld-funnel.flat .ld-step:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.ld-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #FF8A26; color: #fff; font-size: 11px; display: inline-grid; place-items: center; }
+.ld-logo.round { border-radius: 50%; }
+.ct-list .ld-head, .ct-list .ld-row { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.9fr) minmax(0, .9fr) minmax(0, 1.7fr) minmax(0, 1.2fr) 72px; }
+.ld-co a { display: inline-flex; gap: 6px; align-items: center; max-width: 100%; font-size: 13px; color: var(--cv-text); text-decoration: none; }
+.ld-co a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ld-co a:hover { color: #C25E0E; }
+.ld-name-t a:hover { color: #C25E0E; text-decoration: underline; }
+.ld-owner { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--cv-text-2); }
+.ld-owner span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ld-row.bad { background: #FFFBF5; }
+.ld-co-m { display: none; }
+@media (max-width: 1100px) { .ct-list .ld-row { grid-template-columns: minmax(0, 1fr) auto; } .ct-list .ld-row > .ld-c:not(.ld-acts2) { display: none; } .ld-co-m { display: inline; } }
+/* avvisi: in modalità scura le classi globali .or/.bl coloravano tutta la card; sul telefono uno sotto l'altro */
+.ld-alerts .ld-alert { background: var(--cv-card); }
+.ld-alerts .ld-alert.on { background: var(--cv-or-t); }
+@media (max-width: 560px) { .ld-alerts { grid-template-columns: minmax(0, 1fr); gap: 10px; } }

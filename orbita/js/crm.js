@@ -1088,92 +1088,107 @@ async function mergeForm(s) {
   });
 }
 
-// ── contatti (design v2, artboard «Contatti») ──────────────────────────────
-// Card larghe in due colonne (nome, ruolo, azienda, email e telefono cliccabili), avviso per i dati sporchi con
-// «Sistema», a destra l'anteprima del contatto con la storia lavorativa e le ultime attività.
+// ── contatti (stesso disegno della pagina Lead, richiesta di Dante del 21/11/2026) ──
+// Testata scura con i contatti per tipo di azienda (cliccabili come filtro), tre avvisi (senza azienda, da sistemare,
+// senza recapiti) e l'elenco a righe: il nome apre l'anagrafica del contatto, l'azienda apre la sua scheda.
 const dirty = c => /\d{6,}/.test(`${c.first_name || ''} ${c.last_name || ''}`) || !(c.last_name || c.first_name);
+const workOf = c => c.links.find(l => l.is_primary && !l.date_to) || c.links.find(l => !l.date_to);
+const CT_ROLES = [['cliente', 'Clienti'], ['lead', 'Lead'], ['fornitore', 'Fornitori'], ['partner', 'Partner']];
+const ROLE_TONE = { cliente: 'gr', lead: 'or', fornitore: 'bl', partner: 'op', concorrente: '' };
 async function contactsTab(box, again) {
-  const state = { q: '', owner: ownerDefault(), fn: '', noCompany: false, bad: false, limit: 60, pick: null };
-  const list = h('div.cv-cardlist');
-  const side = h('div.cv-stack.cv-hide-m');
-  const sub = h('p.cv-sub');
-  const pills = h('div.cv-row.cv-wrap', { style: { gap: '8px' } });
+  const state = { q: '', owner: ownerDefault(), fn: '', role: '', alert: '', page: 0 };
+  const hero = h('div');
+  const alerts = h('div');
+  const content = h('div', loading());
   let all = [];
-  // «Tutti i contatti» · «Biglietti da visita» (canvas v10); il numero = contatti lasciati dal mio QR da confermare
-  const contactsTabs = h('div');
-  const drawContactsTabs = n => fill(contactsTabs, cvTabs([['tutti', 'Tutti i contatti'], ['biglietti', 'Biglietti da visita', n || null]], 'tutti',
-    k => { if (k === 'biglietti') location.hash = '#/crm/contatti/biglietti'; }));
-  drawContactsTabs(0);
-  get('/api/biglietto', { quiet: true }).then(r => drawContactsTabs(r?.leads_new)).catch(() => {});
-  fill(box,
-    pageTop({ eyebrow: 'Alma CRM · persone', heading: title('', 'Contatti'), sub,
-      actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, ic('plus', 15), 'Nuovo contatto')] }),
-    contactsTabs,
-    h('div.cv-filters', filterRow(state, () => load(), { search: 'Cerca per nome, email o azienda', fn: false, again }), pills),
-    h('div.cv-cols.w420', h('div', list), side));
-  const showMore = h('div');
-  list.after(showMore);
+  let loaded = false;
+  let cards = 0;
+  get('/api/biglietto', { quiet: true }).then(r => { cards = r?.leads_new || 0; if (loaded) drawTop(); }).catch(() => {});
+  fill(box, hero, alerts, h('div.cv-filters', filterRow(state, () => { state.page = 0; load(); }, { search: 'Cerca per nome, email o azienda', fn: false, again })), content);
+  const noCo = c => !c.links.some(l => !l.date_to);
+  const noReach = c => !dirty(c) && !c.email && !c.mobile && !c.phone;
+  const hasRole = (c, r) => c.links.some(l => !l.date_to && (l.roles || []).includes(r));
+  const ALERTS = { senza: noCo, sistemare: dirty, recapiti: noReach };
   async function load() {
-    const { contacts } = await get(`/api/crm/contacts${qs({ q: state.q, asa: asaQuery(), owner: state.owner })}`);
-    all = contacts;
-    const noCo = contacts.filter(c => !c.links.some(l => !l.date_to));
-    const bad = contacts.filter(dirty);
-    sub.textContent = `${contacts.length.toLocaleString('it-IT')} contatti · ${(contacts.length - noCo.length).toLocaleString('it-IT')} collegati a un'azienda`;
-    const toggle = (k, text, n, tone) => h('button.cv-pill.big', { type: 'button', class: state[k] ? tone || 'or' : 'line', 'aria-pressed': String(state[k]), on: { click: () => { state[k] = !state[k]; state.limit = 60; draw(); drawPills(); } } }, `${text} · ${n}`);
-    const drawPills = () => fill(pills, noCo.length ? toggle('noCompany', 'Senza azienda', noCo.length) : null, bad.length ? toggle('bad', 'Da sistemare', bad.length, 'am') : null);
-    drawPills();
+    all = (await get(`/api/crm/contacts${qs({ q: state.q, asa: asaQuery(), owner: state.owner })}`)).contacts;
+    loaded = true;
+    drawTop();
     draw();
   }
+  const pick = (k, v) => { state[k] = state[k] === v ? '' : v; state.page = 0; drawTop(); draw(); };
+  function drawTop() {
+    const linked = all.length - all.filter(noCo).length;
+    fill(hero, h('section.ld-hero',
+      h('div.ld-hero-top',
+        h('div.cv-grow', h('div.ld-kicker', 'Anagrafiche'), h('h1.ld-h1', 'Contatti'),
+          h('p.ld-sub', `${all.length.toLocaleString('it-IT')} persone · ${linked.toLocaleString('it-IT')} collegate a un'azienda`)),
+        h('div.ld-acts',
+          h('a.ld-ghost', { href: '#/crm/contatti/biglietti' }, ic('id-card', 13), 'Biglietti da visita', cards ? h('span.ld-count', String(cards)) : null),
+          h('button.ld-ghost.pri', { type: 'button', on: { click: () => contactForm({ onSaved: c => { location.hash = `#/crm/contatti/${c.id}`; } }) } }, ic('plus', 13), 'Nuovo contatto'))),
+      h('div.ld-funnel.flat', { class: state.role ? 'has-on' : '' }, CT_ROLES.map(([k, l], i) => {
+        const n = all.filter(c => hasRole(c, k)).length;
+        const on = state.role === k;
+        return h('button.ld-step', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), style: { '--a': String(0.25 + i * 0.18) }, on: { click: () => pick('role', k) } },
+          h('div.ld-bar', h('b', n.toLocaleString('it-IT'))),
+          h('span.ld-step-l', l), h('small', on ? 'filtro attivo · tocca per toglierlo' : `contatti di ${l.toLowerCase()}`));
+      }))));
+    const card = (key, icn, tone, t, s) => {
+      const n = all.filter(ALERTS[key]).length;
+      const on = state.alert === key;
+      const click = n || on;
+      return h(click ? 'button.ld-alert' : 'div.ld-alert', { type: click ? 'button' : undefined, class: `${tone} ${on ? 'on' : ''}`, on: click ? { click: () => pick('alert', key) } : undefined },
+        h('span.ld-alert-ic', ic(icn, 17)), h('span.ld-alert-b', h('b', t(n)), h('small', on ? 'Mostro solo questi: tocca per tornare a tutti.' : s(n))));
+    };
+    fill(alerts, h('div.ld-alerts',
+      card('senza', 'building', 'or', n => `${n.toLocaleString('it-IT')} senza azienda`, n => (n ? 'Persone non collegate a nessuna azienda del CRM.' : 'Ognuno è collegato alla sua azienda.')),
+      card('sistemare', 'alert-triangle', 'rd', n => `${n.toLocaleString('it-IT')} da sistemare`, n => (n ? 'Nome mancante o con numeri dentro: da correggere.' : 'Nessun dato sporco.')),
+      card('recapiti', 'phone', 'bl', n => `${n.toLocaleString('it-IT')} senza recapiti`, n => (n ? 'Né email né telefono: non li possiamo raggiungere.' : 'Tutti hanno email o telefono.'))));
+  }
   function draw() {
-    const shown = all.filter(c => (!state.noCompany || !c.links.some(l => !l.date_to)) && (!state.bad || dirty(c)));
-    if (!shown.length) {
-      fill(list, h('section.cv-card', { style: { gridColumn: '1 / -1' } }, emptyState('users', state.q ? 'Nessun contatto con questa ricerca.' : 'Ancora nessun contatto. Le persone si aggiungono di solito dalla scheda della loro azienda.')));
-      fill(showMore);
-      return fill(side);
-    }
-    fill(list, shown.slice(0, state.limit).map(contactCard));
-    fill(showMore, shown.length > state.limit ? h('div.cv-more-row', { style: { borderTop: 0 } }, link(`Mostra altri ${Math.min(60, shown.length - state.limit)} di ${shown.length - state.limit}`, { on: { click: () => { state.limit += 60; draw(); } } })) : null);
-    preview(shown.find(c => c.id === state.pick) || shown[0]);
-  }
-  function contactCard(c) {
-    const bad = dirty(c);
-    const work = c.links.find(l => l.is_primary && !l.date_to) || c.links.find(l => !l.date_to);
-    const select = () => { if (window.matchMedia('(min-width: 1181px)').matches) { state.pick = c.id; preview(c); } else location.hash = `#/crm/contatti/${c.id}`; };
-    return h('section.cv-card.pad.cv-contact', { class: bad ? 'bad' : '' },
-      h('div.cv-row', av(personName(c) || c.email, bad ? '' : 'bl'),
-        h('button.cv-li-main', { type: 'button', on: { click: select } }, h('div.cv-li-t', h('span.cv-ell', personName(c) || c.email || 'Senza nome')),
-          h('div.cv-li-m.cv-ell', bad ? `Dati da sistemare: «${personName(c)}»` : (work?.job || data.meta.contactStatus[c.status] || '—'))),
-        bad ? h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ contact: c, onSaved: () => load() }) } }, 'Sistema')
-          : h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `#/crm/contatti/${c.id}`, 'aria-label': `Apri ${personName(c)}` }, ic('chevron-right', 16))),
-      bad ? null : [
-        h('div.cv-row.cv-small', { style: { gap: '6px' } }, ic('building', 13), work ? h('a.cv-t5.cv-ell', { href: `#/crm/scheda/${work.subject_id}` }, work.name) : h('span.cv-muted', 'Senza azienda')),
-        c.email || c.mobile || c.phone ? h('div.cv-row.cv-small.cv-muted.cv-wrap', { style: { gap: '4px 14px' } },
-          c.email ? h('a.cv-row.cv-ell', { href: `mailto:${c.email}`, style: { gap: '5px' } }, ic('mail', 13), h('span.cv-ell', c.email)) : null,
-          c.mobile || c.phone ? h('a.cv-row', { href: `tel:${c.mobile || c.phone}`, style: { gap: '5px' } }, ic('phone', 13), c.mobile || c.phone) : null) : null]);
-  }
-  async function preview(c) {
-    if (!c) return fill(side);
-    const work = c.links.filter(l => !l.date_to);
-    const main = work.find(l => l.is_primary) || work[0];
-    fill(side, h('section.cv-card.pad', { style: { gap: '14px' } },
-      h('div.cv-row', h('span.cv-av.bl', { style: { width: '52px', height: '52px', fontSize: '16px' }, 'aria-hidden': 'true' }, initialsOf(personName(c) || c.email || '?')),
-        h('div.cv-grow', h('div.cv-t5', { style: { fontSize: '18px', lineHeight: '24px' } }, personName(c) || c.email), h('div.cv-small.cv-muted', dots([main?.job, main?.name]) || '—'))),
-      h('div.cv-row.cv-wrap', { style: { gap: '8px' } },
-        c.mobile || c.phone ? h('a.btn.btn-sm', { href: `tel:${c.mobile || c.phone}` }, ic('phone', 14), 'Chiama') : null,
-        c.email ? h('a.btn.btn-sm', { href: `mailto:${c.email}` }, ic('mail', 14), 'Email') : null,
-        h('a.btn.btn-sm', { href: `#/crm/contatti/${c.id}/note` }, ic('file-text', 14), 'Nuova nota'),
-        h('a.cv-lnk', { href: `#/crm/contatti/${c.id}` }, 'Apri la scheda')),
-      workHistory(c.links),
-      h('div.cv-lbl.cv-row', { style: { gap: '8px' } }, 'Ultime attività', main ? pill(`anche su ${main.name}`, 'bl') : null),
-      h('div', { 'data-tl': '' }, h('div.cv-small.cv-muted', 'Carico…'))));
-    const box2 = side.querySelector('[data-tl]');
-    const { items } = await get(`/api/crm/contacts/${c.id}/timeline`).catch(() => ({ items: [] }));
-    if (!box2.isConnected) return;
-    fill(box2, items.length ? items.slice(0, 4).map(i => listRow({ icon: i.type === 'email' ? 'mail' : i.type === 'meeting' ? 'calendar' : 'file-text', tone: i.missing ? 'rd' : i.type === 'email' ? 'bl' : i.type === 'meeting' ? 'or' : 'gr',
-      title: i.title || '(senza titolo)', meta: dots([fmtDate(String(i.date || '').slice(0, 10)), i.missing && 'mancano le note']), cls: 'flat' }))
-      : emptyState('clock', 'Ancora niente: email, incontri e note compariranno qui.'));
+    // i contatti con i dati sporchi vanno in fondo: si trovano dall'avviso «da sistemare»
+    const rows = all.filter(c => (!state.role || hasRole(c, state.role)) && (!state.alert || ALERTS[state.alert](c))).sort((a, b) => dirty(a) - dirty(b));
+    if (!rows.length) return fill(content, h('section.cv-card', emptyState('users', state.q || state.role || state.alert ? 'Nessun contatto con questi filtri.' : 'Ancora nessun contatto. Le persone si aggiungono di solito dalla scheda della loro azienda.')));
+    const pages = Math.ceil(rows.length / PAGE);
+    const page = Math.min(state.page, pages - 1);
+    const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
+    const TINTS = ['#4B6B8A', '#5A6B7A', '#7A5A6B', '#6B7A5A', '#5A7A6B', '#7A6B5A', '#C25E0E'];
+    const tint = name => TINTS[[...name].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % TINTS.length];
+    fill(content, h('section.ld-list.ct-list',
+      h('div.ld-head', h('span', 'Contatto'), h('span', 'Azienda'), h('span', 'Tipo'), h('span', 'Recapiti'), h('span', 'Responsabile'), h('span')),
+      h('div.ld-rows', shown.map(c => {
+        const bad = dirty(c);
+        const work = workOf(c);
+        const roles = work?.roles || [];
+        const role = CT_ROLES.map(([k]) => k).find(k => roles.includes(k)) || roles[0] || null;
+        const name = personName(c) || c.email || 'Senza nome';
+        const open = () => { location.hash = `#/crm/contatti/${c.id}`; };
+        return h('div.ld-row', { role: 'link', tabIndex: 0, class: bad ? 'bad' : '', on: { click: e => { if (!e.target.closest('a, button')) open(); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } } },
+          h('div.ld-name', h('span.ld-logo.round', { style: { background: bad ? 'var(--cv-check)' : tint(name) } }, initialsOf(name)),
+            h('div.cv-grow', h('div.ld-name-t', h('a', { href: `#/crm/contatti/${c.id}`, title: `Apri l'anagrafica di ${name}` }, name), c.status === 'non_raggiungibile' ? h('span.ld-stage', 'non raggiungibile') : null),
+              h('small', bad ? 'Dati da sistemare' : (work?.job || 'Ruolo non indicato'), !bad && work ? h('span.ld-co-m', ` · ${work.name}`) : null))),
+          h('div.ld-c.ld-co', work ? h('a', { href: `#/crm/scheda/${work.subject_id}`, title: `Apri la scheda di ${work.name}` }, ic('building', 13), h('span', work.name)) : h('span.cv-muted', 'Senza azienda')),
+          h('div.ld-c', role ? h('span.ld-stage', { class: ROLE_TONE[role] || '' }, data.meta.roles[role] || role) : h('span.cv-muted', '—')),
+          h('div.ld-c.ld-next', c.email ? h('span', c.email) : h('span.cv-muted', 'Nessuna email'), h('small', c.mobile || c.phone || 'nessun telefono')),
+          h('div.ld-c.ld-owner', c.owner_name ? [av(c.owner_name, 'or'), h('span', c.owner_name)] : h('span.cv-muted', '—')),
+          h('div.ld-c.ld-acts2', bad ? h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ contact: c, onSaved: () => load() }) } }, 'Sistema') : [
+            c.mobile || c.phone ? h('a.ld-ico', { href: `tel:${c.mobile || c.phone}`, 'aria-label': `Chiama ${name}`, title: c.mobile || c.phone }, ic('phone', 14)) : h('span.ld-ico.off', { title: 'Nessun telefono' }, ic('phone', 14)),
+            c.email ? h('a.ld-ico', { href: `mailto:${c.email}`, 'aria-label': `Scrivi a ${name}`, title: c.email }, ic('mail', 14)) : h('span.ld-ico.off', { title: 'Nessuna email' }, ic('mail', 14))]));
+      })),
+      h('div.cv-tfoot', `Righe ${page * PAGE + 1}–${page * PAGE + shown.length} di ${rows.length.toLocaleString('it-IT')}`, h('span.cv-grow'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => exportContacts(rows) } }, ic('download', 14), 'Esporta'),
+        pages > 1 ? [h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina prima', disabled: page === 0 || undefined, on: { click: () => { state.page = page - 1; draw(); } } }, ic('chevron-left', 15)),
+          h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Pagina dopo', disabled: page >= pages - 1 || undefined, on: { click: () => { state.page = page + 1; draw(); } } }, ic('chevron-right', 15))] : null)));
   }
   await load();
+}
+function exportContacts(rows) {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['Cognome', 'Nome', 'Email', 'Cellulare', 'Telefono', 'Azienda', 'Ruolo', 'Responsabile'].map(cell).join(';'),
+    ...rows.map(c => { const w = workOf(c); return [c.last_name, c.first_name, c.email, c.mobile, c.phone, w?.name, w?.job, c.owner_name].map(cell).join(';'); })];
+  const a = h('a', { href: URL.createObjectURL(new Blob([`﻿${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' })), download: `contatti ${new Date().toISOString().slice(0, 10)}.csv` });
+  document.body.append(a);
+  a.click();
+  a.remove();
 }
 // «Dove ha lavorato»: storia lavorativa come linea del tempo
 function workHistory(links) {
