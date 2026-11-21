@@ -32,6 +32,7 @@ import { notifSettingsView } from './notif-settings.js';
 import { renderImpostazioni } from './impostazioni.js';
 import { lavoroView, inboxView, esploraView, ioView, markPlace, trackRecent, isRoot } from './app2.js';
 import { agoraView, crmHome, contactPage as contactPage3, scanPage, mioBiglietto, compitiView } from './app3.js';
+import { fotoPage, diarioPage, cantieriPage } from './cantieri.js';
 import { isMobile } from './ui.js';
 import { almaView, setupAlma } from './alma.js';
 
@@ -247,6 +248,12 @@ async function route() {
     case 'benvenuto': // sul telefono la Home è Alma Agorà (app 3.0, 20/11): la bacheca con la riga «Oggi»
       if (isMobile()) cleanup = agoraView(view, params);
       else await welcomeView(view);
+      break;
+    case 'cantieri': // storie dai cantieri (app 3.0): foto, diario, elenco (cantieri = commesse BOSS, BSAL-1725)
+      if (!isMobile()) { clear(view).append(h('div.card.empty', h('p', 'Le foto e il diario dei cantieri per ora si usano dal telefono.'))); break; }
+      if (parts[1] === 'foto') cleanup = (await fotoPage(view)) || null;
+      else if (Number(parts[1])) cleanup = (await diarioPage(view, Number(parts[1]), params)) || null;
+      else await cantieriPage(view);
       break;
     case 'compiti': // telefono: ticket, passi del CRM e RDA in una lista sola
       if (isMobile()) await compitiView(view, params); else location.replace('#/settimana');

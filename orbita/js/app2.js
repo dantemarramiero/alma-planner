@@ -617,14 +617,14 @@ export async function ioView(view) {
 const ROOTS = { benvenuto: 'agora', compiti: 'compiti', inbox: 'avvisi', esplora: '', io: '', lavoro: 'compiti' };
 const WORK = new Set(['compiti', 'lavoro', 'settimana', 'tickets', 'mine', 'rda', 'projects', 'gantt', 'calendar', 'mezzi']);
 export function placeOfSection(section) {
-  if (section === 'benvenuto' || section === 'home' || section === 'p') return 'agora';
+  if (section === 'benvenuto' || section === 'home' || section === 'p' || section === 'cantieri') return 'agora';
   if (section === 'crm' || section === 'biglietto') return 'crm';
   if (WORK.has(section)) return 'compiti';
   if (section === 'inbox' || section === 'notifications') return 'avvisi';
   return '';
 }
 // pagine del telefono con la loro intestazione (niente barra in alto)
-const OWN_HEAD = /^#\/(crm\/?(\?.*)?$|crm\/persona\/|crm\/scansiona|biglietto\/?$|energy\/vicino)/;
+const OWN_HEAD = /^#\/(crm\/?(\?.*)?$|crm\/persona\/|crm\/scansiona|biglietto\/?$|energy\/vicino|cantieri)/;
 export const isRoot = section => section in ROOTS;
 
 export function drawBar() {

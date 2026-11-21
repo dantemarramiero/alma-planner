@@ -8,7 +8,9 @@ const TAG_RE = /^[\p{L}\p{N}_]{1,50}$/u;
 
 // $1 = utente che guarda.
 const POST_SELECT = `
-  SELECT p.id, p.author_id, p.body, p.pinned_at, p.created_at, p.kind, p.thanked_id, p.pillar,
+  SELECT p.id, p.author_id, p.body, p.pinned_at, p.created_at, p.kind, p.thanked_id, p.pillar, p.cantiere_id, p.cantiere_day,
+         (SELECT c.name FROM cantieri c WHERE c.id = p.cantiere_id) AS cantiere_name,
+         (SELECT COUNT(DISTINCT f.author_id)::int FROM cantiere_foto f WHERE f.post_id = p.id AND f.hidden_at IS NULL) AS cantiere_people,
          COALESCE((SELECT json_agg(json_build_object('id', m.id, 'w', m.width, 'h', m.height) ORDER BY pm.position)
                      FROM post_media pm JOIN media m ON m.id = pm.media_id WHERE pm.post_id = p.id), '[]') AS media,
          (SELECT COUNT(*)::int FROM post_likes l WHERE l.post_id = p.id) AS like_count,
@@ -61,7 +63,7 @@ function registerFeed(app, { db, live, notifier, isAdmin, alerts }) {
     if (filter === 'grazie') where.push("p.kind = 'grazie'");
     // «Dai cantieri»: post con #cantiere/#cantieri, o di chi lavora in un reparto di cantiere
     if (filter === 'cantieri') {
-      where.push(`(p.body ~* '(^|[^[:alnum:]_])#cantier[ei]([^[:alnum:]_]|$)' OR EXISTS (SELECT 1 FROM users au JOIN org_people ao ON ao.oid = au.oid OR lower(ao.email) = lower(au.email)
+      where.push(`(p.kind = 'cantiere' OR p.body ~* '(^|[^[:alnum:]_])#cantier[ei]([^[:alnum:]_]|$)' OR EXISTS (SELECT 1 FROM users au JOIN org_people ao ON ao.oid = au.oid OR lower(ao.email) = lower(au.email)
               WHERE au.id = p.author_id AND ao.department ILIKE '%cantier%'))`);
     }
     if (filter === 'reparto') {

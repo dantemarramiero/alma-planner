@@ -38,6 +38,7 @@ const { registerFleet } = require('./routes/fleet');
 const { createFleet } = require('./lib/fleet');
 const { registerEnergy } = require('./routes/energy');
 const { registerBiglietti } = require('./routes/biglietti');
+const { registerCantieri, syncFromBoss } = require('./routes/cantieri');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
@@ -234,6 +235,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerProjectMeetings(app, deps);
   registerMedia(app, deps);
   registerFeed(app, deps);
+  registerCantieri(app, deps); // storie dai cantieri: foto, diario, post del giorno (cantieri = commesse BOSS, BSAL-1725)
   registerStories(app, deps);
   registerNotifications(app, deps);
   registerRda(app, deps);
@@ -288,6 +290,8 @@ if (require.main === module) {
     startOrgNightly({ db, auth, gov }); // organigramma da Entra ogni notte alle 3
     setInterval(() => audit.purge(730).catch(err => console.warn('[audit] pulizia non riuscita', err.message)), 24 * 3600 * 1000).unref();
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
+    // cantieri da BOSS (BSAL-1725): ogni ora, solo quando BOSS_CANTIERI_URL e BOSS_CANTIERI_TOKEN ci sono
+    if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Space su ${config.baseUrl} (porta ${config.port})`);
       if (!auth.msConfigured) {
