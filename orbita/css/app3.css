@@ -278,3 +278,71 @@
   /* microfono della ricerca CRM: icona al centro del quadratino */
   .a3-voice.a3-mic { display: grid; place-items: center; justify-content: center; gap: 0; }
 }
+/* ── Agorà come piazza (controproposta approvata il 21/11/2026, artboard AgoraB/AgoraB2) ── */
+@media (max-width: 760px) {
+  .a3-agora .a3-head .a3-eyebrow { font-size: 11px; }
+  .a3-oggi { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px; border-radius: 999px; background: var(--a2-card); border: 1px solid var(--a2-line); color: var(--a2-text); font-size: 14px; }
+  .a3-oggi-dot { width: 8px; height: 8px; border-radius: 4px; background: var(--a2-blue); flex: none; }
+  .a3-oggi-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a3-oggi-t strong { color: var(--a2-ink); }
+  .a3-oggi-n { flex: none; font-weight: 700; color: var(--a2-orange-d); }
+  .a3-oggi-n.red { color: var(--a2-red); }
+  .a3-sticky { position: sticky; top: 0; z-index: 5; padding-top: 8px; padding-bottom: 8px; margin-top: -8px; margin-bottom: -8px; background: color-mix(in srgb, var(--a2-bg) 94%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .a3-piazza { display: flex; flex-direction: column; gap: 14px; }
+  .a3-piazza:empty { display: none; }
+  .a3-hero-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .a3-hero-track { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .a3-hero-track::-webkit-scrollbar { display: none; }
+  .a3-hero { flex: 0 0 100%; scroll-snap-align: start; display: flex; flex-direction: column; padding: 0; border-radius: 20px; border: 1px solid var(--a2-line); background: var(--a2-card); overflow: hidden; text-align: left; font: inherit; color: var(--a2-text); cursor: pointer; }
+  .a3-hero-img { position: relative; height: 168px; background: #E9E4DC; display: grid; place-items: center; color: var(--a2-muted); }
+  .a3-hero-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .a3-hero-badge { position: absolute; top: 12px; left: 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #fff; background: #2C2C2C; border-radius: 999px; padding: 5px 10px; }
+  .a3-hero-b { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; }
+  .a3-hero-b strong { font-size: 17px; line-height: 1.3; color: var(--a2-ink); }
+  .a3-hero-b small { font-size: 13px; color: var(--a2-muted); }
+  .a3-dots { display: flex; justify-content: center; gap: 5px; }
+  .a3-dots i { width: 6px; height: 6px; border-radius: 3px; background: #DCDCDA; transition: width .15s; }
+  .a3-dots i.on { width: 16px; background: #E0731A; }
+  .a3-prow { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; margin-right: -16px; padding-right: 16px; }
+  .a3-prow::-webkit-scrollbar { display: none; }
+  .a3-pcard { flex: 0 0 148px; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 18px; border: 1px solid var(--a2-line); background: var(--a2-card); box-sizing: border-box; }
+  .a3-pcard-top { display: flex; align-items: center; justify-content: space-between; }
+  .a3-pcard-top .avatar { width: 40px; height: 40px; font-size: 14px; }
+  .a3-pcard-top .a3-tag { font-size: 11px; font-weight: 700; padding: 3px 8px; }
+  .a3-pcard-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; color: var(--a2-text); }
+  .a3-pcard-t strong { font-size: 14px; color: var(--a2-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a3-pcard-t small { font-size: 12px; color: var(--a2-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a3-btn.a3-pcard-b { min-height: 36px; padding: 0 10px; border-radius: 999px; border-color: #DCDCDA; font-size: 13px; }
+  .a3-poll { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 20px; }
+  .a3-poll-q { font-size: 16px; color: var(--a2-ink); }
+  .a3-opt { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--a2-line); background: var(--a2-card); font: inherit; font-size: 14px; color: var(--a2-ink); overflow: hidden; text-align: left; cursor: pointer; }
+  .a3-opt > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--a2-soft); }
+  .a3-opt.on { border-color: #E0731A; font-weight: 700; }
+  .a3-opt.on > i { background: var(--a2-orange-t); }
+  .a3-opt > span, .a3-opt > b { position: relative; }
+  /* «Grazie a…» in evidenza arancione, come nel canvas */
+  .a3-agora article.post:has(.post-arrow) { background: var(--a2-orange-t); border-color: transparent; }
+  .a3-agora article.post { border-radius: 20px; }
+}
+@media (max-width: 760px) {
+  /* le scritte piccole colorate sono solo testo (le classi .or/.bl delle etichette portavano anche il fondo) */
+  .a3-kicker.or, .a3-kicker.blue, .a3-kicker.red, .a3-kicker.lt { background: none; padding: 0; }
+}
+@media (max-width: 760px) {
+  /* tema scuro: gli elementi «scuri» del canvas diventano chiari, sennò spariscono sul fondo */
+  :root[data-theme="dark"] .a3-pill.on, :root[data-theme="dark"] .a3-chip.on, :root[data-theme="dark"] .a3-seg a.on, :root[data-theme="dark"] .a3-btn.primary, :root[data-theme="dark"] .a3-act.dark, :root[data-theme="dark"] .a3-big.dark, :root[data-theme="dark"] .a3-next, :root[data-theme="dark"] .a3-dictate, :root[data-theme="dark"] .a3-hero-badge { background: #F1EFEB; border-color: #F1EFEB; color: #1E1D1B; }
+  :root[data-theme="dark"] .a3-act.dark svg, :root[data-theme="dark"] .a3-big.dark .a3-big-ico, :root[data-theme="dark"] .a3-next .a3-kicker.lt { color: #B54E0A; }
+  :root[data-theme="dark"] .a3-big.dark small, :root[data-theme="dark"] .a3-dictate small { color: #515151; }
+  :root[data-theme="dark"] .a3-chip.x.on { background: var(--a2-orange-t); color: var(--a2-orange-d); border-color: transparent; }
+  :root[data-theme="dark"] .gr { color: #7FD1A0; } :root[data-theme="dark"] .pu { background: #2D2438; color: #C7A8EE; } :root[data-theme="dark"] .or { color: var(--a2-orange-d); }
+  :root[data-theme="dark"] .a3-hero-img { background: var(--a2-soft); } :root[data-theme="dark"] .a3-check { border-color: #6B6660; }
+}
+@media (max-width: 760px) and (prefers-color-scheme: dark) {
+  /* tema scuro: gli elementi «scuri» del canvas diventano chiari, sennò spariscono sul fondo */
+  :root:not([data-theme="light"]) .a3-pill.on, :root:not([data-theme="light"]) .a3-chip.on, :root:not([data-theme="light"]) .a3-seg a.on, :root:not([data-theme="light"]) .a3-btn.primary, :root:not([data-theme="light"]) .a3-act.dark, :root:not([data-theme="light"]) .a3-big.dark, :root:not([data-theme="light"]) .a3-next, :root:not([data-theme="light"]) .a3-dictate, :root:not([data-theme="light"]) .a3-hero-badge { background: #F1EFEB; border-color: #F1EFEB; color: #1E1D1B; }
+  :root:not([data-theme="light"]) .a3-act.dark svg, :root:not([data-theme="light"]) .a3-big.dark .a3-big-ico, :root:not([data-theme="light"]) .a3-next .a3-kicker.lt { color: #B54E0A; }
+  :root:not([data-theme="light"]) .a3-big.dark small, :root:not([data-theme="light"]) .a3-dictate small { color: #515151; }
+  :root:not([data-theme="light"]) .a3-chip.x.on { background: var(--a2-orange-t); color: var(--a2-orange-d); border-color: transparent; }
+  :root:not([data-theme="light"]) .gr { color: #7FD1A0; } :root:not([data-theme="light"]) .pu { background: #2D2438; color: #C7A8EE; } :root:not([data-theme="light"]) .or { color: var(--a2-orange-d); }
+  :root:not([data-theme="light"]) .a3-hero-img { background: var(--a2-soft); } :root:not([data-theme="light"]) .a3-check { border-color: #6B6660; }
+}
