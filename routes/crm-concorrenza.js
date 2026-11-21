@@ -213,11 +213,11 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     const t = setInterval(async () => {
       try {
         const hour = Number(new Date().toLocaleString('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }));
-        if (hour !== 5 || lastDay === todayRome()) return;
-        lastDay = todayRome();
+        if (hour !== 5 || lastDay === todayRome() || isRunning()) return;
         const settings = await loadSettings(db);
         if (!settings.concorrenza.on) return;
         await syncAnac(db, settings, { fetchImpl: anacFetch || fetch });
+        lastDay = todayRome(); // solo se ANAC ha risposto: se no si riprova ogni 15 minuti fino alle 6 (21/11)
         await vinteAltri();
       } catch (err) { console.warn('[anac]', err.message); }
     }, 15 * 60000);
