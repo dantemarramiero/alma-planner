@@ -1,0 +1,53 @@
+/* Biglietto da visita digitale Almacis (Dante 21/11/2026, «almacis_biglietto_digitale.html»): fronte scuro con il logo,
+   retro bianco con i contatti. Markup da lib/biglietto-face.js. Le misure seguono la larghezza della carta
+   (container query), così la stessa carta va bene nell'anteprima piccola, nella pagina pubblica e a tutto schermo. */
+.bvd-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; align-items: stretch; }
+.bvd-cards.bvd-stack { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 850px) { .bvd-cards { grid-template-columns: minmax(0, 1fr); } }
+
+.bvd-card { container-type: inline-size; position: relative; overflow: hidden; isolation: isolate; aspect-ratio: 1.66; border-radius: 22px;
+  box-shadow: 0 30px 70px -28px rgba(29, 38, 50, .45), 0 2px 6px rgba(29, 38, 50, .08); font-family: var(--ap-font, Roboto, Arial, sans-serif); }
+
+/* fronte */
+.bvd-front { background: linear-gradient(130deg, #4B4F53, #24272B 62%, #181B20); color: #FFFFFF; }
+.bvd-front::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 83% 28%, rgba(255, 138, 38, .19), transparent 36%); pointer-events: none; }
+.bvd-front::after { content: ""; position: absolute; inset: auto 0 0; height: 4px; background: linear-gradient(90deg, transparent, var(--ap-accent, #FF8A26), #FFB66F, transparent); box-shadow: 0 0 22px var(--ap-accent, #FF8A26); }
+.bvd-net { position: absolute; inset: 34% 0 0; width: 100%; height: 66%; z-index: 1; opacity: .8; }
+.bvd-orbit { position: absolute; right: -12cqw; top: 13cqw; width: 46cqw; height: 46cqw; border: 1px solid rgba(255, 138, 38, .31); border-radius: 50%; box-shadow: 0 0 35px rgba(255, 138, 38, .08); }
+.bvd-eco { position: absolute; right: 10.5cqw; top: 18cqw; width: 13cqw; height: 13cqw; color: #FFAD5D; opacity: .85; }
+.bvd-front-in { position: relative; z-index: 2; height: 100%; padding: 6.6cqw 7cqw; }
+.bvd-logo { display: block; width: 44cqw; height: auto; filter: drop-shadow(0 5px 8px rgba(255, 138, 38, .15)); }
+.bvd-lower { position: absolute; left: 7cqw; right: 5cqw; bottom: 4.6cqw; }
+.bvd-lower small { display: block; color: #D6DCE0; font-size: max(8px, 1.7cqw); letter-spacing: .14em; text-transform: uppercase; line-height: 1.75; }
+.bvd-lower strong { display: block; font-size: max(11px, 3.1cqw); font-weight: 500; letter-spacing: -.02em; }
+
+/* retro */
+.bvd-back { background: linear-gradient(135deg, #FFFFFF, #F4F6F7); border: 1px solid rgba(255, 255, 255, .74); color: #3E444A; }
+.bvd-back::before { content: ""; position: absolute; left: -22cqw; bottom: -25cqw; width: 71cqw; height: 70cqw; border: 9cqw solid #E9EDF0; transform: rotate(32deg); opacity: .7; z-index: -1; }
+.bvd-back::after { content: ""; position: absolute; right: 0; top: 0; width: 7px; height: 100%; background: linear-gradient(180deg, var(--ap-accent, #FF8A26), #FFD19B, var(--ap-accent, #FF8A26)); }
+.bvd-back-in { height: 100%; padding: 6cqw 7cqw 5cqw; display: flex; flex-direction: column; justify-content: space-between; gap: 2cqw; }
+.bvd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 3cqw; }
+.bvd-who { min-width: 0; }
+.bvd-kicker { color: var(--ap-accent, #FF8A26); font-size: max(8px, 1.7cqw); letter-spacing: .26em; font-weight: 700; text-transform: uppercase; }
+.bvd-name { margin: 1.2cqw 0 0; font-size: max(15px, 5.2cqw); line-height: 1.08; font-weight: 700; letter-spacing: -.035em; color: #34383D; overflow-wrap: anywhere; }
+.bvd-role { margin-top: 1cqw; font-size: max(10px, 2.3cqw); color: #697077; }
+.bvd-qr { flex: none; width: 19cqw; background: #FFFFFF; border: 1px solid #E3E6E9; border-radius: 10px; padding: 1cqw; line-height: 0; }
+.bvd-qr svg { display: block; width: 100%; height: auto; }
+.bvd-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.9cqw; }
+.bvd-lines li { display: flex; align-items: center; gap: 2.2cqw; font-size: max(10px, 2.35cqw); color: #3E444A; min-width: 0; }
+.bvd-lines li > a, .bvd-lines li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bvd-lines svg { width: max(13px, 3.5cqw); height: max(13px, 3.5cqw); flex: none; stroke: var(--ap-accent, #FF8A26); fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.bvd-lines a { color: inherit; text-decoration: none; }
+.bvd-lines a:hover { color: #ED7410; }
+.bvd-foot { border-top: 1px solid #D9DCE0; padding-top: 2.4cqw; font-size: max(8px, 1.85cqw); display: flex; justify-content: space-between; align-items: center; gap: 2.4cqw; color: #697077; }
+.bvd-foot span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bvd-est { flex: none; font-weight: 700; color: var(--ap-accent, #FF8A26); letter-spacing: .08em; }
+
+/* pulsanti sotto la carta (pagina pubblica) */
+.bvd-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 26px 0 0; }
+.bvd-btn { background: #282D32; color: #FFFFFF !important; border: 0; border-radius: 100px; padding: 14px 22px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px; text-decoration: none; min-height: 48px; transition: transform .2s, background .2s; }
+.bvd-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.bvd-btn:hover { background: #41474C; transform: translateY(-2px); }
+.bvd-btn.bvd-primary { background: var(--ap-accent, #FF8A26); color: #20252A !important; }
+.bvd-btn.bvd-primary:hover { background: #FFA34F; }

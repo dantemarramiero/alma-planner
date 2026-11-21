@@ -11,7 +11,9 @@ const LOGO = '/brand/almacis/almacis-logo.png';
 const svgOf = markup => { const box = h('span.bv-qr'); box.innerHTML = markup; return box; }; // SVG fatto dal server (libreria qrcode)
 
 // ── «Il mio biglietto»: anteprima, QR, azioni, numeri e cosa mostra ───────────────────────────────────
+// il biglietto digitale (fronte e retro con il QR), disegnato dal server come nella pagina pubblica (Dante 21/11/2026)
 function preview(d) {
+  if (d.face) { const box = h('div.bv-face'); box.innerHTML = d.face; box.firstElementChild?.classList.add('bvd-stack'); return box; }
   const x = d.view;
   return h('div.bv-mini',
     h('div.bv-mini-l',
