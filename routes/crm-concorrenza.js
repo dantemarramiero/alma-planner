@@ -129,7 +129,7 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
   // ── Prima del bando ─────────────────────────────────────────────────────────────────────────
   // «Cerca un'impresa» (v11 · Concorrenza e gare): per nome o P.IVA tra chi ha vinto gare ANAC, anche se non è nel CRM
   app.get('/api/crm/concorrenza/cerca', async (req, res) => {
-    const q = String(req.query.q || '').replace(/s+/g, ' ').trim().slice(0, 80);
+    const q = String(req.query.q || '').replace(/\s+/g, ' ').trim().slice(0, 80);
     if (q.length < 2) return res.json({ imprese: [] });
     const cf = q.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const { rows } = await db.query(
