@@ -146,7 +146,7 @@ async function percorsoView(c) {
         d.next.criteria ? h('ul.hr-check', d.next.criteria.split(/\n|(?<=\.)\s+(?=[A-ZÀ-Ý])/).map(x => x.trim()).filter(Boolean).map(x => h('li', h('span.hr-box', { 'aria-hidden': 'true' }), x)))
           : h('p', 'I criteri per il passaggio sono nella scheda del ruolo.'),
         h('p.small.muted', 'Oggi la spunta la mette il tuo responsabile nel colloquio; quando BOSS passerà i dati delle commesse (complessità chiuse in autonomia), i criteri misurabili si spunteranno da soli.')] : h('p.muted', 'Sei al vertice del tuo binario.'))),
-    h('div.card.hr-pad', h('div.hr-label', 'Le mie scadenze'), h('p.small.muted', 'La formazione obbligatoria del tuo ruolo (attestati e scadenze) la tiene QHSE in Alma HR: se un corso ti manca o sta per scadere, ricevi l'avviso. Visite mediche e patentini arriveranno da BOSS.')),
+    h('div.card.hr-pad', h('div.hr-label', 'Le mie scadenze'), h('p.small.muted', "La formazione obbligatoria del tuo ruolo (attestati e scadenze) la tiene QHSE in Alma HR: se un corso ti manca o sta per scadere, ricevi l'avviso. Visite mediche e patentini arriveranno da BOSS.")),
     h('div.card.hr-pad', h('div.hr-label', 'Il mio binario'), ladder,
       h('p.muted.small', 'Si vedono il tuo binario e quello vicino: cambiare binario è una strada possibile, non solo salire.')));
 }
