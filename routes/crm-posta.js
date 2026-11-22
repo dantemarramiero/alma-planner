@@ -15,6 +15,8 @@ const { graph } = require('../lib/graph');
 const S = require('../lib/crm-scrivo');
 const P = require('../lib/crm-posta');
 const A = require('../lib/crm-posta-ai');
+const I = require('../lib/crm-posta-invio');
+const F = require('../lib/firma');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 const { addDays } = require('../lib/workdays');
@@ -222,29 +224,87 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     res.json({ text: r.text, eur: r.eur, ai: r.ai, model: r.model, tone: { n: tone.n, chips: tone.chips }, target, to, tutti, subject: `Re: ${A.subjectOf(m.subject)}` });
   });
 
-  // Invia o salva tra le bozze di Outlook (G4): risposta nella stessa conversazione, a una persona o a tutti.
+  // ── Rispondi, Rispondi a tutti, Inoltra con A/Cc, allegati e firma Almacis (ALM2-64, tavola H) ──────
+  const graphMe = uid => (mailFake ? null : async () => g(await token(uid), 'GET', '/me?$select=displayName,jobTitle,mobilePhone,businessPhones'));
+  const upload = (url, buf) => (mailFake ? mailFake.upload(url, buf) : I.uploadChunks(url, buf));
+  async function sendFrom(req, id, { mode, to, cc, text, attachments = [], drop = [], firma = true, draft = false }) {
+    const signature = firma ? await F.signatureOf({ db, userId: req.user.id, graphMe: graphMe(req.user.id) }) : null;
+    const t = await writeToken(req.user.id);
+    try {
+      return await I.compose({ g, upload, t, id, mode, to, cc, text, attachments, drop, signature: signature?.enabled ? signature : null, draft });
+    } catch (err) {
+      if (err.status === 403) throw new HttpError(403, 'Per mandare con firma e allegati serve il permesso «Mail.ReadWrite» di Microsoft: esci e rientra in Alma Space', 'mail_write');
+      throw err;
+    }
+  }
+
+  // Compatibile con la prima versione (ALM2-61): risposta senza scegliere A/Cc né allegati
   app.post('/api/crm/posta/:id/rispondi', async (req, res) => {
     const id = v.text(req.params.id, 'email', { max: 500, required: true });
     const text = v.text(req.body?.testo, 'testo', { max: 20000, required: true });
-    const draft = req.body?.bozza === true;
     const tutti = req.body?.tutti !== false;
     const me = String(req.user.email || '').toLowerCase();
-    const t0 = await token(req.user.id);
-    const m = P.normMsg(await mail(t0, 'GET', `/me/messages/${encodeURIComponent(id)}?$select=${SELECT}`));
+    const m = P.normMsg(await mail(await token(req.user.id), 'GET', `/me/messages/${encodeURIComponent(id)}?$select=${SELECT}`));
     const { to } = recipients(m, me, tutti);
     if (!to.length) throw new HttpError(400, 'Non c\'è nessuno a cui rispondere');
-    const rcpt = list => list.map(p => ({ emailAddress: { address: p.address, ...(p.name ? { name: p.name } : {}) } }));
-    // destinatari sempre espliciti: così «Rispondi» a un'email che ho mandato io va a chi l'ha ricevuta, non a me
-    const body = { comment: text, message: tutti ? { toRecipients: rcpt(to.filter(p => !m.cc.some(c => c.address === p.address))), ccRecipients: rcpt(m.cc.filter(c => c.address !== me)) } : { toRecipients: rcpt(to), ccRecipients: [] } };
-    const action = tutti ? 'replyAll' : 'reply';
-    if (draft) {
-      const t = await writeToken(req.user.id);
-      const d = await g(t, 'POST', `/me/messages/${encodeURIComponent(id)}/create${action[0].toUpperCase()}${action.slice(1)}`, { body });
-      return res.json({ ok: true, draft: true, to, web_link: d?.webLink || null });
-    }
-    await mail(t0, 'POST', `/me/messages/${encodeURIComponent(id)}/${action}`, { body });
-    // se la conversazione è in un progetto, la risposta entra con il prossimo giro (o subito, all'apertura della scheda)
-    res.json({ ok: true, draft: false, to });
+    const ccSet = tutti ? m.cc.filter(c => c.address !== me) : [];
+    const r = await sendFrom(req, id, { mode: tutti ? 'tutti' : 'rispondi', to: to.filter(p => !ccSet.some(c => c.address === p.address)), cc: ccSet, text, draft: req.body?.bozza === true });
+    res.json({ ok: true, draft: r.draft, to, web_link: r.web_link || null });
+  });
+
+  // Il riquadro completo: modo, A, Cc, testo, allegati nuovi, allegati originali da togliere (inoltra), firma sì/no
+  app.post('/api/crm/posta/:id/componi', async (req, res) => {
+    const id = v.text(req.params.id, 'email', { max: 500, required: true });
+    const b = req.body || {};
+    const mode = Object.hasOwn(I.MODES, b.modo) ? b.modo : null;
+    if (!mode) throw new HttpError(400, 'Modo non valido: rispondi, tutti o inoltra');
+    const to = I.people(b.a);
+    const cc = I.people(b.cc).filter(p => !to.some(x => x.address === p.address));
+    const text = typeof b.testo === 'string' ? b.testo.slice(0, 20000) : '';
+    const r = await sendFrom(req, id, { mode, to, cc, text, attachments: I.files(b.allegati), drop: (Array.isArray(b.togli) ? b.togli : []).map(String).slice(0, 50), firma: b.firma !== false, draft: b.bozza === true });
+    res.json({ ok: true, draft: r.draft, to, cc, web_link: r.web_link || null });
+  });
+
+  // A e Cc: colleghi di Alma Space e contatti del CRM con l'email
+  app.get('/api/crm/posta/destinatari', async (req, res) => {
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (q.length < 2) return res.json({ people: [] });
+    const like = `%${q.toLowerCase()}%`;
+    const [{ rows: us }, { rows: cs }] = await Promise.all([
+      db.query(`SELECT name, email FROM users WHERE email IS NOT NULL AND (lower(name) LIKE $1 OR lower(email) LIKE $1) ORDER BY name LIMIT 8`, [like]),
+      db.query(`SELECT c.first_name, c.last_name, c.email, s.name AS company
+                  FROM crm_contacts c
+                  LEFT JOIN LATERAL (SELECT sb.name FROM crm_contact_links l JOIN crm_subjects sb ON sb.id = l.subject_id WHERE l.contact_id = c.id ORDER BY l.id DESC LIMIT 1) s ON true
+                 WHERE c.email <> '' AND (lower(c.first_name || ' ' || c.last_name) LIKE $1 OR lower(c.last_name || ' ' || c.first_name) LIKE $1 OR lower(c.email) LIKE $1)
+                 ORDER BY c.last_name LIMIT 8`, [like]),
+    ]);
+    const out = [...us.map(u => ({ name: u.name, address: u.email.toLowerCase(), kind: 'collega' })),
+      ...cs.map(c => ({ name: `${c.first_name} ${c.last_name}`.trim(), address: c.email.toLowerCase(), kind: 'contatto', company: c.company || '' }))];
+    res.json({ people: out.filter((p, i, a) => a.findIndex(x => x.address === p.address) === i).slice(0, 12) });
+  });
+
+  // La mia firma (pagina #/firma e «Modifica» nel riquadro)
+  app.get('/api/firma', async (req, res) => {
+    const sig = await F.signatureOf({ db, userId: req.user.id, graphMe: graphMe(req.user.id) });
+    res.json({ ...sig, company: F.COMPANY, html: F.html(sig, { logoSrc: '/brand/almacis/almacis-logo.png' }) });
+  });
+  app.put('/api/firma', async (req, res) => {
+    const b = req.body || {};
+    const cur = await F.signatureOf({ db, userId: req.user.id, graphMe: graphMe(req.user.id) });
+    const val = (k, max) => (b[k] === undefined ? cur[k] : v.text(b[k], k, { max }) || '');
+    const row = { enabled: b.enabled === undefined ? cur.enabled : b.enabled !== false, name: val('name', 120), role: val('role', 120), phone: val('phone', 40), phone2: val('phone2', 40) };
+    if (!row.name) throw new HttpError(400, 'Serve il nome');
+    await db.query(`INSERT INTO user_signatures (user_id, enabled, name, role, phone, phone2) VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (user_id) DO UPDATE SET enabled = EXCLUDED.enabled, name = EXCLUDED.name, role = EXCLUDED.role, phone = EXCLUDED.phone, phone2 = EXCLUDED.phone2, updated_at = now()`,
+    [req.user.id, row.enabled, row.name, row.role, row.phone, row.phone2]);
+    const sig = await F.signatureOf({ db, userId: req.user.id });
+    res.json({ ...sig, company: F.COMPANY, html: F.html(sig, { logoSrc: '/brand/almacis/almacis-logo.png' }) });
+  });
+  // Ripristina dal profilo Microsoft
+  app.delete('/api/firma', async (req, res) => {
+    await db.query('DELETE FROM user_signatures WHERE user_id = $1', [req.user.id]);
+    const sig = await F.signatureOf({ db, userId: req.user.id, graphMe: graphMe(req.user.id) });
+    res.json({ ...sig, company: F.COMPANY, html: F.html(sig, { logoSrc: '/brand/almacis/almacis-logo.png' }) });
   });
 
   app.get('/api/crm/posta/:id', async (req, res) => {
@@ -796,7 +856,12 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     const found = await mail(t, 'GET', `/me/messages?$filter=${encodeURIComponent(filter)}&$select=id&$top=1`);
     const mine = (found.value || [])[0];
     if (!mine) throw new HttpError(409, 'L\'ultima email non è nella tua casella: rispondi da Outlook o chiedi a chi l\'ha ricevuta');
-    await mail(t, 'POST', `/me/messages/${encodeURIComponent(mine.id)}/replyAll`, { body: { comment: text } });
+    // a tutti, con la firma Almacis (ALM2-64)
+    const me = String(req.user.email || '').toLowerCase();
+    const m = P.normMsg(await mail(t, 'GET', `/me/messages/${encodeURIComponent(mine.id)}?$select=${SELECT}`));
+    const { to } = recipients(m, me, true);
+    const cc = m.cc.filter(c => c.address !== me);
+    await sendFrom(req, mine.id, { mode: 'tutti', to: to.filter(p => !cc.some(c => c.address === p.address)), cc, text });
     syncProject(id, { force: true }).catch(() => {});
     res.json({ ok: true });
   });

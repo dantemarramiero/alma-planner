@@ -37,6 +37,7 @@ import { isMobile } from './ui.js';
 import { almaView, setupAlma } from './alma.js';
 import { openFeedback, feedbackView } from './feedback.js';
 import { postaVocePage } from './posta-voce.js';
+import { firmaView } from './firma.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -335,6 +336,9 @@ async function route() {
       break;
     case 'posta-voce': // Posta in macchina (ALM2-57): solo Dante, a voce con Alma
       cleanup = (await postaVocePage(view)) || null;
+      break;
+    case 'firma': // La mia firma nelle email (ALM2-64)
+      await firmaView(view);
       break;
     case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10; sul telefono la versione dell'app 3.0)
       if (isMobile() && !params.get('modifica')) cleanup = (await mioBiglietto(view)) || null;

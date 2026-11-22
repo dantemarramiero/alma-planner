@@ -220,6 +220,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' })); // Alma HR: CV caricati dal team HR
   app.use(['/api/hr/formazione/attestati', '/api/hr/documenti'], express.json({ limit: '12mb' })); // Alma HR: attestati e documenti in PDF
   app.use('/api/feedback', express.json({ limit: '22mb' })); // feedback su Alma Space: fino a 3 foto dello schermo da 5 MB
+  app.use(['/api/crm/posta/:id/componi', '/api/crm/posta/:id/rispondi'], express.json({ limit: '36mb' })); // Posta: allegati delle risposte e degli inoltri (25 MB in base64)
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
