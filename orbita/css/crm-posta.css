@@ -21,6 +21,12 @@
 .pm-chk { position: absolute; left: 10px; top: 12px; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--cv-faint); cursor: pointer; }
 .pm-chk:hover, .pm-row.picked .pm-chk { color: var(--cv-orange); }
 .pm-chk:focus-visible { outline: 2px solid var(--cv-ring); }
+.pm-row .pm-item-s, .pm-row .pm-item-m { padding-right: 30px; }
+.pm-rowdel { position: absolute; right: 12px; bottom: 10px; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 10px; background: transparent; color: var(--cv-muted); cursor: pointer; opacity: .55; }
+.pm-row:hover .pm-rowdel, .pm-rowdel:focus-visible { opacity: 1; }
+.pm-rowdel:hover { color: var(--cv-rd); background: var(--cv-rd-bg); opacity: 1; }
+.pm-rowdel:focus-visible { outline: 2px solid var(--cv-ring); }
+@media (hover: none) { .pm-rowdel { opacity: 1; } }
 .pm-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--cv-line); background: var(--cv-head); font-size: 13px; }
 .pm-bulk[hidden] { display: none; }
 .pm-bulk b { color: var(--cv-ink); font-weight: 500; margin-right: auto; }
