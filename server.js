@@ -284,7 +284,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
     const status = err.status || err.statusCode || 500;
     if (status >= 500 && !(err instanceof HttpError)) console.error(`[errore] ${req.method} ${req.originalUrl}`, err);
     const message = status >= 500 && !(err instanceof HttpError) ? 'Errore interno, riprova' : err.message;
-    if (req.originalUrl.startsWith('/api')) return res.status(status).json({ error: message, code: err.code });
+    if (req.originalUrl.startsWith('/api')) return res.status(status).json({ error: message, code: err.code, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
     res.status(status).send(message);
   });
 

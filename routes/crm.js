@@ -20,6 +20,9 @@ function daCompletare(s) {
 const { registerCrmLinks } = require('./crm-links');
 const { registerCrmWeb } = require('./crm-web');
 const { registerCrmImport } = require('./crm-import');
+const { registerCrmDoppioni } = require('./crm-doppioni'); // doppioni e «Unisci» (canvas v15)
+const DUP = require('../lib/crm-doppioni');
+const UNI = require('../lib/crm-unisci');
 const { registerCrmCommerciale } = require('./crm-commerciale');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { loadFunctions } = require('../lib/functions');
@@ -161,6 +164,15 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   app.use('/api/crm', (req, _res, next) => {
     crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Accesso richiesto')), next);
   });
+  registerCrmDoppioni(app, { db, notifier, afterMerge: id => commercial?.syncNext(id) });
+  // P.IVA o codice fiscale già di un'altra scheda: l'errore dice quale, così si può proporre di unire (canvas v15)
+  async function vatConflict(f, selfId = 0) {
+    const { rows: [x] } = await db.query(`SELECT s.id, s.name, s.roles, s.city, u.name AS owner_name, (SELECT count(*)::int FROM crm_contact_links l WHERE l.subject_id = s.id AND l.date_to IS NULL) AS contacts
+        FROM crm_subjects s LEFT JOIN users u ON u.id = s.owner_id WHERE s.id <> $3 AND s.merged_into IS NULL AND (($1 <> '' AND s.vat = $1) OR ($2 <> '' AND s.tax_code = $2)) LIMIT 1`, [f.vat || '', f.tax_code || '', selfId]);
+    const e = new HttpError(409, x ? `C'è già un'anagrafica con questa P.IVA o questo codice fiscale: «${x.name}»` : 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale', 'doppione');
+    if (x) e.extra = { conflict: x };
+    return e;
+  }
   let commercial = null; // lavoro commerciale (registrato in fondo)
   const functionNames = async () => (await loadFunctions(db)).map(f => f.name).sort((a, b) => a.localeCompare(b, 'it'));
   async function checkOwnerFunction(f, { creating }) {
@@ -329,7 +341,14 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     const { rows } = await db.query(
       `SELECT id, name, vat, asa FROM crm_subjects WHERE merged_into IS NULL
           AND (($1 <> '' AND vat = $1) OR ($2 <> '' AND tax_code = $2) OR ($3 <> '' AND lower(name) = lower($3))) LIMIT 5`, [vat, tax, name]);
-    res.json({ matches: rows.map(r => ({ id: r.id, name: r.name, vat: r.vat, visible: true })) });
+    const out = rows.map(r => ({ id: r.id, name: r.name, vat: r.vat, visible: true }));
+    // nomi simili, non solo uguali (canvas v15): «Termoabruzzo» trova «Termo Abruzzo Srl»
+    const n = DUP.compact(name);
+    if (n.length >= 4 && out.length < 5) {
+      const { rows: near } = await db.query("SELECT id, name, vat FROM crm_subjects WHERE merged_into IS NULL AND lower(left(regexp_replace(name, '[^A-Za-z0-9]', '', 'g'), 2)) = $1", [n.slice(0, 2)]);
+      for (const x of DUP.similarNames(name, near, 5)) if (!out.some(o => o.id === x.id)) out.push({ id: x.id, name: x.name, vat: x.vat, visible: true, similar: x.similar });
+    }
+    res.json({ matches: out.slice(0, 5) });
   });
 
   // ── Contatto facile (18/11/2026, canvas «v8 · Contatto nuovo con un vocale») ───────────────────────
@@ -388,7 +407,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
       if (s.roles.includes('lead')) await history(s.id, null, s.lead_stage, '', req.user.id);
       res.status(201).json({ ...s, soa_found: await soaNow(s) });
     } catch (err) {
-      if (duplicate(err)) throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
+      if (duplicate(err)) throw await vatConflict(f);
       throw err;
     }
   });
@@ -453,7 +472,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
       const vatChanged = ('vat' in f && f.vat !== cur.vat) || ('tax_code' in f && f.tax_code !== cur.tax_code);
       res.json(vatChanged ? { ...s, soa_found: await soaNow(s) } : s);
     } catch (err) {
-      if (duplicate(err)) throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
+      if (duplicate(err)) throw await vatConflict(f, id);
       throw err;
     }
   });
@@ -557,26 +576,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     if (id === into) throw new HttpError(400, 'Scegli un\'altra scheda');
     const a = await subjectById(req, id, { forWrite: true });
     const b = await subjectById(req, into, { forWrite: true });
-    await db.tx(async q => {
-      await q.query(`INSERT INTO crm_contact_links (contact_id, subject_id, job, is_primary, date_from, date_to)
-                      SELECT contact_id, $2, job, false, date_from, date_to FROM crm_contact_links WHERE subject_id = $1
-                      ON CONFLICT (contact_id, subject_id) DO NOTHING`, [id, into]);
-      await q.query('DELETE FROM crm_contact_links WHERE subject_id = $1', [id]);
-      await q.query('UPDATE crm_notes SET subject_id = $2 WHERE subject_id = $1', [id, into]);
-      for (const t of ['crm_email_links', 'crm_meeting_links', 'crm_project_links']) {
-        await q.query(`DELETE FROM ${t} a USING ${t} b WHERE a.subject_id = $1 AND b.subject_id = $2 AND ${t === 'crm_project_links' ? 'a.project_id = b.project_id' : t === 'crm_email_links' ? 'a.email_id = b.email_id' : 'a.meeting_id = b.meeting_id'}`, [id, into]);
-        await q.query(`UPDATE ${t} SET subject_id = $2 WHERE subject_id = $1`, [id, into]);
-      }
-      await q.query('UPDATE crm_contact_proposals SET subject_id = $2 WHERE subject_id = $1 AND email NOT IN (SELECT email FROM crm_contact_proposals WHERE subject_id = $2)', [id, into]);
-      await q.query('UPDATE crm_stage_history SET subject_id = $2 WHERE subject_id = $1', [id, into]);
-      await q.query('UPDATE crm_steps SET subject_id = $2 WHERE subject_id = $1', [id, into]);
-      if (a.key_account) await q.query('UPDATE crm_subjects SET key_account = true WHERE id = $1', [into]);
-      await q.query('UPDATE crm_subjects SET group_id = $2 WHERE group_id = $1', [id, into]);
-      await q.query(`UPDATE crm_subjects SET merged_into = $2, updated_at = now() WHERE id = $1`, [id, into]);
-      const roles = [...new Set([...b.roles, ...a.roles])];
-      await q.query(`UPDATE crm_subjects SET roles = $2, asa = $3, updated_at = now() WHERE id = $1`,
-        [into, roles.includes('cliente') ? roles.filter(r => r !== 'lead') : roles, [...new Set([...b.asa, ...a.asa])]]);
-    });
+    await UNI.mergeSubjects(db, { keep: b, other: a, values: {}, userId: req.user.id }); // canvas v15: porta anche i dati e tutti i collegamenti
     await commercial?.syncNext(into);
     res.json({ ok: true, into });
   });
@@ -736,7 +736,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   // ── email, incontri, note e progetti (routes/crm-links.js) ─────────────────────────────────
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
-  registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql }); // «Cerca su internet» nell'anagrafica
+  registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql, vatConflict }); // «Cerca su internet» nell'anagrafica
   commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 

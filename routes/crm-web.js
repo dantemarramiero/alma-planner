@@ -8,7 +8,7 @@ const { searchCompany, searchLinkedin, WEB_FIELDS } = require('../lib/crm-web');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 
-function registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql }) {
+function registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql, vatConflict }) {
   const apiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
 
   // quanto conosciamo le aziende che si vedono in una lista (pagina Lead): forza e chi ci porta, solo per le schede visibili
@@ -81,7 +81,13 @@ function registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allA
         [id, ...cols.map(c => f[c]), JSON.stringify(wf)]);
       res.json({ saved: cols, skipped, subject: s });
     } catch (err) {
-      if (err.code === '23505') throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
+      // P.IVA già di un'altra scheda: si dice quale e si rimandano i dati trovati, per proporre di unire (canvas v15)
+      if (err.code === '23505') {
+        if (!vatConflict) throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
+        const e = await vatConflict(f, id);
+        e.extra = { ...(e.extra || {}), web: f, skipped };
+        throw e;
+      }
       throw err;
     }
   });
