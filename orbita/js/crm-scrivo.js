@@ -150,6 +150,10 @@ export async function scrivoTab(box) {
 }
 
 // ── finestra «Nuovo contatto dalla posta» ────────────────────────────────────
+// La usa anche la Posta del CRM (ALM2-58, «Aggiungi contatto» dalla email): p = { email, name }.
+export function openContactFromMail(p) {
+  return new Promise(resolve => openCreate({ received: 0, sent: 0, ...p }, { onDone: resolve }));
+}
 async function openCreate(p, { onDone }) {
   let done = false;
   const body = h('div.sc-form', loading());
@@ -197,7 +201,7 @@ async function openCreate(p, { onDone }) {
     h('div.sc-grid', field('Email', 'email', p.email, { type: 'email' }), field('Cellulare', 'mobile', f.mobile, { type: 'tel' })),
     f.phone ? h('div.sc-grid', field('Telefono', 'phone', f.phone, { type: 'tel' }), h('span')) : null,
     h('div.field', h('span', 'Azienda'), coBox),
-    h('label.sc-check.sc-link', linkMail, h('span', h('b', `Collega ${plural(n, 'email già scambiata', 'email già scambiate')}`), h('small', 'Si vedono nella scheda del contatto e salgono sull\'azienda'))));
+    h('label.sc-check.sc-link', linkMail, h('span', h('b', n ? `Collega ${plural(n, 'email già scambiata', 'email già scambiate')}` : 'Collega le email scambiate'), h('small', 'Si vedono nella scheda del contatto e salgono sull\'azienda'))));
   const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
     const val = k => body.querySelector(`[data-k="${k}"]`)?.value.trim() || '';
     if (!val('last_name') && !val('first_name')) { body.querySelector('[data-k="last_name"]').focus(); return; }
