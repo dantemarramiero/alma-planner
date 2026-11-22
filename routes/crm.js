@@ -23,6 +23,7 @@ const { registerCrmImport } = require('./crm-import');
 const { registerCrmCommerciale } = require('./crm-commerciale');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { loadFunctions } = require('../lib/functions');
+const SC = require('../lib/crm-soa-crm');
 const SUBCATS = [...new Set(Object.values(SUPPLIER_SUBCATEGORIES).flat())];
 const SOA_CATS = SOA_CATEGORIES.map(([k]) => k);
 const SOA_CLS = SOA_CLASSES.map(([k]) => k);
@@ -298,7 +299,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     const { rows } = await db.query(
       `SELECT s.id, s.name, s.short_name, s.kind, s.vat, s.city, s.province, s.roles, s.asa, s.status, s.lead_stage, s.priority, s.potential_value,
               s.segment, s.supplier_categories, s.next_step, s.next_step_date, s.owner_id, u.name AS owner_name, s.function_name, s.updated_at, s.key_account,
-              s.lost_reason, s.retry_date, s.lead_why, s.created_quick, s.tax_code, s.phone, s.email, s.website, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
+              s.lost_reason, s.retry_date, s.lead_why, s.created_quick, s.tax_code, s.phone, s.email, s.website, s.soa, s.soa_anac, s.soa_choice, CASE WHEN 'lead' = ANY(s.roles) THEN ${LIVE_SQL} END AS live,
               (SELECT COUNT(*)::int FROM crm_contact_links l WHERE l.subject_id = s.id AND l.date_to IS NULL) AS contacts,
               (SELECT COUNT(*)::int FROM crm_meeting_links ml JOIN crm_meetings m ON m.id = ml.meeting_id
                  WHERE NOT ml.removed AND (ml.subject_id = s.id OR ml.contact_id IN (SELECT cl.contact_id FROM crm_contact_links cl WHERE cl.subject_id = s.id
@@ -306,7 +307,15 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
                    AND m.end_at < $${params.length + 1}::timestamp AND NOT EXISTS (SELECT 1 FROM crm_notes n WHERE n.meeting_id = m.id AND n.deleted_at IS NULL)) AS missing_notes
          FROM crm_subjects s LEFT JOIN users u ON u.id = s.owner_id
         WHERE ${where.join(' AND ')} ORDER BY lower(s.name) LIMIT 10000`, [...params, nowRome()]);
-    res.json({ subjects: rows.map(({ tax_code, ...r }) => ({ ...r, da_completare: daCompletare({ ...r, tax_code }) })) });
+    // SOA (canvas v14): quelle che contano, da ANAC e a mano; filtri per categoria, classifica minima e solo valide
+    const soaCat = String(req.query.soa_cat || '').toUpperCase().replace(/\s/g, '');
+    const soaMin = SC.RANK.indexOf(String(req.query.soa_cls || ''));
+    const soaValid = req.query.soa_valide === '1';
+    const list = rows.map(({ tax_code, soa_anac, soa_choice, ...r }) => {
+      const soa_effective = SC.effectiveSoa({ soa: r.soa, soa_anac, soa_choice });
+      return { ...r, soa_effective, soa_state: SC.anacState(soa_anac), soa_expires: soa_anac?.expires_on || null, da_completare: daCompletare({ ...r, tax_code }) };
+    }).filter(r => !soaCat || r.soa_effective.some(x => x.cat === soaCat && (!soaValid || !x.expired) && SC.RANK.indexOf(x.cls) >= soaMin));
+    res.json({ subjects: list });
   });
 
   // Doppioni prima di salvare: stessa P.IVA, stesso codice fiscale o stesso nome. Le schede di altre ASA si vedono
@@ -377,16 +386,40 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     try {
       const { rows: [s] } = await db.query(insertSql('crm_subjects', f), vals(f));
       if (s.roles.includes('lead')) await history(s.id, null, s.lead_stage, '', req.user.id);
-      res.status(201).json(s);
+      res.status(201).json({ ...s, soa_found: await soaNow(s) });
     } catch (err) {
       if (duplicate(err)) throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
       throw err;
     }
   });
 
+  // SOA da ANAC di un'azienda appena creata o con la P.IVA cambiata (canvas v14) → quante categorie trovate (0 = nessuna)
+  async function soaNow(s) {
+    if (!SC.cfOf(s) && !s.soa_anac) return null;
+    const r = await SC.syncSubjectsSoa(db, { ids: [s.id] }).catch(() => null);
+    if (!r || r.skipped) return null;
+    const { rows: [x] } = await db.query('SELECT soa_anac FROM crm_subjects WHERE id = $1', [s.id]);
+    return x?.soa_anac?.found ? x.soa_anac.cats.length : 0;
+  }
+  app.post('/api/crm/subjects/:id/soa-scelta', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await subjectById(req, id, { forWrite: true });
+    await SC.chooseSoa(db, id, v.oneOf(req.body?.choice, 'Scelta', ['anac', 'aggiungi', 'mine']));
+    res.json(SC.withSoa(await subjectById(req, id)));
+  });
+
   app.get('/api/crm/subjects/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
-    const s = await subjectById(req, id);
+    let s = await subjectById(req, id);
+    if (SC.cfOf(s) && s.soa_anac?.cf !== SC.cfOf(s)) { await soaNow(s); s = await subjectById(req, id); } // mai controllata o P.IVA cambiata (es. da Zoho)
+    s = SC.withSoa(s);
+    // categorie che servono alle iniziative aperte di Nuovi business (in arancio nel riquadro SOA)
+    if (s.soa_effective.length) {
+      const { rows: ini } = await db.query("SELECT name, profile->'soa' AS soa FROM crm_initiatives WHERE phase <> 'abbandonata' AND jsonb_typeof(profile->'soa') = 'array'");
+      const want = {};
+      for (const i of ini) for (const c of i.soa || []) { const k = String(c).toUpperCase().replace(/\s/g, ''); (want[k] ||= []).push(i.name); }
+      s.soa_wanted = Object.fromEntries(s.soa_effective.filter(x => want[x.cat]).map(x => [x.cat, want[x.cat]]));
+    }
     const params = [id];
     const see = seeSql(req, 'x', params);
     const [{ rows: contacts }, { rows: stageHistory }, { rows: controlled }] = await Promise.all([
@@ -417,7 +450,8 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     if (touched.length) { touched.forEach(k => delete wf[k]); f.web_fields = JSON.stringify(wf); }
     try {
       const { rows: [s] } = await db.query(updateSql('crm_subjects', f), [id, ...vals(f)]);
-      res.json(s);
+      const vatChanged = ('vat' in f && f.vat !== cur.vat) || ('tax_code' in f && f.tax_code !== cur.tax_code);
+      res.json(vatChanged ? { ...s, soa_found: await soaNow(s) } : s);
     } catch (err) {
       if (duplicate(err)) throw new HttpError(409, 'C\'è già un\'anagrafica con questa P.IVA o questo codice fiscale');
       throw err;

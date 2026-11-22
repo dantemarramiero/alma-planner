@@ -17,6 +17,7 @@ const { relationsFor, pathsOf } = require('../lib/crm-relazioni'); // forza dei 
 const { stats: outcomeStats } = require('../lib/crm-esiti');
 const { registerCrmBusinessMercato } = require('./crm-business-mercato'); // mappa del mercato (20/11)
 const { marketSummary, countGare } = require('../lib/crm-business-mercato');
+const { effectiveSoa } = require('../lib/crm-soa-crm'); // SOA da ANAC e a mano (canvas v14)
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const month = () => todayRome().slice(0, 7);
@@ -572,13 +573,13 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     const [{ rows: [n] }, { rows: clients }, { rows: partners }] = await Promise.all([
       db.query(`SELECT COUNT(*)::int AS subjects, (SELECT COUNT(*)::int FROM crm_contacts) AS contacts FROM crm_subjects WHERE merged_into IS NULL`),
       db.query(`SELECT name FROM crm_subjects WHERE merged_into IS NULL AND 'cliente' = ANY(roles) ORDER BY client_since DESC NULLS LAST, name LIMIT 60`),
-      db.query(`SELECT name, roles, soa FROM crm_subjects WHERE merged_into IS NULL AND roles && ARRAY['partner','fornitore'] ORDER BY (jsonb_array_length(soa) > 0) DESC, name LIMIT 80`),
+      db.query(`SELECT name, roles, soa, soa_anac, soa_choice FROM crm_subjects WHERE merged_into IS NULL AND roles && ARRAY['partner','fornitore'] ORDER BY (jsonb_array_length(soa) > 0 OR soa_anac->>'found' = 'true') DESC, name LIMIT 80`),
     ]);
     return [
       'Business unit (BU):', ...bus,
       `CRM: ${n.subjects} aziende, ${n.contacts} contatti.`,
       clients.length ? `Clienti: ${clients.map(c => c.name).join('; ')}.` : '',
-      partners.length ? `Partner e fornitori: ${partners.map(p => `${p.name} (${p.roles.filter(r => r !== 'lead').join('/')}${p.soa?.length ? `, SOA ${p.soa.map(x => `${x.cat} ${x.cls}`).join(' ')}` : ''})`).join('; ')}.` : '',
+      partners.length ? `Partner e fornitori: ${partners.map(p => `${p.name} (${p.roles.filter(r => r !== 'lead').join('/')}${(q => (q.length ? `, SOA ${q.map(x => `${x.cat} ${x.cls}`).join(' ')}` : ''))(effectiveSoa(p).filter(x => !x.expired))})`).join('; ')}.` : '',
     ].filter(Boolean).join('\n');
   }
   async function initiativeContext(i) {
