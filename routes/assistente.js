@@ -34,10 +34,11 @@ const chartView = ({ source, ...c }) => c;
 const express = require('express'); // il modello: OpenAI (Dante 17/11/2026)
 const { fakeClaude } = require('../lib/assistente-finto');
 const { registerBanco } = require('./assistente-banco');
+const QUOTA = require('../lib/alma-quota');
 
 const BASE = '/api/alma';
 const SETTING = 'alma.settings';
-const DEFAULTS = { enabled: true, monthly_eur: 150, daily_eur: 3, actions: true, voice: true, model_mode: 'auto', usd_eur: 0.92 };
+const DEFAULTS = { enabled: true, monthly_eur: 150, daily_eur: 1, actions: true, voice: true, model_mode: 'auto', usd_eur: 0.92 };
 const MAX_STEPS = 8; // giri di ricerche per una domanda
 const MAX_TEXT = 4000;
 // Foto nella domanda (biglietti da visita, 17/11/2026): al massimo 5, JPEG/PNG/WebP già rimpicciolite dalla pagina.
@@ -194,8 +195,11 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       voice: s.voice !== false,
       model_mode: CLAUDE.MODE_LABELS[s.model_mode] ? s.model_mode : 'auto',
       usd_eur: Number(s.usd_eur) > 0 ? Number(s.usd_eur) : DEFAULTS.usd_eur,
+      raw: s,
     };
   }
+  // Quota di oggi di chi chiede (ALM2-62): eccezione della persona, amministratori senza limite, poi quella di tutti.
+  const quotaOf = (req, s) => QUOTA.quotaFor(s.raw, { userId: req.user.id, admin: admin(req), daily: s.daily_eur });
   const sumCost = async (sql, params) => Number((await db.query(sql, params)).rows[0].c) || 0;
   const monthCostUsd = () => sumCost('SELECT COALESCE(SUM(cost_usd), 0) AS c FROM assistant_usage WHERE day >= $1', [monthStart()]);
   const todayCostUsd = userId => sumCost('SELECT COALESCE(SUM(cost_usd), 0) AS c FROM assistant_usage WHERE day = $1 AND user_id = $2', [today(), userId]);
@@ -401,8 +405,9 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     if (!s.enabled) throw new HttpError(403, 'Alma è spenta. Si accende in Impostazioni → Alma.', 'disabled');
     const month = (await monthCostUsd()) * s.usd_eur;
     if (month >= s.monthly_eur) throw new HttpError(429, `Alma ha finito la quota del mese (${s.monthly_eur} €). Riparte il 1° del mese prossimo, oppure un amministratore può alzarla in Impostazioni → Alma.`, 'month_limit');
-    const mine = req.bench ? 0 : (await todayCostUsd(req.user.id)) * s.usd_eur; // il banco di prova non usa la quota personale
-    if (mine >= s.daily_eur) throw new HttpError(429, `Per oggi hai usato tutta la tua quota di Alma (${s.daily_eur} €). Puoi tornare a usarla domani dalle 00:00.`, 'daily_limit');
+    const q = quotaOf(req, s);
+    const mine = req.bench || q.unlimited ? 0 : (await todayCostUsd(req.user.id)) * s.usd_eur; // il banco di prova non usa la quota personale
+    if (!q.unlimited && mine >= q.eur) throw new HttpError(429, `Per oggi hai usato tutta la tua quota di Alma (${q.eur.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €). Puoi tornare a usarla domani dalle 00:00.`, 'daily_limit');
     if (req.body?.conversation_id) await ownConversation(req, req.body.conversation_id);
     return { text, s, images, files };
   }
@@ -679,7 +684,8 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     if (!s.enabled) throw new HttpError(403, 'Alma è spenta.', 'disabled');
     if (!s.voice || !voiceReady()) throw new HttpError(403, 'La voce di Alma è spenta.', 'voice_off');
     if ((await monthCostUsd()) * s.usd_eur >= s.monthly_eur) throw new HttpError(429, 'Alma ha finito la quota del mese.', 'month_limit');
-    if ((await todayCostUsd(req.user.id)) * s.usd_eur >= s.daily_eur) throw new HttpError(429, 'Per oggi hai usato tutta la tua quota di Alma.', 'daily_limit');
+    const q = quotaOf(req, s);
+    if (!q.unlimited && (await todayCostUsd(req.user.id)) * s.usd_eur >= q.eur) throw new HttpError(429, 'Per oggi hai usato tutta la tua quota di Alma.', 'daily_limit');
   }
   const logVoice = (userId, model, usd) => db.query(`INSERT INTO assistant_usage (user_id, conversation_id, model, input_tokens, output_tokens, cache_read, cache_write, cost_usd, day)
     VALUES ($1, NULL, $2, 0, 0, 0, 0, $3, $4)`, [userId, model, usd, today()]);
@@ -726,7 +732,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
   };
   const V = require('../lib/assistente-voce-live')({ db, HttpError, model: VOICE_MODEL, usdPerMin: VOICE_USD_PER_MIN, maxMinutes: 15, today, addMessage,
     connect: (sdp, secret) => rt.connect(sdp, secret), hangup: id => rt.hangup(id),
-    quota: async req => { const s = await settings(); return { month_left_usd: s.monthly_eur / s.usd_eur - await monthCostUsd(), user_left_usd: s.daily_eur / s.usd_eur - await todayCostUsd(req.user.id) }; } });
+    quota: async req => { const s = await settings(); return { month_left_usd: s.monthly_eur / s.usd_eur - await monthCostUsd(), user_left_usd: (q => q.unlimited ? Infinity : q.eur / s.usd_eur - 0)(quotaOf(req, s)) - await todayCostUsd(req.user.id) }; } });
   if (!process.env.NODE_TEST_CONTEXT) V.start();
   const voiceSeen = new Map(); // conversazione → testi liberi visti dopo l'ultima frase dell'utente (difesa)
   const CONFIRM_TOOLS = [
@@ -906,11 +912,34 @@ MODALITÀ VOCE (stai parlando a voce, in tempo reale):
     res.json({ ok: true });
   });
 
+  // Budget AI di oggi per il tasto Alma e la pastiglia del pannello (ALM2-62). Per chi è senza limite: il suo consumo
+  // di oggi e del mese; agli amministratori anche il totale di tutta l'azienda sul tetto del mese.
+  app.get(`${BASE}/budget`, async (req, res) => {
+    const s = await settings();
+    const q = quotaOf(req, s);
+    const eur = n => r2(Number(n || 0) * s.usd_eur);
+    const t = today();
+    const from = new Date(Date.parse(`${t}T12:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
+    const { rows } = await db.query(`SELECT to_char(day, 'YYYY-MM-DD') AS day, SUM(cost_usd) AS usd FROM assistant_usage WHERE user_id = $1 AND day >= $2 GROUP BY 1`, [req.user.id, from]);
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const d = new Date(Date.parse(`${t}T12:00:00Z`) - i * 864e5).toISOString().slice(0, 10);
+      days.push({ day: d, eur: eur(rows.find(r => r.day === d)?.usd) });
+    }
+    const usedRaw = Number(rows.find(r => r.day === t)?.usd || 0) * s.usd_eur;
+    const used = days[6].eur;
+    const questions = Number((await db.query(`SELECT COUNT(*)::int AS n FROM assistant_traces WHERE user_id = $1 AND (created_at AT TIME ZONE 'Europe/Rome')::date = $2::date`, [req.user.id, t])).rows[0].n) || 0;
+    const out = { unlimited: q.unlimited, source: q.source, daily_eur: q.eur, used_today_eur: used, left_eur: q.unlimited ? null : Math.floor(Math.max(0, q.eur - usedRaw) * 100 + 1e-6) / 100,
+      questions_today: questions, days, enabled: s.enabled };
+    if (q.unlimited || admin(req)) out.month_eur = eur(await sumCost('SELECT COALESCE(SUM(cost_usd), 0) AS c FROM assistant_usage WHERE day >= $1 AND user_id = $2', [monthStart(), req.user.id]));
+    if (admin(req)) { out.team_month_eur = eur(await monthCostUsd()); out.cap_eur = s.monthly_eur; }
+    res.json(out);
+  });
   app.get(`${BASE}/status`, async (req, res) => {
     const s = await settings();
     const eur = n => r2(n * s.usd_eur);
     res.json({ configured: configured(), enabled: s.enabled, admin: admin(req), fake: call === fakeClaude, actions: s.actions, voce: s.voice && voiceReady(), voce_live: s.voice && Boolean(almaRealtime || openaiKey),
-      limits: { daily_eur: s.daily_eur, used_today_eur: eur(await todayCostUsd(req.user.id)), month_blocked: (await monthCostUsd()) * s.usd_eur >= s.monthly_eur },
+      limits: { daily_eur: quotaOf(req, s).eur, unlimited: quotaOf(req, s).unlimited, used_today_eur: eur(await todayCostUsd(req.user.id)), month_blocked: (await monthCostUsd()) * s.usd_eur >= s.monthly_eur },
       tools: (await toolsFor(req)).map(t => t.name) });
   });
   app.get(`${BASE}/conversations`, async (req, res) => {
@@ -982,13 +1011,14 @@ MODALITÀ VOCE (stai parlando a voce, in tempo reale):
   app.get(`${BASE}/settings`, async (req, res) => {
     adminOnly(req);
     const s = await settings();
-    res.json({ ...s, configured: configured(), fake: call === fakeClaude, modes: CLAUDE.MODE_LABELS, stats: await stats(s) });
+    const { raw, ...plain } = s;
+    res.json({ ...plain, configured: configured(), fake: call === fakeClaude, modes: CLAUDE.MODE_LABELS, stats: await stats(s) });
   });
   app.put(`${BASE}/settings`, async (req, res) => {
     adminOnly(req);
     const b = req.body || {};
-    const before = await settings();
-    const next = { ...before };
+    const { raw: saved, ...before } = await settings();
+    const next = { ...saved, ...before }; // tiene anche le quote per persona (user_daily, admins_unlimited)
     if (b.enabled !== undefined) next.enabled = Boolean(b.enabled);
     if (b.actions !== undefined) next.actions = Boolean(b.actions);
     if (b.voice !== undefined) next.voice = Boolean(b.voice);

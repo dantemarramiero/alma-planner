@@ -81,3 +81,10 @@
   .imp-two.wide-left { grid-template-columns: minmax(0, 1fr); }
   .imp-big > span:first-child { font-size: 32px; }
 }
+/* Costi AI: tetti e quote per persona uno sotto l'altro (ALM2-62) */
+.imp-side { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.imp-quotas { display: grid; gap: 2px; }
+.imp-quota { gap: 10px; padding: 6px 0; border-top: 1px solid var(--cv-line-2); }
+.imp-quota:first-child { border-top: 0; }
+.imp-quota-add { display: grid; gap: 10px; border-top: 1px solid var(--cv-line-2); padding-top: 12px; }
+.imp-quota .cv-grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

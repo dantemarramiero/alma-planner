@@ -5,7 +5,7 @@
 import { h, fill, toast, loading, confirmDialog, fmtDate, fmtDateTime, timeAgo, debounce } from './ui.js';
 import { get, post, put, patch, del, qs } from './api.js';
 import { store } from './store.js';
-import { ic, pill, av, pageTop, title, card, emptyState, seg, cvModal, link } from './crm-v2.js';
+import { ic, pill, av, pageTop, title, card, emptyState, seg, cvModal, link, toggle } from './crm-v2.js';
 import { renderOrganigramma } from './org-incarichi.js';
 
 const SECTIONS = [
@@ -259,14 +259,37 @@ async function costi(body, { parts }) {
     const m = input({ type: 'number', min: 1, step: '0.5', value: c.cap_eur });
     const dd = input({ type: 'number', min: 0.5, step: '0.5', value: c.daily_eur });
     const a = input({ type: 'number', min: 10, max: 100, step: 5, value: c.alert_pct });
+    const unl = toggle(c.admins_unlimited, 'Gli amministratori non hanno limite al giorno', { 'aria-label': 'Amministratori senza limite al giorno' });
     return card({ title: 'Tetti di spesa', icon: 'sliders', cls: 'pad' },
       field('Tetto aziendale al mese (€)', m, 'Raggiunto il tetto, l\'AI si ferma per tutti fino al mese dopo.'),
-      field('Tetto per persona al giorno (€)', dd, 'Raggiunto, si ferma solo per quella persona fino a domani.'),
+      field('Tetto per persona al giorno (€)', dd, 'Raggiunto, si ferma solo per quella persona fino a domani. Per qualcuno in più o in meno: «Quote per persona».'),
+      h('div.imp-fld', unl.el, h('span.cv-small.cv-muted', 'Vedono comunque quanto spendono accanto al tasto Alma. Il tetto del mese vale per tutti.')),
       field('Avvisa gli amministratori al (%)', a),
       h('button.btn.btn-primary', { type: 'button', style: { justifySelf: 'start' }, on: { click: async () => {
-        await put('/api/impostazioni/costi', { monthly_eur: Number(m.value), daily_eur: Number(dd.value), alert_pct: Number(a.value) });
+        await put('/api/impostazioni/costi', { monthly_eur: Number(m.value), daily_eur: Number(dd.value), alert_pct: Number(a.value), admins_unlimited: unl.input.checked });
         toast('Tetti salvati'); costi(body, { parts });
       } } }, 'Salva'));
+  })() : null;
+  // Quote per persona (ALM2-62): chi ha una quota al giorno diversa da tutti, o nessun limite.
+  const perPerson = c.can_edit ? (() => {
+    const save = async (id, quota) => { await put(`/api/impostazioni/costi/persona/${id}`, { quota }); toast('Quota salvata'); costi(body, { parts }); };
+    const free = c.users.filter(u => !c.quotas.some(q => q.id === u.id));
+    const who = select([['', 'Scegli una persona…'], ...free.map(u => [u.id, u.admin ? `${u.name} (amministratore)` : u.name])], '', { 'aria-label': 'Persona' });
+    const amount = input({ type: 'number', min: 0.5, step: '0.5', placeholder: String(c.daily_eur), 'aria-label': 'Euro al giorno', style: { width: '96px' } });
+    const noLimit = toggle(false, 'Senza limite', { 'aria-label': 'Senza limite' });
+    noLimit.input.addEventListener('change', () => { amount.disabled = noLimit.input.checked; });
+    const add = h('button.btn', { type: 'button', on: { click: () => {
+      if (!who.value) return toast('Scegli una persona');
+      if (!noLimit.input.checked && !(Number(amount.value) > 0)) return toast('Scrivi quanti euro al giorno');
+      save(who.value, noLimit.input.checked ? 'unlimited' : Number(amount.value));
+    } } }, ic('plus', 15), 'Aggiungi');
+    return card({ title: 'Quote per persona', icon: 'users', cls: 'pad' },
+      h('span.cv-small.cv-muted', `Tutti gli altri hanno ${eur(c.daily_eur)} al giorno${c.admins_unlimited ? ', gli amministratori nessun limite' : ''}.`),
+      c.quotas.length ? h('div.imp-quotas', c.quotas.map(q => h('div.cv-row.imp-quota',
+        av(q.name), h('span.cv-grow', q.name),
+        pill(q.value === 'unlimited' ? 'Senza limite' : `${eur(q.value)} al giorno`, q.value === 'unlimited' ? 'or' : ''),
+        h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Torna come tutti', 'aria-label': `Togli la quota di ${q.name}`, on: { click: () => save(q.id, null) } }, ic('x', 15))))) : null,
+      h('div.imp-quota-add', who, h('div.cv-row', { style: { gap: '10px', flexWrap: 'wrap' } }, h('span.cv-row', { style: { gap: '6px' } }, amount, h('span.cv-small.cv-muted', '€ al giorno')), noLimit.el, add)));
   })() : null;
   fill(body,
     head('costi AI', '', 'Costi AI', 'Tutto quello che l\'AI costa in Alma Space, in euro: Alma per scritto e a voce, trascrizioni, ricerche AI del CRM. I prezzi in dollari si convertono al cambio di Alma.',
@@ -282,14 +305,14 @@ async function costi(body, { parts }) {
       card({ title: 'Per funzione', icon: 'bar-chart-3', cls: 'pad' },
         c.features.map(f => h('div.imp-feat', h('div.cv-row', h('span.cv-grow', f.label), h('b', eur(f.eur))), pctBar(Math.round(f.eur / maxF * 100), 'thin'))))),
     h('div.imp-two.wide-left',
-      card({ title: 'Per persona', icon: 'users', right: h('span.cv-small.cv-muted', `tetto personale ${eur(c.daily_eur)} al giorno`) },
+      card({ title: 'Per persona', icon: 'users', right: h('span.cv-small.cv-muted', `di solito ${eur(c.daily_eur)} al giorno`) },
         c.people.length ? h('div.cv-tblwrap', h('table.cv-tbl',
           h('thead', h('tr', h('th', 'Persona'), h('th.num', 'Domande'), h('th.num', 'Mese'), c.is_current ? h('th', 'Oggi sul tetto del giorno') : null, h('th.num', 'Giorni al tetto'))),
           h('tbody', c.people.map(p => h('tr',
             h('td', h('div.cv-row', av(p.name), p.name)), h('td.num', String(p.questions)), h('td.num', eur(p.eur)),
-            c.is_current ? h('td', h('div.cv-row', pctBar(Math.round(p.today_eur / c.daily_eur * 100), 'mini'), h('span.cv-small.cv-muted', eur(p.today_eur)))) : null,
+            c.is_current ? h('td', h('div.cv-row', p.quota.unlimited ? null : pctBar(Math.round(p.today_eur / p.quota.eur * 100), 'mini'), h('span.cv-small.cv-muted', p.quota.unlimited ? `${eur(p.today_eur)} · senza limite` : `${eur(p.today_eur)} di ${eur(p.quota.eur)}`))) : null,
             h('td.num', pill(String(p.cap_days), p.cap_days ? 'am' : ''))))))) : emptyState('coins', 'Nessuna spesa AI in questo mese.')),
-      caps));
+      h('div.imp-side', caps, perPerson)));
 }
 
 // ── Privacy e visibilità ───────────────────────────────────────────────────────────────────────

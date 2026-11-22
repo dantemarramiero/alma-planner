@@ -7,10 +7,11 @@ const { graph } = require('../lib/graph');
 const { getSetting, saveSetting } = require('../lib/settings');
 const { AREAS, LEVELS, RULES, ADMIN_EDITABLE } = require('../lib/impostazioni');
 const { syncOrg } = require('./org');
+const QUOTA = require('../lib/alma-quota');
 
 const BASE = '/api/impostazioni';
 const ALMA_SETTING = 'alma.settings';
-const ALMA_DEFAULTS = { monthly_eur: 150, daily_eur: 3, usd_eur: 0.92 };
+const ALMA_DEFAULTS = { monthly_eur: 150, daily_eur: 1, usd_eur: 0.92 };
 const ACCESS_ACTIONS = ['login', 'login_refused', 'logout', 'logout_all', 'session_revoked'];
 const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
 const romeDay = (d = new Date()) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -304,11 +305,11 @@ function registerImpostazioni(app, { db, auth, gov, notifier, config }) {
     for (const m of byModel) features[featureOf(m.model)] += Number(m.usd) * s.usd_eur;
     const today = romeDay();
     const people = (await db.query(
-      `SELECT u.id, u.name, SUM(a.cost_usd) AS usd,
+      `SELECT u.id, u.name, u.email, SUM(a.cost_usd) AS usd,
               SUM(a.cost_usd) FILTER (WHERE a.day = $2::date) AS today_usd,
               (SELECT COUNT(*)::int FROM assistant_traces t WHERE t.user_id = u.id AND to_char(t.created_at AT TIME ZONE 'Europe/Rome', 'YYYY-MM') = $1) AS questions
          FROM assistant_usage a JOIN users u ON u.id = a.user_id
-        WHERE to_char(a.day, 'YYYY-MM') = $1 GROUP BY u.id, u.name ORDER BY usd DESC`, [month, today])).rows;
+        WHERE to_char(a.day, 'YYYY-MM') = $1 GROUP BY u.id, u.name, u.email ORDER BY usd DESC`, [month, today])).rows;
     const capDays = (await db.query(
       `SELECT user_id, COUNT(*)::int AS n FROM (SELECT user_id, day, SUM(cost_usd) AS usd FROM assistant_usage
          WHERE to_char(day, 'YYYY-MM') = $1 AND user_id IS NOT NULL GROUP BY user_id, day) d WHERE d.usd * $2 >= $3 GROUP BY user_id`, [month, s.usd_eur, s.daily_eur])).rows;
@@ -322,11 +323,17 @@ function registerImpostazioni(app, { db, auth, gov, notifier, config }) {
     const dayNow = isCurrent ? Number(today.slice(8, 10)) : daysIn;
     const forecast = isCurrent && dayNow ? r2(sum.month_eur / dayNow * daysIn) : sum.month_eur;
     const alertPct = Number(await getSetting(db, 'planet.ai_alert_pct', 80)) || 80;
+    // Quota al giorno di ognuno (ALM2-62): eccezione della persona, amministratori senza limite, poi quella di tutti.
+    const quotaOf = u => QUOTA.quotaFor(s.raw, { userId: u.id, admin: gov.isAdminEmail(u.email), daily: s.daily_eur });
+    const overrides = Object.keys((s.raw && s.raw.user_daily) || {}).map(Number).filter(Boolean);
+    const users = gov.isAdmin(req) ? (await db.query('SELECT id, name, email FROM users WHERE suspended_at IS NULL ORDER BY name')).rows : [];
+    const quotas = users.filter(u => overrides.includes(u.id)).map(u => ({ id: u.id, name: u.name, value: QUOTA.overrideOf(s.raw, u.id) }));
     res.json({
+      admins_unlimited: s.raw.admins_unlimited !== false, quotas, users: users.map(u => ({ id: u.id, name: u.name, admin: gov.isAdminEmail(u.email) })),
       month, month_eur: sum.month_eur, cap_eur: s.monthly_eur, daily_eur: s.daily_eur, usd_eur: s.usd_eur, alert_pct: alertPct,
       pct: s.monthly_eur ? Math.round(sum.month_eur / s.monthly_eur * 100) : 0, forecast_eur: forecast, is_current: isCurrent,
       features: Object.entries(features).map(([k, eur]) => ({ key: k, label: FEATURES[k], eur: r2(eur) })),
-      people: people.map(p => ({ id: p.id, name: p.name, questions: p.questions, eur: r2(Number(p.usd) * s.usd_eur), today_eur: r2(Number(p.today_usd || 0) * s.usd_eur), cap_days: capDays.find(c => c.user_id === p.id)?.n || 0 })),
+      people: people.map(p => ({ id: p.id, name: p.name, questions: p.questions, eur: r2(Number(p.usd) * s.usd_eur), today_eur: r2(Number(p.today_usd || 0) * s.usd_eur), quota: quotaOf(p), cap_days: capDays.find(c => c.user_id === p.id)?.n || 0 })),
       months, can_edit: gov.isAdmin(req),
     });
   });
@@ -339,10 +346,27 @@ function registerImpostazioni(app, { db, auth, gov, notifier, config }) {
     if (!(monthly > 0 && monthly <= 100000)) throw new HttpError(400, 'Tetto mensile non valido');
     if (!(daily > 0 && daily <= 1000)) throw new HttpError(400, 'Tetto giornaliero non valido');
     const before = { mese: s.monthly_eur, giorno: s.daily_eur, avviso: Number(await getSetting(db, 'planet.ai_alert_pct', 80)) || 80 };
-    await saveSetting(db, ALMA_SETTING, { ...s.raw, monthly_eur: r2(monthly), daily_eur: r2(daily) }, req.user.id);
+    const adminsUnlimited = b.admins_unlimited === undefined ? s.raw.admins_unlimited !== false : Boolean(b.admins_unlimited);
+    await saveSetting(db, ALMA_SETTING, { ...s.raw, monthly_eur: r2(monthly), daily_eur: r2(daily), admins_unlimited: adminsUnlimited }, req.user.id);
     await saveSetting(db, 'planet.ai_alert_pct', pct, req.user.id);
-    audit(req, 'Ha cambiato i tetti di spesa AI', 'Costi AI', before, { mese: r2(monthly), giorno: r2(daily), avviso: pct });
+    audit(req, 'Ha cambiato i tetti di spesa AI', 'Costi AI', { ...before, amministratori_senza_limite: s.raw.admins_unlimited !== false }, { mese: r2(monthly), giorno: r2(daily), avviso: pct, amministratori_senza_limite: adminsUnlimited });
     res.json({ ok: true });
+  });
+  // Quota di Alma al giorno per una persona (ALM2-62): { quota: euro | 'unlimited' | null (= come tutti) }.
+  app.put(`${BASE}/costi/persona/:id`, async (req, res) => {
+    adminOnly(req);
+    const id = Number(req.params.id);
+    const u = await one('SELECT id, name FROM users WHERE id = $1', [id]);
+    if (!u) throw new HttpError(404, 'Persona non trovata');
+    const value = QUOTA.parseOverride(req.body?.quota);
+    if (value === undefined) throw new HttpError(400, 'Quota al giorno: un importo da 0,01 a 1000 €, oppure «senza limite».');
+    const s = await almaSettings();
+    const map = { ...((s.raw && s.raw.user_daily) || {}) };
+    const before = map[String(id)] ?? 'come tutti';
+    if (value === null) delete map[String(id)]; else map[String(id)] = value;
+    await saveSetting(db, ALMA_SETTING, { ...s.raw, user_daily: map }, req.user.id);
+    audit(req, `Ha cambiato la quota AI di ${u.name}`, 'Costi AI', { quota: before }, { quota: value ?? 'come tutti' });
+    res.json({ ok: true, value });
   });
 
   // ── Privacy e visibilità ───────────────────────────────────────────────────────────────────────
