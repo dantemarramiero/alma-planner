@@ -25,6 +25,7 @@ export function sentence(n) {
     case 'energy': return n.body || ''; // scadenze di Alma Energy
     case 'strategy': return n.body || '';
     case 'it': return n.body || '';
+    case 'feedback': return n.body || ''; // esito di un feedback su Alma Space
     case 'new_post': case 'ticket_assigned': case 'a3_update': return n.body || ''; // avvisi scelti in Profilo → Notifiche // Alma IT: richieste al team IT e risposte // Alma Strategy: modifiche della scheda da approvare, decisioni, revisioni
     case 'ticket_reminder': return `ti manda un promemoria su${quote(n.ticket_title)}:${quote(n.body)}`;
     case 'due_tomorrow': return `Promemoria:${quote(n.ticket_title)} scade il prossimo giorno lavorativo.`;
@@ -67,9 +68,9 @@ export function notificationsView(view) {
 
   function row(n) {
     const u = userById(n.actor_id);
-    const system = ['due_tomorrow', 'overdue_project', 'software_proposal'].includes(n.kind) || (n.kind === 'mezzi' && !n.actor_id); // li manda Alma Space, non una persona
+    const system = ['due_tomorrow', 'overdue_project', 'software_proposal', 'feedback'].includes(n.kind) || (n.kind === 'mezzi' && !n.actor_id); // li manda Alma Space, non una persona
     return h('button.notif', { type: 'button', class: n.read_at ? '' : 'new', on: { click: () => open(n) } },
-      system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : n.kind === 'mezzi' ? 'car' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
+      system ? h('span.notif-sys', icon(n.kind === 'software_proposal' ? 'package' : n.kind === 'feedback' ? 'megaphone' : n.kind === 'mezzi' ? 'car' : 'alarm-clock', { size: 22 })) : avatar(u, 44),
       h('div.grow', system ? null : [h('strong', u?.name || 'Qualcuno'), ' '], withoutName(sentence(n), system ? null : u?.name), h('span.notif-time', ` ${timeAgo(n.created_at)}`)),
       n.post_media_id ? h('img.notif-thumb', { src: mediaUrl(n.post_media_id), alt: '' }) : n.post_body ? h('span.notif-thumb.text', n.post_body) : null);
   }

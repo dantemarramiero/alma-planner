@@ -1,0 +1,33 @@
+/* Feedback su Alma Space (ALM2-56): finestra con i due tipi a pillola, foto dello schermo, «I miei feedback».
+   Angoli del refresh: 12px pulsanti e campi, 18px card, 22px finestre, pillole per i selettori. */
+button.foot-bell { border: 0; background: transparent; width: 100%; cursor: pointer; text-align: left; font: inherit; white-space: nowrap; overflow: hidden; }
+
+.fb-modal { border-radius: 22px; max-width: 560px; }
+.fb-head h2 { margin: 0; }
+.fb-sub { margin: var(--ap-space-1) 0 0; font-size: var(--ap-fs-sm); color: var(--muted); font-weight: var(--ap-fw-regular); }
+.fb-form { display: grid; gap: var(--ap-space-3); }
+.fb-kinds { display: flex; flex-wrap: wrap; gap: var(--ap-space-2); }
+.fb-kind { border: 1px solid var(--rule-strong); background: var(--card); color: var(--ap-text); border-radius: var(--radius-pill); padding: 8px 16px; min-height: 36px; cursor: pointer; font-weight: var(--ap-fw-medium); transition: all var(--ap-dur) var(--ap-ease); }
+.fb-kind:hover { border-color: var(--orange); }
+.fb-kind.on { background: var(--orange-soft); border-color: var(--orange); color: var(--orange-dark); }
+.fb-kind:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.fb-hint { margin: calc(-1 * var(--ap-space-1)) 0 0; font-size: var(--ap-fs-sm); color: var(--muted); }
+.fb-form textarea.input { border-radius: 12px; min-height: 120px; }
+.fb-attach-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ap-space-2); }
+.fb-attach { border-radius: 12px; display: inline-flex; align-items: center; gap: var(--ap-space-2); }
+.fb-thumbs { display: flex; flex-wrap: wrap; gap: var(--ap-space-3); }
+.fb-thumbs:empty { display: none; }
+.fb-thumb { margin: 0; display: grid; gap: var(--ap-space-1); justify-items: start; }
+.fb-thumb img { width: 120px; height: 80px; object-fit: cover; border-radius: 12px; border: 1px solid var(--rule); background: var(--bg); }
+.fb-note { margin: 0; }
+
+.fb-page .card { border-radius: 18px; overflow: hidden; }
+.fb-table td { vertical-align: top; }
+.fb-table tbody tr { cursor: default; }
+.fb-cell { max-width: 420px; }
+.fb-text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
+.fb-reason { margin-top: var(--ap-space-1); max-width: 260px; white-space: normal; }
+.pill.fb-no { background: var(--red-soft); color: var(--red); }
+.fb-cards { display: grid; gap: var(--ap-space-3); padding: var(--ap-space-3); }
+.fb-card { padding: var(--ap-space-3) var(--ap-space-4); display: grid; gap: var(--ap-space-2); border-radius: 18px; }
+.fb-card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--ap-space-2); }

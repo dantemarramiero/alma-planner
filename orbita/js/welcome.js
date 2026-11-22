@@ -127,6 +127,9 @@ export async function welcomeView(view) {
     approvals ? h('a.wl-qbtn', { href: my.approvals.scheda ? '#/strategy/scheda' : '#/rda' }, `${approvals} da approvare`) : null,
     my.scheda === 'missing' ? h('a.wl-qbtn.wl-qmain', { href: '#/strategy/scheda' }, 'Compila la tua scheda') : null);
 
+  // ── Alma HR fase 4: «Il mio inserimento» in cima alla Home finché il piano è aperto ──
+  const onbCard = store.me?.onboarding ? await (await import('./hr-onb.js')).homeCard().catch(() => null) : null;
+
   // ── scorciatoie ──
   const shortcuts = h('nav.wl-sc', { 'aria-label': 'Scorciatoie' });
   const edit = () => editShortcuts(d.shortcuts, list => { d.shortcuts = list; drawShortcuts(); });
@@ -308,7 +311,7 @@ export async function welcomeView(view) {
     h('div.page-head.wl-head',
       h('div', h('span.wl-eyebrow', dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)), h('h1.wl-title', `${greeting()}, `, h('strong', firstName(store.me)))),
       quick),
-    shortcuts, strategy, stories,
+    onbCard, shortcuts, strategy, stories,
     h('div.wl-cols2', feed, side)));
 }
 

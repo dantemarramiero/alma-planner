@@ -9,6 +9,7 @@ import { ic } from './crm-v2.js';
 import { openTicket } from './tickets.js';
 import { projectDetail, editProject } from './projects.js';
 import { openMeeting, meetingWhen } from './project-meetings.js';
+import { loadDeal, dealHero, dealOverview } from './crm-posta.js';
 
 const STAGE_LABEL = { '': 'Programmata', programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
 const PARTS = [['fit', 'Coerenza'], ['concreteness', 'Concretezza'], ['timing', 'Tempi'], ['relationship', 'Rapporto'], ['value', 'Valore']];
@@ -29,6 +30,9 @@ export async function launchRoom(container, type, id) {
   const r = await get(`/api/crm/lancio/proposta?${qs}`);
   if (r.already) { location.replace(`#/crm/progetto/${r.already}`); return; }
   const gara = r.kind === 'gara';
+  const trattativa = r.kind === 'trattativa'; // nata da una email (ALM2-55, tavola C)
+  const fromSignal = r.source.type === 'signal';
+  const money = gara || trattativa;
   const users = r.users;
   const opts = users.map(u => [u.id, u.name]);
   const sel = (value, attrs = {}) => h('select.pv-sel', attrs, opts.map(([k, l]) => h('option', { value: k, selected: Number(k) === Number(value) }, l)));
@@ -36,7 +40,9 @@ export async function launchRoom(container, type, id) {
   const st = { owner: r.owner_id, team: r.team.map(t => ({ ...t })), phases: r.phases.map(p => ({ title: p.title, tasks: p.tasks.map(t => ({ ...t })) })), goal: { ...r.goal } };
 
   // ── colonna sinistra: l'opportunità in grande ──
-  const tiles = gara
+  const tiles = trattativa
+    ? [['Valore', eur(r.amount)], ['Offerte entro', r.deadline ? day(r.deadline) : 'da capire'], ['Prossimo passo', r.concept?.prossimo_passo || '—'], ['BU', r.bu_label || '—']]
+    : gara
     ? [['Valore', eur(r.amount)], [r.deadline ? 'Scadenza' : 'Bando atteso', r.deadline ? day(r.deadline) : r.expected_on ? day(r.expected_on) : 'da capire'], ['Fase', STAGE_LABEL[r.stage] || 'Programmata'], ['BU', r.bu_label || '—']]
     : [['Budget', eur(r.goal.budget)], ['Clienti target', String(r.targets || 0)], ['Prossimo gate', r.next_gate ? `G${r.next_gate.n}${r.next_gate.due_date ? ` · ${day(r.next_gate.due_date)}` : ''}` : '—'], ['ASA', r.bu_label || '—']];
   const score = Number(r.score) || 0;
@@ -50,16 +56,19 @@ export async function launchRoom(container, type, id) {
   const parts = r.score_parts || {};
   const dotTone = v => (v >= 15 ? 'gr' : v >= 8 ? 'or' : '');
   const timeline = () => {
-    const pts = gara ? [['oggi', 0], ['contatto', 22], ['bando', 55], ['offerta', 80], ['esito', 100]] : [['oggi', 0], ['G2', 25], ['G3', 50], ['G4', 75], ['Go', 100]];
+    const pts = trattativa ? [['oggi', 0], ['incontro', 22], ['sopralluogo', 45], ['offerta', 80], ['esito', 100]] : gara ? [['oggi', 0], ['contatto', 22], ['bando', 55], ['offerta', 80], ['esito', 100]] : [['oggi', 0], ['G2', 25], ['G3', 50], ['G4', 75], ['Go', 100]];
     return h('div.pv-tl', h('span.pv-tl-k', 'Linea del tempo'), h('div.pv-tl-bar', h('i', { style: { width: '22%' } }),
       pts.map(([l, x]) => h('span.pv-tl-pt', { style: { left: `${x}%` }, class: x <= 22 ? 'on' : '' }, h('small', l)))));
   };
   const left = h('aside.pv-l',
-    h('a.pv-back', { href: gara ? '#/crm/radar' : `#/crm/business/${r.source.id}` }, ic('chevron-left', 14), gara ? 'Radar' : 'Nuovi business'),
-    h('div.pv-l-head', h('span.pv-kicker', gara ? `Dal Radar · ${STAGE_LABEL[r.stage] || 'Programmata'}` : 'Da Nuovi business · nuovo settore'),
+    h('a.pv-back', { href: fromSignal ? (r.source.email ? '#/crm/posta' : '#/crm/radar') : `#/crm/business/${r.source.id}` }, ic('chevron-left', 14), fromSignal ? (r.source.email ? 'Posta' : 'Radar') : 'Nuovi business'),
+    h('div.pv-l-head', h('span.pv-kicker', trattativa ? 'Sala di lancio · nata da una email' : r.source.email ? 'Da una email · gara' : gara ? `Dal Radar · ${STAGE_LABEL[r.stage] || 'Programmata'}` : 'Da Nuovi business · nuovo settore'),
       h('h1.pv-l-title', r.name), h('div.pv-l-sub', [r.entity, r.place || r.region, r.cig ? `CIG ${r.cig}` : ''].filter(Boolean).join(' · '))),
     h('div.pv-l-tiles', tiles.map(([k, v]) => glassTile(k, v))),
-    gara ? h('section.pv-glass.pv-score',
+    r.source.email ? h('section.pv-glass.pv-desc.pv-concept', h('span.pv-k', 'Cosa ha capito Alma dalla email'),
+      [['Cosa', r.concept?.cosa], ['Dove', r.concept?.dove || r.place], ['Per chi', r.concept?.per_chi || r.concept?.committente], ['Tempi', r.concept?.tempi]].filter(([, x]) => x).map(([k, x]) => h('p', h('b', `${k}: `), x)),
+      r.warm_paths.length ? h('div.pv-why', h('span.pv-dot.gr'), h('span.pv-why-k', 'Strade calde'), h('span', r.warm_paths.map(p => `${firstName(p.us)} → ${p.contact}`).join(' · '))) : null) : null,
+    gara && !r.source.email ? h('section.pv-glass.pv-score',
       h('div.pv-row', h('b.pv-grow', 'Punteggio di Alma'), h('small', { class: score >= 70 ? 'gr' : score >= 50 ? 'or' : '' }, score >= 70 ? 'conviene' : score >= 50 ? 'da valutare' : 'debole')),
       gauge(),
       PARTS.filter(([k]) => parts[k] !== undefined).map(([k, l]) => h('div.pv-why', h('span.pv-dot', { class: dotTone(parts[k]) }), h('span.pv-why-k', l), h('span', String(parts[k])))),
@@ -87,7 +96,7 @@ export async function launchRoom(container, type, id) {
   const drawPlan = () => {
     const n = st.phases.reduce((s, p) => s + p.tasks.length, 0);
     fill(planBox,
-      h('div.pv-row.pv-plan-h', h('b.pv-grow', 'Il piano'), h('small', `${st.phases.length} fasi · ${n} compiti · fino all'${gara ? 'esito' : 'ultimo gate'}`)),
+      h('div.pv-row.pv-plan-h', h('b.pv-grow', 'Il piano'), h('small', `${st.phases.length} fasi · ${n} compiti · fino all'${money ? 'esito' : 'ultimo gate'}`)),
       st.phases.map((ph, pi) => h('div.pv-phase',
         h('div.pv-phase-rail', h('span.pv-phase-n', { style: { background: phaseColor(pi) } }, String(pi + 1)), h('i')),
         h('div.pv-phase-b',
@@ -112,7 +121,7 @@ export async function launchRoom(container, type, id) {
   };
   const wBox = h('div.pv-weighted');
   const drawWeighted = () => {
-    if (gara) {
+    if (money) {
       const margin = Math.round(weighted() * (Number(st.goal.margin) || 0) / 100);
       fill(wBox, h('span.pv-k', 'Valore pesato'), h('b', eur(weighted())),
         h('small', `margine atteso ${eur(margin)} · ${st.goal.hours || 0} h di lavoro${st.goal.hours ? ` = ${eur(Math.round(margin / st.goal.hours))} per ora` : ''}`));
@@ -124,8 +133,8 @@ export async function launchRoom(container, type, id) {
     const who = new Set(st.phases.flatMap(p => p.tasks.filter(t => t.title.trim()).map(t => t.owner_id)));
     fill(effects, h('b', 'Cosa succede quando lanci'),
       [['folder', 'nasce il progetto in I miei progetti'], ['bell', `${n} compiti arrivano a ${who.size} ${who.size === 1 ? 'persona' : 'persone'} (avviso + email)`],
-        gara ? ['building', r.subject_id ? `${r.entity} è collegato al progetto` : `${r.entity} entra nel CRM`] : ['sprout', 'l\'iniziativa resta in Nuovi business, collegata'],
-        gara ? ['radar', 'l\'opportunità resta nel Radar con «in corso»'] : ['flag', 'i gate restano decisi dalla direzione']]
+        money ? ['building', r.subject_id ? `${r.entity} è collegato al progetto` : `${r.entity} entra nel CRM`] : ['sprout', 'l\'iniziativa resta in Nuovi business, collegata'],
+        r.source.email ? ['mail', 'la conversazione entra nel progetto e le risposte nuove si aggiungono da sole'] : gara ? ['radar', 'l\'opportunità resta nel Radar con «in corso»'] : ['flag', 'i gate restano decisi dalla direzione']]
         .map(([i, t]) => h('div.pv-eff', h('span', ic(i, 14)), t)));
   };
   const launchBtn = h('button.pv-launch', { type: 'button', on: { click: async () => {
@@ -133,14 +142,14 @@ export async function launchRoom(container, type, id) {
     if (!phases.some(p => p.tasks.length)) { toast('Serve almeno un compito nel piano', 'error'); return; }
     launchBtn.disabled = true;
     try {
-      const out = await post('/api/crm/lancio', { [gara ? 'signal_id' : 'initiative_id']: r.source.id, owner_id: st.owner,
+      const out = await post('/api/crm/lancio', { [fromSignal ? 'signal_id' : 'initiative_id']: r.source.id, owner_id: st.owner,
         member_ids: st.team.filter(t => t.on && t.user_id !== st.owner).map(t => t.user_id), phases, goal: st.goal, name: r.name });
-      toast(`Progetto lanciato: ${out.tasks} compiti a ${out.people} ${out.people === 1 ? 'persona' : 'persone'}`);
+      toast(`Progetto lanciato: ${out.tasks} compiti a ${out.people} ${out.people === 1 ? 'persona' : 'persone'}${out.mail?.copied ? ` · ${out.mail.copied} email nel progetto` : ''}`);
       location.hash = `#/crm/progetto/${out.project_id}`;
     } catch { launchBtn.disabled = false; }
   } } }, ic('check', 16), 'Lancia il progetto');
   fill(goalBox, h('b.pv-goal-t', 'L\'obiettivo'),
-    h('div.pv-gfs', gara ? [field('value', 'Valore', '€'), field('probability', 'Probabilità', '%'), field('margin', 'Margine', '%'), field('hours', 'Ore stimate', 'h')]
+    h('div.pv-gfs', money ? [field('value', 'Valore', '€'), field('probability', 'Probabilità', '%'), field('margin', 'Margine', '%'), field('hours', 'Ore stimate', 'h')]
       : [field('budget', 'Budget', '€'), field('hours', 'Ore stimate', 'h')]),
     wBox, effects, launchBtn, h('small.pv-after', 'si cambia tutto anche dopo, dalla scheda del progetto'));
 
@@ -149,7 +158,7 @@ export async function launchRoom(container, type, id) {
     left,
     h('main.pv-c',
       h('div.pv-c-head', h('span.pv-spark', ic('sparkles', 20)),
-        h('div.pv-grow', h('h2', 'Lancia il progetto'), h('p', gara ? 'Alma ha preparato squadra e piano dalla scadenza del bando e da chi conosciamo: rivedi e lancia.' : 'Alma ha preparato squadra e piano dai gate dell\'iniziativa: rivedi e lancia.')),
+        h('div.pv-grow', h('h2', 'Lancia il progetto'), h('p', trattativa ? 'Alma ha preparato squadra e piano dalla email: date, prossimo passo e colleghi in copia. Rivedi e lancia.' : gara ? 'Alma ha preparato squadra e piano dalla scadenza del bando e da chi conosciamo: rivedi e lancia.' : 'Alma ha preparato squadra e piano dai gate dell\'iniziativa: rivedi e lancia.')),
         h('span.pv-stepchips', ['1 · Squadra', '2 · Piano', '3 · Obiettivo'].map((t, i) => h('span', { class: i === 0 ? 'on' : '' }, t)))),
       h('div.pv-c-grid',
         h('section.pv-c-team', h('div.pv-row', h('b.pv-grow', 'La squadra'), h('small', `${st.team.filter(t => t.on).length} persone`)), teamBox),
@@ -166,9 +175,10 @@ export async function mieiProgetti(container) {
   const again = () => mieiProgetti(container);
   const gare = r.projects.filter(p => p.kind === 'gara');
   const settori = r.projects.filter(p => p.kind === 'settore');
+  const trattative = r.projects.filter(p => p.kind === 'trattativa'); // nate dalle email (ALM2-55)
   const nextDue = p => p.next?.due_date || p.source?.deadline || p.source?.next_gate?.due_date || '9999';
-  [gare, settori].forEach(list => list.sort((a, b) => nextDue(a).localeCompare(nextDue(b))));
-  const totVal = gare.reduce((s, p) => s + (Number(p.goal.value) || Number(p.source?.amount) || 0), 0);
+  [gare, settori, trattative].forEach(list => list.sort((a, b) => nextDue(a).localeCompare(nextDue(b))));
+  const totVal = [...gare, ...trattative].reduce((s, p) => s + (Number(p.goal.value) || Number(p.source?.amount) || 0), 0);
   const weighted = r.projects.reduce((s, p) => s + p.weighted, 0);
   const todayTasks = r.tasks.filter(t => t.today).length;
   const lateTasks = r.tasks.filter(t => t.late).length;
@@ -189,16 +199,18 @@ export async function mieiProgetti(container) {
     return el;
   };
   const tile = p => {
-    const g = p.kind === 'gara';
+    const tr = p.kind === 'trattativa';
+    const g = p.kind === 'gara' || tr;
     const col = g ? '#FF8A26' : '#3A3835';
     const amount = Number(p.goal.value) || Number(p.source?.amount) || 0;
-    const meta = g ? (p.source?.deadline ? (daysTo(p.source.deadline) >= 0 ? `gara chiude in ${daysTo(p.source.deadline)} giorni` : 'gara chiusa')
+    const meta = tr ? (p.source?.deadline ? (daysTo(p.source.deadline) >= 0 ? `offerte tra ${daysTo(p.source.deadline)} giorni` : 'offerte scadute') : p.goal.probability ? `probabilità ${p.goal.probability}%` : '')
+      : g ? (p.source?.deadline ? (daysTo(p.source.deadline) >= 0 ? `gara chiude in ${daysTo(p.source.deadline)} giorni` : 'gara chiusa')
       : p.source?.expected_on ? `bando atteso ${day(p.source.expected_on)}` : p.goal.probability ? `probabilità ${p.goal.probability}%` : '')
       : p.source?.next_gate ? `G${p.source.next_gate.n}${p.source.next_gate.due_date ? ` il ${day(p.source.next_gate.due_date)}` : ''}` : '';
     return h('a.pv-tile', { href: `#/crm/progetto/${p.id}`, class: g ? 'gara' : 'settore' },
       h('span.pv-band'),
       h('div.pv-tile-b',
-        h('div.pv-row.top', h('div.pv-grow', h('span.pv-tile-k', `${g ? 'Gara' : 'Nuovo settore'}${p.source?.bu_label ? ` · ${p.source.bu_label}` : ''}`), h('b.pv-tile-t', p.name),
+        h('div.pv-row.top', h('div.pv-grow', h('span.pv-tile-k', `${tr ? 'Trattativa privata' : g ? 'Gara' : 'Nuovo settore'}${p.source?.bu_label ? ` · ${p.source.bu_label}` : ''}`), h('b.pv-tile-t', p.name),
           h('small', g ? [p.source?.entity, amount ? eur(amount) : null].filter(Boolean).join(' · ') : [p.source?.budget ? `budget ${eur(p.source.budget)}` : null, `${p.tasks_total} compiti`].filter(Boolean).join(' · '))),
         ring(p.pct, col)),
         h('div.pv-steps', p.steps.map((_, i) => h('i', { class: i < p.step ? 'done' : i === p.step ? 'now' : '' }))),
@@ -243,11 +255,12 @@ export async function mieiProgetti(container) {
           h('span.pv-kicker', now.toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: 'numeric', month: 'long' })),
           h('h1.pv-h1', `${hello} ${firstName(store.me.name)}`), h('p.pv-hero-sub', `${sentence}.`)), seg),
         h('div.pv-glasses',
-          glassTile('Gare che seguo', String(gare.length), totVal ? `${eur(totVal)} di valore` : 'dal Radar'),
+          glassTile('Gare e trattative', String(gare.length + trattative.length), totVal ? `${eur(totVal)} di valore` : 'dal Radar e dalle email'),
           glassTile('Nuovi settori', String(settori.length), nextGate ? `G${nextGate.n}${nextGate.due_date ? ` il ${day(nextGate.due_date)}` : ''}` : 'da Nuovi business'),
           glassTile('Valore pesato', weighted ? eur(weighted) : '—', mineView === 'miei' ? 'il mio portafoglio' : 'del portafoglio', 'or'),
           glassTile('Compiti', `${todayTasks} oggi`, lateTasks ? `${lateTasks} in ritardo` : 'nessun ritardo', lateTasks ? 'rd' : ''))),
       section('Gare che seguo', 'dal Radar', gare, false),
+      trattative.length ? section('Trattative private', 'nate dalle email', trattative, false) : null,
       section('Nuovi settori', 'da Nuovi business', settori, true)),
     h('div.pv-mine-side', dayBox, tasksBox)));
 }
@@ -256,6 +269,8 @@ export async function mieiProgetti(container) {
 export async function crmProjectPage(container, id) {
   fill(container, loading());
   let info = await get(`/api/crm/progetti/${id}`);
+  // progetto nato da una email o trattativa privata (ALM2-55, tavola D): testata e panoramica della trattativa
+  let deal = info.kind === 'trattativa' || info.source?.email ? await loadDeal(id) : null;
   const base = `#/crm/progetto/${id}`;
   const gara = info.kind === 'gara';
   const accent = gara ? '#FF8A26' : '#FFB066';
@@ -263,7 +278,22 @@ export async function crmProjectPage(container, id) {
     ['note', 'Note'], ['gantt', 'Gantt'], ['rendiconto', 'Rendiconto'], ['documenti', 'Documenti'], ['email', 'Email'], ['membri', 'Membri']];
   const canEdit = p => p.my_role && p.my_role !== 'viewer';
 
-  const hero = ({ p, reload, show, canManage }) => {
+  const reloadAll = reload => async () => { info = await get(`/api/crm/progetti/${id}`); if (deal) deal = (await loadDeal(id)) || deal; reload(); };
+  const hero = args => (deal ? heroDeal(args) : heroBase(args));
+  const heroDeal = ({ p, reload, canManage }) => {
+    const member = canEdit(p);
+    const again = reloadAll(reload);
+    const stepper = h('div.pv-stepper', info.steps.map((label, i) => h(member ? 'button' : 'div', {
+      type: member ? 'button' : undefined, class: i < info.step ? 'done' : i === info.step ? 'now' : '', title: member ? `Siamo a «${label}»` : undefined,
+      on: member ? { click: async () => { await api('PATCH', `/api/crm/progetti/${id}`, { step: i }); again(); } } : undefined,
+    }, h('i'), h('span', label))));
+    const actions = [
+      h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
+      canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, again) } }, ic('pencil', 13), 'Modifica') : null,
+      member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: again }) } }, ic('plus', 13), 'Nuovo compito') : null];
+    return dealHero({ info, deal, p, member, stepper, actions, reload: again, id });
+  };
+  const heroBase = ({ p, reload, show, canManage }) => {
     const s = info.source || {};
     const chips = gara
       ? [s.bu_label, eur(info.goal.value || s.amount), s.deadline ? `scade ${day(s.deadline)}` : s.expected_on ? `bando atteso ${day(s.expected_on)}` : null, s.score ? `punteggio ${s.score}` : null]
@@ -305,6 +335,7 @@ export async function crmProjectPage(container, id) {
 
   // ── Panoramica: questa settimana, compiti a colonne, incontri e note ──
   const overview = async (box, { p, show, reload }) => {
+    if (deal) return dealOverview(box, { id, p, info, deal, member: canEdit(p), reload: reloadAll(reload), team: info.team });
     const changed = async () => { await refreshInfo(); reload(); };
     const [tickets, meetings, notes] = await Promise.all([
       get(`/api/tickets?project=${p.id}`), get(`/api/projects/${p.id}/meetings`, { quiet: true }).catch(() => []), get(`/api/projects/${p.id}/notes`, { quiet: true }).catch(() => [])]);
@@ -423,7 +454,7 @@ async function reportTab(box, id) {
   fill(box, loading());
   const r = await get(`/api/crm/progetti/${id}/rendiconto`);
   const p = r.project;
-  const gara = p.kind === 'gara';
+  const gara = p.kind !== 'settore';
   const STATO = { todo: 'Da fare', doing: 'In corso', review: 'In revisione', done: 'Fatto' };
   const vs = (k, goal, done, sub) => h('div.pv-vs', h('span.pv-k', k), h('div.pv-row', h('b', done), goal !== null ? h('small', `obiettivo ${goal}`) : null), sub ? h('small', sub) : null);
   const phases = [...new Set(r.tasks.map(t => t.phase || 0))].sort((a, b) => (a || 99) - (b || 99));
