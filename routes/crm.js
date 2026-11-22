@@ -337,12 +337,17 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
     const { rows: [dup] } = await db.query('SELECT id, name, roles, asa FROM crm_subjects WHERE merged_into IS NULL AND lower(name) = lower($1) LIMIT 1', [name]);
     if (dup) return res.json({ ...dup, existing: true });
     const kind = Object.keys(KINDS).includes(req.body?.kind) ? req.body.kind : undefined;
-    const f = { name, roles: ['lead'], asa: [asa], owner_id: req.user.id, created_by: req.user.id, created_quick: true,
+    // categoria scelta da chi la crea (Dante 22/11): lead se non detta; lead e cliente non insieme
+    let roles = [...new Set((Array.isArray(req.body?.roles) ? req.body.roles : []).filter(r => Object.keys(ROLES).includes(r)))];
+    if (roles.includes('lead') && roles.includes('cliente')) throw new HttpError(400, 'Un soggetto è Lead oppure Cliente, non tutti e due');
+    if (!roles.length) roles = ['lead'];
+    const f = { name, roles, asa: [asa], owner_id: req.user.id, created_by: req.user.id, created_quick: true,
       origin: String(req.body?.origin || '').slice(0, 60) || 'Rete commerciale', ...(kind ? { kind } : {}),
       ...(req.body?.website ? { website: String(req.body.website).slice(0, 200) } : {}), ...(req.body?.city ? { city: String(req.body.city).slice(0, 100) } : {}),
-      ...(req.body?.lead_why ? { lead_why: String(req.body.lead_why).slice(0, 1000) } : {}) };
+      ...(req.body?.lead_why ? { lead_why: String(req.body.lead_why).slice(0, 1000) } : {}),
+      ...(roles.includes('cliente') ? { client_since: new Date().toISOString().slice(0, 10) } : {}) };
     const { rows: [s] } = await db.query(insertSql('crm_subjects', f), vals(f));
-    await history(s.id, null, s.lead_stage, 'Creata al volo', req.user.id);
+    await history(s.id, null, roles.includes('lead') ? s.lead_stage : roles[0], 'Creata al volo', req.user.id);
     res.status(201).json(s);
   });
   // Aziende suggerite dall'email: stesso dominio nel sito, nell'email della scheda o dei suoi contatti, o nel nome.
