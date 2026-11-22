@@ -92,3 +92,25 @@ test('tipi di lavoro: il sottosettore dei programmi (due livelli) vale per i tip
   const { rows } = await db.query(`SELECT cui FROM crm_prog_interventi i WHERE cui LIKE 'T%' AND ${sql} ORDER BY cui`, params);
   assert.deepEqual(rows.map(r => r.cui), ['T1', 'T2']);
 });
+
+test('secondo giro: si leggono solo i programmi nuovi, gli interventi si aggiornano senza perdere segnali', async () => {
+  PROGS[103] = { contri: 103, anno: Y, codiceFiscaleSA: '00146580698', dataPubblicazioneApprovazione: '15/06/' + Y, interventi: [inter('L001', { importoTotale: 1800000 }), inter('L009', { importoTotale: 700000 })] };
+  const before = (await db.query(`SELECT signal_id FROM crm_prog_interventi WHERE cui = 'L001'`)).rows[0].signal_id;
+  const fakeNew = async (url, opts = {}) => {
+    if (url.endsWith('/Lista')) {
+      const b = JSON.parse(opts.body);
+      const data = b.regioneSA === '013' && b.anno === String(Y) ? ['103', '102', '101'].map(id => ({ id, name: 'Comune di Chieti - Lavori pubblici', short_description: '' })) : [];
+      return new Response(JSON.stringify({ total: data.length, data }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return fakeMit(url, opts);
+  };
+  asked.length = 0;
+  const out = await P.syncTriennali(db, { fetchImpl: fakeNew, settings: { profiles: { edilizia: { soa: ['OG1'], regions: ['Abruzzo'] } } }, pause: 0, log: () => {} });
+  assert.equal(out.programmes, 1);
+  assert.deepEqual(asked.filter(u => u.includes('Xml')).map(u => u.split('id=')[1]), ['103']);
+  const { rows } = await db.query(`SELECT cui, amount, prog_id, signal_id FROM crm_prog_interventi WHERE cui IN ('L001', 'L002', 'L009') ORDER BY cui`);
+  assert.deepEqual(rows.map(r => r.cui), ['L001', 'L002', 'L009']);
+  assert.equal(Number(rows[0].amount), 1800000);
+  assert.equal(rows[0].prog_id, 103);
+  assert.equal(rows[0].signal_id, before);
+});
