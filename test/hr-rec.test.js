@@ -7,7 +7,7 @@ const { createApp, readConfig } = require('../server');
 const { createDb } = require('../lib/db');
 const R = require('../lib/hr-rec');
 const { syncPeopleFromBoss } = require('../routes/hr');
-const { purgeCandidates, workDaysSince, remindApprovals } = require('../routes/hr-rec');
+const { purgeCandidates, workDaysSince, remindApprovals, sendToBoss, retryBoss } = require('../routes/hr-rec');
 
 let server, base, db, gov;
 const cookies = {};
@@ -42,6 +42,8 @@ const boss = (extra = {}) => ({
   ],
 });
 const fakeBoss = data => async () => ({ ok: true, json: async () => data });
+// posizione nuova creata in Alma (ALM2-63): servono ruolo del mansionario e area
+const nuovaPos = async () => ({ role_id: (await db.query("SELECT id FROM pm_roles WHERE hr_name = 'Capo zona reti'")).rows[0].id, area_id: (await db.query("SELECT id FROM org_aree WHERE nome = 'Reti BP/MP'")).rows[0].id });
 const pdf = Buffer.from('%PDF-1.4 capo zona reti gas metano cantiere').toString('base64');
 
 before(async () => {
@@ -104,7 +106,7 @@ test('richiesta dal vacante: la apre il responsabile, non un estraneo; catena HR
 });
 
 test('richiesta di posizione nuova: serve anche il CFO (un amministratore se nessuno ha il ruolo)', async () => {
-  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Ufficio gare · nuova', tipo: 'nuova' });
+  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Ufficio gare · nuova', tipo: 'nuova', ...(await nuovaPos()) });
   await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/invia`);
   await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/decidi`, { decisione: 'ok' });
   await api(DIR, 'POST', `/api/hr/richieste/${r.body.id}/decidi`, { decisione: 'modifica', commento: 'Dimmi il budget' });
@@ -206,7 +208,7 @@ test('pre-boarding: compiti con le scadenze, pagina del nuovo assunto, arrivo da
 });
 
 test('la fascia pubblica segue la griglia in vigore; cancellazione su richiesta del candidato', async () => {
-  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Altra · Capo zona', tipo: 'sostituzione', role_id: (await db.query("SELECT id FROM pm_roles WHERE hr_name = 'Capo zona reti'")).rows[0].id });
+  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Altra · Capo zona', tipo: 'sostituzione', ...(await nuovaPos()) });
   await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/invia`);
   await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/decidi`, { decisione: 'ok' });
   await api(DIR, 'POST', `/api/hr/richieste/${r.body.id}/decidi`, { decisione: 'ok' });
@@ -224,7 +226,7 @@ test('la fascia pubblica segue la griglia in vigore; cancellazione su richiesta 
 });
 
 test('sollecito: un passo fermo da 2 giorni lavorativi riceve il promemoria', async () => {
-  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Ferma', tipo: 'sostituzione' });
+  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Ferma', tipo: 'sostituzione', ...(await nuovaPos()) });
   await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/invia`);
   await db.query("UPDATE hr_requisitions SET created_at = now() - interval '6 days' WHERE id = $1", [r.body.id]);
   const sent = [];
@@ -247,4 +249,87 @@ test('numeri con l\'ambito e cancellazione dei CV', async () => {
   assert.equal(await purgeCandidates(db), 1);
   const { rows } = await db.query('SELECT count(*)::int AS n FROM hr_candidates WHERE email = $1', [MARCO]);
   assert.equal(rows[0].n, 1, 'l\'assunto resta');
+});
+
+// ── ALM2-63: posizione creata in Alma, candidati per ruolo e BU, «Aggiungi con CV», persona a BOSS via API ──
+let molise;
+test('posizione nuova creata in Alma: il responsabile dell\'area la apre, chi non guida nessuno no', async () => {
+  const pos = await nuovaPos();
+  const no = await api(ANNA, 'POST', '/api/hr/richieste', { posizione: 'Capo zona Molise', ...pos });
+  assert.equal(no.status, 403, 'chi non ha nessuno che gli riporta non apre posizioni nuove');
+  assert.equal((await api(LUCA, 'POST', '/api/hr/richieste', { posizione: 'Senza ruolo', area_id: pos.area_id })).status, 400, 'servono ruolo e area');
+  const r = await api(LUCA, 'POST', '/api/hr/richieste', { posizione: 'Capo zona Molise', motivo: 'nuova zona', ...pos });
+  assert.equal(r.status, 200);
+  const { rows: [q] } = await db.query('SELECT incarico_id, tipo, riporta_a FROM hr_requisitions WHERE id = $1', [r.body.id]);
+  assert.equal(q.incarico_id, null, 'nessun incarico: la posizione resta in Alma');
+  assert.equal(q.tipo, 'nuova');
+  assert.equal(q.riporta_a, LUCA);
+  assert.equal((await api(LUCA, 'GET', '/api/hr/richieste')).body.puo_creare_posizione, true);
+  assert.equal((await api(ANNA, 'GET', '/api/hr/richieste')).body.puo_creare_posizione, false);
+  molise = r.body.id;
+});
+
+test('candidati solo in posizioni aperte e approvate; vista per ruolo e per BU', async () => {
+  const add = who => api(who, 'POST', `/api/hr/richieste/${molise}/candidati`, { nome: 'Fabio', cognome: 'Lorenzi', email: 'fabio.lorenzi@example.com' });
+  assert.equal((await add(LUCA)).status, 400, 'non ancora approvata: il budget è della posizione approvata');
+  await api(LUCA, 'POST', `/api/hr/richieste/${molise}/invia`);
+  await api(HRP, 'POST', `/api/hr/richieste/${molise}/decidi`, { decisione: 'ok' });
+  await api(DIR, 'POST', `/api/hr/richieste/${molise}/decidi`, { decisione: 'ok' });
+  await api(ADMIN, 'POST', `/api/hr/richieste/${molise}/decidi`, { decisione: 'ok' }); // CFO: posizione nuova
+  assert.equal((await db.query('SELECT stato FROM hr_requisitions WHERE id = $1', [molise])).rows[0].stato, 'approvata');
+  assert.equal((await add(ANNA)).status, 403);
+  const ok = await add(LUCA);
+  assert.equal(ok.status, 200, 'il responsabile aggiunge nella sua posizione');
+  const lucaId = (await db.query('SELECT id FROM users WHERE email = $1', [LUCA])).rows[0].id;
+  assert.equal((await db.query('SELECT added_by FROM hr_applications WHERE id = $1', [ok.body.app_id])).rows[0].added_by, lucaId);
+  assert.equal((await api(LUCA, 'GET', `/api/hr/candidature/${ok.body.app_id}`)).status, 200, 'vede il candidato che ha caricato');
+  const perRuolo = (await api(HRP, 'GET', '/api/hr/candidati')).body;
+  const g = perRuolo.gruppi.find(x => x.candidati.some(c => c.id === ok.body.app_id));
+  assert.match(g.nome, /G\d/, 'raggruppato per ruolo e grade');
+  assert.ok(g.candidati.find(c => c.id === ok.body.app_id).caricato_da);
+  const perBu = (await api(HRP, 'GET', '/api/hr/candidati?per=bu')).body;
+  assert.ok(perBu.gruppi.some(x => x.nome === 'Reti BP/MP'));
+  assert.ok(perBu.numeri.in_selezione >= 1 && perBu.posizioni.some(p => p.id === molise));
+  assert.ok((await api(LUCA, 'GET', '/api/hr/candidati')).body.posizioni.some(p => p.id === molise), 'il responsabile vede le sue posizioni');
+  assert.equal((await api(ANNA, 'GET', '/api/hr/candidati')).body.numeri.in_selezione, 0, 'chi non ha posizioni non vede candidati');
+});
+
+test('«Aggiungi con CV»: senza AI legge nome, email e telefono e propone le posizioni aperte', async () => {
+  const cv = Buffer.from('Curriculum Vitae\nMARTA FERRI\nmarta.ferri@example.com · +39 333 123 4567\nCapo zona reti gas metano, preposto, cantiere').toString('base64');
+  const r = await api(LUCA, 'POST', '/api/hr/candidati/leggi-cv', { cv: { nome: 'cv.txt', mime: 'text/plain', base64: cv } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ai, false);
+  assert.equal(r.body.nome, 'Marta');
+  assert.equal(r.body.cognome, 'Ferri');
+  assert.equal(r.body.email, 'marta.ferri@example.com');
+  assert.ok(r.body.proposte.some(p => p.req_id === molise), 'solo posizioni aperte e approvate che può vedere');
+  assert.equal((await api(ANNA, 'POST', '/api/hr/candidati/leggi-cv', { cv: { nome: 'cv.txt', mime: 'text/plain', base64: cv } })).status, 400, 'nessuna posizione aperta per lei');
+});
+
+test('persona assunta a BOSS via API: solo la persona, errore e nuovo tentativo, poi inviata', async () => {
+  await db.query("UPDATE hr_preboarding SET boss_stato = 'da_inviare', boss_tentativi = 0, boss_id = NULL, stato = 'aperto' WHERE id = $1", [preId]); // si riprova solo prima dell'arrivo
+  await db.query("UPDATE hr_pre_tasks SET fatto = false WHERE pre_id = $1 AND chi = 'boss'", [preId]);
+  assert.equal((await sendToBoss(db, preId, { url: '', token: '' })).stato, 'non_collegato', 'senza URL di BOSS resta «Copia i dati»');
+  const avvisi = [];
+  const ko = await sendToBoss(db, preId, { url: 'http://boss/personale', token: 't', fetchImpl: async () => ({ ok: false, status: 503, text: async () => '{}' }), notifyHr: async b => avvisi.push(b) });
+  assert.equal(ko.stato, 'errore');
+  assert.equal(avvisi.length, 1, 'HR avvisato al primo errore');
+  let sent = null;
+  const fetchOk = async (url, o) => { sent = { url, headers: o.headers, body: JSON.parse(o.body) }; return { ok: true, status: 201, text: async () => JSON.stringify({ id: 'P-0412' }) }; };
+  assert.equal(await retryBoss(db, { url: 'http://boss/personale', token: 't', fetchImpl: fetchOk }), 1);
+  assert.equal(sent.body.riferimentoAlma, `alma-preboarding-${preId}`);
+  assert.equal(sent.headers['Idempotency-Key'], sent.body.riferimentoAlma);
+  assert.equal(sent.body.cognome, 'Esposito');
+  assert.ok(sent.body.dataAssunzione && sent.body.ralAnnua > 0);
+  assert.equal('posizione' in sent.body, false, 'la posizione resta in Alma');
+  const { rows: [p] } = await db.query('SELECT boss_stato, boss_id, boss_tentativi FROM hr_preboarding WHERE id = $1', [preId]);
+  assert.deepEqual([p.boss_stato, p.boss_id, p.boss_tentativi], ['inviata', 'P-0412', 2]);
+  assert.equal((await db.query("SELECT fatto FROM hr_pre_tasks WHERE pre_id = $1 AND chi = 'boss'", [preId])).rows[0].fatto, true);
+  sent = null;
+  assert.equal((await sendToBoss(db, preId, { url: 'http://boss/personale', token: 't', fetchImpl: fetchOk })).stato, 'inviata');
+  assert.equal(sent, null, 'già inviata: nessun doppione');
+  await db.query("UPDATE hr_preboarding SET stato = 'arrivato' WHERE id = $1", [preId]);
+  const v = (await api(HRP, 'GET', `/api/hr/preboarding/${preId}`)).body;
+  assert.equal(v.boss.stato, 'inviata');
+  assert.equal(v.boss.boss_id, 'P-0412');
 });

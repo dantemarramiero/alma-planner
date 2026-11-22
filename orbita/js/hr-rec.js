@@ -2,7 +2,8 @@
 //   #/hr/richieste            S  richieste di personale (HR tutte, il responsabile le sue) · ?nuova=<incarico>
 //   #/hr/richieste/:id        T  approvazione · U annuncio · V pipeline dei candidati
 //   #/hr/candidato/:id        W  scheda e scorecard · X offerta
-//   #/hr/preboarding[/:id]    Y  dal «sì» al primo giorno (la persona si crea su BOSS)
+//   #/hr/candidati            AP tutti i candidati per ruolo o BU · «Aggiungi con CV» (ALM2-63)
+//   #/hr/preboarding[/:id]    Y  dal «sì» al primo giorno (la persona va a BOSS via API)
 //   #/hr/recruitment          Z  numeri con l'ambito (solo team HR)
 import { h, fill, toast, modal, confirmDialog, fmtDateTime } from './ui.js';
 import { get, post, put, patch, del } from './api.js';
@@ -50,8 +51,8 @@ export async function richiesteView(c, params) {
   const tabs = h('div.hr-tabs', [['aperte', `Aperte · ${aperte.length}`], ['approvare', `Da approvare · ${approvare.length}`], ['chiuse', `Chiuse · ${chiuse.length}`]]
     .map(([k, l]) => h('a', { href: `#/hr/richieste?tab=${k}`, class: tab === k ? 'on' : '' }, l)));
   const nuova = h('button.btn.btn-primary', { type: 'button', on: { click: () => nuovaRichiesta(d) } }, icon('plus', { size: 16 }), 'Nuova richiesta');
-  fill(c, head('Richieste di personale', d.is_hr ? 'Tutte le richieste. Una richiesta nasce da un incarico vacante dell\'organigramma di BOSS: ruolo, grade, fascia e area arrivano da lì.'
-    : 'Le tue richieste e quelle che devi approvare. Si aprono dagli incarichi vacanti sotto i tuoi.', h('div.hr-row', amb, d.is_hr || d.vacanti.length ? nuova : null)),
+  fill(c, head('Richieste di personale', d.is_hr ? 'Tutte le richieste. Una richiesta parte da un incarico vacante dell\'organigramma oppure da una posizione nuova creata qui, che resta in Alma.'
+    : 'Le tue richieste e quelle che devi approvare. Si aprono da un incarico vacante sotto i tuoi o da una posizione nuova nella tua area.', h('div.hr-row', amb, h('a.btn', { href: '#/hr/candidati' }, icon('contact', { size: 16 }), 'Candidati'), d.puo_creare_posizione || d.vacanti.length ? nuova : null)),
   tabs,
   h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['Posizione', 'Area', 'Ruolo · grade', 'Da quando', 'Stato', 'Candidati'].map(x => h('th', x)))),
     h('tbody', list.length ? list.map(r => h('tr', { class: 'clickable', on: { click: () => { location.hash = `#/hr/richieste/${r.id}`; } } },
@@ -67,13 +68,19 @@ export async function richiesteView(c, params) {
   if (gia) { toast("Per questo incarico c'è già una richiesta"); location.hash = `#/hr/richieste/${gia.id}`; } else if (pre) nuovaRichiesta(d, pre);
 }
 
+// La richiesta parte da un incarico vacante di BOSS oppure da una posizione nuova creata qui: la posizione resta in Alma,
+// a BOSS va solo la persona assunta (ALM2-63, Dante 22/11).
 function nuovaRichiesta(d, incaricoId) {
   const vac = d.vacanti;
-  const inc = h('select.select', h('option', { value: '' }, d.is_hr ? 'Nessuno: l\'incarico va creato su BOSS' : 'Scegli l\'incarico vacante'),
+  let mode = incaricoId || vac.length ? 'vacante' : 'nuova';
+  const inc = h('select.select', h('option', { value: '' }, 'Scegli l\'incarico vacante'),
     vac.map(v => h('option', { value: v.id, selected: v.id === incaricoId }, `${v.nome}${v.area ? ` · ${v.area}` : ''}`)));
-  const posizione = h('input.input', { maxlength: 160, placeholder: 'Per una posizione nuova: come si chiama' });
+  const posizione = h('input.input', { maxlength: 160, placeholder: 'Capo zona Molise, PM commesse Pescara…' });
   const role = h('select.select', h('option', { value: '' }, 'Ruolo del mansionario'), d.roles.map(r => h('option', { value: r.id }, `${r.title} · G${r.grade}`)));
   const area = h('select.select', h('option', { value: '' }, 'Area'), d.aree.map(a => h('option', { value: a.id }, a.nome)));
+  const riporta = h('select.select', h('option', { value: '' }, 'A chi riporta'), (d.capi || []).map(x => h('option', { value: x.email }, `${x.nome} · ${x.incarico}`)));
+  const segBtn = (k, l) => h('button', { type: 'button', class: mode === k ? 'on' : '', on: { click: () => { mode = k; for (const b of seg.children) b.classList.toggle('on', b.dataset.k === mode); if (k === 'nuova' && tipo.value === 'sostituzione') tipo.value = 'nuova'; refresh(); } }, 'data-k': k }, l);
+  const seg = h('div.seg', { style: { marginBottom: '8px' } }, vac.length ? segBtn('vacante', 'Da un incarico vacante (BOSS)') : null, d.puo_creare_posizione ? segBtn('nuova', 'Posizione nuova, creata qui') : null);
   const motivo = h('textarea.input', { maxlength: 2000, placeholder: 'Perché serve: zona scoperta, cantieri in partenza, nuova commessa…' });
   const tipo = h('select.select', Object.entries(TIPI).map(([k, l]) => h('option', { value: k }, l)));
   const da = h('input.input', { maxlength: 60, placeholder: 'subito, 02/2027…' });
@@ -81,22 +88,28 @@ function nuovaRichiesta(d, incaricoId) {
   const sede = h('input.input', { maxlength: 120, placeholder: 'Chieti, Bari…' });
   const piano = h('input', { type: 'checkbox', checked: true });
   const info = h('div.hr-dark-soft');
-  const extra = h('div', d.is_hr ? h('div.hr-grid2', field('Posizione', posizione), field('Ruolo', role), field('Area', area)) : null);
+  const vacBox = field('Incarico vacante', inc);
+  const extra = h('div', h('div.hr-grid2', field('Nome della posizione', posizione), field('Ruolo', role), field('Area', area), d.is_hr ? field('A chi riporta', riporta) : null),
+    h('p.small.muted', 'La posizione si crea qui e resta in Alma: non serve crearla su BOSS. Quando la persona sarà assunta, Alma manderà a BOSS solo i suoi dati.'));
   const refresh = () => {
-    const v = vac.find(x => String(x.id) === inc.value);
-    const r = v ? { band: v.band, title: v.ruolo, grade: v.grade } : d.roles.find(x => String(x.id) === role.value);
-    extra.hidden = Boolean(v);
+    vacBox.hidden = mode !== 'vacante';
+    extra.hidden = mode !== 'nuova';
+    const v = mode === 'vacante' ? vac.find(x => String(x.id) === inc.value) : null;
+    const r = v ? { band: v.band, title: v.ruolo, grade: v.grade } : mode === 'nuova' ? d.roles.find(x => String(x.id) === role.value) : null;
     const b = r?.band;
     fill(info, v ? h('div.small', h('b', v.nome), ` · ${v.area || 'senza area'} · dall'incarico vacante di BOSS`) : null,
-      h('div.small', r?.title ? `${r.title} · G${r.grade} · ${bandTxt(b)}` : 'Ruolo, grade e fascia arrivano dall\'incarico (o dal ruolo scelto).'),
+      h('div.small', r?.title ? `${r.title} · G${r.grade} · ${bandTxt(b)}` : mode === 'nuova' ? 'Scegli il ruolo: grade, fascia e costo arrivano dal mansionario.' : 'Ruolo, grade e fascia arrivano dall\'incarico.'),
       b ? h('div.small', h('b', 'Budget'), ` · riferimento della fascia ${eur(b.mid * 1000)} · costo azienda stimato ${eur(b.mid * 1000 * d.coeff)}`) : null,
       h('div.small.muted', ['nuova'].includes(tipo.value) || !piano.checked || Number(r?.grade) > 6 ? 'Approvano: Team HR → Direzione → CFO' : 'Approvano: Team HR → Direzione'));
   };
   for (const el of [inc, role, tipo, piano]) el.addEventListener('change', refresh);
   const save = async invia => {
-    const body = { incarico_id: inc.value ? Number(inc.value) : null, posizione: posizione.value || undefined, role_id: role.value ? Number(role.value) : null, area_id: area.value ? Number(area.value) : null,
+    const nuova = mode === 'nuova';
+    const body = { incarico_id: !nuova && inc.value ? Number(inc.value) : null, posizione: nuova ? posizione.value.trim() : undefined, role_id: nuova && role.value ? Number(role.value) : null,
+      area_id: nuova && area.value ? Number(area.value) : null, riporta_a: nuova && riporta.value ? riporta.value : undefined,
       motivo: motivo.value, tipo: tipo.value, da_quando: da.value, contratto: contr.value, sede: sede.value, nel_piano: piano.checked };
-    if (!body.incarico_id && !d.is_hr) return toast('Scegli l\'incarico vacante', 'err');
+    if (!nuova && !body.incarico_id) return toast('Scegli l\'incarico vacante', 'err');
+    if (nuova && (!body.posizione || !body.role_id || !body.area_id)) return toast('Per una posizione nuova: nome, ruolo e area', 'err');
     const r = await post('/api/hr/richieste', body);
     if (invia) await post(`/api/hr/richieste/${r.id}/invia`);
     m.close();
@@ -104,10 +117,11 @@ function nuovaRichiesta(d, incaricoId) {
     location.hash = `#/hr/richieste/${r.id}`;
   };
   const m = modal({ title: 'Nuova richiesta di personale', wide: true, body: h('div.hr-form',
-    field('Dall\'incarico vacante (BOSS)', inc), extra, info, field('Perché serve', motivo),
+    seg.children.length > 1 ? seg : null, vacBox, extra, info, field('Perché serve', motivo),
     h('div.hr-grid2', field('Tipo', tipo), field('Da quando', da), field('Contratto', contr), field('Sede', sede)),
     h('label.hr-row.small', piano, 'Prevista nel piano del personale')),
   actions: [h('button.btn', { type: 'button', on: { click: () => save(false) } }, 'Salva bozza'), h('button.btn.btn-primary', { type: 'button', on: { click: () => save(true) } }, 'Invia per approvazione')] });
+  if (mode === 'nuova') tipo.value = 'nuova';
   refresh();
 }
 
@@ -222,7 +236,7 @@ function pipeline(d, reload) {
     const items = d.candidature.filter(a => a.stage === k);
     const col = h('div.hr-kcol', { 'data-stage': k }, h('h5', h('span', label), h('span', String(items.length))),
       items.map(a => h('a.hr-kcard', { href: `#/hr/candidato/${a.id}`, draggable: d.is_hr ? 'true' : 'false', 'data-id': a.id },
-        h('b', `${a.nome} ${String(a.cognome || '').slice(0, 1)}.`), a.fonte ? h('div.small.muted', { 'data-fonte': a.fonte }, `${{ pagina: 'Lavora con noi', linkedin: 'LinkedIn', indeed: 'Indeed', referral: 'referral', hr: 'caricato da HR', altro: 'altro' }[a.fonte]} · ${itDate(a.created_at)}`) : null,
+        h('b', `${a.nome} ${String(a.cognome || '').slice(0, 1)}.`), a.fonte ? h('div.small.muted', { 'data-fonte': a.fonte }, `${{ pagina: 'Lavora con noi', linkedin: 'LinkedIn', indeed: 'Indeed', referral: 'referral', hr: 'caricato in Alma', altro: 'altro' }[a.fonte]} · ${itDate(a.created_at)}`) : null,
         a.colloquio && ['colloquio_hr', 'colloquio_tecnico'].includes(a.stage) ? h('div.small', `${a.colloquio.tipo === 'hr' ? 'HR' : 'tecnico'} con ${a.colloquio.chi}${a.colloquio.quando ? ` · ${itDate(a.colloquio.quando)}` : ''}`) : null,
         a.votanti ? h('div.small.muted', `scorecard: ${a.votanti} ${a.votanti === 1 ? 'voto' : 'voti'}`) : null,
         a.offerta && a.stage === 'offerta' ? h('div.small', h('span.hr-chip', { class: a.offerta === 'approvazione' ? 'z-warn' : 'z-ok' }, a.offerta === 'approvazione' ? 'in approvazione' : a.offerta)) : null,
@@ -238,7 +252,7 @@ function pipeline(d, reload) {
     return col;
   }));
   board.addEventListener('dragstart', e => { const card = e.target.closest?.('.hr-kcard'); if (card) e.dataTransfer.setData('text/plain', card.dataset.id); });
-  const addBtn = d.is_hr && r.stato === 'approvata' ? h('button.btn.btn-sm', { type: 'button', on: { click: () => nuovoCandidato(r.id, reload) } }, icon('plus', { size: 14 }), 'Candidato') : null;
+  const addBtn = d.puo_aggiungere ? h('button.btn.btn-sm', { type: 'button', on: { click: () => aggiungiConCv({ reqId: r.id, reload }) } }, icon('plus', { size: 14 }), 'Aggiungi con CV') : null;
   return h('div.card.hr-pad', h('div.hr-row', { style: { justifyContent: 'space-between' } }, h('div.hr-label', `Candidati · ${d.candidature.length}`), addBtn), board,
     howTo('Una colonna per passo. Il team HR trascina la scheda da un passo all\'altro; «Scartati» chiede il motivo e prepara una risposta gentile. Offerta e accettazione si fanno dalla scheda del candidato. ✦ = lettura del CV di Alma: ordina e spiega, non scarta nessuno.'));
 }
@@ -249,23 +263,121 @@ function rispostaGentile(testo) {
     actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => { try { await navigator.clipboard.writeText(ta.value); toast('Copiata'); } catch { toast('Copia non riuscita', 'err'); } } } }, 'Copia')] });
 }
 
-function nuovoCandidato(reqId, reload) {
-  const nome = h('input.input', { maxlength: 80, autofocus: true });
+// «Aggiungi con CV» (tavola AP, ALM2-63): si trascina il CV, Alma legge nome, contatti e profilo e propone la posizione aperta
+// più adatta; chi carica controlla e conferma. Solo posizioni aperte e approvate: il budget è della posizione.
+// reqId: dalla pipeline di una posizione (resta quella). narrow: campi uno sotto l'altro (pannello a destra della pagina Candidati).
+function cvForm({ reqId = null, onDone, narrow = false }) {
+  const nome = h('input.input', { maxlength: 80 });
   const cognome = h('input.input', { maxlength: 80 });
   const email = h('input.input', { type: 'email', maxlength: 200 });
   const tel = h('input.input', { maxlength: 40 });
-  const fonte = h('select.select', [['linkedin', 'LinkedIn'], ['indeed', 'Indeed'], ['referral', 'Referral interno'], ['hr', 'Caricato da HR'], ['altro', 'Altro']].map(([k, l]) => h('option', { value: k }, l)));
-  const cv = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.txt' });
+  const fonte = h('select.select', [['hr', 'Caricato in Alma'], ['linkedin', 'LinkedIn'], ['indeed', 'Indeed'], ['referral', 'Referral interno'], ['altro', 'Altro']].map(([k, l]) => h('option', { value: k }, l)));
   const conserva = h('input', { type: 'checkbox' });
-  const m = modal({ title: 'Aggiungi un candidato', body: h('div.hr-form', h('div.hr-grid2', field('Nome', nome), field('Cognome', cognome), field('Email', email), field('Telefono', tel)),
-    field('Da dove arriva', fonte), field('CV (PDF o Word, al massimo 5 MB)', cv), h('label.hr-row.small', conserva, 'Ha dato il consenso a conservare il CV per 24 mesi')),
-  actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+  const cv = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.txt', hidden: true });
+  const stato = h('div.small.muted');
+  const profilo = h('div.small');
+  const posBox = h('div.hr-cv-pos');
+  let file = null, scelta = reqId, proposte = [];
+  const drawPos = () => fill(posBox, proposte.length ? proposte.map(p => h('label.hr-cv-opt', { class: scelta === p.req_id ? 'on' : '' },
+    h('input', { type: 'radio', name: 'cvpos', checked: scelta === p.req_id, on: { change: () => { scelta = p.req_id; drawPos(); } } }),
+    h('div', { style: { flex: 1 } }, h('b', p.posizione), h('div.small.muted', `${p.ruolo || 'senza ruolo'}${p.grade ? ` · G${p.grade}` : ''}${p.area ? ` · ${p.area}` : ''}${p.approved_at ? ` · approvata il ${itDate(p.approved_at)}` : ''}`)),
+    p.pct != null ? h('span.hr-chip.z-ai', `✦ ${p.pct}%`) : null))
+    : h('p.small.muted', 'Le posizioni aperte e approvate compaiono qui dopo la lettura del CV.'));
+  const leggi = async f => {
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) return toast('Il CV supera 5 MB', 'err');
+    file = await readFile(f);
+    fill(drop, h('b', f.name), h('div.small', 'Lettura in corso…'));
+    try {
+      const r = await post('/api/hr/candidati/leggi-cv', { cv: file });
+      for (const [el, v] of [[nome, r.nome], [cognome, r.cognome], [email, r.email], [tel, r.telefono]]) if (v && !el.value) el.value = v;
+      fill(profilo, r.profilo ? [h('span.hr-chip.z-ai', '✦ profilo'), ' ', r.profilo] : null);
+      proposte = reqId ? r.proposte.filter(p => p.req_id === reqId) : r.proposte;
+      if (!reqId) scelta = proposte[0]?.req_id || null;
+      fill(stato, r.ai ? '✦ Letto dall\'AI: controlla i dati prima di aggiungere.' : 'Letto senza AI (email, telefono e nome dal testo): controlla e completa.');
+      drawPos();
+    } catch (e) { fill(stato, e.message || 'Lettura non riuscita: compila a mano.'); }
+    fill(drop, h('b', f.name), h('div.small', 'Trascina un altro CV per cambiarlo'));
+  };
+  const drop = h('div.hr-cv-drop', { tabindex: 0, role: 'button', on: { click: () => cv.click(), keydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cv.click(); } } } },
+    h('b', 'Trascina qui il CV'), h('div.small', 'oppure clic per sceglierlo · PDF o Word, al massimo 5 MB'));
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); leggi(e.dataTransfer.files[0]); });
+  cv.addEventListener('change', () => leggi(cv.files[0]));
+  drawPos();
+  const grid = narrow ? 'div.hr-form' : 'div.hr-grid2';
+  const body = h('div.hr-form', drop, cv, stato, profilo,
+    h(grid, field('Nome', nome), field('Cognome', cognome), field('Email', email), field('Telefono', tel)),
+    h('div.hr-label', 'In quale posizione aperta e approvata'), posBox,
+    h('p.small.muted', 'Senza una posizione aperta e approvata non si aggiunge nessuno: prima si apre la richiesta di personale.'),
+    h(grid, field('Da dove arriva', fonte), h('label.hr-row.small', { style: { alignSelf: 'end' } }, conserva, 'Ha dato il consenso a conservare il CV per 24 mesi')));
+  const submit = async () => {
     if (!nome.value.trim() || !cognome.value.trim()) return toast('Nome e cognome', 'err');
-    const f = cv.files[0];
-    if (f && f.size > 5 * 1024 * 1024) return toast('Il CV supera 5 MB', 'err');
-    await post(`/api/hr/richieste/${reqId}/candidati`, { nome: nome.value, cognome: cognome.value, email: email.value || null, telefono: tel.value || null, fonte: fonte.value, conserva: conserva.checked, cv: f ? await readFile(f) : undefined });
-    m.close(); toast('Candidato aggiunto'); reload();
-  } } }, 'Aggiungi')] });
+    const dove = scelta || reqId;
+    if (!dove) return toast('Scegli la posizione', 'err');
+    const r = await post(`/api/hr/richieste/${dove}/candidati`, { nome: nome.value.trim(), cognome: cognome.value.trim(), email: email.value.trim() || null, telefono: tel.value.trim() || null, fonte: fonte.value, conserva: conserva.checked, cv: file || undefined });
+    toast('Candidato aggiunto alla posizione');
+    onDone(r);
+  };
+  return { body, submit };
+}
+function aggiungiConCv({ reqId, reload }) {
+  let m = null;
+  const f = cvForm({ reqId, onDone: () => { m.close(); reload(); } });
+  m = modal({ title: 'Aggiungi con CV', wide: true, body: f.body, actions: [h('button.btn.btn-primary', { type: 'button', on: { click: f.submit } }, 'Aggiungi alla posizione')] });
+}
+
+// ── AP · tutti i candidati in selezione, per ruolo o per BU ────────────────────────────────────────────────────
+const STAGE_CL = { nuovi: '', screening: '', colloquio_hr: 'z-info', colloquio_tecnico: 'z-info', offerta: 'z-ok', accettata: 'z-ok' };
+export async function candidatiView(c, params) {
+  const per = params.get('per') === 'bu' ? 'bu' : 'ruolo';
+  const d = await get(`/api/hr/candidati?per=${per}&${ambQs()}`);
+  const amb = d.is_hr ? await ambitoSelect(() => candidatiView(c, params)) : null;
+  const stageLabel = Object.fromEntries(d.stages);
+  const fonte = a => (a.fonte === 'hr' && a.caricato_da ? `CV caricato da ${a.caricato_da}` : d.fonti[a.fonte] || a.fonte);
+  const q = h('input.input', { type: 'search', placeholder: 'Cerca un nome…', 'aria-label': 'Cerca un nome', style: { width: '200px', minWidth: '0', flex: 'none' } });
+  const passo = h('select.select', { 'aria-label': 'Passo' }, h('option', { value: '' }, 'Tutti i passi'), d.stages.filter(([k]) => k !== 'scartata').map(([k, l]) => h('option', { value: k }, l)));
+  const groups = h('div');
+  const draw = () => {
+    const t = q.value.trim().toLowerCase();
+    const list = d.gruppi.map(g => ({ ...g, candidati: g.candidati.filter(a => (!t || `${a.nome} ${a.cognome}`.toLowerCase().includes(t)) && (!passo.value || a.stage === passo.value)) })).filter(g => g.candidati.length);
+    fill(groups, list.length ? list.map(g => h('div.card.hr-cgroup',
+      h('div.hr-cgroup-h', h('b', g.nome), h('span.hr-chip', `${g.posizioni} ${g.posizioni === 1 ? 'posizione aperta' : 'posizioni aperte'}`), h('span.small.muted', { style: { marginLeft: 'auto' } }, g.sotto.join(', '))),
+      h('div.hr-scroll', h('table.list', h('thead', h('tr', ['Candidato', 'Posizione', per === 'bu' ? 'Ruolo' : 'BU', 'Da', 'Passo', '✦'].map(x => h('th', x)))),
+        h('tbody', g.candidati.map(a => h('tr', { class: 'clickable', on: { click: () => { location.hash = `#/hr/candidato/${a.id}`; } } },
+          h('td', h('b', `${a.nome} ${a.cognome}`)), h('td.small', a.posizione), h('td.small', per === 'bu' ? (a.ruolo ? `${a.ruolo} · G${a.grade}` : '—') : a.area_nome || '—'),
+          h('td.small.muted', fonte(a)), h('td', h('span.hr-chip', { class: STAGE_CL[a.stage] || '' }, a.stage === 'offerta' && a.offerta === 'approvazione' ? 'offerta in approvazione' : stageLabel[a.stage] || a.stage)),
+          h('td', a.match_pct != null ? h('span.hr-chip.z-ai', `✦ ${a.match_pct}%`) : '—'))))))))
+      : h('div.card.empty', d.posizioni.length ? 'Nessun candidato con questi filtri.' : 'Nessuna posizione aperta e approvata: i candidati arrivano quando una richiesta di personale è approvata.'));
+  };
+  q.addEventListener('input', draw);
+  passo.addEventListener('change', draw);
+  const n = d.numeri;
+  const kpi = (l, v, s, small) => h('div.hr-kpi', h('div.l', l), h('div.v', small ? { style: { fontSize: '16px', paddingTop: '6px' } } : {}, v), s ? h('div.small.muted', s) : null);
+  const seg = h('div.seg', [['ruolo', 'Ruolo'], ['bu', 'BU']].map(([k, l]) => h('button', { type: 'button', class: per === k ? 'on' : '', on: { click: () => { location.hash = `#/hr/candidati?per=${k}`; } } }, l)));
+  // pannello «Aggiungi con CV» sempre a destra, come la tavola AP (sul telefono va sotto)
+  const panel = d.posizioni.length ? (() => {
+    const f = cvForm({ narrow: true, onDone: r => { location.hash = `#/hr/candidato/${r.app_id}`; } });
+    return h('div.card.hr-pad.hr-cv-panel', h('div.hr-label', 'Aggiungi con CV'), f.body,
+      h('div.hr-row', { style: { marginTop: '10px' } }, h('button.btn.btn-primary', { type: 'button', on: { click: f.submit } }, 'Aggiungi alla posizione'),
+        h('button.btn', { type: 'button', on: { click: () => candidatiView(c, params) } }, 'Annulla')));
+  })() : null;
+  const toPanel = () => { panel?.scrollIntoView({ behavior: 'smooth', block: 'start' }); panel?.querySelector('.hr-cv-drop')?.focus(); };
+  fill(c, h('a.hr-back', { href: '#/hr/richieste' }, '‹ Richieste di personale'),
+    head('Candidati in selezione', d.is_hr ? 'Tutte le persone che stiamo selezionando, per ruolo del mansionario o per Business Unit, con il passo di ognuna.' : 'I candidati delle tue posizioni aperte, per ruolo o per Business Unit.', amb),
+    h('div.hr-cand', h('div',
+      h('div.hr-filterbar', h('span.small.muted', 'Raggruppa per'), seg, passo, q,
+        panel ? h('button.btn.btn-primary', { type: 'button', style: { marginLeft: 'auto' }, on: { click: toPanel } }, icon('plus', { size: 16 }), 'Aggiungi con CV') : null),
+      groups,
+      h('div.hr-grid4',
+        kpi('In selezione', String(n.in_selezione), `su ${n.posizioni} ${n.posizioni === 1 ? 'posizione aperta' : 'posizioni aperte'}`),
+        kpi('Per BU', n.per_bu.length ? n.per_bu.slice(0, 2).map(([k, v]) => `${k} ${v}`).join(' · ') : '—', n.per_bu.length > 2 ? n.per_bu.slice(2).map(([k, v]) => `${k} ${v}`).join(' · ') : null, true),
+        kpi('A colloquio', String(n.colloquio)),
+        kpi('Offerte in corso', String(n.offerte), n.offerte_approvazione ? `${n.offerte_approvazione} in approvazione` : null))),
+    panel),
+    howTo('Ogni gruppo è un ruolo del mansionario (o una BU): dentro, i candidati con il passo e la corrispondenza ✦ letta dal CV. Clic su una riga: la scheda del candidato. Gli scartati non compaiono qui; restano nella pipeline della posizione.'));
+  draw();
 }
 
 // ── W · X: scheda del candidato e offerta ───────────────────────────────────────────────────────────────────
@@ -324,7 +436,7 @@ export async function candidatoView(c, id) {
 
   fill(c, h('a.hr-back', { href: `#/hr/richieste/${a.req_id}` }, `‹ ${a.posizione}`),
     h('div.page-head', h('div.hr-row', h('div.hr-avatar', initials.toUpperCase()), h('div', h('div.hr-eyebrow', 'Alma HR · candidato'), h('h1', `${p.nome} ${p.cognome || ''}`),
-      h('div.sub', `candidato a ${d.ruolo?.title || a.posizione} · da ${a.fonte_label || a.fonte} il ${itDate(a.created_at)}`))),
+      h('div.sub', `candidato a ${d.ruolo?.title || a.posizione} · ${a.fonte === 'hr' ? a.fonte_label : `da ${a.fonte_label || a.fonte}`} il ${itDate(a.created_at)}`))),
     hr ? h('div.hr-row', h('span.hr-chip', (d.stages.find(s => s[0] === a.stage) || [, a.stage])[1]), h('button.btn', { type: 'button', on: { click: colloquio } }, 'Fissa un colloquio'),
       a.stage !== 'scartata' && a.stage !== 'accettata' ? h('button.btn', { type: 'button', on: { click: scarta } }, 'Scarta con motivo') : null) : null),
     h('div.hr-grid32',
@@ -414,7 +526,7 @@ const CHI = { candidato: 'candidato', hr: 'HR', consulente: 'HR · consulente', 
 export async function preboardingView(c, id) {
   if (!id) {
     const d = await get('/api/hr/preboarding');
-    return fill(c, head('Pre-boarding', 'Dal «sì» del candidato al primo giorno. La persona si crea su BOSS: Alma prepara i dati e la ritrova con la sincronizzazione.'),
+    return fill(c, head('Pre-boarding', 'Dal «sì» del candidato al primo giorno. Alla firma Alma manda a BOSS via API i dati della persona per creare la sua anagrafica.'),
       h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['Persona', 'Posizione', 'Ingresso', 'Compiti', 'Stato'].map(x => h('th', x)))),
         h('tbody', d.preboarding.length ? d.preboarding.map(p => h('tr', { class: 'clickable', on: { click: () => { location.hash = `#/hr/preboarding/${p.id}`; } } },
           h('td', h('b', `${p.nome} ${p.cognome}`)), h('td', p.posizione), h('td', itDate(p.ingresso)), h('td', `${p.fatti} di ${p.compiti}`),
@@ -425,15 +537,32 @@ export async function preboardingView(c, id) {
   const p = d.preboarding;
   const reload = () => preboardingView(c, id);
   const fatti = d.compiti.filter(t => t.fatto).length;
-  const bossBtn = () => {
-    const b = d.boss;
-    const rows = [['Nome', b.nome], ['Cognome', b.cognome], ['Email', b.email], ['Telefono', b.telefono], ['Incarico', b.incarico], ['Area', b.area], ['Contratto', CONTRATTI[b.contratto] || b.contratto], ['CCNL · livello', b.ccnl_livello], ['Data di assunzione', itDate(b.ingresso)], ['RAL', eur(b.ral)]];
+  // la persona a BOSS via API (ALM2-63): solo la persona, la posizione resta in Alma; «Copia i dati» se BOSS non è collegato
+  const b = d.boss;
+  const BOSS_STATO = { inviata: ['inviata a BOSS', 'z-ok'], errore: ['invio non riuscito', 'z-bad'], non_collegato: ['BOSS non collegato', 'z-warn'], da_inviare: ['da inviare', 'z-warn'] };
+  const bossChip = () => { const [t, cl] = BOSS_STATO[b?.stato] || BOSS_STATO.da_inviare; return h('span.hr-chip', { class: cl }, t); };
+  const copiaDati = () => {
+    const rows = [['Nome', b.nome], ['Cognome', b.cognome], ['Email', b.email], ['Telefono', b.telefono], ['Area', b.area], ['Incarico', b.incarico], ['Contratto', CONTRATTI[b.contratto] || b.contratto], ['CCNL · livello', b.ccnl_livello], ['Data di assunzione', itDate(b.ingresso)], ['RAL', eur(b.ral)]];
     const txt = rows.map(([k, v]) => `${k}: ${v || '—'}`).join('\n');
-    modal({ title: 'Dati per creare la persona su BOSS', body: h('div', h('table.hr-t', rows.map(([k, v]) => h('tr', h('td', k), h('td', v || '—')))),
-      h('p.small.muted', 'Su BOSS crea la persona e mettila sull\'incarico: alla prossima sincronizzazione Alma la trova e spunta il compito da sola.')),
+    modal({ title: 'Dati della persona per BOSS', body: h('div', h('table.hr-t', rows.map(([k, v]) => h('tr', h('td', k), h('td', v || '—')))),
+      h('p.small.muted', 'Servono solo se l\'invio automatico non c\'è o non è riuscito. La posizione resta in Alma: su BOSS va solo la persona.')),
     actions: [h('button.btn', { type: 'button', on: { click: async () => { try { await navigator.clipboard.writeText(txt); toast('Dati copiati'); } catch { toast('Copia non riuscita', 'err'); } } } }, 'Copia i dati'),
       b.url ? h('a.btn.btn-primary', { href: b.url, target: '_blank', rel: 'noopener' }, 'Apri BOSS ↗') : null] });
   };
+  const inviaBoss = async () => {
+    const r = await post(`/api/hr/preboarding/${id}/boss`);
+    toast(r.stato === 'inviata' ? 'Persona inviata a BOSS' : r.stato === 'non_collegato' ? 'BOSS non è collegato: copia i dati' : `Invio non riuscito: ${r.errore || ''}`, r.ok ? undefined : 'err');
+    reload();
+  };
+  const bossCard = b ? h('div.card.hr-pad', h('div.hr-row', { style: { justifyContent: 'space-between' } }, h('div.hr-label', 'Anagrafica del personale a BOSS'), bossChip()),
+    b.stato === 'inviata' ? h('p.small', `Inviata${b.inviata_at ? ` il ${fmtDateTime(b.inviata_at)}` : ''}${b.boss_id ? ` · su BOSS è ${b.boss_id}` : ''}.`)
+      : b.stato === 'errore' ? h('p.small', `${b.errore || 'BOSS non ha risposto'} · tentativi: ${b.tentativi}. Alma riprova da sola ogni 6 ore.`)
+        : b.stato === 'non_collegato' || !b.collegato ? h('p.small', 'L\'invio automatico a BOSS non è ancora attivo: copia i dati e crea la persona su BOSS.')
+          : h('p.small', 'Alma la manda a BOSS appena il candidato accetta.'),
+    h('p.small.muted', 'Solo la persona: nome, contatti, contratto, data di assunzione, RAL, BU e a chi riporta. La posizione resta in Alma.'),
+    h('div.hr-row', b.collegato && b.stato !== 'inviata' ? h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: inviaBoss } }, b.stato === 'errore' ? 'Riprova' : 'Invia a BOSS') : null,
+      h('button.btn.btn-sm', { type: 'button', on: { click: copiaDati } }, 'Copia i dati'),
+      b.stato === 'inviata' && b.url ? h('a.btn.btn-sm', { href: b.url, target: '_blank', rel: 'noopener' }, 'Apri su BOSS ↗') : null)) : null;
   const toggle = async t => { await patch(`/api/hr/preboarding/${id}/compiti/${t.id}`, { fatto: !t.fatto }); reload(); };
   const spostaData = async () => {
     const inp = h('input.input', { type: 'date', value: p.ingresso });
@@ -451,10 +580,10 @@ export async function preboardingView(c, id) {
         h('button.hr-task-ck', { type: 'button', 'aria-label': t.fatto ? 'Segna da fare' : 'Segna fatto', class: t.fatto ? 'on' : '', on: { click: () => toggle(t) } }, t.fatto ? icon('check', { size: 14 }) : ''),
         h('div.hr-task-w', h('div.small', t.giorni === 0 ? 'giorno 1' : t.giorni > 0 ? `giorno ${t.giorni + 1}` : `${t.giorni} giorni`), h('div.small.muted', itDate(t.scadenza))),
         h('div', { style: { flex: 1 } }, h('span', { class: t.fatto ? 'muted' : '' }, t.titolo), t.in_ritardo ? h('span.hr-chip.z-bad', { style: { marginLeft: '6px' } }, 'in ritardo') : null),
-        t.chi === 'boss' && d.is_hr && !t.fatto ? h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: bossBtn } }, 'Crea su BOSS ↗') : null,
+        t.chi === 'boss' && d.is_hr ? bossChip() : null,
         h('span.hr-chip', CHI[t.chi] || t.chi))),
-      howTo('Scadenze calcolate sulla data d\'ingresso: se la data si sposta, si sposta tutto. «Crea su BOSS» si spunta da solo quando la sincronizzazione trova la persona; il giorno 1, se è anche sull\'incarico, il pre-boarding è chiuso e parte l\'onboarding.')),
-      h('div',
+      howTo('Scadenze calcolate sulla data d\'ingresso: se la data si sposta, si sposta tutto. L\'anagrafica a BOSS si spunta da sola quando BOSS conferma l\'invio (o quando la sincronizzazione trova la persona); il giorno 1 il pre-boarding è chiuso e parte l\'onboarding.')),
+      h('div', bossCard,
         d.link_candidato ? h('div.card.hr-pad.hr-dark', h('div.hr-label', `Benvenuto in Almacis, ${p.nome}`), h('p.small', 'Pagina riservata senza account: documenti per l\'assunzione e taglie dei DPI. Scade il giorno dopo l\'ingresso.'),
           h('button.btn.btn-sm', { type: 'button', on: { click: copyLink } }, 'Copia il link per il candidato')) : null,
         h('div.card.hr-pad', h('div.hr-label', 'Documenti ricevuti'), d.documenti.length ? d.documenti.map(f => h('div.small', d.is_hr ? h('a', { href: `/api/hr/file/${f.id}`, target: '_blank', rel: 'noopener' }, f.nome) : f.nome)) : h('p.small.muted', 'Ancora nessuno.')),
