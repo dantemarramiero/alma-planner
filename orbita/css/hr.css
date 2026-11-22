@@ -260,3 +260,17 @@
 .hr-t .hr-score10 { gap: 1px; }
 .hr-t .hr-score10 button { width: 18px; height: 22px; font-size: 9.5px; border-radius: 4px; }
 .hr-t td:first-child { min-width: 160px; }
+
+/* ALM2-63: candidati per ruolo e BU, «Aggiungi con CV» */
+.hr-filterbar { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: var(--ap-space-2) var(--ap-space-3); margin: var(--ap-space-3) 0; }
+.hr-cgroup { padding: 0; overflow: hidden; margin-bottom: var(--ap-space-3); }
+.hr-cgroup-h { display: flex; align-items: center; gap: var(--ap-space-2); flex-wrap: wrap; padding: var(--ap-space-3) var(--ap-space-4); border-bottom: 1px solid var(--rule); color: var(--ink); }
+.hr-cv-drop { border: 2px dashed var(--orange); border-radius: var(--radius-card); background: var(--orange-soft); color: var(--orange-dark); padding: var(--ap-space-4); text-align: center; cursor: pointer; }
+.hr-cv-drop.over, .hr-cv-drop:focus-visible { outline: none; border-style: solid; }
+.hr-cv-pos { display: flex; flex-direction: column; gap: var(--ap-space-2); }
+.hr-cv-opt { display: flex; align-items: center; gap: var(--ap-space-3); border: 1px solid var(--rule); border-radius: var(--radius); padding: var(--ap-space-2) var(--ap-space-3); cursor: pointer; }
+.hr-cv-opt.on { border-color: var(--orange); background: var(--orange-soft); }
+.hr-cand { display: grid; grid-template-columns: minmax(0, 3fr) minmax(300px, 1.3fr); gap: var(--ap-space-4); align-items: start; }
+.hr-cand .hr-filterbar { margin-top: 0; }
+.hr-cv-panel { position: sticky; top: var(--ap-space-4); }
+@media (max-width: 1100px) { .hr-cand { grid-template-columns: 1fr; } .hr-cv-panel { position: static; } }

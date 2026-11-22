@@ -330,6 +330,7 @@ if (require.main === module) {
     setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
     setInterval(() => remindOnboarding(db, gov, hrNotifier).catch(err => console.warn('[hr] promemoria inserimento non riusciti', err.message)), 24 * 3600 * 1000).unref(); // compiti, corsi in scadenza, fine prova
     if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).then(() => registerHrPerf.bossCheck?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
+    if (process.env.BOSS_PERSONALE_CREATE_URL) setInterval(() => registerHrRec.retryBoss?.().catch(err => console.warn('[hr] invio a BOSS non riuscito', err.message)), 6 * 3600 * 1000).unref(); // persone assunte non ancora arrivate su BOSS (ALM2-63)
     if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Space su ${config.baseUrl} (porta ${config.port})`);
