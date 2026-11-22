@@ -145,7 +145,33 @@ export async function openCrmEmail(id) {
 }
 
 // ── incontri: settimana del proprio calendario + elenco per mese ─────────────
-export function meetingsTab(box, base, { canWrite = true, people = [], onCount, label = 'questa scheda' } = {}) {
+// Tab Incontri delle schede (ALM2-65, tavola I): due sotto-tab a pillola, «Elenco» (gli incontri collegati) e
+// «Calendario» a tutta larghezza (lo stesso del Calendario del CRM). L'ultima scelta resta.
+export function meetingsTab(box, base, opts = {}) {
+  const m = String(base).match(/\/api\/crm\/(subjects|contacts)\/(\d+)$/);
+  if (!m) return meetingsTabOld(box, base, opts);
+  const key = 'crm-incontri-vista';
+  let view = 'calendario';
+  try { view = localStorage.getItem(key) || 'calendario'; } catch { /* niente */ }
+  const count = h('span.cv-c');
+  const pills = h('div.kc-subtabs');
+  const body = h('div');
+  const drawPills = () => fill(pills, [['elenco', 'Elenco', count], ['calendario', 'Calendario']].map(([k, l, extra]) => h('button.cv-pill.big', {
+    type: 'button', class: view === k ? 'dark' : 'line', 'aria-pressed': String(view === k), on: { click: () => { view = k; try { localStorage.setItem(key, k); } catch { /* niente */ } drawPills(); draw(); } },
+  }, l, extra ? [' · ', extra] : null)));
+  const listOpts = { ...opts, onCount: (n, miss) => { count.textContent = String(n); opts.onCount?.(n, miss); } };
+  async function draw() {
+    if (view === 'elenco') return meetingsTabOld(body, base, { ...listOpts, listOnly: true });
+    const { schedaCalendar } = await import('./crm-calendario.js');
+    schedaCalendar(body, { target: m[1], id: Number(m[2]), label: opts.label || 'questa scheda', name: opts.name || 'loro', people: opts.people || [], canWrite: opts.canWrite !== false, onChange: () => get(`${base}/meetings`).then(x => { count.textContent = String(x.length); }).catch(() => {}) });
+  }
+  fill(box, h('div.kc-incontri', pills, body));
+  get(`${base}/meetings`, { quiet: true }).then(x => { count.textContent = String(x.length); }).catch(() => {});
+  drawPills();
+  draw();
+}
+
+function meetingsTabOld(box, base, { canWrite = true, people = [], onCount, label = 'questa scheda', listOnly = false } = {}) {
   let week = mondayOf(today());
   const cal = h('div.crm-week', loading());
   const weekTitle = h('span.cv-t5.cv-small');
@@ -153,7 +179,8 @@ export function meetingsTab(box, base, { canWrite = true, people = [], onCount, 
   const count = h('span.cv-c');
   const listCard = card({ title: 'Incontri', right: canWrite ? h('button.btn.btn-sm', { type: 'button', on: { click: () => scheduleDialog(base, people, reload) } }, ic('plus', 14), 'Programma') : null }, list);
   listCard.querySelector('.cv-t').append(count);
-  fill(box, h('div.cv-cols.w420',
+  if (listOnly) fill(box, listCard);
+  else fill(box, h('div.cv-cols.w420',
     listCard,
     card({ title: 'Il tuo calendario', right: h('div.cv-row', { style: { gap: '6px' } },
       h('button.btn.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Settimana prima', on: { click: () => { week = addDays(week, -7); loadCal(); } } }, ic('chevron-left', 14)),
@@ -162,7 +189,7 @@ export function meetingsTab(box, base, { canWrite = true, people = [], onCount, 
     h('div', { style: { padding: '0 20px 20px', display: 'grid', gap: '10px' } }, weekTitle,
       h('div.crm-legend', h('span', h('i.mine'), `collegato a ${label}`), h('span', h('i.other'), 'altro: clicca per collegarlo'), h('span', h('i.nonotes'), 'senza note')),
       cal))));
-  const reload = () => { loadCal(); loadList(); };
+  const reload = () => { if (!listOnly) loadCal(); loadList(); };
   async function loadCal() {
     const end = addDays(week, 5);
     weekTitle.textContent = `${fmtDate(week)} – ${fmtDate(addDays(week, 4), { year: true })}`;

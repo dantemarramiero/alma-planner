@@ -49,6 +49,8 @@ const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
+const { registerCrmCalendario } = require('./routes/crm-calendario');
+const { createCalendarioFake } = require('./lib/crm-calendario-fake');
 const { registerPostaVoce } = require('./routes/posta-voce');
 const { createPostaVoceFake } = require('./lib/posta-voce-fake');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
@@ -108,7 +110,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, postaVoceFake, postaVoceRealtime } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, calendarioFake, postaVoceFake, postaVoceRealtime } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -276,7 +278,9 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrmSoa(app, deps); // CRM: attestazioni SOA di ANAC (chi è qualificato in zona, scheda impresa)
   registerCrmTed(app, deps); // CRM: gare europee da TED (bandi aperti ed esiti con le offerte)
   registerCrmCup(app, deps); // CRM: opere finanziate da OpenCUP (prima del bando)
-  const posta = registerCrmPosta(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null }); // CRM: Posta e progetto da una email (ALM2-55)
+  const fakeMail = !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null;
+  const posta = registerCrmPosta(app, { ...deps, mailFake: fakeMail }); // CRM: Posta e progetto da una email (ALM2-55)
+  registerCrmCalendario(app, { ...deps, config, mailFake: fakeMail, calFake: fakeMail ? (calendarioFake || createCalendarioFake()) : null }); // CRM: Calendario (ALM2-65)
   registerCrmProgetti(app, { ...deps, posta }); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerCrmPunti(app, deps); // CRM: punti di contatto trovati da soli (Collega · Chiedi un'introduzione · Non c'entra)
