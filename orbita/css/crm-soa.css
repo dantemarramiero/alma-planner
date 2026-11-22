@@ -29,7 +29,7 @@
 .qz-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .qz-seg { display: inline-flex; flex-wrap: wrap; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-pill); padding: 3px; }
 .qz-seg button { border: 0; background: none; font: inherit; font-size: 13px; color: var(--mid); height: 34px; padding: 0 16px; border-radius: var(--radius-pill); cursor: pointer; }
-.qz-seg button.on { background: var(--ink); color: #fff; }
+.qz-seg button.on { background: var(--ink); color: var(--card); }
 .qz-prov { position: relative; display: inline-flex; align-items: center; }
 .qz-prov select { appearance: none; height: 40px; padding: 0 34px 0 16px; border-radius: var(--radius-pill); border: 1px solid var(--rule); background: var(--card); font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; }
 .qz-prov .ico { position: absolute; right: 12px; pointer-events: none; color: var(--muted); }

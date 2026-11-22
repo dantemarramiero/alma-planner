@@ -72,6 +72,12 @@ export async function openSources(params, ready = null) {
     q.n ? h('div.fd-bars', q.fields.map(bar)) : h('p.fd-none', 'Nessuna gara in questo perimetro: prova un periodo più lungo o altre zone.'),
     q.n ? h('p.fd-note', `Il ribasso tipico si calcola solo sulle gare con almeno 2 offerenti e un ribasso vero: qui ${num(q.discount_real)} su ${num(q.n)}.`,
       q.subcontracts ? ` Subappalti autorizzati su queste gare: ${num(q.subcontracts)}.` : '', ' In blu i dati che non tutte le gare hanno per natura (non mancano).') : null,
+    d.ted_quality ? [
+      h('div.fd-lbl', `E nelle ${num(d.ted_quality.n)} gare europee (TED) delle stesse categorie, in tutta Italia`),
+      h('div.fd-bars', d.ted_quality.fields.map(f => h('div.fd-bar', h('span', f.label),
+        h('span.fd-track', h('span.fd-fill.ted', { style: { width: `${f.pct ?? 0}%` } })), h('b', f.pct === null ? '—' : `${f.pct}%`)))),
+      h('p.fd-note', 'Le gare sopra soglia UE sono anche in ANAC: TED non le conta due volte, aggiunge offerte ricevute e luogo del cantiere.'),
+    ] : null,
     h('div.fd-lbl', 'Cosa non c\'è'),
     h('ul.fd-lim', d.limits.map(t => h('li', t))));
   const anac = d.sources.find(s => s.key === 'anac');

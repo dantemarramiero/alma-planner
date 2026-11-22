@@ -1,0 +1,68 @@
+/* «Gare europee» da TED (ALM2-49, canvas CRM v14 · V14-TED). */
+.te-card { background: var(--card); border: 1px solid var(--rule); border-radius: 22px; overflow: hidden; box-shadow: 0 1px 2px rgba(28,24,20,.04), 0 12px 28px -18px rgba(28,24,20,.22); }
+.te-h { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 24px 28px; color: #fff;
+  background: radial-gradient(600px 240px at 0% 0%, rgba(0,87,184,.28), transparent 62%), var(--ap-graphite, #2C2C2C); }
+.te-ttl { min-width: 0; }
+.te-eb { display: flex; align-items: center; gap: 8px; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: #9CC3F0; font-weight: 500; }
+.te .te-h h3 { margin: 6px 0; font-size: 28px; line-height: 34px; font-weight: 300; color: #fff; }
+.te .te-h h3 b { font-weight: 700; color: #fff; }
+.te-h p { margin: 0; font-size: 13px; line-height: 19px; color: rgba(255,255,255,.72); max-width: 620px; }
+.te-k { display: grid; grid-template-columns: repeat(3, 150px); gap: 10px; }
+.te-n { display: flex; flex-direction: column; gap: 8px; text-align: left; font: inherit; color: #fff; cursor: pointer; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 14px; transition: border-color 120ms, transform 120ms; }
+.te-n:hover { border-color: rgba(255,255,255,.3); transform: translateY(-1px); }
+.te-n.static { cursor: default; } .te-n.static:hover { transform: none; border-color: rgba(255,255,255,.12); }
+.te-n.sel { border-color: #fff; }
+.te-n.hot { background: linear-gradient(160deg, var(--orange), var(--orange-dark, #E0731A)); border-color: transparent; }
+.te-n.hot.sel { box-shadow: 0 0 0 2px #fff; }
+.te-n:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.te-n b { font-size: 34px; line-height: 36px; font-weight: 300; color: #fff; }
+.te-n span { font-size: 12px; line-height: 16px; color: rgba(255,255,255,.85); }
+.te-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 16px 28px; border-bottom: 1px solid var(--rule); }
+.te-seg { display: inline-flex; flex-wrap: wrap; background: var(--bg); border: 1px solid var(--rule); border-radius: var(--radius-pill); padding: 3px; }
+.te-seg button { border: 0; background: none; font: inherit; font-size: 13px; color: var(--mid); height: 32px; padding: 0 16px; border-radius: var(--radius-pill); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.te-seg button.on { background: var(--ink); color: var(--card); }
+.te-seg em { font-style: normal; font-size: 11px; font-weight: 700; background: var(--rule); border-radius: var(--radius-pill); padding: 0 6px; }
+.te-seg button.on em { background: rgba(255,255,255,.18); }
+.te-src { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.te-dot { width: 8px; height: 8px; border-radius: 50%; background: #1B7A45; }
+.te-wrap { overflow-x: auto; }
+.te-t { width: 100%; border-collapse: collapse; font-size: 13px; }
+.te-t th { text-align: left; font-size: 11.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 12px 16px; border-bottom: 1px solid var(--rule); background: var(--bg); }
+.te-t td { padding: 14px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.te-t td b { color: var(--ink); font-weight: 500; }
+.te-t td small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.te-act { white-space: nowrap; text-align: right; }
+.te-act .nb-btn + .nb-btn { margin-left: 6px; }
+.te-due { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 14px; background: var(--orange-soft); color: #B85A10; }
+.te-due b { font-size: 20px; line-height: 22px; font-weight: 700; color: #B85A10 !important; }
+.te-due span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.te-due.far { background: var(--bg); color: var(--mid); } .te-due.far b { color: var(--ink) !important; }
+.te-cpv { display: inline-block; font-size: 11.5px; font-weight: 500; background: var(--bg); color: var(--mid); border-radius: 6px; padding: 1px 7px; margin: 4px 4px 0 0; }
+.te-off { display: flex; align-items: center; gap: 8px; }
+.te-off i { display: flex; gap: 2px; }
+.te-off u { display: block; width: 6px; height: 16px; border-radius: 2px; background: #0057B8; text-decoration: none; }
+.te-off u.e { background: var(--rule); }
+.te-pill { font-size: 11px; font-weight: 500; border-radius: var(--radius-pill); padding: 1px 8px; white-space: nowrap; }
+.te-pill.gr { background: #E7F5EC; color: #1B7A45; } .te-pill.bl { background: #E9F1FB; color: #0057B8; } .te-pill.or { background: var(--orange-soft); color: #B85A10; }
+.te-muted { color: var(--muted); }
+.te-none { margin: 0; padding: 24px 28px; color: var(--muted); }
+.te-more { display: block; margin: 0 auto; border: 0; background: none; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; padding: 12px 28px 18px; }
+.te-more b { color: var(--orange-dark, #E0731A); font-weight: 500; }
+.te-empty { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 22px 26px; background: var(--card); border: 1px solid var(--rule); border-radius: 18px; }
+.te-empty > div { flex: 1; min-width: 220px; }
+.te-empty b { color: var(--ink); font-weight: 500; }
+.te-empty p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.te-empty-i { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: #E9F1FB; color: #0057B8; }
+@media (max-width: 1100px) { .te-h { grid-template-columns: 1fr; } .te-k { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .te-h { padding: 22px 18px; } .te .te-h h3 { font-size: 24px; line-height: 30px; }
+  .te-n { padding: 12px 10px; } .te-n b { font-size: 26px; line-height: 28px; }
+  .te-bar { padding: 14px 18px; } .te-src { margin-left: 0; }
+  .te-t thead { display: none; }
+  .te-t, .te-t tbody, .te-t tr, .te-t td { display: block; width: 100%; }
+  .te-t tr { padding: 14px 18px; border-bottom: 1px solid var(--rule); display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; }
+  .te-t td { border: 0; padding: 0; }
+  .te-t td:first-child { grid-row: span 3; }
+  .te-act { text-align: left; grid-column: 2; }
+}
+.te-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

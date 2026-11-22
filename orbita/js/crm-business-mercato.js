@@ -7,6 +7,7 @@ import { get, post, put } from './api.js';
 import { icon } from './icons.js';
 import { sourceLine, basedOn, openSources } from './crm-fonti.js';
 import { qualifiedSection, soaBox, openSoaPanel } from './crm-soa.js';
+import { tedSection } from './crm-ted.js';
 
 const ic = (name, size = 16) => icon(name, { size });
 const pct = x => (x === null || x === undefined ? '—' : `${Number(x).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
@@ -167,7 +168,9 @@ export async function mercatoTab(ctx, f = {}) {
   // «Chi è qualificato in zona» (attestazioni SOA, canvas v13 · V13-SOA): si carica da sola, dopo il resto
   const qualCard = qualifiedSection({ id, months: f.months, cats: f.cats, regions: m.scope.regions,
     openCompany: c => (c.won ? companyPanel(i, id, { cf: c.cf, name: c.name }, f, crmData, again) : openSoaPanel(c, active)), onChange: again });
-  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, qualCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
+  // «Gare europee» (TED, canvas v14 · V14-TED): bandi aperti ed esiti con le offerte
+  const tedCard = tedSection({ id, cats: f.cats, canEdit, openCompany: who => companyPanel(i, id, who, f, crmData, again) });
+  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, qualCard, tedCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
 }
 
 // ── stati: «le carico stanotte» e «sto caricando» ─────────────────────────────────────────────

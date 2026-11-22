@@ -43,6 +43,7 @@ const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmFonti } = require('./routes/crm-fonti');
 const { registerCrmSoa } = require('./routes/crm-soa');
+const { registerCrmTed } = require('./routes/crm-ted');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
@@ -101,7 +102,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -215,7 +216,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
 
   const live = createLive();
   const isAdmin = gov.isAdmin; // ruolo «Amministratore» delle Impostazioni, più ADMIN_EMAILS come chiave di riserva
-  const deps = { db, auth, audit, gov, config, baseUrl: config.baseUrl, live, isAdmin, adminEmails: config.adminEmails, radarFetch, anacFetch, notifier: createNotifier({ db, live }) };
+  const deps = { db, auth, audit, gov, config, baseUrl: config.baseUrl, live, isAdmin, adminEmails: config.adminEmails, radarFetch, anacFetch, tedFetch, notifier: createNotifier({ db, live }) };
   deps.access = createAccess({ db, isAdmin }); // chi vede quali progetti e ticket
   deps.softwareAccess = createSoftwareAccess({ db, isAdmin }); // censimento software: amministratori e team IT
   deps.digest = createDigest({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, live }); // riepilogo del mattino e solleciti
@@ -261,6 +262,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
   registerCrmSoa(app, deps); // CRM: attestazioni SOA di ANAC (chi è qualificato in zona, scheda impresa)
+  registerCrmTed(app, deps); // CRM: gare europee da TED (bandi aperti ed esiti con le offerte)
   const posta = registerCrmPosta(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null }); // CRM: Posta e progetto da una email (ALM2-55)
   registerCrmProgetti(app, { ...deps, posta }); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
