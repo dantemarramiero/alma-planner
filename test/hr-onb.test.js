@@ -121,6 +121,9 @@ test('buddy, compiti per chi li fa, obiettivi', async () => {
   assert.equal((await api(BUDDY, 'PATCH', `/api/hr/onboarding/${onbId}/compiti/${tb.id}`, { fatto: true })).status, 200);
   assert.equal((await api(BUDDY, 'PATCH', `/api/hr/onboarding/${onbId}/compiti/${th.id}`, { fatto: true })).status, 403);
   assert.equal((await api(RESP, 'PATCH', `/api/hr/onboarding/${onbId}`, { fine_prova: '2027-01-01' })).status, 403, 'le date le cambia HR');
+  await api(HRP, 'PATCH', `/api/hr/onboarding/${onbId}`, { inizio: '2026-11-09' });
+  assert.equal((await api(HRP, 'GET', `/api/hr/onboarding/${onbId}`)).body.onboarding.fine_prova, '2027-05-09', 'la fine prova si sposta con il primo giorno');
+  await api(HRP, 'PATCH', `/api/hr/onboarding/${onbId}`, { inizio: '2026-11-02' });
   await api(RESP, 'PUT', `/api/hr/onboarding/${onbId}/obiettivi`, { obiettivi: [{ titolo: 'Commessa C3 con supervisione', stato: 'meta' }, { titolo: 'SAL in autonomia' }] });
   const d2 = (await api(RESP, 'GET', `/api/hr/onboarding/${onbId}`)).body;
   assert.equal(d2.obiettivi.length, 2);

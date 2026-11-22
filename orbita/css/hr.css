@@ -210,3 +210,32 @@
 .hr-task-ck { width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--rule); background: var(--card); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; padding: 0; color: #fff; }
 .hr-task-ck.on { background: var(--green); border-color: var(--green); }
 .hr-funnel { height: 26px; border-radius: 8px; background: var(--orange); color: #fff; font-size: var(--ap-fs-xs); display: flex; align-items: center; padding: 0 10px; margin-bottom: 6px; white-space: nowrap; }
+
+/* ── Fase 4 · onboarding (tavole AA–AG) ── */
+.hr-pbar { height: 8px; background: var(--ap-grey-100); border-radius: 999px; overflow: hidden; }
+.hr-pbar span { display: block; height: 100%; background: var(--orange); border-radius: 999px; }
+.hr-adot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }
+.hr-phase { border-left: 3px solid var(--rule); padding: 0 0 6px 14px; margin: 0 0 12px 4px; }
+.hr-phase.now { border-color: var(--orange); } .hr-phase.done { border-color: #9FD0B0; }
+.hr-phase h5 { margin: 0 0 6px; font-size: var(--ap-fs-sm); color: var(--ink); display: flex; gap: 8px; align-items: center; }
+.hr-ptask { display: flex; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--ap-grey-100); font-size: var(--ap-fs-sm); }
+.hr-ptitle { flex: 1; min-width: 0; }
+.hr-ptask > .hr-chip:last-child { margin-left: auto; }
+.hr-task-ck:disabled { cursor: default; opacity: .55; }
+.hr-av { width: 26px; height: 26px; border-radius: 50%; background: var(--orange-soft); color: var(--orange-dark); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; margin-right: 8px; vertical-align: middle; flex: none; }
+.hr-score10 { display: inline-flex; gap: 3px; flex-wrap: nowrap; }
+.hr-score10 button { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--rule); background: var(--card); font-size: 11px; color: var(--mid); cursor: pointer; padding: 0; }
+.hr-score10 button.f { background: var(--orange); border-color: var(--orange); color: #fff; }
+.hr-score10 button:disabled { cursor: default; }
+.hr-pill { min-width: 40px; height: 36px; border-radius: var(--radius-pill); border: 1px solid var(--rule); background: var(--card); cursor: pointer; font: inherit; }
+.hr-pill.on { background: var(--orange); border-color: var(--orange); color: #fff; }
+.hr-choice { flex: 1; text-align: left; border: 1px solid var(--rule); background: var(--card); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; font: inherit; }
+.hr-choice.on { border: 1.5px solid var(--orange); background: var(--orange-soft); }
+.hr-cellbtn { border: 0; background: none; padding: 0; cursor: pointer; }
+.hr-grid-side { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--ap-space-4); }
+.hr-grid-side > div:last-child { display: flex; flex-direction: column; gap: var(--ap-space-4); }
+@media (max-width: 900px) { .hr-grid-side { grid-template-columns: 1fr; } }
+.hr-mod { display: block; border: 1px solid var(--rule); background: var(--card); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; color: inherit; text-decoration: none; }
+.hr-mod.on { border: 1.5px solid var(--orange); background: var(--orange-soft); }
+.hr-onb-card { display: grid; gap: 6px; padding: var(--ap-space-4); text-decoration: none; color: inherit; border: 1.5px solid #FFD9B5; margin-bottom: var(--ap-space-4); }
+.hr-onb-card:hover { border-color: var(--orange); }

@@ -233,6 +233,7 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
     const next = meetings.find(m => !m.fatto_at);
     if (next) passi.push({ livello: 'info', testo: `Incontro dei ${next.tappa} giorni`, nota: next.quando ? `fissato il ${new Date(next.quando).toLocaleDateString('it-IT')}` : `entro il ${O.addDays(o.inizio, next.tappa).split('-').reverse().join('/')}, invito da mandare` });
     const seeProva = ['hr', 'responsabile', 'direzione'].includes(acc);
+    const { rows: [offerta] } = acc === 'hr' && o.preboarding_id ? await db.query('SELECT f.ral, f.motivo, f.benefit FROM hr_preboarding p JOIN hr_offers f ON f.app_id = p.app_id WHERE p.id = $1 ORDER BY f.id DESC LIMIT 1', [o.preboarding_id]) : { rows: [] };
     res.json({
       accesso: acc, today,
       onboarding: { id: o.id, nome: o.nome, email: acc === 'qhse' ? undefined : o.email, inizio: o.inizio, giorno: O.daysBetween(o.inizio, today) + 1, sede: o.sede, stato: o.stato, ruolo: roleTitle(o), grade: o.grade,
@@ -240,7 +241,7 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
       persone: ppl, compiti: tk, fasi: O.PHASES, obiettivi: acc === 'qhse' ? [] : goals, documenti: docs, formazione: tr,
       incontri: ['hr', 'responsabile', 'nuovo'].includes(acc) ? meetings : meetings.map(m => ({ id: m.id, tappa: m.tappa, quando: m.quando, fatto_at: m.fatto_at })),
       pulse, passi,
-      prova: seeProva ? { ...prova, revisione_ral: acc === 'hr' ? prova.revisione_ral : undefined, catena: O.probationChain(o.grade) } : null,
+      prova: seeProva ? { ...prova, revisione_ral: acc === 'hr' ? prova.revisione_ral : undefined, catena: O.probationChain(o.grade), offerta: offerta || null } : null,
     });
   });
   function canTick(acc, t) {
@@ -268,7 +269,11 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
       const fine = v.date(b.fine_prova, 'fine prova');
       const stato = v.oneOf(b.stato, 'stato', ['aperto', 'chiuso', 'annullato']);
       if (sede) await db.query('UPDATE hr_onboardings SET sede = $1 WHERE id = $2', [sede, o.id]);
-      if (inizio) await db.query('UPDATE hr_onboardings SET inizio = $1 WHERE id = $2', [inizio, o.id]); // le scadenze sono relative: si spostano da sole
+      if (inizio) {
+        // le scadenze del piano sono relative al primo giorno: si spostano da sole; la fine prova si sposta con lui (se non l'ha scritta HR)
+        await db.query('UPDATE hr_onboardings SET inizio = $1 WHERE id = $2', [inizio, o.id]);
+        if (!fine && o.fine_prova && o.prova_fonte !== 'hr') await db.query('UPDATE hr_onboardings SET fine_prova = $1 WHERE id = $2', [O.addDays(o.fine_prova, O.daysBetween(o.inizio, inizio)), o.id]);
+      }
       if (fine) await db.query("UPDATE hr_onboardings SET fine_prova = $1, prova_fonte = 'hr' WHERE id = $2", [fine, o.id]);
       if (stato) await db.query("UPDATE hr_onboardings SET stato = $1, closed_at = CASE WHEN $1 = 'aperto' THEN NULL ELSE now() END WHERE id = $2", [stato, o.id]);
       if (sede || inizio || fine || stato) await hrLog(req, 'inserimento modificato', o.person_key);
@@ -315,7 +320,8 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
       onboarding: { id: o.id, nome: o.nome.split(' ')[0], giorno, giorni: O.PIANO_GIORNI, ruolo: roleTitle(o), inizio: o.inizio, sede: o.sede },
       progresso: { fatti: tasks.filter(t => t.fatto).length, totale: tasks.length },
       settimana: settimana.map(t => ({ id: t.id, titolo: t.titolo, chi: O.CHI[t.chi] || t.chi, mio: t.chi === 'nuovo' && t.tipo === 'compito', scadenza: dueOf(o, t), in_ritardo: dueOf(o, t) < today, tipo: t.tipo })),
-      persone: await people(o), documenti: await docsOf(o), formazione: await trainingOf(o.person_key, o.role_id),
+      persone: await people(o), documenti: await docsOf(o),
+      formazione: await trainingOf(o.person_key, o.role_id).then(tr => ({ ...tr, corsi: tr.corsi.map(x => (x.stato === 'manca' ? { ...x, nel_piano: dueOf(o, { giorno: x.course.giorno }), in_ritardo: dueOf(o, { giorno: x.course.giorno }) < today } : x)) })),
       incontro: next ? { ...next, data: O.addDays(o.inizio, next.tappa), pulse_fatto: pulse.some(p => p.tappa === next.tappa) } : null,
     });
   });
@@ -551,7 +557,7 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
     await ensureOnbSeed(db);
     const tpl = await latestTemplates(db);
     const { rows: roles } = await db.query('SELECT id, title, hr_name, hr_level, hr_family, grade, description, autonomy FROM pm_roles WHERE hr_family IS NOT NULL AND merged_into IS NULL ORDER BY hr_order, id');
-    const uses = t => roles.filter(r => O.templateKeys(r, 'cantiere').includes(t.chiave) || O.templateKeys(r, 'ufficio').includes(t.chiave)).length;
+    const uses = t => roles.filter(r => O.templateKeys(r, O.sedeFor(r)).includes(t.chiave)).length; // con la sede di partenza del ruolo
     const { rows: docs } = await db.query('SELECT id, titolo, url, version, attivo, ordine, (file IS NOT NULL) AS has_file, file_nome FROM hr_documents ORDER BY attivo DESC, ordine, id');
     res.json({ modelli: tpl.map(t => ({ ...t, ruoli: uses(t) })), ruoli: roles.map(r => ({ id: r.id, title: H.roleTitle(r), family: r.hr_family, grade: r.grade })), documenti: docs, chi: O.CHI });
   });
