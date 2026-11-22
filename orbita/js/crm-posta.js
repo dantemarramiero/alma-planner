@@ -100,7 +100,9 @@ export async function postaPage(container) {
         h('button.pm-item', { type: 'button', class: st.sel === m.id ? 'on' : '', on: { click: () => open(m) } },
           h('span.pm-item-r', h('b', sentLike ? (m.to[0]?.name || m.to[0]?.address || '—') : (m.from.name || m.from.address)), h('small', when(m.date))),
           h('span.pm-item-s', m.subject),
-          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))));
+          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))),
+        // cestino sulla riga (Dante 22/11): elimina con un clic, senza aprire l'email
+        inTrash() ? null : h('button.pm-rowdel', { type: 'button', title: 'Elimina (va in «Posta eliminata» di Outlook)', 'aria-label': `Elimina «${m.subject}»`, on: { click: () => move([m.id], { del: true }) } }, ic('trash', 15)));
     }),
     st.next ? h('button.btn.btn-sm.pm-more', { type: 'button', on: { click: () => load(true) } }, 'Altre email') : null);
   }
