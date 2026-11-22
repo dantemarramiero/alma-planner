@@ -1,4 +1,4 @@
--- Alma HR, Fase 3: recruitment (ALM2-53; canvas «Alma HR», pagina «Fase 3 · recruitment», tavole 3 e S–Z).
+-- Alma HR, Fase 3: recruitment (ALM2-53; canvas «Alma HR», pagina «Fase 3 · recruitment», tavole S–Z). Numero 094: la 093 è crm_soa.
 -- Decisioni di Dante (22/11/2026): candidature da una pagina pubblica «Lavora con noi» per ogni annuncio; approvano
 -- sempre HR + Direzione, il CFO solo per posizioni nuove, fuori dal piano o sopra G6; CV dei non assunti conservati
 -- 24 mesi con il consenso, poi cancellati da soli. Persone e organigramma restano su BOSS: Alma non crea persone.
