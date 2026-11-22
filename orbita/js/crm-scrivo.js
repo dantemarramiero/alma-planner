@@ -4,7 +4,7 @@
 // Le ignorate non tornano ma si ritrovano nel filtro; «Già nel CRM» mostra chi c'è già. Ognuno vede solo la sua posta.
 import { h, fill, toast, loading, debounce, fmtDate, timeAgo } from './ui.js';
 import { get, post } from './api.js';
-import { ic, pill, title, pageTop, tabsBar, emptyState, av, cvModal } from './crm-v2.js';
+import { ic, pill, title, pageTop, tabsBar, emptyState, av, cvModal, moreMenu } from './crm-v2.js';
 
 const VIEWS = [['da_aggiungere', 'Da aggiungere'], ['ignorate', 'Ignorate'], ['crm', 'Già nel CRM']];
 const PERIODS = [[12, '12 mesi'], [6, '6 mesi'], [3, '3 mesi'], [1, 'ultimo mese']];
@@ -79,13 +79,15 @@ export async function scrivoTab(box) {
       on: { change: e => { if (e.target.checked) state.sel.add(p.email); else state.sel.delete(p.email); drawBulk(); } } });
     const [local, dom] = p.email.split('@');
     const mark = s => { const q = state.q.toLowerCase(); const i = q ? s.toLowerCase().indexOf(q) : -1; return i < 0 ? s : [s.slice(0, i), h('mark', s.slice(i, i + q.length)), s.slice(i + q.length)]; };
+    // «Crea progetto dalle sue email» (ALM2-55): Alma legge l'ultima conversazione con questa persona
+    const fromMail = moreMenu([['Crea progetto dalle sue email', async () => (await import('./crm-posta.js')).proposalFromPerson(p.email)]], { ghost: true });
     const actions = state.view === 'crm'
-      ? h('div.sc-act', h('a.btn.btn-sm', { href: `#/crm/contatti/${p.contact.id}` }, 'Apri la scheda'))
+      ? h('div.sc-act', h('a.btn.btn-sm', { href: `#/crm/contatti/${p.contact.id}` }, 'Apri la scheda'), fromMail)
       : state.view === 'ignorate'
         ? h('div.sc-act', h('button.btn.btn-sm', { type: 'button', on: { click: () => ignore([p.email], true) } }, 'Ripristina'))
         : h('div.sc-act',
           h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => createFrom(p) } }, 'Crea contatto'),
-          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => ignore([p.email]) } }, 'Ignora'));
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => ignore([p.email]) } }, 'Ignora'), fromMail);
     return h('div.sc-row',
       h('span.sc-c0', state.view === 'crm' ? null : check),
       h('div.sc-who', av(p.name || p.email, 'bl'), h('div.sc-who-t', h('b', mark(p.name || local)), h('small', mark(local), '@', mark(dom)), !p.name ? h('small.cv-muted', 'nessun nome nell\'intestazione') : null)),
