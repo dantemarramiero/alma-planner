@@ -795,7 +795,7 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
         auto: e.auto_added })),
       ...notes.map(n => ({ type: 'note', id: n.id, at: n.created_at, author_id: n.author_id, kind: n.kind, title: n.title, body: n.body, files: n.files })),
       ...meetings.map(m => ({ type: 'meeting', id: m.id, at: m.start_at, title: m.subject, body: m.location || '' })),
-    ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    ].sort((a, b) => (new Date(b.at).getTime() || 0) - (new Date(a.at).getTime() || 0)); // per data vera: le date di pg come testo («Sun Nov 22…») si ordinavano per giorno della settimana
     res.json({ items });
   });
 
