@@ -20,7 +20,7 @@ const { addDays } = require('../lib/workdays');
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const PAGE = 30;
-const SELECT = 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,bodyPreview,hasAttachments,internetMessageId,isDraft,webLink';
+const SELECT = 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,bodyPreview,hasAttachments,internetMessageId,isDraft,webLink,parentFolderId';
 const FULL = `${SELECT},body`;
 const TEXT = { Prefer: 'outlook.body-content-type="text"' };
 const MAX_ATTACHMENT = 20 * 1024 * 1024;
@@ -30,6 +30,9 @@ const STALE = 2 * 60 * 1000;
 const iso = d => (d ? (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null);
 const month = () => P.romeDay().slice(0, 7);
 const q1 = s => String(s).replace(/'/g, "''");
+const FOLDER_ID = /^[A-Za-z0-9_\-=+\/.]{1,500}$/;
+// Cartelle di Outlook che non servono nella Posta del CRM (bozze, posta in uscita, cronologia conversazioni…)
+const HIDDEN_FOLDERS = new Set(['drafts', 'outbox', 'conversationhistory', 'syncissues', 'scheduled']);
 const EMAIL_RE = /^[^\s"@]+@[^\s"@]+\.[^\s"@]+$/;
 
 function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
@@ -37,6 +40,15 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
   const ai = () => ({ key: aiKey(), fetchImpl: radarFetch || fetch });
   const g = (t, method, path, opts) => (mailFake ? mailFake.graph(t, method, path, opts) : graph(t, method, path, opts));
   const token = async uid => (mailFake ? 'fake' : auth.graphToken(uid));
+  // Spostare ed eliminare (ALM2-60) chiede Mail.ReadWrite, con il consenso amministratore in Entra: non sta nei permessi
+  // dell'accesso, così se manca si ferma solo questo e non il login di tutti.
+  async function writeToken(uid) {
+    if (mailFake) return 'fake';
+    try { return await auth.graphTokenFor(uid, ['Mail.ReadWrite']); } catch (err) {
+      if (err.status === 403 || err.code === 'consent') throw new HttpError(403, 'Per spostare ed eliminare le email serve il permesso «Mail.ReadWrite» di Microsoft: un amministratore deve approvarlo in Entra per l’app Alma Planner, poi esci e rientra', 'mail_write');
+      throw err;
+    }
+  }
   async function mail(t, method, path, opts) {
     try { return await g(t, method, path, opts); } catch (err) {
       if (err.status === 403) throw new HttpError(403, 'Per leggere la posta serve il permesso «Mail.Read» di Microsoft: chiedi all\'amministratore di approvarlo', 'mail_read');
@@ -85,7 +97,8 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
 
   // ── Posta (tavola A) ─────────────────────────────────────────────────────────────────────────────
   app.get('/api/crm/posta', async (req, res) => {
-    const folder = req.query.cartella === 'inviate' ? 'sentitems' : 'inbox';
+    const c = String(req.query.cartella || '');
+    const folder = c === 'inviate' ? 'sentitems' : !c || c === 'arrivo' ? 'inbox' : FOLDER_ID.test(c) ? encodeURIComponent(c) : 'inbox';
     const q = String(req.query.q || '').replace(/"/g, '').trim().slice(0, 200);
     const t = await token(req.user.id);
     const next = typeof req.query.next === 'string' ? req.query.next : '';
@@ -106,9 +119,58 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     for (const m of items) per.set(m.conversation_id, (per.get(m.conversation_id) || 0) + 1);
     res.json({
       messages: items.map(m => ({ id: m.id, conversation_id: m.conversation_id, subject: m.subject, from: m.from, to: m.to, date: m.date, preview: m.preview,
-        has_attachments: m.has_attachments, in_page: per.get(m.conversation_id) || 1, ...(where.byConv(m.conversation_id) || where.byImid(m.internet_message_id) || {}) })),
+        has_attachments: m.has_attachments, folder_id: m.folder_id, in_page: per.get(m.conversation_id) || 1, ...(where.byConv(m.conversation_id) || where.byImid(m.internet_message_id) || {}) })),
       next: data['@odata.nextLink'] || null,
     });
+  });
+
+  // Cartelle di Outlook (ALM2-60): quelle di primo livello e le sottocartelle, fino a 3 livelli, per aprirle e spostarci le email.
+  app.get('/api/crm/posta/cartelle', async (req, res) => {
+    const t = await token(req.user.id);
+    const sel = '$select=id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount&$top=100';
+    const [top, ...wk] = await Promise.all([mail(t, 'GET', `/me/mailFolders?${sel}`),
+      ...['inbox', 'sentitems', 'deleteditems', 'archive', 'junkemail', ...HIDDEN_FOLDERS].map(n => g(t, 'GET', `/me/mailFolders/${n}?$select=id`).then(r => [n, r.id]).catch(() => null))]);
+    const known = new Map(wk.filter(Boolean).map(([n, id]) => [id, n]));
+    const out = [];
+    async function walk(list, depth, parent) {
+      for (const f of list) {
+        const wkName = known.get(f.id) || null;
+        if (wkName && HIDDEN_FOLDERS.has(wkName)) continue;
+        if (out.length >= 300) return;
+        out.push({ id: f.id, name: f.displayName, parent, depth, well_known: wkName, total: f.totalItemCount || 0, unread: f.unreadItemCount || 0 });
+        if (f.childFolderCount && depth < 2) {
+          const kids = await mail(t, 'GET', `/me/mailFolders/${encodeURIComponent(f.id)}/childFolders?${sel}`).catch(() => ({ value: [] }));
+          await walk((kids.value || []).sort((a, b) => a.displayName.localeCompare(b.displayName, 'it')), depth + 1, f.id);
+        }
+      }
+    }
+    const order = ['inbox', 'sentitems', 'archive', 'deleteditems', 'junkemail'];
+    const rank = f => { const i = order.indexOf(known.get(f.id)); return i < 0 ? 99 : i; };
+    await walk((top.value || []).sort((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName, 'it')), 0, null);
+    res.json({ folders: out });
+  });
+
+  // Sposta in una cartella o elimina (= «Posta eliminata» di Outlook, recuperabile). Più email insieme.
+  // Outlook dà un id nuovo all'email spostata: torna indietro l'id nuovo, per «Annulla».
+  app.post('/api/crm/posta/sposta', async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 100).map(x => v.text(x, 'email', { max: 500, required: true })) : [];
+    if (!ids.length) throw new HttpError(400, 'Nessuna email scelta');
+    const del = req.body?.elimina === true;
+    const dest = del ? 'deleteditems' : v.text(req.body?.cartella, 'cartella', { max: 500, required: true });
+    if (!del && !FOLDER_ID.test(dest)) throw new HttpError(400, 'Cartella non valida');
+    const t = await writeToken(req.user.id);
+    const moved = [];
+    const failed = [];
+    for (const id of ids) {
+      try {
+        const r = await g(t, 'POST', `/me/messages/${encodeURIComponent(id)}/move`, { body: { destinationId: dest } });
+        moved.push({ old_id: id, id: r?.id || id });
+      } catch (err) {
+        if (err.status === 403) throw new HttpError(403, 'Per spostare ed eliminare le email serve il permesso «Mail.ReadWrite» di Microsoft: un amministratore deve approvarlo in Entra per l’app Alma Planner, poi esci e rientra', 'mail_write');
+        failed.push({ id, error: err.message });
+      }
+    }
+    res.json({ moved, failed });
   });
 
   app.get('/api/crm/posta/:id', async (req, res) => {

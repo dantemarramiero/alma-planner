@@ -13,6 +13,30 @@
 .pm-items { overflow-y: auto; }
 .pm-item { display: grid; gap: 3px; width: 100%; padding: 13px 18px; border: 0; border-top: 1px solid var(--cv-line); background: transparent; font: inherit; text-align: left; color: var(--cv-text); cursor: pointer; }
 .pm-item:first-child { border-top: 0; }
+/* ALM2-60: spunta, sposta, elimina, cartelle di Outlook */
+.pm-row { position: relative; border-top: 1px solid var(--cv-line); }
+.pm-row:first-child { border-top: 0; }
+.pm-row .pm-item { border-top: 0; padding-left: 46px; }
+.pm-row.picked .pm-item { background: var(--cv-or-t); }
+.pm-chk { position: absolute; left: 10px; top: 12px; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--cv-faint); cursor: pointer; }
+.pm-chk:hover, .pm-row.picked .pm-chk { color: var(--cv-orange); }
+.pm-chk:focus-visible { outline: 2px solid var(--cv-ring); }
+.pm-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--cv-line); background: var(--cv-head); font-size: 13px; }
+.pm-bulk[hidden] { display: none; }
+.pm-bulk b { color: var(--cv-ink); font-weight: 500; margin-right: auto; }
+.pm-folders { flex-wrap: wrap; }
+.pm-fold { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; }
+.pm-fold span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-tools { display: flex; gap: 8px; justify-content: flex-end; margin: -8px -8px -6px 0; }
+.btn.pm-del:hover { color: var(--cv-rd); border-color: var(--cv-rd-line); background: var(--cv-rd-bg); }
+.pm-treebox { display: grid; gap: 10px; }
+.pm-tree { display: grid; gap: 2px; max-height: 52vh; overflow-y: auto; }
+.pm-tree-i { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-radius: 12px; background: transparent; font: inherit; font-size: 14px; text-align: left; color: var(--cv-text); cursor: pointer; }
+.pm-tree-i:hover { background: var(--cv-or-t); color: var(--cv-ink); }
+.pm-tree-i span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-tree-i small { color: var(--cv-muted); font-size: 12px; }
+.pm-toast { display: inline-flex; align-items: center; gap: 14px; }
+.pm-undo { border: 0; background: transparent; color: var(--cv-orange); font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
 .pm-item:hover { background: var(--cv-head); }
 .pm-item.on { background: var(--cv-or-t); box-shadow: inset 3px 0 0 var(--cv-orange); }
 .pm-item-r { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
