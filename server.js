@@ -71,6 +71,7 @@ const { registerOrganigramma } = require('./routes/organigramma');
 const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
 const { registerHrOrg } = require('./routes/hr-org');
 const { registerHrRec, purgeCandidates, remindApprovals } = require('./routes/hr-rec');
+const { registerFeedback } = require('./routes/feedback');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -212,6 +213,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   app.use('/api/mezzi', (req, _res, next) => next(req.privacy.mezzi === 'none' && !gov.isAdmin(req) ? new HttpError(403, 'I mezzi non sono tra le cose che puoi vedere') : undefined));
   app.use('/api/alma/chat', express.json({ limit: '12mb' })); // Alma: foto dei biglietti da visita (al massimo 5, già rimpicciolite)
   app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' })); // Alma HR: CV caricati dal team HR
+  app.use('/api/feedback', express.json({ limit: '22mb' })); // feedback su Alma Space: fino a 3 foto dello schermo da 5 MB
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
@@ -254,6 +256,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerSearch(app, deps);
   registerSoftware(app, deps);
   registerIt(app, deps);
+  registerFeedback(app, deps); // feedback su Alma Space (ALM2-56): problema tecnico o suggerimento, su Linear, con l'esito che torna
   registerFleet(app, deps);
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
