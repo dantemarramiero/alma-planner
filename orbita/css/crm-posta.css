@@ -267,3 +267,35 @@
 .pm-est { color: var(--cv-muted); font-size: 11px; font-weight: 400; }
 .pm-alma { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pm-redo[hidden], .pm-tone:empty { display: none; }
+/* ALM2-64: La mia firma (#/firma) */
+.fm-grid { display: grid; grid-template-columns: minmax(320px, 560px) 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .fm-grid { grid-template-columns: 1fr; } }
+.fm-form { display: grid; gap: 12px; padding: 4px 18px 18px; }
+.fm-fld { display: grid; gap: 4px; font-size: 12px; color: var(--cv-muted); }
+.fm-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .fm-two { grid-template-columns: 1fr; } }
+.fm-on { padding: 10px 12px; border: 1px solid var(--cv-line); border-radius: 12px; background: var(--cv-head); }
+.fm-act { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.fm-mail { margin: 4px 18px 10px; border: 1px solid var(--cv-line); border-radius: 12px; padding: 18px 20px; background: #fff; color: #222; }
+.fm-sample p { margin: 0; font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #222; }
+.fm-sample { margin-bottom: 14px; }
+.fm-prev.off { opacity: .35; }
+.fm-note { margin: 0 18px 16px; }
+/* ALM2-64: A/Cc, allegati e firma nel riquadro di risposta e inoltro */
+.pm-rcpt-box { display: grid; border: 1px solid var(--cv-line); border-radius: 12px; background: var(--cv-card); }
+.pm-rcpt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; min-height: 40px; }
+.pm-rcpt-row + .pm-rcpt-row { border-top: 1px solid var(--cv-line); }
+.pm-rcpt-k { width: 24px; font-size: 12.5px; color: var(--cv-muted); }
+.pm-rcpt { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--cv-head); border: 1px solid var(--cv-line-strong); font-size: 13px; color: var(--cv-text); }
+.pm-rcpt button, .pm-file button { border: 0; background: transparent; color: var(--cv-muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 3px; border-radius: 6px; }
+.pm-rcpt button:hover, .pm-file button:hover { color: var(--cv-rd); }
+.pm-rcpt-w { position: relative; flex: 1; min-width: 200px; }
+.pm-rcpt-i { width: 100%; height: 28px; border: 0; outline: 0; font: inherit; font-size: 13px; background: transparent; color: var(--cv-text); }
+.pm-sugg { position: absolute; left: 0; right: 0; top: 32px; z-index: 20; display: grid; background: var(--cv-card); border: 1px solid var(--cv-line-strong); border-radius: 12px; box-shadow: var(--cv-shadow); padding: 4px; max-height: 260px; overflow-y: auto; }
+.pm-sugg[hidden] { display: none; }
+.pm-sugg button { display: grid; gap: 1px; text-align: left; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; font: inherit; color: var(--cv-text); cursor: pointer; }
+.pm-sugg button:hover { background: var(--cv-or-t); }
+.pm-sugg small { color: var(--cv-muted); font-size: 12px; }
+.pm-atts2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pm-file { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px 4px 10px; border-radius: 10px; background: var(--cv-head); border: 1px solid var(--cv-line); font-size: 12.5px; color: var(--cv-text); }
+.pm-sig { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--cv-muted); }

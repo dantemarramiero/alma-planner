@@ -301,3 +301,57 @@ test('ALM2-61: riassunto, bozza col tuo tono, bozza in Outlook e risposta a tutt
   // tono senza email passate: niente chip
   assert.deepEqual(A.toneOf([]).chips, []);
 });
+
+test('ALM2-64: firma Almacis, A/Cc, allegati e inoltra', async () => {
+  // firma dal profilo (senza Microsoft: nome di Alma Space), poi corretta e ripristinata
+  let r = await D('GET', '/api/firma');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.saved, false);
+  assert.ok(r.body.name);
+  assert.match(r.body.html, /Centro Direzionale Dama/);
+  r = await D('PUT', '/api/firma', { name: 'Marramiero Dante', role: 'Direzione', phone: '+39 342 0000000' });
+  assert.equal(r.body.saved, true);
+  assert.match(r.body.html, /<b>Marramiero Dante<\/b>/);
+  assert.match(r.body.html, /Tel\.&nbsp; \+39 342 0000000/);
+  // destinatari: colleghi e contatti del CRM
+  r = await D('GET', '/api/crm/posta/destinatari?q=marco');
+  assert.ok(r.body.people.some(p => p.address === 'marco.bianchi@almacis.it' && p.kind === 'collega'));
+  // inoltra: via il computo originale, due file nuovi (uno grande, a pezzi), A e Cc scelti, firma con il logo
+  const small = Buffer.from('ciao').toString('base64');
+  const big = Buffer.alloc(4 * 1024 * 1024, 1).toString('base64');
+  r = await D('POST', '/api/crm/posta/m-dc-2/componi', {
+    modo: 'inoltra', a: [{ name: 'Marco Bianchi', address: 'marco.bianchi@almacis.it' }], cc: [{ address: 'sara@esempio.it' }, { address: 'non-una-email' }],
+    testo: 'Marco, guardiamo il computo?', togli: ['Computo_preliminare_DC.pdf'],
+    allegati: [{ name: 'note.txt', type: 'text/plain', data: small }, { name: 'grande.bin', data: big }],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  let s = fake.sent.at(-1);
+  assert.equal(s.kind, 'forward');
+  assert.deepEqual(s.toRecipients.map(x => x.emailAddress.address), ['marco.bianchi@almacis.it']);
+  assert.deepEqual(s.ccRecipients.map(x => x.emailAddress.address), ['sara@esempio.it']);
+  assert.match(s.body, /Marco, guardiamo il computo\?/);
+  assert.match(s.body, /almacis-firma/);
+  assert.ok(s.body.indexOf('almacis-firma') < s.body.indexOf('<hr>'), 'testo e firma sopra la citazione');
+  const names = s.attachments.map(a => a.name);
+  assert.ok(!names.includes('Computo_preliminare_DC.pdf'));
+  assert.ok(names.includes('note.txt') && names.includes('grande.bin') && names.includes('almacis.png'));
+  assert.ok(s.attachments.find(a => a.name === 'almacis.png').isInline);
+  assert.equal(fake.uploads.at(-1).size, 4 * 1024 * 1024);
+  // rispondi senza firma, salvata tra le bozze
+  r = await D('POST', '/api/crm/posta/m-dc-2/componi', { modo: 'rispondi', a: [{ address: 'l.rossi@studiotecnicorossi.it' }], testo: 'ok', firma: false, bozza: true });
+  assert.equal(r.body.draft, true);
+  const d = fake.drafts.at(-1);
+  assert.equal(d.sent, false);
+  assert.ok(!/almacis-firma/.test(d.patch.body.content));
+  assert.ok(!d.attachments.some(a => a.name === 'almacis.png'));
+  // controlli
+  assert.equal((await D('POST', '/api/crm/posta/m-dc-2/componi', { modo: 'tutti', a: [], testo: 'x' })).status, 400);
+  assert.equal((await D('POST', '/api/crm/posta/m-dc-2/componi', { modo: 'boh', a: [{ address: 'a@b.it' }], testo: 'x' })).status, 400);
+  // firma spenta: niente firma nemmeno se richiesta
+  await D('PUT', '/api/firma', { enabled: false });
+  r = await D('POST', '/api/crm/posta/m-dc-2/componi', { modo: 'rispondi', a: [{ address: 'l.rossi@studiotecnicorossi.it' }], testo: 'ok' });
+  assert.ok(!/almacis-firma/.test(fake.sent.at(-1).body));
+  r = await D('DELETE', '/api/firma');
+  assert.equal(r.body.saved, false);
+  assert.equal(r.body.enabled, true);
+});

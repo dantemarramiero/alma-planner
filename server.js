@@ -50,6 +50,8 @@ const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
+const { registerCrmCalendario } = require('./routes/crm-calendario');
+const { createCalendarioFake } = require('./lib/crm-calendario-fake');
 const { registerPostaVoce } = require('./routes/posta-voce');
 const { createPostaVoceFake } = require('./lib/posta-voce-fake');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
@@ -109,7 +111,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, triennaliFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, postaVoceFake, postaVoceRealtime } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, triennaliFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, calendarioFake, postaVoceFake, postaVoceRealtime } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -221,6 +223,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' })); // Alma HR: CV caricati dal team HR
   app.use(['/api/hr/formazione/attestati', '/api/hr/documenti'], express.json({ limit: '12mb' })); // Alma HR: attestati e documenti in PDF
   app.use('/api/feedback', express.json({ limit: '22mb' })); // feedback su Alma Space: fino a 3 foto dello schermo da 5 MB
+  app.use(['/api/crm/posta/:id/componi', '/api/crm/posta/:id/rispondi'], express.json({ limit: '36mb' })); // Posta: allegati delle risposte e degli inoltri (25 MB in base64)
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
@@ -277,7 +280,9 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrmTed(app, deps); // CRM: gare europee da TED (bandi aperti ed esiti con le offerte)
   registerCrmCup(app, deps); // CRM: opere finanziate da OpenCUP (prima del bando)
   registerCrmTriennali(app, deps); // CRM: programmi triennali dei lavori pubblici (Radar, «Programmata»)
-  const posta = registerCrmPosta(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null }); // CRM: Posta e progetto da una email (ALM2-55)
+  const fakeMail = !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null;
+  const posta = registerCrmPosta(app, { ...deps, mailFake: fakeMail }); // CRM: Posta e progetto da una email (ALM2-55)
+  registerCrmCalendario(app, { ...deps, config, mailFake: fakeMail, calFake: fakeMail ? (calendarioFake || createCalendarioFake()) : null }); // CRM: Calendario (ALM2-65)
   registerCrmProgetti(app, { ...deps, posta }); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerCrmPunti(app, deps); // CRM: punti di contatto trovati da soli (Collega · Chiedi un'introduzione · Non c'entra)
@@ -331,6 +336,7 @@ if (require.main === module) {
     setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
     setInterval(() => remindOnboarding(db, gov, hrNotifier).catch(err => console.warn('[hr] promemoria inserimento non riusciti', err.message)), 24 * 3600 * 1000).unref(); // compiti, corsi in scadenza, fine prova
     if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).then(() => registerHrPerf.bossCheck?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
+    if (process.env.BOSS_PERSONALE_CREATE_URL) setInterval(() => registerHrRec.retryBoss?.().catch(err => console.warn('[hr] invio a BOSS non riuscito', err.message)), 6 * 3600 * 1000).unref(); // persone assunte non ancora arrivate su BOSS (ALM2-63)
     if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Space su ${config.baseUrl} (porta ${config.port})`);

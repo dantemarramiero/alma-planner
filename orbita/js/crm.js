@@ -7,6 +7,7 @@
 import { bigliettiTab } from './biglietti.js';
 import { scrivoTab } from './crm-scrivo.js';
 import { postaPage } from './crm-posta.js';
+import { calendarioPage } from './crm-calendario.js';
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
@@ -136,6 +137,7 @@ export async function crmView(container, parts = []) {
   // «Porta avanti» e «I miei progetti» (canvas v9): sala di lancio, portafoglio e scheda del progetto
   if (parts[1] === 'lancio' && ['s', 'i'].includes(parts[2]) && Number(parts[3])) return launchRoom(container, parts[2], Number(parts[3]));
   if (parts[1] === 'progetti') return mieiProgetti(container);
+  if (parts[1] === 'calendario') return calendarioPage(container); // il proprio Outlook coi colori del CRM (ALM2-65)
   if (parts[1] === 'posta') return postaPage(container); // la propria casella: da un'email nasce un progetto (ALM2-55)
   if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
@@ -736,7 +738,7 @@ async function subjectPage(container, id, tabKey) {
   if (tab === 'panoramica') await overviewTab(body, s, base, go, people, () => refresh());
   else if (tab === 'contatti') subjectContacts(body, s, () => refresh());
   else if (tab === 'email') emailsTab(body, base, { canWrite });
-  else if (tab === 'incontri') meetingsTab(body, base, { canWrite, people: invite, label: 'quest\'azienda' });
+  else if (tab === 'incontri') meetingsTab(body, base, { canWrite, people: invite, label: 'quest\'azienda', name: s.short_name || s.name });
   else if (tab === 'note') notesTab(body, base, { isSubject: true });
   else if (tab === 'progetti') projectsTab(body, base, { canWrite, newName: s.short_name || s.name });
   else if (tab === 'piani') await plansTab(body, s, () => refresh());
@@ -1416,7 +1418,7 @@ async function contactPage(container, id, tabKey) {
     cvTabs(tabs, tab, go),
     body));
   if (tab === 'email') return emailsTab(body, base, {});
-  if (tab === 'incontri') return meetingsTab(body, base, { people: [{ name: personName(c), email: c.email, preset: true }], label: 'questo contatto' });
+  if (tab === 'incontri') return meetingsTab(body, base, { people: [{ name: personName(c), email: c.email, preset: true }], label: 'questo contatto', name: personName(c) });
   if (tab === 'note') return notesTab(body, base, {});
   if (tab === 'progetti') return projectsTab(body, base, { newName: personName(c) });
   fill(body, contactSections(c, primary, refresh), h('div.cv-cols.w420',

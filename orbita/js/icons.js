@@ -2,6 +2,7 @@
 // colore currentColor. Niente emoji nell'interfaccia. Uso: h('button', icon('plus'), 'Crea progetto').
 const P = {
   reply: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
+  forward: '<polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/>',
   'reply-all': '<polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 0 0-4-4H7"/>',
   'skip-forward': '<path d="M5 4 15 12 5 20Z"/><path d="M19 5v14"/>',
   'align-left': '<path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/>',

@@ -156,8 +156,9 @@ export async function postaPage(container) {
     const long = e.conversation_count >= 3 || (e.body.match(/\S+/g) || []).length > 150;
     st.act = {
       riassumi: long ? () => summary(e, aiBox) : null,
-      rispondi: () => replyPanel(e, aiBox, false),
-      tutti: () => replyPanel(e, aiBox, true),
+      rispondi: () => composePanel(e, aiBox, 'rispondi'),
+      tutti: () => composePanel(e, aiBox, 'tutti'),
+      inoltra: () => composePanel(e, aiBox, 'inoltra'),
       sposta: () => move([e.id]),
       elimina: inTrash() ? null : () => move([e.id], { del: true }),
     };
@@ -168,6 +169,7 @@ export async function postaPage(container) {
         h('span.pm-sep'),
         h('button.btn.btn-sm', { type: 'button', title: `Rispondi a ${rcptOf(e, false)[0]?.name || rcptOf(e, false)[0]?.address || ''} (tasto R)`, on: { click: st.act.rispondi } }, ic('reply', 14), 'Rispondi', h('kbd', 'R')),
         many ? h('button.btn.btn-sm', { type: 'button', title: `Rispondi a tutti: ${rcptOf(e, true).map(p => p.name || p.address).join(', ')} (tasto A)`, on: { click: st.act.tutti } }, ic('reply-all', 14), 'Rispondi a tutti', h('kbd', 'A')) : null,
+        h('button.btn.btn-sm', { type: 'button', title: 'Inoltra con gli allegati (tasto F)', on: { click: st.act.inoltra } }, ic('forward', 14), 'Inoltra', h('kbd', 'F')),
         h('button.btn.btn-sm', { type: 'button', title: 'Sposta in una cartella di Outlook (tasto V)', on: { click: () => move([e.id]) } }, ic('folder', 14), 'Sposta'),
         inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', title: 'Va in «Posta eliminata» di Outlook: si recupera (tasto Canc)', on: { click: () => move([e.id], { del: true }) } }, ic('trash', 14), 'Elimina')),
       h('div.pm-rhead',
@@ -213,21 +215,103 @@ export async function postaPage(container) {
       h('button.cv-lnk.pm-aip-x', { type: 'button', on: { click: ev => ev.currentTarget.closest('.pm-sum').remove() } }, 'Chiudi')));
   }
 
-  // Riquadro della risposta: vuoto, da scrivere a mano o con «Scrivi con Alma» (bozza col tuo tono, a pagamento solo al clic)
-  function replyPanel(e, aiBox, tutti) {
+  // Riquadro unico (ALM2-64, tavola H): Rispondi, Rispondi a tutti, Inoltra. A e Cc modificabili (colleghi, contatti del
+  // CRM o un indirizzo), allegati dal computer (fino a 25 MB), allegati originali da togliere (inoltra), firma Almacis,
+  // «Scrivi con Alma» (bozza col tuo tono, solo al clic). Si manda o si salva tra le bozze di Outlook.
+  const MAX_FILES = 25 * 1024 * 1024;
+  const mb = n => `${(n / 1048576).toLocaleString('it-IT', { maximumFractionDigits: 1 })} MB`;
+  async function myFirma() {
+    if (!st.firma) st.firma = await get('/api/firma', { quiet: true }).catch(() => null);
+    return st.firma;
+  }
+  function composePanel(e, aiBox, mode) {
     const old = aiBox.querySelector('.pm-draft');
-    if (old && old.dataset.tutti === String(tutti)) { old.querySelector('textarea')?.focus(); return; }
+    if (old && old.dataset.mode === mode) { old.querySelector('textarea')?.focus(); return; }
     old?.remove();
-    const to = rcptOf(e, tutti);
+    const me = String(store.me?.email || '').toLowerCase();
+    const all = rcptOf(e, true);
+    const startCc = mode === 'tutti' ? e.cc.filter(p => p.address !== me) : [];
+    const people = {
+      a: mode === 'inoltra' ? [] : mode === 'tutti' ? all.filter(p => !startCc.some(c => c.address === p.address)) : rcptOf(e, false),
+      cc: startCc,
+    };
+    const files = [];           // { name, type, size, data }
+    const drop = new Set();     // allegati originali tolti (inoltra)
+    let firmaOn = true;
     let spent = 0;
-    const text = h('textarea.pm-draft-t', { rows: 8, 'aria-label': 'Testo della risposta', placeholder: 'Scrivi la risposta, oppure fattela preparare da Alma col tuo tono' });
+
+    // A / Cc: pillole con ×, campo che cerca tra colleghi e contatti, Invio o virgola per un indirizzo scritto a mano
+    const row = key => {
+      const box = h('div.pm-rcpt-row');
+      const list = h('div.pm-sugg', { hidden: true });
+      const field = h('input.pm-rcpt-i', { placeholder: key === 'a' ? 'cerca un collega o un contatto del CRM, o scrivi un indirizzo' : 'aggiungi in copia', 'aria-label': key === 'a' ? 'Destinatari' : 'In copia' });
+      const add = p => {
+        const address = String(p.address || '').trim().toLowerCase();
+        if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(address)) { toast('Indirizzo email non valido', 'err'); return; }
+        if (![...people.a, ...people.cc].some(x => x.address === address)) people[key].push({ name: p.name || '', address });
+        field.value = ''; list.hidden = true; draw(); field.focus();
+      };
+      const draw = () => fill(box, h('span.pm-rcpt-k', key === 'a' ? 'A' : 'Cc'),
+        people[key].map(p => h('span.pm-rcpt', { title: p.address }, p.name || p.address,
+          h('button', { type: 'button', 'aria-label': `Togli ${p.name || p.address}`, on: { click: () => { people[key] = people[key].filter(x => x.address !== p.address); draw(); } } }, '×'))),
+        h('span.pm-rcpt-w', field, list));
+      const search = debounce(async () => {
+        const q = field.value.trim();
+        if (q.length < 2) { list.hidden = true; return; }
+        const r = await get(`/api/crm/posta/destinatari?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => ({ people: [] }));
+        const opts = r.people.filter(p => ![...people.a, ...people.cc].some(x => x.address === p.address));
+        list.hidden = !opts.length;
+        fill(list, opts.map(p => h('button', { type: 'button', on: { mousedown: ev => { ev.preventDefault(); add(p); } } },
+          h('b', p.name || p.address), h('small', [p.address, p.kind === 'collega' ? 'collega' : p.company || 'contatto del CRM'].filter(Boolean).join(' · ')))));
+      }, 200);
+      field.addEventListener('input', search);
+      field.addEventListener('keydown', ev => {
+        if ((ev.key === 'Enter' || ev.key === ',' || ev.key === ';') && field.value.trim()) { ev.preventDefault(); add({ address: field.value.replace(/[,;]/g, '') }); }
+        else if (ev.key === 'Backspace' && !field.value && people[key].length) { people[key].pop(); draw(); }
+      });
+      field.addEventListener('blur', () => { setTimeout(() => { list.hidden = true; }, 150); if (field.value.includes('@')) add({ address: field.value }); });
+      draw();
+      return box;
+    };
+
+    // allegati: originali (inoltra, si possono togliere) + file dal computer
+    const attBox = h('div.pm-atts2');
+    const picker = h('input', { type: 'file', multiple: true, hidden: true });
+    const total = () => files.reduce((s, f) => s + f.size, 0);
+    const drawAtts = () => fill(attBox,
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => picker.click() } }, ic('paperclip', 14), 'Allega file'),
+      mode === 'inoltra' ? e.attachments.filter(a => !drop.has(a.name)).map(a => h('span.pm-file', ic('paperclip', 12), `${a.name} · ${mb(a.size)} · dall'email`,
+        h('button', { type: 'button', 'aria-label': `Togli ${a.name}`, on: { click: () => { drop.add(a.name); drawAtts(); } } }, '×'))) : null,
+      files.map(f => h('span.pm-file', ic('paperclip', 12), `${f.name} · ${mb(f.size)}`,
+        h('button', { type: 'button', 'aria-label': `Togli ${f.name}`, on: { click: () => { files.splice(files.indexOf(f), 1); drawAtts(); } } }, '×'))),
+      files.length ? h('small.cv-muted', `${mb(total())} di 25 MB`) : null);
+    picker.addEventListener('change', async () => {
+      for (const file of picker.files) {
+        if (total() + file.size > MAX_FILES) { toast(`«${file.name}» non ci sta: in tutto al massimo 25 MB`, 'err', 6000); continue; }
+        const data = await new Promise((ok, ko) => { const rd = new FileReader(); rd.onload = () => ok(String(rd.result).split(',')[1] || ''); rd.onerror = ko; rd.readAsDataURL(file); });
+        files.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data });
+      }
+      picker.value = '';
+      drawAtts();
+    });
+
+    // firma
+    const sigBox = h('div.pm-sig');
+    const drawSig = f => fill(sigBox,
+      f && f.enabled ? [h('span.pm-chip', firmaOn ? `+ firma Almacis · ${f.name}` : 'senza firma'),
+        h('a', { href: '#/firma' }, 'Modifica'), h('span', '·'),
+        h('button.cv-lnk', { type: 'button', on: { click: () => { firmaOn = !firmaOn; drawSig(f); } } }, firmaOn ? 'togli da questa email' : 'rimetti la firma')]
+        : [h('span.pm-chip', 'firma spenta'), h('a', { href: '#/firma' }, 'Accendila')]);
+    myFirma().then(drawSig);
+
+    const text = h('textarea.pm-draft-t', { rows: 7, 'aria-label': 'Testo', placeholder: mode === 'inoltra' ? 'Scrivi due righe per chi lo riceve (facoltativo)' : 'Scrivi la risposta, oppure fattela preparare da Alma col tuo tono' });
     const cost = h('small');
     const tone = h('div.pm-tone');
     const busy = on => { panel.classList.toggle('busy', on); text.disabled = on; };
     const ask = async (extra = {}) => {
       busy(true);
       try {
-        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/bozza`, { tutti, ...extra, ...(text.value.trim() && Object.keys(extra).length ? { attuale: text.value } : {}) });
+        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/bozza`, { tutti: mode === 'tutti', ...extra, ...(text.value.trim() && Object.keys(extra).length ? { attuale: text.value } : {}) });
         text.value = x.text;
         spent += x.eur;
         cost.textContent = x.ai ? `costata ${cents(spent) || 'meno di 0,01 cent'}` : 'senza AI (regole semplici)';
@@ -242,32 +326,42 @@ export async function postaPage(container) {
     const free = h('input.pm-draft-i', { placeholder: 'oppure scrivi cosa vuoi dire, es. «chiedi il computo in pdf», e premi Invio', 'aria-label': 'Cosa vuoi dire' });
     free.addEventListener('keydown', ev => { if (ev.key === 'Enter' && free.value.trim()) { ev.preventDefault(); ask({ istruzione: free.value.trim() }); } });
     const redoRow = h('div.pm-redo', { hidden: true }, h('span', 'Rifalla:'), [['breve', 'più breve'], ['formale', 'più formale'], ['declina', 'declina con garbo']].map(([k, l]) => h('button.cv-pill.line', { type: 'button', on: { click: () => ask({ stile: k }) } }, l)));
+
     const send = async draft => {
-      if (!text.value.trim()) { text.focus(); return; }
+      if (!people.a.length) { toast('Scegli almeno un destinatario', 'err'); panel.querySelector('.pm-rcpt-i')?.focus(); return; }
+      if (mode !== 'inoltra' && !text.value.trim()) { text.focus(); return; }
       busy(true);
       try {
-        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/rispondi`, { testo: text.value, bozza: draft, tutti });
+        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/componi`, {
+          modo: mode, a: people.a, cc: people.cc, testo: text.value, firma: firmaOn, bozza: draft, togli: [...drop],
+          allegati: files.map(f => ({ name: f.name, type: f.type, data: f.data })),
+        });
         panel.remove();
-        toast(draft ? 'Salvata tra le bozze di Outlook' : `Risposta inviata a ${x.to.length === 1 ? (x.to[0].name || x.to[0].address) : `${x.to.length} persone`}`);
+        const who = x.to.length === 1 ? (x.to[0].name || x.to[0].address) : `${x.to.length} persone`;
+        toast(draft ? 'Salvata tra le bozze di Outlook' : mode === 'inoltra' ? `Inoltrata a ${who}` : `Risposta inviata a ${who}`);
         if (draft && x.web_link) window.open(x.web_link, '_blank', 'noopener');
-      } catch (err) { busy(false); toast(err?.message || 'Risposta non partita', 'err', 8000); }
+      } catch (err) { busy(false); toast(err?.message || 'Non è partita', 'err', 8000); }
     };
-    const panel = box('pm-draft', tutti ? 'Rispondi a tutti' : `Rispondi a ${firstName(to[0]?.name) || to[0]?.address || ''}`, '',
-      h('small.pm-to', `A: ${to.map(p => p.name || p.address).join(', ')}`),
-      h('div.pm-alma', alma, free),
+    const titleOf = { rispondi: `Rispondi a ${firstName(people.a[0]?.name) || people.a[0]?.address || ''}`, tutti: 'Rispondi a tutti', inoltra: `Inoltra · «${e.subject}»` }[mode];
+    const panel = box('pm-draft', titleOf, '',
+      h('div.pm-rcpt-box', row('a'), row('cc')),
+      mode === 'inoltra' ? null : h('div.pm-alma', alma, free),
       tone,
       text,
       redoRow,
+      attBox, picker,
+      sigBox,
       h('div.pm-draft-f',
-        h('span', 'Non parte niente da solo: la mandi tu, oppure la trovi tra le Bozze di Outlook.'),
+        h('span', 'Non parte niente da solo: la mandi tu, oppure la trovi tra le Bozze di Outlook. Sotto la firma va l\'email originale.'),
         h('button.cv-lnk', { type: 'button', on: { click: () => panel.remove() } }, 'Chiudi'),
         h('button.btn', { type: 'button', on: { click: () => send(true) } }, 'Salva tra le bozze di Outlook'),
-        h('button.btn.btn-primary', { type: 'button', on: { click: () => send(false) } }, ic('send', 14), tutti ? 'Invia a tutti' : 'Invia')));
-    panel.dataset.tutti = String(tutti);
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => send(false) } }, ic(mode === 'inoltra' ? 'forward' : 'send', 14), mode === 'inoltra' ? 'Inoltra' : mode === 'tutti' ? 'Invia a tutti' : 'Invia')));
+    panel.dataset.mode = mode;
     panel.querySelector('.pm-aip-h').append(cost);
+    drawAtts();
     aiBox.append(panel);
     panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    text.focus();
+    (mode === 'inoltra' ? panel.querySelector('.pm-rcpt-i') : text).focus();
   }
 
   // Scorciatoie (Dante 22/11): S riassunto · R rispondi · A rispondi a tutti · V sposta · Canc elimina · J/K email dopo/prima.
@@ -284,6 +378,7 @@ export async function postaPage(container) {
     if (k === 's') run(st.act?.riassumi);
     else if (k === 'r') run(st.act?.rispondi);
     else if (k === 'a') run(st.act?.tutti);
+    else if (k === 'f') run(st.act?.inoltra);
     else if (k === 'v') run(st.act?.sposta);
     else if (k === 'delete' || k === '#') run(st.act?.elimina);
     else if (k === 'j') run(st.list[at + 1] ? () => open(st.list[at + 1]) : null);

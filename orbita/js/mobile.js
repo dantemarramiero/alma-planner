@@ -151,6 +151,7 @@ function openMenu() {
     h('nav.menu-list.menu-foot',
       h('a', { href: `#/u/${store.me.id}`, on: { click: () => close() } }, h('span.nav-ico', icon('user')), 'Il mio profilo'),
       h('a', { href: '#/biglietto', on: { click: () => close() } }, h('span.nav-ico', icon('qr-code')), 'Il mio biglietto'),
+      h('a', { href: '#/firma', on: { click: () => close() } }, h('span.nav-ico', icon('pencil')), 'La mia firma'),
       h('a', { href: '#/notifiche/impostazioni', on: { click: () => close() } }, h('span.nav-ico', icon('settings')), 'Notifiche: campanella, telefono, email'),
       h('button.danger', { type: 'button', on: { click: async () => { await post('/auth/logout'); location.href = '/'; } } }, h('span.nav-ico', icon('log-out')), 'Esci'))));
 }

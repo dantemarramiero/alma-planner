@@ -64,6 +64,7 @@ export async function hrView(c, parts, params) {
       // Fase 3 (ALM2-53): recruitment in hr-rec.js (richieste: anche i responsabili; candidato: anche chi intervista o approva)
       case 'richieste': return parts[2] ? (await import('./hr-rec.js')).richiestaView(c, Number(parts[2])) : (await import('./hr-rec.js')).richiesteView(c, params);
       case 'candidato': return (await import('./hr-rec.js')).candidatoView(c, Number(parts[2]));
+      case 'candidati': return (await import('./hr-rec.js')).candidatiView(c, params); // ALM2-63: tutti i candidati per ruolo o BU
       case 'preboarding': return (await import('./hr-rec.js')).preboardingView(c, Number(parts[2]) || null);
       case 'recruitment': return (await import('./hr-rec.js')).numeriView(c, params);
       // Fase 4 (ALM2-54): onboarding in hr-onb.js
