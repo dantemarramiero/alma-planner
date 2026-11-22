@@ -706,7 +706,12 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
       if (!hp) continue;
       const { rows: [inc] } = p.incarico_id ? await db.query('SELECT 1 FROM org_incarichi WHERE id = $1 AND lower(ricoperto_da) = $2', [p.incarico_id, p.email]) : { rows: [true] };
       await db.query("UPDATE hr_pre_tasks SET fatto = true, fatto_at = now() WHERE pre_id = $1 AND chi = 'boss' AND NOT fatto", [p.id]);
-      if (inc) await db.query("UPDATE hr_preboarding SET stato = 'arrivato', arrived_at = now() WHERE id = $1", [p.id]);
+      if (inc) {
+        await db.query("UPDATE hr_preboarding SET stato = 'arrivato', arrived_at = now() WHERE id = $1", [p.id]);
+        // Fase 4: parte l'inserimento, con la data d'ingresso e i mesi di prova dell'offerta
+        const { rows: [x] } = await db.query('SELECT p.ingresso::text AS ingresso, (SELECT o.prova_mesi FROM hr_offers o WHERE o.app_id = p.app_id ORDER BY o.id DESC LIMIT 1) AS prova FROM hr_preboarding p WHERE p.id = $1', [p.id]);
+        await require('./hr-onb').createOnboarding(db, { personKey: hp.key, inizio: x.ingresso, preboardingId: p.id, provaMesi: x.prova || null, notifier }).catch(err => console.warn('[hr] inserimento non avviato', err.message));
+      }
     }
   }
   registerHrRec.checkArrivals = checkArrivals;

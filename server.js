@@ -68,6 +68,7 @@ const { registerOrganigramma } = require('./routes/organigramma');
 const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
 const { registerHrOrg } = require('./routes/hr-org');
 const { registerHrRec, purgeCandidates, remindApprovals } = require('./routes/hr-rec');
+const { registerHrOnb, remindOnboarding } = require('./routes/hr-onb');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -208,7 +209,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   app.use('/api/org', (req, _res, next) => next(req.privacy.persone === 'none' && !gov.isAdmin(req) ? new HttpError(403, 'L\'organigramma non è tra le cose che puoi vedere') : undefined));
   app.use('/api/mezzi', (req, _res, next) => next(req.privacy.mezzi === 'none' && !gov.isAdmin(req) ? new HttpError(403, 'I mezzi non sono tra le cose che puoi vedere') : undefined));
   app.use('/api/alma/chat', express.json({ limit: '12mb' })); // Alma: foto dei biglietti da visita (al massimo 5, già rimpicciolite)
-  app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' })); // Alma HR: CV caricati dal team HR
+  app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' }));
+  app.use(['/api/hr/formazione/attestati', '/api/hr/documenti'], express.json({ limit: '12mb' })); // Alma HR: attestati e documenti in PDF // Alma HR: CV caricati dal team HR
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
@@ -271,7 +273,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
   registerHr(app, deps); // Alma HR: persone da BOSS, ruoli sugli incarichi, mansionario, salary grade (RAL solo al team HR)
   registerHrOrg(app, deps); // Alma HR fase 2: organigramma in sola lettura (dati da BOSS), costo, scenari, cambi da BOSS, Strategy
-  registerHrRec(app, deps); // Alma HR fase 3: richieste di personale, annunci, «Lavora con noi», candidati, offerte, pre-boarding
+  registerHrRec(app, deps);
+  registerHrOnb(app, deps); // Alma HR fase 4: inserimento, formazione obbligatoria, incontri 30/60/90, fine prova, modelli // Alma HR fase 3: richieste di personale, annunci, «Lavora con noi», candidati, offerte, pre-boarding
   registerOrganigramma(app, deps); // organigramma a incarichi, come BOSS (Impostazioni → Organigramma e ruoli)
   registerImpostazioni(app, deps); // Impostazioni uniche: organigramma e ruoli, utenti, costi AI, privacy, registro, integrazioni
   registerAudit(app, deps);
@@ -308,6 +311,7 @@ if (require.main === module) {
     setInterval(() => purgeCandidates(db).then(n => n && console.log('[hr] CV cancellati: ' + n)).catch(err => console.warn('[hr] cancellazione CV non riuscita', err.message)), 24 * 3600 * 1000).unref(); // CV dei non assunti
     const hrNotifier = createNotifier({ db, live });
     setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
+    setInterval(() => remindOnboarding(db, gov, hrNotifier).catch(err => console.warn('[hr] promemoria inserimento non riusciti', err.message)), 24 * 3600 * 1000).unref(); // compiti, corsi in scadenza, fine prova
     if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
     if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
