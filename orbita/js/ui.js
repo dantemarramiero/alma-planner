@@ -39,12 +39,13 @@ export const clear = el => { el.replaceChildren(); return el; };
 export const fill = (el, ...children) => { el.replaceChildren(); append(el, children); return el; };
 
 // ── avvisi ──────────────────────────────────────────────────────────────────
-export function toast(message, kind = 'ok') {
+// ms: quanto resta (i messaggi lunghi, come la conferma dei feedback, restano di più)
+export function toast(message, kind = 'ok', ms = 0) {
   const root = document.getElementById('toasts');
   if (!root) return;
   const t = h('div.toast', { class: kind === 'err' ? 'err' : '' }, message);
   root.append(t);
-  setTimeout(() => t.remove(), kind === 'err' ? 6000 : 3000);
+  setTimeout(() => t.remove(), ms || (kind === 'err' ? 6000 : 3000));
 }
 
 // ── modali e drawer ─────────────────────────────────────────────────────────

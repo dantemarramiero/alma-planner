@@ -1,4 +1,4 @@
--- Alma HR, Fase 4: onboarding (ALM2-54; canvas «Alma HR», pagina «Fase 4 · onboarding», tavole F4 e AA–AG).
+-- Alma HR, Fase 4: onboarding (ALM2-54; canvas «Alma HR», pagina «Fase 4 · onboarding», tavole F4 e AA–AG). Numero 098: 095–097 sono di altre sessioni.
 -- Decisioni di Dante (22/11/2026): piano di 90 giorni (compiti + incontri 30/60/90), poi la sola decisione di fine prova;
 -- formazione obbligatoria in Alma per ora (in BOSS non c'è); buddy per tutti, lo sceglie il responsabile; fine prova:
 -- responsabile + visto HR, anche la Direzione da G6. Persone, incarichi e contratti restano su BOSS.

@@ -53,6 +53,7 @@
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
   <link rel="stylesheet" href="/css/notes-v2.css">
   <link rel="stylesheet" href="/css/hr.css">
+  <link rel="stylesheet" href="/css/feedback.css">
   <link rel="stylesheet" href="/css/refresh.css">
   <!-- barra di ricerca in alto e finestra Ctrl K (ALM2-46, canvas v10): dopo il refresh -->
   <link rel="stylesheet" href="/css/palette.css">
@@ -196,6 +197,8 @@
       </nav>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-sm rail-pin" id="rail-pin" type="button" aria-pressed="false"><span class="nav-ico" data-icon="pin"></span><span>Tieni aperta</span></button>
+        <!-- feedback su Alma Space (ALM2-56): problema tecnico o suggerimento, va su Linear -->
+        <button class="foot-bell" id="nav-feedback" type="button"><span class="nav-ico" data-icon="megaphone"></span><span>Feedback su Alma Space</span></button>
         <a class="foot-bell" href="#/impostazioni" data-nav="impostazioni" id="nav-settings" hidden><span class="nav-ico" data-icon="settings"></span><span>Impostazioni</span></a>
         <a class="foot-bell" href="#/alma" data-nav="alma"><span class="nav-ico" data-icon="sparkles"></span><span>Alma</span></a>
         <a class="foot-bell" href="#/notifications" data-nav="notifications" aria-label="Notifiche"><span class="nav-ico" data-icon="bell"></span><span>Notifiche</span><span class="nav-badge" data-badge="notifications" hidden></span></a>

@@ -35,6 +35,7 @@ import { agoraView, crmHome, contactPage as contactPage3, scanPage, mioBiglietto
 import { fotoPage, diarioPage, cantieriPage } from './cantieri.js';
 import { isMobile } from './ui.js';
 import { almaView, setupAlma } from './alma.js';
+import { openFeedback, feedbackView } from './feedback.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -316,6 +317,9 @@ async function route() {
     case 'impostazioni': // Impostazioni uniche (amministratori; Costi AI anche per chi ha «Costi AI: Tutto»)
       await renderImpostazioni(view, parts);
       break;
+    case 'feedback': // «I miei feedback»: esito dei feedback su Alma Space (ALM2-56)
+      cleanup = (await feedbackView(view)) || null;
+      break;
     case 'alma': // Alma, l'assistente: chat e (amministratori) impostazioni
       cleanup = (await almaView(view, parts, params)) || null;
       break;
@@ -368,6 +372,7 @@ async function start() {
     await post('/auth/logout');
     location.href = '/';
   });
+  document.getElementById('nav-feedback').addEventListener('click', () => openFeedback()); // feedback su Alma Space
   document.getElementById('create').addEventListener('click', () => openComposer({
     onCreated: () => { if (location.hash.replace(/^#\/?/, '') === '') route(); else location.hash = '#/'; },
   }));

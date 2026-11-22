@@ -608,6 +608,10 @@ export async function ioView(view) {
       store.me.is_admin ? line('#/impostazioni', 'Impostazioni di Alma Space', 'settings') : null,
       line('#/notifiche/impostazioni', 'Il mio telefono', 'phone', h('span', { class: `a2-st ${pushCls === 'ok' ? 'green' : pushCls === 'ko' ? 'red' : 'grey'}` }, pushLabel)),
       themeBtn),
+    // feedback su Alma Space (ALM2-56): la finestra e «I miei feedback»
+    h('nav.a2-card.a2-lines',
+      h('button.a2-line', { type: 'button', on: { click: () => import('./feedback.js').then(m => m.openFeedback()) } }, h('span.a2-line-ico', icon('megaphone', { size: 18 })), h('span', 'Feedback su Alma Space'), h('span.a2-muted', '›')),
+      line('#/feedback', 'I miei feedback', 'list')),
     h('nav.a2-card.a2-lines',
       h('button.a2-line.danger', { type: 'button', on: { click: async () => { await post('/auth/logout'); location.href = '/'; } } }, h('span.a2-line-ico', icon('log-out', { size: 18 })), h('span', 'Esci')))));
 }
