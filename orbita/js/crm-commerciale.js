@@ -2,6 +2,7 @@
 // design v2 dello stesso giorno (artboard «Settimana», «Telefono», «Dialoghi», «Imp-*»):
 // «La mia settimana» del responsabile di BU, prossimi passi sulla scheda, key account, impostazioni modificabili.
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading } from './ui.js';
+import { soaSettings } from './crm-soa-card.js';
 import { get, post, put, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
@@ -380,7 +381,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
 // Menu a sinistra con una riga di spiegazione, interruttori al posto delle caselle, barra scura «Modifiche non salvate».
 const SECTIONS = [['radar', 'Radar', 'BU accese, budget, giro notturno', 'radar'], ['scoring', 'Punteggio', 'pesi e soglie', 'target'],
   ['primo_passo', 'Primo passo', 'tono, firma, quando prepararlo', 'sparkles'], ['relazioni', 'Relazioni', 'come si misura la forza', 'users'], ['esiti', 'Esiti', 'motivi, probabilità, BOSS', 'trophy'],
-  ['prima_bando', 'Prima del bando', 'secondo giro del radar, vinte da altri', 'hourglass'], ['concorrenza', 'Concorrenza', 'dati ANAC, CPV, Almacis', 'scale'],
+  ['prima_bando', 'Prima del bando', 'secondo giro del radar, vinte da altri', 'hourglass'], ['concorrenza', 'Concorrenza', 'dati ANAC, CPV, Almacis', 'scale'], ['soa', 'SOA delle aziende', 'da ANAC con la P.IVA', 'badge-check'],
   ['profiles', 'Profili BU', 'cosa cerca ogni BU', 'users'],
   ['sources', 'Fonti', 'Infordat, ANAC, stampa…', 'inbox'], ['playbooks', 'Playbook', 'passi per tipo di segnale', 'list'], ['rules', 'Regole e tempi', 'procedure, Go/No-Go, motivi', 'clock'],
   ['asa', 'ASA e accessi', 'chi è di quale ASA', 'key-round'], ['zoho', 'Caricamento Zoho', 'primo caricamento', 'upload']];
@@ -423,6 +424,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
 
   if (section === 'asa') { onSave = null; return asaTab?.(body); }
   if (section === 'zoho') { onSave = null; return fill(body, importCard?.()); }
+  if (section === 'soa') { onSave = null; return soaSettings(body); } // canvas v14
 
   if (section === 'radar') {
     const r = st.radar;

@@ -15,6 +15,7 @@ import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, step
 import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.js';
 import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
+import { soaCard, soaShort } from './crm-soa-card.js';
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
 import { ic, dots, pill, av, pageTop, title, card, link, listRow, emptyState, seg, tabsBar as cvTabs, moreMenu, cvModal, choiceChips } from './crm-v2.js';
@@ -440,7 +441,7 @@ const PAGE = 50;
 async function subjectsTab(box, tab, again) {
   const role = ROLE_OF_TAB[tab] || '';
   const sub = location.hash.split('/')[3] === 'concorrenti' && tab === 'partner' ? 'concorrenti' : tab; // «Partner e concorrenti»: due viste
-  const state = { q: '', owner: ownerDefault(), fn: '', key: false, cat: '', role: '', page: 0 };
+  const state = { q: '', owner: ownerDefault(), fn: '', key: false, cat: '', role: '', soaCat: '', soaCls: '', soaValid: false, page: 0 };
   const list = h('div', loading());
   const lead = h('p.cv-sub');
   const newRole = sub === 'concorrenti' ? 'concorrente' : sub === 'partner' ? 'partner' : role;
@@ -448,6 +449,10 @@ async function subjectsTab(box, tab, again) {
   const switcher = seg([['clienti', 'Clienti', c.cliente || 0], ['lead', 'Lead', c.lead || 0], ['fornitori', 'Fornitori', c.fornitore || 0], ['partner', 'Partner', c.partner || 0],
     ['concorrenti', 'Concorrenti', c.concorrente || 0], ['tutte', 'Tutte']], sub, k => { location.hash = k === 'concorrenti' ? '#/crm/partner/concorrenti' : `#/crm/${k}`; }, { label: 'Anagrafiche' });
   const extra = tab === 'fornitori' ? [select([['', 'Categoria'], ...Object.entries(data.meta.supplierCategories)], '', { 'aria-label': 'Categoria', on: { change: e => { state.cat = e.target.value; e.target.classList.toggle('on', Boolean(state.cat)); load(); } } })]
+    : tab === 'partner' ? [ // canvas v14: SOA da ANAC e a mano
+      select([['', 'Categoria SOA'], ...data.meta.soaCategories.map(([k]) => [k, k])], '', { 'aria-label': 'Categoria SOA', on: { change: e => { state.soaCat = e.target.value; e.target.classList.toggle('on', Boolean(state.soaCat)); state.page = 0; load(); } } }),
+      select([['', 'Classifica'], ...data.meta.soaClasses.map(([k]) => [k, `da ${k}`])], '', { 'aria-label': 'Classifica minima', on: { change: e => { state.soaCls = e.target.value; e.target.classList.toggle('on', Boolean(state.soaCls)); state.page = 0; load(); } } }),
+      h('button.pill.en-chip', { type: 'button', 'aria-pressed': 'false', on: { click: e => { state.soaValid = !state.soaValid; e.currentTarget.classList.toggle('on', state.soaValid); e.currentTarget.setAttribute('aria-pressed', String(state.soaValid)); state.page = 0; load(); } } }, 'Solo valide')]
     : tab === 'tutte' ? [select([['', 'Ruolo'], ...Object.entries(data.meta.roles)], '', { 'aria-label': 'Ruolo', on: { change: e => { state.role = e.target.value; e.target.classList.toggle('on', Boolean(state.role)); load(); } } })] : [];
   let rows = [];
   fill(box,
@@ -461,11 +466,13 @@ async function subjectsTab(box, tab, again) {
   async function load() {
     const query = { asa: asaQuery(), q: state.q, role: sub === 'concorrenti' ? 'concorrente' : sub === 'partner' ? 'partner' : role || state.role, owner: state.owner, function: state.fn };
     if (tab === 'fornitori') query.category = state.cat;
+    if (state.soaCat) Object.assign(query, { soa_cat: state.soaCat, soa_cls: state.soaCls, soa_valide: state.soaValid ? '1' : '' });
     const { subjects } = await get(`/api/crm/subjects${qs(query)}`);
     rows = subjects.filter(s => !state.key || s.key_account);
     const noun = { clienti: 'clienti', fornitori: 'fornitori', partner: 'partner', concorrenti: 'concorrenti', tutte: 'anagrafiche' }[sub];
     lead.textContent = `${rows.length.toLocaleString('it-IT')} ${noun} · ${rows.filter(s => s.next_step).length.toLocaleString('it-IT')} con un prossimo passo${sub === 'clienti' ? ' · un lead diventa cliente da solo alla prima commessa in BOSS' : ''}`;
-    fill(list, subjectTable(rows, sub, state.q || state.key || state.cat || state.role, state, load));
+    if (!state.soaCat && state.soaValid) rows = rows.filter(r => (r.soa_effective || []).some(x => !x.expired));
+    fill(list, subjectTable(rows, sub, state.q || state.key || state.cat || state.role || state.soaCat || state.soaValid, state, load));
   }
   await load();
 }
@@ -587,6 +594,17 @@ async function roleListTab(box, tab, again) {
 }
 
 // tabella delle anagrafiche: Azienda · ASA · Owner e funzione · (Contatti | Categorie | Ruoli | Fase) · Prossimo passo · «…»
+// SOA in elenco (canvas v14): le categorie che contano, la scadenza di ANAC e da dove vengono
+function soaCell(s) {
+  const l = s.soa_effective || [];
+  if (!l.length) return h('span.cv-small.cv-muted', '—');
+  const valid = l.filter(x => !x.expired);
+  const exp = s.soa_expires ? new Date(`${String(s.soa_expires).slice(0, 10)}T12:00:00`).toLocaleDateString('it-IT', { month: '2-digit', year: 'numeric' }) : '';
+  return h('div', { style: { minWidth: 0 } },
+    h('div.cv-small.cv-ell', { style: { maxWidth: '230px', textDecoration: valid.length ? '' : 'line-through' } }, (valid.length ? valid : l).slice(0, 4).map(x => `${x.cat} ${x.cls}`).join(' · ')),
+    h('div.cv-small', { style: { color: s.soa_state === 'scaduta' ? 'var(--cv-red, #C0392B)' : s.soa_state === 'in_scadenza' ? 'var(--cv-orange-d)' : 'var(--cv-muted, #8A8A8A)' } },
+      s.soa_state === 'scaduta' ? 'scaduta' : s.soa_state ? `ANAC${exp ? ` · scade ${exp}` : ''}` : 'a mano'));
+}
 function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () => {}) {
   if (!subjects.length) {
     return h('section.cv-card', emptyState('building', filtered || asaChoice() || ownerDefault() ? 'Nessuna anagrafica con questi filtri.' : 'Ancora nessuna anagrafica qui.',
@@ -594,6 +612,7 @@ function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () 
   }
   const col4 = tab === 'lead' ? ['Fase', s => h('div', h('div.cv-small.cv-t5', stageLabel(s.lead_stage)), s.potential_value ? h('div.cv-small.cv-muted', short(Number(s.potential_value))) : null)]
     : tab === 'fornitori' ? ['Categorie', s => h('div.cv-small.cv-ell', { style: { maxWidth: '200px' } }, s.supplier_categories.map(x => data.meta.supplierCategories[x]).join(', ') || '—')]
+      : ['partner', 'concorrenti'].includes(tab) ? ['SOA', s => soaCell(s)]
       : tab === 'tutte' ? ['Ruoli', s => h('div.cv-row', { style: { gap: '4px' } }, s.roles.slice(0, 2).map(r => pill(data.meta.roles[r], r === 'cliente' ? 'gr' : r === 'lead' ? 'or' : '')))]
         : ['Contatti', s => String(s.contacts), 'num'];
   const page = state.page || 0;
@@ -754,7 +773,7 @@ function anagraficaSections(s, refresh) {
       sec('map-pin', 'Sede', [['address', 'Indirizzo', s.address], ['zip', 'CAP', s.zip], ['city', 'Comune', s.city], ['province', 'Provincia', s.province], ['region', 'Regione', s.region]]),
       sec('phone', 'Recapiti', [['email', 'Email', s.email && ext(`mailto:${s.email}`, s.email)], ['phone', 'Telefono', s.phone && h('a', { href: `tel:${s.phone}` }, s.phone)],
         ['website', 'Sito', ext(s.website)], ['linkedin', 'LinkedIn', ext(s.linkedin, 'profilo')]]),
-      sec('briefcase', 'Attività', [['ateco', 'ATECO', s.ateco], ['employees', 'Dipendenti', s.employees], ['revenue', 'Fatturato', s.revenue], ['soa', 'SOA', s.soa?.length ? soaText(s.soa) : '']])));
+      sec('briefcase', 'Attività', [['ateco', 'ATECO', s.ateco], ['employees', 'Dipendenti', s.employees], ['revenue', 'Fatturato', s.revenue], ['soa', 'SOA', soaShort(s) || (s.soa?.length ? soaText(s.soa) : '')]])));
 }
 async function webSearchDialog(s, onSaved) {
   const body = h('div.an-wsd');
@@ -937,6 +956,8 @@ async function overviewTab(box, s, base, go, people, refresh) {
   const r = s.roles;
   const kv = pairs => h('dl.cv-kv', pairs.filter(p => p && p[1] !== null && p[1] !== undefined && p[1] !== '' && p[1] !== '—').flatMap(([k, val]) => [h('dt', k), h('dd', val)]));
   const left = [await timelineCard(base, { onOpenTab: go })];
+  const soaBox = soaCard(s, { meta: data.meta, refresh, onEdit: () => subjectForm({ subject: s, onSaved: () => refresh() }) }); // canvas v14: SOA da ANAC
+  if (soaBox) left.unshift(soaBox);
   if (r.includes('lead')) {
     left.push(h('section.cv-card.pad', h('div.cv-lbl', 'Perché ci interessa'), s.lead_why ? h('p', s.lead_why) : emptyState('target', 'Due righe su cosa fa e cosa potremmo fare per lui.', link('Scrivile', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })),
       kv([['Valore potenziale', s.potential_value ? `${eur(s.potential_value)} l'anno` : ''], ['Priorità', s.priority ? data.meta.priorities[s.priority] : ''], ['Segmento', s.segment], ['Origine', s.origin], ['Segnalato da', s.referred_by]])));
@@ -944,10 +965,9 @@ async function overviewTab(box, s, base, go, people, refresh) {
   if (r.includes('cliente')) left.push(card({ title: 'Commesse e opportunità', right: pill('da BOSS', 'bl') }, emptyState('folder', 'Arriveranno da BOSS con il collegamento: commesse aperte e chiuse, opportunità e gare di questo cliente.')));
   if (r.includes('fornitore')) {
     left.push(h('section.cv-card.pad', h('div.cv-lbl', 'Fornitore'), kv([['Categorie', s.supplier_categories.map(k => data.meta.supplierCategories[k]).join(', ')], ['Sottocategorie', s.supplier_subcategories.join(', ')],
-      ['Zone servite', s.supplier_zones.map(provinceName).join(', ')], ['SOA', s.soa?.length ? soaText(s.soa) : ''], ['Codice Vittoria', s.vittoria_id]]),
+      ['Zone servite', s.supplier_zones.map(provinceName).join(', ')], ['Codice Vittoria', s.vittoria_id]]),
     h('p.cv-small.cv-muted', 'Qualifica e documenti a scadenza arriveranno da Vittoria.')));
   }
-  if ((r.includes('partner') || r.includes('concorrente')) && s.soa?.length) left.push(h('section.cv-card.pad', h('div.cv-lbl', r.includes('partner') ? 'Come partner (ATI, RTI, avvalimento)' : 'Come concorrente'), kv([['Categorie SOA', soaText(s.soa)]])));
   if (s.history.length) {
     left.push(card({ title: 'Storico', count: s.history.length }, s.history.slice(0, 6).map(x => listRow({ icon: 'clock', title: x.to_stage === 'cliente' ? 'Cliente' : x.to_stage === 'ruoli' ? 'Ruoli' : stageLabel(x.to_stage),
       meta: dots([new Date(x.at).toLocaleDateString('it-IT'), x.user_name, x.note]) }))));
@@ -1044,7 +1064,7 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
     field('Categorie', cats.el), subBox,
     field('Zone servite', zones.el, 'Province o regioni intere'),
     field('Codice Vittoria', input({ 'data-k': 'vittoria_id', value: s.vittoria_id || '' }), 'Qualifica e documenti si gestiscono in Vittoria.'));
-  const soaFields = h('div.en-type-block', h('div.en-type-title', 'Attestazione SOA'), soa.el);
+  const soaFields = h('div.en-type-block', h('div.en-type-title', 'Attestazione SOA'), h('p.cv-small.cv-muted', { style: { margin: '0 0 8px' } }, 'Quelle di ANAC arrivano da sole con la P.IVA: qui scrivi solo quelle che ANAC non ha (es. un\'attestazione appena rilasciata).'), soa.el);
   function drawBlocks() {
     fill(leadBox, roles.values.has('lead') ? leadFields : null);
     fill(supplierBox, roles.values.has('fornitore') ? supplierFields : null);
@@ -1072,6 +1092,18 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
           } } }, 'Usa questa scheda') : null)])) : null);
   }, 400);
   for (const el of [nameIn, vatIn, taxIn]) el.addEventListener('input', check);
+  // canvas v14: con la P.IVA si vede subito cosa dice ANAC sulle SOA
+  const soaHint = h('div.soa-hint');
+  const lookSoa = debounce(async () => {
+    const cf = (vatIn.value || taxIn.value).toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^IT(?=\d{11}$)/, '');
+    if (cf.length !== 11 && cf.length !== 16) return fill(soaHint);
+    const r = await get(`/api/crm/soa/impresa${qs({ cf })}`, { quiet: true }).catch(() => null);
+    const c = r?.soa?.cats || [];
+    fill(soaHint, c.length ? [icon('check', { size: 14 }), ' Trovata su ANAC: ', h('b', c.slice(0, 2).map(x => `${x.cat} ${x.cls.replace(/-BIS$/, '-bis')}`).join(', ')), c.length > 2 ? ` e altre ${c.length - 2}` : '', ' · le aggiungo alla scheda']
+      : r?.source?.updated_at ? h('span.cv-muted', 'Nessuna attestazione SOA valida su ANAC') : null);
+  }, 500);
+  for (const el of [vatIn, taxIn]) el.addEventListener('input', lookSoa);
+  if (vatIn.value || taxIn.value) lookSoa();
   const segments = [['', '—'], ...data.meta.segments.pubblico.map(x => [x, `Pubblico · ${x}`]), ...data.meta.segments.privato.map(x => [x, `Privato · ${x}`])];
   const prov = provinceSelect(s.province, { 'data-k': 'province' });
   const region = select([['', '—'], ...data.meta.regions.map(r => [r.name, r.name])], s.region, { 'data-k': 'region' });
@@ -1079,7 +1111,7 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
   const form = h('div.en-form',
     h('div.en-row2', field('Ragione sociale', nameIn), field('Nome breve', input({ 'data-k': 'short_name', value: s.short_name || '', placeholder: 'Per le liste' }))),
     h('div.en-row3', field('P.IVA', vatIn), field('Codice fiscale', taxIn), field('Tipo', select(Object.entries(data.meta.kinds), s.kind, { 'data-k': 'kind' }))),
-    dup,
+    soaHint, dup,
     h('div.en-row2',
       field('Owner', select(userOptions().slice(1), subject ? s.owner_id || store.me.id : store.me.id, { 'data-k': 'owner_id' }), 'Chi tiene il rapporto: obbligatorio'),
       field('Funzione di riferimento', data.functions.length
@@ -1124,7 +1156,7 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
       if (['fornitore', 'partner', 'concorrente'].some(k => roles.values.has(k))) f.soa = soa.value();
       const saved = subject ? await patch(`/api/crm/subjects/${subject.id}`, f) : await post('/api/crm/subjects', f);
       m.close();
-      toast(subject ? 'Anagrafica aggiornata' : 'Anagrafica creata');
+      toast(`${subject ? 'Anagrafica aggiornata' : 'Anagrafica creata'}${saved.soa_found ? ` · ${saved.soa_found} ${saved.soa_found === 1 ? 'categoria SOA' : 'categorie SOA'} da ANAC` : ''}`);
       onSaved?.(saved);
     } } }, subject ? 'Salva' : 'Crea')],
   });
