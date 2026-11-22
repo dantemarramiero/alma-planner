@@ -14,6 +14,7 @@ const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Euro
 const STEPS = {
   gara: ['Seguo', 'Contatto fatto', 'Gara uscita', 'Offerta', 'Esito'],
   settore: ['G1 · Idea', 'G2 · Mercato e clienti', 'G3 · Cosa ci manca', 'G4 · Piano d\'ingresso', 'Go / No-go'],
+  trattativa: ['Seguo', 'Primo incontro', 'Sopralluogo e richiesta', 'Offerta', 'Esito'], // progetto nato da una email (ALM2-55)
 };
 const PHASE_OF_INITIATIVE = { esplorazione: 0, analisi: 1, piano: 2, ingresso: 3, consolidamento: 4, abbandonata: 0 };
 const iso = d => (d ? (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null);
@@ -21,7 +22,7 @@ const later = (a, b) => (a > b ? a : b);
 const num = (x, { min = 0, max = 1e12 } = {}) => { const n = Number(x); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : 0; };
 const csvCell = x => { const s = String(x ?? ''); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
-function registerCrmProgetti(app, { db, alerts, notifier }) {
+function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
   async function people() {
     const { rows } = await db.query('SELECT id, name, email FROM users');
     return rows;
@@ -74,6 +75,7 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
     ];
     const value = g.amount != null ? Number(g.amount) : 0;
     const probability = Math.max(10, Math.min(70, Math.round((g.score || 0) * 0.45)));
+    if (g.source === 'email') return emailProposal(g, { today, owner, team, add, paths, warm, buManager, gare, value });
     return {
       kind: 'gara', source: { type: 'signal', id: g.id }, name: g.title, entity, subject_id: g.subject_id, bu: g.bu, bu_label: g.bu_label || '',
       stage: g.stage, deadline, expected_on: expected, amount: value || null, score: g.score, score_parts: g.score_parts || {}, why: g.why || '',
@@ -82,6 +84,56 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
       owner_id: owner, team, phases, steps: STEPS.gara,
       goal: { value, probability, margin: 12, hours: value >= 5e6 ? 240 : value >= 1e6 ? 160 : 80 },
     };
+  }
+
+  // Progetto nato da una email (ALM2-55, tavola C): squadra anche dai colleghi in copia, tappe della trattativa privata,
+  // date prese dalla email (scadenza delle offerte, prossimo passo).
+  async function emailProposal(g, { today, owner, team, add, paths, warm, buManager, gare, value }) {
+    const c = g.concept || {};
+    const th = posta ? await posta.threadOfSignal(g.id) : null;
+    const knows = uid => paths.find(p => p.us?.id === uid);
+    for (const uid of th?.colleague_ids || []) {
+      const k = knows(uid);
+      add(uid, k ? 'strada calda' : 'in copia', k ? `in copia nella email, conosce ${k.contact}` : 'in copia nella email');
+    }
+    const kind = c.tipo === 'gara' ? 'gara' : 'trattativa';
+    const deadline = iso(g.deadline);
+    const clamp = d => later(d, addDays(today, 1));
+    const cc = th?.colleague_ids || [];
+    const contactWho = cc.find(uid => knows(uid)) || warm?.us?.id || cc[0] || owner;
+    const gareWho = gare[0] || owner;
+    const techWho = buManager || owner;
+    const offer = deadline || addDays(today, 60);
+    const entity = g.subject_name || g.entity || 'il cliente';
+    const base = {
+      kind, source: { type: 'signal', id: g.id, email: true }, name: g.title, entity, subject_id: g.subject_id, bu: g.bu, bu_label: g.bu_label || '',
+      stage: g.stage, deadline, expected_on: null, amount: value || null, score: g.score, score_parts: {}, why: g.why || '',
+      warm: '', warm_paths: paths.slice(0, 3).map(p => ({ us: p.us?.name || '', contact: p.contact, job: p.job || '', level: p.level })),
+      url: '', soa: [], cig: '', region: g.region || '', place: g.place || '', concept: c,
+      mail: { subject: th?.subject || g.title },
+      owner_id: owner, team, steps: STEPS[kind],
+      goal: { value, probability: 25, margin: 10, hours: value >= 5e6 ? 120 : value >= 1e6 ? 80 : 40 },
+    };
+    if (kind === 'trattativa') {
+      return { ...base, phases: [
+        { title: 'Primo incontro', tasks: [
+          { title: c.prossimo_passo ? c.prossimo_passo.replace(/\?\s*$/, '').slice(0, 180) : `Primo incontro con ${entity}`, owner_id: contactWho, due_date: clamp(addDays(today, 5)) },
+          ...(!c.committente ? [{ title: 'Capire chi è il committente', owner_id: owner, due_date: clamp(addDays(today, 5)) }] : []),
+          { title: 'Mandare referenze di lavori simili', owner_id: owner, due_date: clamp(addDays(today, 7)) }] },
+        { title: 'Sopralluogo e richiesta', tasks: [
+          { title: 'Leggere il computo e chiedere i documenti', owner_id: techWho, due_date: clamp(later(addDays(today, 18), addDays(offer, -45))) }] },
+        { title: 'Offerta', tasks: [
+          { title: 'Prezzi, fornitori e offerta', owner_id: gareWho, due_date: clamp(addDays(offer, -7)) }] },
+        { title: 'Esito', tasks: [
+          { title: `Consegna entro ${offer.split('-').reverse().join('/')}, poi esito e motivo`, owner_id: owner, due_date: clamp(addDays(offer, 30)) }] },
+      ] };
+    }
+    // gara da una email: il piano della gara, con le date dalla scadenza
+    return { ...base, phases: [
+      { title: 'Agganciare l\'ente', tasks: [{ title: warm ? `Chiamare ${warm.contact}` : `Trovare il referente in ${entity}`, owner_id: contactWho, due_date: clamp(addDays(today, 3)) }] },
+      { title: 'Prepararsi alla gara', tasks: [{ title: 'Verificare requisiti e qualifiche', owner_id: gareWho, due_date: clamp(addDays(today, 14)) }, { title: 'Sopralluogo', owner_id: techWho, due_date: clamp(addDays(today, 18)) }] },
+      { title: 'Offerta', tasks: [{ title: 'Offerta tecnica ed economica', owner_id: techWho, due_date: clamp(addDays(offer, -3)) }] },
+      { title: 'Esito', tasks: [{ title: 'Registrare l\'esito e le lezioni', owner_id: owner, due_date: clamp(addDays(offer, 30)) }] }] };
   }
 
   async function initiativeProposal(req, id, users) {
@@ -156,7 +208,7 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
         const { rows: [s] } = await q.query('SELECT * FROM crm_signals WHERE id = $1 FOR UPDATE', [signalId]);
         if (!s) throw new HttpError(404, 'Opportunità non trovata');
         if (s.project_id) throw new HttpError(409, 'Questa opportunità è già stata portata avanti');
-        src = s; kind = 'gara'; color = '#FF8A26';
+        src = s; kind = s.source === 'email' && (s.concept || {}).tipo !== 'gara' ? 'trattativa' : 'gara'; color = kind === 'trattativa' ? '#E0731A' : '#FF8A26';
         name = String(b.name || s.title).trim().slice(0, 200);
         desc = [s.entity, s.summary || s.why].filter(Boolean).join(' · ').slice(0, 2000);
         subjectId = s.subject_id;
@@ -208,7 +260,7 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
           created.push({ ticket: { id: tk.id, title: tk.title, due_date: iso(tk.due_date) }, user: t.owner_id });
         }
       }
-      if (subjectId) await q.query("INSERT INTO crm_project_links (project_id, subject_id, linked_by, role) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING", [pid, subjectId, req.user.id, signalId ? 'ente' : '']);
+      if (subjectId) await q.query("INSERT INTO crm_project_links (project_id, subject_id, linked_by, role) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING", [pid, subjectId, req.user.id, signalId ? (kind === 'trattativa' ? 'cliente' : 'ente') : '']);
       if (signalId) {
         await q.query(`INSERT INTO crm_project_links (project_id, subject_id, contact_id, role, linked_by)
                        SELECT $1, subject_id, contact_id, role, $3 FROM crm_signal_links WHERE signal_id = $2 ON CONFLICT DO NOTHING`, [pid, signalId, req.user.id]);
@@ -221,6 +273,8 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
       }
       return { project_id: pid, kind, tasks: n, people: new Set(created.map(c => c.user)).size, subject_id: subjectId, source: src.id };
     });
+    // progetto nato da una email: la conversazione entra nel progetto (ALM2-55)
+    if (signalId && posta) result.mail = await posta.afterLaunch(signalId, result.project_id, req.user.id).catch(err => ({ copied: 0, error: err.message }));
     res.status(201).json(result);
     // dopo la risposta: i compiti arrivano alle persone (campanella, telefono, email)
     for (const c of created) {
@@ -239,7 +293,7 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
                        COALESCE(array_agg(a.user_id) FILTER (WHERE a.user_id IS NOT NULL), '{}') AS assignee_ids
                   FROM tickets t LEFT JOIN ticket_assignees a ON a.ticket_id = t.id WHERE t.project_id = ANY($1::int[]) GROUP BY t.id`, [projectIds]),
       db.query('SELECT project_id, user_id FROM project_members WHERE project_id = ANY($1::int[])', [projectIds]),
-      db.query(`SELECT g.id, g.project_id, g.title, g.entity, g.bu, g.amount, g.deadline, g.expected_on, g.stage, g.score, s.name AS subject_name, a.label AS bu_label
+      db.query(`SELECT g.id, g.project_id, g.title, g.entity, g.bu, g.amount, g.deadline, g.expected_on, g.stage, g.score, g.source, s.name AS subject_name, a.label AS bu_label
                   FROM crm_signals g LEFT JOIN crm_subjects s ON s.id = g.subject_id LEFT JOIN crm_asa a ON a.key = g.bu WHERE g.project_id = ANY($1::int[])`, [projectIds]),
       db.query(`SELECT i.id, i.project_id, i.name, i.asa, i.phase, i.budget_eur, i.spent_eur, a.label AS asa_label,
                        (SELECT json_build_object('n', gg.n, 'due_date', gg.due_date) FROM crm_initiative_gates gg WHERE gg.initiative_id = i.id AND gg.decision = '' AND gg.n > 0 ORDER BY gg.n LIMIT 1) AS next_gate
@@ -267,7 +321,7 @@ function registerCrmProgetti(app, { db, alerts, notifier }) {
         next: next ? { id: next.id, title: next.title, due_date: iso(next.due_date), who: nameOf(users, next.assignee_ids[0]), late: Boolean(next.due_date && iso(next.due_date) < today) } : null,
         team: team.map(id => ({ id, name: nameOf(users, id) })),
         meetings: m?.n || 0, next_meeting: m?.next_at || null,
-        source: sig ? { type: 'signal', id: sig.id, entity: sig.subject_name || sig.entity || '', bu: sig.bu, bu_label: sig.bu_label || '', amount: sig.amount != null ? Number(sig.amount) : null,
+        source: sig ? { type: 'signal', id: sig.id, email: sig.source === 'email', entity: sig.subject_name || sig.entity || '', bu: sig.bu, bu_label: sig.bu_label || '', amount: sig.amount != null ? Number(sig.amount) : null,
           deadline: iso(sig.deadline), expected_on: iso(sig.expected_on), stage: sig.stage, score: sig.score }
           : ini ? { type: 'initiative', id: ini.id, entity: ini.asa_label || '', bu: ini.asa || '', bu_label: ini.asa_label || '', budget: Number(ini.budget_eur) || 0,
             spent: Number(ini.spent_eur) || 0, phase: ini.phase, next_gate: ini.next_gate ? { n: ini.next_gate.n, due_date: iso(ini.next_gate.due_date) } : null }

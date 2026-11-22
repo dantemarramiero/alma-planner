@@ -45,6 +45,8 @@ const { registerCrmFonti } = require('./routes/crm-fonti');
 const { registerCrmSoa } = require('./routes/crm-soa');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
+const { createPostaFake } = require('./lib/crm-posta-fake');
+const { registerCrmPosta } = require('./routes/crm-posta');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
 const { registerCrmCollegamenti } = require('./routes/crm-collegamenti');
 const { registerCrmPunti } = require('./routes/crm-punti');
@@ -99,7 +101,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -259,7 +261,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
   registerCrmSoa(app, deps); // CRM: attestazioni SOA di ANAC (chi è qualificato in zona, scheda impresa)
-  registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
+  const posta = registerCrmPosta(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null }); // CRM: Posta e progetto da una email (ALM2-55)
+  registerCrmProgetti(app, { ...deps, posta }); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerCrmPunti(app, deps); // CRM: punti di contatto trovati da soli (Collega · Chiedi un'introduzione · Non c'entra)
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)

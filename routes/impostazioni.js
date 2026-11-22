@@ -290,7 +290,7 @@ function registerImpostazioni(app, { db, auth, gov, notifier, config }) {
     const s = await almaSettings();
     const from = `${month}-01`;
     const { rows: [t] } = await db.query(`SELECT COALESCE(SUM(cost_usd), 0) AS usd FROM assistant_usage WHERE to_char(day, 'YYYY-MM') = $1`, [month]);
-    const crm = await one(`SELECT COALESCE((SELECT SUM(eur) FROM crm_radar_spend WHERE month = $1), 0) + COALESCE((SELECT SUM(eur) FROM crm_initiative_spend WHERE month = $1), 0) AS eur`, [month]);
+    const crm = await one(`SELECT COALESCE((SELECT SUM(eur) FROM crm_radar_spend WHERE month = $1), 0) + COALESCE((SELECT SUM(eur) FROM crm_initiative_spend WHERE month = $1), 0) + COALESCE((SELECT SUM(eur) FROM crm_mail_spend WHERE month = $1), 0) AS eur`, [month]);
     return { month, from, settings: s, month_eur: r2(Number(t.usd) * s.usd_eur + Number(crm.eur)), alma_eur: r2(Number(t.usd) * s.usd_eur), crm_eur: r2(crm.eur), cap_eur: s.monthly_eur };
   }
 
