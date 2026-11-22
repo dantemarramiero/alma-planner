@@ -156,14 +156,18 @@ export async function postaPage(container) {
     const long = e.conversation_count >= 3 || (e.body.match(/\S+/g) || []).length > 150;
     st.act = {
       riassumi: long ? () => summary(e, aiBox) : null,
-      rispondi: () => replyDraft(e, aiBox),
+      rispondi: () => replyPanel(e, aiBox, false),
+      tutti: () => replyPanel(e, aiBox, true),
       sposta: () => move([e.id]),
       elimina: inTrash() ? null : () => move([e.id], { del: true }),
     };
+    const many = rcptOf(e, true).length > 1;
     fill(reader,
       h('div.pm-tools',
-        long ? h('button.btn.btn-sm.pm-aib', { type: 'button', title: 'Riassunto di tutta la conversazione (tasto S)', on: { click: st.act.riassumi } }, ic('sparkles', 14), 'Riassumi', h('kbd', 'S')) : null,
-        h('button.btn.btn-sm.pm-aib', { type: 'button', title: 'Bozza di risposta a tutti col tuo tono (tasto R)', on: { click: st.act.rispondi } }, ic('sparkles', 14), 'Bozza di risposta', h('kbd', 'R')),
+        long ? h('button.btn.btn-sm.pm-aib', { type: 'button', title: `Riassunto di tutta la conversazione con Alma: costa circa ${guess(e, 'riassunto')} (tasto S)`, on: { click: st.act.riassumi } }, ic('sparkles', 14), 'Riassumi', h('small.pm-est', `≈ ${guess(e, 'riassunto')}`), h('kbd', 'S')) : null,
+        h('span.pm-sep'),
+        h('button.btn.btn-sm', { type: 'button', title: `Rispondi a ${rcptOf(e, false)[0]?.name || rcptOf(e, false)[0]?.address || ''} (tasto R)`, on: { click: st.act.rispondi } }, ic('reply', 14), 'Rispondi', h('kbd', 'R')),
+        many ? h('button.btn.btn-sm', { type: 'button', title: `Rispondi a tutti: ${rcptOf(e, true).map(p => p.name || p.address).join(', ')} (tasto A)`, on: { click: st.act.tutti } }, ic('reply-all', 14), 'Rispondi a tutti', h('kbd', 'A')) : null,
         h('button.btn.btn-sm', { type: 'button', title: 'Sposta in una cartella di Outlook (tasto V)', on: { click: () => move([e.id]) } }, ic('folder', 14), 'Sposta'),
         inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', title: 'Va in «Posta eliminata» di Outlook: si recupera (tasto Canc)', on: { click: () => move([e.id], { del: true }) } }, ic('trash', 14), 'Elimina')),
       h('div.pm-rhead',
@@ -178,8 +182,22 @@ export async function postaPage(container) {
         h('div.pm-hint', h('span.pm-hint-k', 'Anche da qui'), h('span', h('b', 'Persone con cui mi scrivo'), ': nel menu di una riga, «Crea progetto dalle sue email».'), h('span', h('b', 'Scheda contatto o azienda'), ', tab Email: «Crea progetto» su una conversazione.')),
         h('div.pm-hint', h('span.pm-hint-k', 'Se è già in un progetto'), h('span', 'Al posto del pulsante arancione compare il progetto in cui sta, come nelle righe a sinistra.'))));
   }
-  // ── Riassunto e bozza col tuo tono (ALM2-61, tavola G) ──────────────────────────────────────────
-  const cents = eur => (eur > 0 ? `${(eur * 100).toLocaleString('it-IT', { maximumFractionDigits: eur * 100 < 0.1 ? 2 : 1 })} cent` : '');
+  // ── Riassunto, Rispondi / Rispondi a tutti con la bozza di Alma (ALM2-61, tavola G) ─────────────
+  const cents = eur => (!(eur > 0) ? '' : eur * 100 < 0.01 ? 'meno di 0,01 cent' : `${(eur * 100).toLocaleString('it-IT', { maximumFractionDigits: eur * 100 < 0.1 ? 2 : 1 })} cent`);
+  // stima prima del clic: parole della conversazione → token, al prezzo del modello leggero che risponde (gpt-4o-mini)
+  const guess = (e, kind) => {
+    const words = Math.min(12000, (e.body.match(/\S+/g) || []).length * Math.max(1, Math.min(e.conversation_count || 1, 6)));
+    const tin = words * 1.4 + (kind === 'bozza' ? 1400 : 300);
+    const tout = kind === 'bozza' ? 350 : 250;
+    return cents((tin * 0.15 + tout * 0.6) / 1e6 * 0.95) || 'meno di 0,01 cent';
+  };
+  // a chi va la risposta: chi ha scritto l'email aperta (se l'ho scritta io, il primo destinatario); a tutti = anche copie
+  const rcptOf = (e, tutti) => {
+    const me = String(store.me?.email || '').toLowerCase();
+    const target = e.from.address !== me ? e.from : (e.to[0] || e.from);
+    if (!tutti) return [target];
+    return [...new Map([e.from, ...e.to, ...e.cc].filter(p => p.address && p.address !== me).map(p => [p.address, p])).values()];
+  };
   const box = (cls, title, cost, ...body) => h(`section.pm-aip.${cls}`, h('div.pm-aip-h', h('span.pm-aip-k', title), cost ? h('small', cost) : null), ...body);
   async function summary(e, aiBox) {
     const old = aiBox.querySelector('.pm-sum');
@@ -187,64 +205,73 @@ export async function postaPage(container) {
     const wait = box('pm-sum', 'Riassunto di Alma', '', loading());
     aiBox.prepend(wait);
     let r;
-    try { r = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/riassunto`, {}); } catch (err) { wait.remove(); toast(err?.message || 'Riassunto non riuscito', 'err'); return; }
+    try { r = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/riassunto`, {}); } catch (err) { wait.remove(); toast(err?.message || 'Riassunto non riuscito', 'err', 8000); return; }
     const tile = (k, v, dark) => (v ? h('div.pm-sum-t', { class: dark ? 'dark' : '' }, h('span', k), h('p', v)) : null);
-    wait.replaceWith(box('pm-sum', `Riassunto di Alma · ${r.emails === 1 ? '1 email' : `${r.emails} email`}, ${r.words.toLocaleString('it-IT')} parole`, cents(r.eur),
+    wait.replaceWith(box('pm-sum', `Riassunto di Alma · ${r.emails === 1 ? '1 email' : `${r.emails} email`}, ${r.words.toLocaleString('it-IT')} parole`, r.ai ? `costato ${cents(r.eur) || 'meno di 0,01 cent'}` : 'senza AI (regole semplici)',
       h('p.pm-sum-b', r.breve),
       h('div.pm-sum-g', tile('Cosa chiedono', r.chiedono), tile('Cifre e date', r.cifre_date), tile('Tocca a te', r.tocca_a_te, true)),
       h('button.cv-lnk.pm-aip-x', { type: 'button', on: { click: ev => ev.currentTarget.closest('.pm-sum').remove() } }, 'Chiudi')));
   }
-  async function replyDraft(e, aiBox) {
-    let panel = aiBox.querySelector('.pm-draft');
-    if (panel) { panel.querySelector('textarea')?.focus(); return; }
-    panel = box('pm-draft', 'Bozza di risposta a tutti', '', loading());
-    aiBox.append(panel);
-    const ask = async (extra = {}) => {
-      const r = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/bozza`, extra);
-      return r;
-    };
-    let r;
-    try { r = await ask(); } catch (err) { panel.remove(); toast(err?.message || 'Bozza non riuscita', 'err'); return; }
-    let spent = r.eur;
-    const text = h('textarea.pm-draft-t', { rows: 9, 'aria-label': 'Testo della risposta' });
-    text.value = r.text;
+
+  // Riquadro della risposta: vuoto, da scrivere a mano o con «Scrivi con Alma» (bozza col tuo tono, a pagamento solo al clic)
+  function replyPanel(e, aiBox, tutti) {
+    const old = aiBox.querySelector('.pm-draft');
+    if (old && old.dataset.tutti === String(tutti)) { old.querySelector('textarea')?.focus(); return; }
+    old?.remove();
+    const to = rcptOf(e, tutti);
+    let spent = 0;
+    const text = h('textarea.pm-draft-t', { rows: 8, 'aria-label': 'Testo della risposta', placeholder: 'Scrivi la risposta, oppure fattela preparare da Alma col tuo tono' });
     const cost = h('small');
+    const tone = h('div.pm-tone');
     const busy = on => { panel.classList.toggle('busy', on); text.disabled = on; };
-    const redo = async extra => {
-      busy(true);
-      try { const x = await ask({ ...extra, attuale: text.value }); text.value = x.text; spent += x.eur; cost.textContent = cents(spent); } catch (err) { toast(err?.message || 'Bozza non riuscita', 'err'); }
-      busy(false);
-    };
-    const free = h('input.pm-draft-i', { placeholder: 'oppure scrivi cosa vuoi dire, es. «chiedi il computo in pdf»', 'aria-label': 'Cosa vuoi dire' });
-    free.addEventListener('keydown', ev => { if (ev.key === 'Enter' && free.value.trim()) { ev.preventDefault(); redo({ istruzione: free.value.trim() }); } });
-    const send = async draft => {
-      if (!text.value.trim()) return;
+    const ask = async (extra = {}) => {
       busy(true);
       try {
-        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/rispondi`, { testo: text.value, bozza: draft });
+        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/bozza`, { tutti, ...extra, ...(text.value.trim() && Object.keys(extra).length ? { attuale: text.value } : {}) });
+        text.value = x.text;
+        spent += x.eur;
+        cost.textContent = x.ai ? `costata ${cents(spent) || 'meno di 0,01 cent'}` : 'senza AI (regole semplici)';
+        fill(tone, h('span', x.tone.n ? `Col tuo tono: dalle tue ultime ${x.tone.n} email a ${firstName(x.target?.name) || 'questa persona'}` : 'Non le hai ancora scritto: tono cortese, col «lei».'), x.tone.chips.map(c => h('span.pm-chip', c)));
+        redoRow.hidden = false;
+        alma.querySelector('.pm-alma-l').textContent = 'Riscrivi con Alma';
+      } catch (err) { toast(err?.message || 'Bozza non riuscita', 'err', 8000); }
+      busy(false);
+      text.focus();
+    };
+    const alma = h('button.btn.btn-sm.pm-aib', { type: 'button', title: `Alma scrive la bozza col tono che usi con questa persona: costa circa ${guess(e, 'bozza')}`, on: { click: () => ask() } }, ic('sparkles', 14), h('span.pm-alma-l', 'Scrivi con Alma'), h('small.pm-est', `≈ ${guess(e, 'bozza')}`));
+    const free = h('input.pm-draft-i', { placeholder: 'oppure scrivi cosa vuoi dire, es. «chiedi il computo in pdf», e premi Invio', 'aria-label': 'Cosa vuoi dire' });
+    free.addEventListener('keydown', ev => { if (ev.key === 'Enter' && free.value.trim()) { ev.preventDefault(); ask({ istruzione: free.value.trim() }); } });
+    const redoRow = h('div.pm-redo', { hidden: true }, h('span', 'Rifalla:'), [['breve', 'più breve'], ['formale', 'più formale'], ['declina', 'declina con garbo']].map(([k, l]) => h('button.cv-pill.line', { type: 'button', on: { click: () => ask({ stile: k }) } }, l)));
+    const send = async draft => {
+      if (!text.value.trim()) { text.focus(); return; }
+      busy(true);
+      try {
+        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/rispondi`, { testo: text.value, bozza: draft, tutti });
         panel.remove();
-        toast(draft ? 'Salvata tra le bozze di Outlook' : `Risposta inviata a ${r.to.length === 1 ? (r.to[0].name || r.to[0].address) : `${r.to.length} persone`}`);
+        toast(draft ? 'Salvata tra le bozze di Outlook' : `Risposta inviata a ${x.to.length === 1 ? (x.to[0].name || x.to[0].address) : `${x.to.length} persone`}`);
         if (draft && x.web_link) window.open(x.web_link, '_blank', 'noopener');
       } catch (err) { busy(false); toast(err?.message || 'Risposta non partita', 'err', 8000); }
     };
-    cost.textContent = cents(spent);
-    const fresh = box('pm-draft', `Bozza di risposta a tutti · col tuo tono con ${firstName(r.target?.name) || r.target?.address || ''}`, '',
-      h('div.pm-tone', h('span', r.tone.n ? `Dalle tue ultime ${r.tone.n} email a ${firstName(r.target?.name) || 'questa persona'}:` : 'Non le hai ancora scritto: tono cortese, col «lei».'), r.tone.chips.map(c => h('span.pm-chip', c))),
-      h('small.pm-to', `A: ${r.to.map(p => p.name || p.address).join(', ')}`),
+    const panel = box('pm-draft', tutti ? 'Rispondi a tutti' : `Rispondi a ${firstName(to[0]?.name) || to[0]?.address || ''}`, '',
+      h('small.pm-to', `A: ${to.map(p => p.name || p.address).join(', ')}`),
+      h('div.pm-alma', alma, free),
+      tone,
       text,
-      h('div.pm-redo', h('span', 'Rifalla:'), [['breve', 'più breve'], ['formale', 'più formale'], ['declina', 'declina con garbo']].map(([k, l]) => h('button.cv-pill.line', { type: 'button', on: { click: () => redo({ stile: k }) } }, l)), free),
+      redoRow,
       h('div.pm-draft-f',
         h('span', 'Non parte niente da solo: la mandi tu, oppure la trovi tra le Bozze di Outlook.'),
         h('button.cv-lnk', { type: 'button', on: { click: () => panel.remove() } }, 'Chiudi'),
         h('button.btn', { type: 'button', on: { click: () => send(true) } }, 'Salva tra le bozze di Outlook'),
-        h('button.btn.btn-primary', { type: 'button', on: { click: () => send(false) } }, ic('send', 14), 'Invia a tutti')));
-    fresh.querySelector('.pm-aip-h').append(cost);
-    panel.replaceWith(fresh);
-    panel = fresh;
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => send(false) } }, ic('send', 14), tutti ? 'Invia a tutti' : 'Invia')));
+    panel.dataset.tutti = String(tutti);
+    panel.querySelector('.pm-aip-h').append(cost);
+    aiBox.append(panel);
+    panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     text.focus();
   }
 
-  // Scorciatoie (Dante 22/11): S riassunto · R bozza · V sposta · Canc elimina · J/K email dopo/prima. Mai mentre si scrive.
+  // Scorciatoie (Dante 22/11): S riassunto · R rispondi · A rispondi a tutti · V sposta · Canc elimina · J/K email dopo/prima.
+  // Mai mentre si scrive in un campo.
   const keys = ev => {
     if (!container.isConnected) { document.removeEventListener('keydown', keys); return; }
     if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
@@ -256,6 +283,7 @@ export async function postaPage(container) {
     const run = fn => { if (fn) { ev.preventDefault(); fn(); } };
     if (k === 's') run(st.act?.riassumi);
     else if (k === 'r') run(st.act?.rispondi);
+    else if (k === 'a') run(st.act?.tutti);
     else if (k === 'v') run(st.act?.sposta);
     else if (k === 'delete' || k === '#') run(st.act?.elimina);
     else if (k === 'j') run(st.list[at + 1] ? () => open(st.list[at + 1]) : null);
