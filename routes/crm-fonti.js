@@ -37,7 +37,7 @@ function registerCrmFonti(app, { db }) {
     if (cf) { params = [...params, cf]; sql += ` AND EXISTS (SELECT 1 FROM jsonb_array_elements(a.winners) w WHERE upper(w->>'cf') = $${params.length})`; }
     const [sources, quality, ted] = await Promise.all([F.sources(db), F.quality(db, sql, params),
       scope.cats.length && !cf ? T.quality(db, T.codesFor(scope.cats, settings)).catch(() => null) : null]);
-    res.json({ scope: { categories: scope.cats, regions: scope.regions, months, cf: cf || null }, sources, quality, ted_quality: ted && ted.n ? ted : null, limits: F.limits(settings), next_update: '05:00' });
+    res.json({ scope: { categories: scope.cats, regions: scope.regions, months, cf: cf || null }, sources, quality, ted_quality: ted && ted.n ? ted : null, limits: [...F.limits(settings), ...(sources.some(s => s.key === 'opencup' && s.status !== 'in_arrivo') ? F.CUP_LIMITS : [])], next_update: '05:00' });
   });
 }
 

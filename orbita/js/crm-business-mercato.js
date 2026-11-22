@@ -8,6 +8,7 @@ import { icon } from './icons.js';
 import { sourceLine, basedOn, openSources } from './crm-fonti.js';
 import { qualifiedSection, soaBox, openSoaPanel } from './crm-soa.js';
 import { tedSection } from './crm-ted.js';
+import { cupSection } from './crm-cup.js';
 
 const ic = (name, size = 16) => icon(name, { size });
 const pct = x => (x === null || x === undefined ? '—' : `${Number(x).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
@@ -170,7 +171,9 @@ export async function mercatoTab(ctx, f = {}) {
     openCompany: c => (c.won ? companyPanel(i, id, { cf: c.cf, name: c.name }, f, crmData, again) : openSoaPanel(c, active)), onChange: again });
   // «Gare europee» (TED, canvas v14 · V14-TED): bandi aperti ed esiti con le offerte
   const tedCard = tedSection({ id, cats: f.cats, canEdit, openCompany: who => companyPanel(i, id, who, f, crmData, again) });
-  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, qualCard, tedCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
+  // «Opere finanziate» (OpenCUP, canvas v14 · V14-OpenCUP): lavori pubblici prima del bando
+  const cupCard = cupSection({ id, cats: f.cats, canEdit, openCompany: who => companyPanel(i, id, who, f, crmData, again) });
+  fill(body, h('div.nb-col24', filters, seeing, source, partial, counters, winCard, qualCard, tedCard, cupCard, h('div.nb-g2.eq.nb-stretch', buyCard, whereCard), h('div.nb-g2.eq.nb-stretch', bandCard, synCard)));
 }
 
 // ── stati: «le carico stanotte» e «sto caricando» ─────────────────────────────────────────────
