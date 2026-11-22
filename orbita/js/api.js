@@ -24,6 +24,7 @@ export async function api(method, path, body, { quiet = false, raw = false, head
       throw new ApiError(401, 'Accesso richiesto', data.code);
     }
     const err = new ApiError(res.status, data?.error || `Errore ${res.status}`, data?.code);
+    err.data = data; // es. la scheda che ha già la P.IVA (per proporre di unire)
     if (!quiet) toast(err.message, 'err');
     throw err;
   }

@@ -699,14 +699,21 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
 
   // ── pre-boarding (tavola Y) ──
   async function checkArrivals() {
-    const { rows } = await db.query(`SELECT p.id, p.app_id, lower(c.email) AS email, r.incarico_id, r.id AS req_id FROM hr_preboarding p JOIN hr_applications a ON a.id = p.app_id
-      JOIN hr_candidates c ON c.id = a.candidate_id JOIN hr_requisitions r ON r.id = a.req_id WHERE p.stato = 'aperto' AND c.email IS NOT NULL`);
+    const { rows } = await db.query(`SELECT p.id, p.app_id, lower(c.email) AS email, lower(c.nome) AS nome, lower(c.cognome) AS cognome, r.incarico_id, r.id AS req_id FROM hr_preboarding p JOIN hr_applications a ON a.id = p.app_id
+      JOIN hr_candidates c ON c.id = a.candidate_id JOIN hr_requisitions r ON r.id = a.req_id WHERE p.stato = 'aperto'`);
     for (const p of rows) {
-      const { rows: [hp] } = await db.query('SELECT key FROM hr_people WHERE attivo AND email = $1', [p.email]);
+      // su BOSS la persona ha l'email aziendale, non quella della candidatura: si cerca anche per nome e cognome
+      const { rows: [hp] } = await db.query(`SELECT key, lower(email) AS email FROM hr_people WHERE attivo AND (email = $1 OR (lower(nome) = $2 AND lower(cognome) = $3))
+        ORDER BY (email = $1) DESC, data_assunzione DESC NULLS LAST LIMIT 1`, [p.email, p.nome, p.cognome]);
       if (!hp) continue;
-      const { rows: [inc] } = p.incarico_id ? await db.query('SELECT 1 FROM org_incarichi WHERE id = $1 AND lower(ricoperto_da) = $2', [p.incarico_id, p.email]) : { rows: [true] };
+      const { rows: [inc] } = p.incarico_id ? await db.query('SELECT 1 FROM org_incarichi WHERE id = $1 AND lower(ricoperto_da) = ANY($2)', [p.incarico_id, [p.email, hp.email].filter(Boolean)]) : { rows: [true] };
       await db.query("UPDATE hr_pre_tasks SET fatto = true, fatto_at = now() WHERE pre_id = $1 AND chi = 'boss' AND NOT fatto", [p.id]);
-      if (inc) await db.query("UPDATE hr_preboarding SET stato = 'arrivato', arrived_at = now() WHERE id = $1", [p.id]);
+      if (inc) {
+        await db.query("UPDATE hr_preboarding SET stato = 'arrivato', arrived_at = now() WHERE id = $1", [p.id]);
+        // Fase 4: parte l'inserimento, con la data d'ingresso e i mesi di prova dell'offerta
+        const { rows: [x] } = await db.query('SELECT p.ingresso::text AS ingresso, (SELECT o.prova_mesi FROM hr_offers o WHERE o.app_id = p.app_id ORDER BY o.id DESC LIMIT 1) AS prova FROM hr_preboarding p WHERE p.id = $1', [p.id]);
+        await require('./hr-onb').createOnboarding(db, { personKey: hp.key, inizio: x.ingresso, preboardingId: p.id, provaMesi: x.prova || null, notifier }).catch(err => console.warn('[hr] inserimento non avviato', err.message));
+      }
     }
   }
   registerHrRec.checkArrivals = checkArrivals;

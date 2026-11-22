@@ -43,7 +43,7 @@ const notHr = c => fill(c, head('Riservato al team HR'), h('div.card.empty', 'Qu
 
 export async function hrView(c, parts, params) {
   const page = parts[1] || 'percorso';
-  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia', 'preboarding-lista', 'recruitment'];
+  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia', 'preboarding-lista', 'recruitment', 'modelli'];
   if (hrPages.includes(page) && !store.me.hr) return notHr(c);
   fill(c, loading());
   try {
@@ -68,6 +68,13 @@ export async function hrView(c, parts, params) {
       case 'candidato': return (await import('./hr-rec.js')).candidatoView(c, Number(parts[2]));
       case 'preboarding': return (await import('./hr-rec.js')).preboardingView(c, Number(parts[2]) || null);
       case 'recruitment': return (await import('./hr-rec.js')).numeriView(c, params);
+      // Fase 4 (ALM2-54): onboarding in hr-onb.js
+      case 'onboarding': return parts[2] ? (await import('./hr-onb.js')).pianoView(c, Number(parts[2])) : (await import('./hr-onb.js')).cruscottoView(c, params);
+      case 'inserimento': return (await import('./hr-onb.js')).mioView(c);
+      case 'incontro': return (await import('./hr-onb.js')).incontroView(c, Number(parts[2]), Number(parts[3]));
+      case 'fineprova': return (await import('./hr-onb.js')).provaView(c, Number(parts[2]));
+      case 'formazione': return (await import('./hr-onb.js')).formazioneView(c, params);
+      case 'modelli': return (await import('./hr-onb.js')).modelliView(c, params);
       default: return await percorsoView(c);
     }
   } catch (err) {

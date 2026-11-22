@@ -1,4 +1,4 @@
--- (098: la 097 è crm_doppioni)
+-- (099: la 097 è crm_doppioni, la 098 alma_hr_onboarding)
 -- Opere finanziate da OpenCUP (ALM2-49, canvas CRM v14 · V14-OpenCUP): lavori pubblici attivi degli ultimi anni per
 -- i tipi di lavoro delle categorie SOA in uso, nelle regioni in uso. Si caricano una volta al mese (lib/crm-cup.js).
 CREATE TABLE IF NOT EXISTS crm_cup_works (

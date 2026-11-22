@@ -3,6 +3,7 @@
 // «La mia settimana» del responsabile di BU, prossimi passi sulla scheda, key account, impostazioni modificabili.
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading } from './ui.js';
 import { soaSettings } from './crm-soa-card.js';
+import { dupBanner } from './crm-doppioni.js';
 import { get, post, put, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
@@ -366,6 +367,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
   fill(box,
     pageTop({ eyebrow: ['Alma CRM', pill(longDay(today), 'line')], heading: title('La mia', 'settimana'), sub: h('span', sentence),
       actions: [who, h('button.btn.btn-primary', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, ic('plus', 15), 'Segnala un\'occasione')] }),
+    self && new Date().getDay() === 1 ? dupBanner('subject') : null, // il lunedì: i doppioni delle mie aziende (canvas v15)
     kpiRow([
       { icon: 'alarm-clock', n: late.length, label: ['passi', 'scaduti'], tone: 'hot', onClick: scrollTo('cv-wk-steps') },
       self ? { icon: 'radar', n: signals.length, label: ['segnali', 'da decidere'], tone: 'or', onClick: scrollTo('cv-wk-signals') } : null,

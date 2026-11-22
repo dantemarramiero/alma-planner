@@ -41,6 +41,7 @@
   <link rel="stylesheet" href="/css/crm-ted.css">
   <link rel="stylesheet" href="/css/crm-cup.css">
   <link rel="stylesheet" href="/css/crm-progetti.css">
+  <link rel="stylesheet" href="/css/crm-posta.css">
   <link rel="stylesheet" href="/css/crm-gare.css">
   <link rel="stylesheet" href="/css/strategy.css">
   <link rel="stylesheet" href="/css/ideas.css">
@@ -53,6 +54,7 @@
   <!-- refresh grafico (Claude Design, 12/10): sempre l'ultimo foglio, ritocca tutti gli altri -->
   <link rel="stylesheet" href="/css/notes-v2.css">
   <link rel="stylesheet" href="/css/hr.css">
+  <link rel="stylesheet" href="/css/feedback.css">
   <link rel="stylesheet" href="/css/refresh.css">
   <!-- barra di ricerca in alto e finestra Ctrl K (ALM2-46, canvas v10): dopo il refresh -->
   <link rel="stylesheet" href="/css/palette.css">
@@ -140,6 +142,7 @@
         <a href="#/crm/settimana" data-nav="crm-settimana"><span class="nav-ico" data-icon="alarm-clock"></span>La mia settimana</a>
         <a href="#/crm/radar" data-nav="crm-radar"><span class="nav-ico" data-icon="radar"></span>Radar</a>
         <a href="#/crm/progetti" data-nav="crm-progetti"><span class="nav-ico" data-icon="folder"></span>I miei progetti</a>
+        <a href="#/crm/posta" data-nav="crm-posta"><span class="nav-ico" data-icon="mail"></span>Posta</a>
         <a href="#/crm/concorrenza" data-nav="crm-concorrenza"><span class="nav-ico" data-icon="trophy"></span>Concorrenza e gare</a>
         <a href="#/crm/business" data-nav="crm-business"><span class="nav-ico" data-icon="sprout"></span>Nuovi business</a>
         <span class="nav-label">Anagrafiche</span>
@@ -173,6 +176,8 @@
         <a href="#/hr/griglia" data-nav="hr-griglia"><span class="nav-ico" data-icon="layers"></span>Salary grade</a>
         <a href="#/hr/mansionario" data-nav="hr-mansionario"><span class="nav-ico" data-icon="book-open"></span>Mansionario</a>
         <a href="#/hr/organigramma" data-nav="hr-organigramma"><span class="nav-ico" data-icon="network"></span>Organigramma</a>
+        <a href="#/hr/inserimento" data-nav="hr-inserimento" class="nav-onb" hidden><span class="nav-ico" data-icon="sparkles"></span>Il mio inserimento</a>
+        <a href="#/hr/onboarding" data-nav="hr-onboarding-mie" class="nav-onb-team" hidden><span class="nav-ico" data-icon="user-check"></span>Le mie persone in inserimento</a>
         <a href="#/hr/richieste" data-nav="hr-richieste"><span class="nav-ico" data-icon="user-plus"></span>Richieste di personale</a>
         <span class="nav-label nav-hr-team" hidden>Team HR</span>
         <a href="#/hr/persone" data-nav="hr-persone" class="nav-hr-team" hidden><span class="nav-ico" data-icon="users"></span>Persone</a>
@@ -186,10 +191,15 @@
         <a href="#/hr/strategia" data-nav="hr-strategia" class="nav-hr-team" hidden><span class="nav-ico" data-icon="target"></span>Ruoli di Strategy</a>
         <a href="#/hr/preboarding" data-nav="hr-preboarding" class="nav-hr-team" hidden><span class="nav-ico" data-icon="calendar-check"></span>Pre-boarding</a>
         <a href="#/hr/recruitment" data-nav="hr-recruitment" class="nav-hr-team" hidden><span class="nav-ico" data-icon="funnel"></span>Numeri del recruitment</a>
+        <a href="#/hr/onboarding" data-nav="hr-onboarding" class="nav-hr-team" hidden><span class="nav-ico" data-icon="user-check"></span>Onboarding</a>
+        <a href="#/hr/formazione" data-nav="hr-formazione" class="nav-hr-qhse" hidden><span class="nav-ico" data-icon="graduation-cap"></span>Formazione obbligatoria</a>
+        <a href="#/hr/modelli" data-nav="hr-modelli" class="nav-hr-team" hidden><span class="nav-ico" data-icon="list-checks"></span>Modelli di inserimento</a>
         <a href="#/hr/registro" data-nav="hr-registro" class="nav-hr-team" hidden><span class="nav-ico" data-icon="history"></span>Registro</a>
       </nav>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-sm rail-pin" id="rail-pin" type="button" aria-pressed="false"><span class="nav-ico" data-icon="pin"></span><span>Tieni aperta</span></button>
+        <!-- feedback su Alma Space (ALM2-56): problema tecnico o suggerimento, va su Linear -->
+        <button class="foot-bell" id="nav-feedback" type="button"><span class="nav-ico" data-icon="megaphone"></span><span>Feedback su Alma Space</span></button>
         <a class="foot-bell" href="#/impostazioni" data-nav="impostazioni" id="nav-settings" hidden><span class="nav-ico" data-icon="settings"></span><span>Impostazioni</span></a>
         <a class="foot-bell" href="#/alma" data-nav="alma"><span class="nav-ico" data-icon="sparkles"></span><span>Alma</span></a>
         <a class="foot-bell" href="#/notifications" data-nav="notifications" aria-label="Notifiche"><span class="nav-ico" data-icon="bell"></span><span>Notifiche</span><span class="nav-badge" data-badge="notifications" hidden></span></a>

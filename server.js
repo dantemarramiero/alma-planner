@@ -47,6 +47,8 @@ const { registerCrmTed } = require('./routes/crm-ted');
 const { registerCrmCup } = require('./routes/crm-cup');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
+const { createPostaFake } = require('./lib/crm-posta-fake');
+const { registerCrmPosta } = require('./routes/crm-posta');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
 const { registerCrmCollegamenti } = require('./routes/crm-collegamenti');
 const { registerCrmPunti } = require('./routes/crm-punti');
@@ -70,6 +72,8 @@ const { registerOrganigramma } = require('./routes/organigramma');
 const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
 const { registerHrOrg } = require('./routes/hr-org');
 const { registerHrRec, purgeCandidates, remindApprovals } = require('./routes/hr-rec');
+const { registerHrOnb, remindOnboarding } = require('./routes/hr-onb');
+const { registerFeedback } = require('./routes/feedback');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -101,7 +105,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -211,6 +215,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   app.use('/api/mezzi', (req, _res, next) => next(req.privacy.mezzi === 'none' && !gov.isAdmin(req) ? new HttpError(403, 'I mezzi non sono tra le cose che puoi vedere') : undefined));
   app.use('/api/alma/chat', express.json({ limit: '12mb' })); // Alma: foto dei biglietti da visita (al massimo 5, già rimpicciolite)
   app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' })); // Alma HR: CV caricati dal team HR
+  app.use(['/api/hr/formazione/attestati', '/api/hr/documenti'], express.json({ limit: '12mb' })); // Alma HR: attestati e documenti in PDF
+  app.use('/api/feedback', express.json({ limit: '22mb' })); // feedback su Alma Space: fino a 3 foto dello schermo da 5 MB
   app.use('/api', express.json({ limit: '1mb' }));
 
   const live = createLive();
@@ -253,6 +259,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerSearch(app, deps);
   registerSoftware(app, deps);
   registerIt(app, deps);
+  registerFeedback(app, deps); // feedback su Alma Space (ALM2-56): problema tecnico o suggerimento, su Linear, con l'esito che torna
   registerFleet(app, deps);
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
@@ -263,7 +270,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrmSoa(app, deps); // CRM: attestazioni SOA di ANAC (chi è qualificato in zona, scheda impresa)
   registerCrmTed(app, deps); // CRM: gare europee da TED (bandi aperti ed esiti con le offerte)
   registerCrmCup(app, deps); // CRM: opere finanziate da OpenCUP (prima del bando)
-  registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
+  const posta = registerCrmPosta(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaFake || createPostaFake({ autoArriveMs: process.env.NODE_TEST_CONTEXT ? 0 : 120000 })) : null }); // CRM: Posta e progetto da una email (ALM2-55)
+  registerCrmProgetti(app, { ...deps, posta }); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerCrmPunti(app, deps); // CRM: punti di contatto trovati da soli (Collega · Chiedi un'introduzione · Non c'entra)
   registerStrategy(app, deps); // Alma Strategy: Hoshin Kanri (vista d'insieme, Gestione, A3)
@@ -276,6 +284,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerHr(app, deps); // Alma HR: persone da BOSS, ruoli sugli incarichi, mansionario, salary grade (RAL solo al team HR)
   registerHrOrg(app, deps); // Alma HR fase 2: organigramma in sola lettura (dati da BOSS), costo, scenari, cambi da BOSS, Strategy
   registerHrRec(app, deps); // Alma HR fase 3: richieste di personale, annunci, «Lavora con noi», candidati, offerte, pre-boarding
+  registerHrOnb(app, deps); // Alma HR fase 4: inserimento, formazione obbligatoria, incontri 30/60/90, fine prova, modelli
   registerOrganigramma(app, deps); // organigramma a incarichi, come BOSS (Impostazioni → Organigramma e ruoli)
   registerImpostazioni(app, deps); // Impostazioni uniche: organigramma e ruoli, utenti, costi AI, privacy, registro, integrazioni
   registerAudit(app, deps);
@@ -286,7 +295,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
     const status = err.status || err.statusCode || 500;
     if (status >= 500 && !(err instanceof HttpError)) console.error(`[errore] ${req.method} ${req.originalUrl}`, err);
     const message = status >= 500 && !(err instanceof HttpError) ? 'Errore interno, riprova' : err.message;
-    if (req.originalUrl.startsWith('/api')) return res.status(status).json({ error: message, code: err.code });
+    if (req.originalUrl.startsWith('/api')) return res.status(status).json({ error: message, code: err.code, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
     res.status(status).send(message);
   });
 
@@ -312,6 +321,7 @@ if (require.main === module) {
     setInterval(() => purgeCandidates(db).then(n => n && console.log('[hr] CV cancellati: ' + n)).catch(err => console.warn('[hr] cancellazione CV non riuscita', err.message)), 24 * 3600 * 1000).unref(); // CV dei non assunti
     const hrNotifier = createNotifier({ db, live });
     setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
+    setInterval(() => remindOnboarding(db, gov, hrNotifier).catch(err => console.warn('[hr] promemoria inserimento non riusciti', err.message)), 24 * 3600 * 1000).unref(); // compiti, corsi in scadenza, fine prova
     if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
     if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {

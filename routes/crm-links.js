@@ -122,7 +122,7 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   // ── email ──────────────────────────────────────────────────────────────────────────────
   async function listEmails(t, id, limit = 500) {
     const { rows } = await db.query(
-      `SELECT DISTINCT ON (e.id) e.id, e.subject, e.from_name, e.from_address, e.to_list, e.sent_at, e.assigned_by,
+      `SELECT DISTINCT ON (e.id) e.id, e.subject, e.from_name, e.from_address, e.to_list, e.sent_at, e.assigned_by, e.internet_message_id,
               left(regexp_replace(e.body_text, '\\s+', ' ', 'g'), 200) AS preview,
               (SELECT COUNT(*)::int FROM crm_email_attachments a WHERE a.email_id = e.id) AS attachment_count,
               L.id AS link_id, L.contact_id IS NOT NULL AND ${t === 'subjects' ? 'true' : 'false'} AS indirect, ${VIA} AS via
