@@ -98,7 +98,13 @@ function registerCrmCup(app, { db, cupFetch }) {
 
   if (!process.env.NODE_TEST_CONTEXT) {
     const first = setTimeout(async () => {
-      try { const { rows: [r] } = await db.query('SELECT count(*)::int AS n FROM crm_cup_imports WHERE error = \'\''); if (!r.n) await sync(); } catch { /* riprova il mese prossimo */ }
+      try {
+        const { rows: [r] } = await db.query(`SELECT count(*) FILTER (WHERE error = '')::int AS n,
+            (SELECT signals IS NULL FROM crm_cup_imports WHERE error = '' OR cardinality(areas) > 0 ORDER BY id DESC LIMIT 1) AS no_signals FROM crm_cup_imports`);
+        if (!r.n) await sync();
+        // opere caricate prima che esistessero i segnali «Finanziata» (o giro dei segnali saltato): li crea senza riscaricare
+        else if (r.no_signals) await C.cupSignals(db, { settings: await loadSettings(db), radar: app.locals.crmRadar, log: m => console.log(`[opencup] ${m}`) });
+      } catch (err) { console.error('[opencup] avvio:', err.message); }
     }, 15 * 60000);
     first.unref?.();
     let lastMonth = '';
