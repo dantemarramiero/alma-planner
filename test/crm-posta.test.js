@@ -270,6 +270,30 @@ test('ALM2-61: riassunto, bozza col tuo tono, bozza in Outlook e risposta a tutt
   assert.equal(r.status, 200);
   assert.equal(fake.sent.length, before + 1);
   assert.equal((await D('POST', '/api/crm/posta/m-rf-1/rispondi', { testo: '' })).status, 400);
+  // Rispondi a una sola persona (non a tutti): su un'email con copie va solo a chi l'ha scritta
+  r = await D('POST', '/api/crm/posta/m-dc-2/bozza', { tutti: false });
+  assert.deepEqual(r.body.to.map(p => p.address), ['l.rossi@studiotecnicorossi.it']);
+  r = await D('POST', '/api/crm/posta/m-dc-2/bozza', {});
+  assert.ok(r.body.to.length >= 3, 'a tutti: Luca, Sara e Marco');
+  r = await D('POST', '/api/crm/posta/m-dc-2/rispondi', { testo: 'Ciao Luca,\nok\n\nDante', tutti: false });
+  assert.equal(fake.sent.at(-1).kind, 'reply');
+  assert.deepEqual(fake.sent.at(-1).toRecipients.map(x => x.emailAddress.address), ['l.rossi@studiotecnicorossi.it']);
+  assert.deepEqual(fake.sent.at(-1).ccRecipients, []);
+  r = await D('POST', '/api/crm/posta/m-dc-2/rispondi', { testo: 'bozza', tutti: false, bozza: true });
+  assert.equal(fake.drafts.at(-1).all, false);
+  // Rispondi a un'email che ho mandato io: va a chi l'ha ricevuta, non a me
+  r = await D('POST', '/api/crm/posta/m-old-1/rispondi', { testo: 'Ciao Luca', tutti: false });
+  assert.deepEqual(fake.sent.at(-1).toRecipients.map(x => x.emailAddress.address), ['l.rossi@studiotecnicorossi.it']);
+  // con la chiave ma OpenAI giù: errore chiaro, niente riassunto inventato
+  const prev = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'test';
+  const realFetch = global.fetch;
+  global.fetch = async (u, o) => (String(u).includes('openai') ? { ok: false, status: 500, json: async () => ({}) } : realFetch(u, o));
+  try {
+    r = await D('POST', '/api/crm/posta/m-dc-2/riassunto');
+    assert.equal(r.status, 502);
+    assert.match(r.body.error || r.body.message || JSON.stringify(r.body), /riassunto/);
+  } finally { global.fetch = realFetch; if (prev === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = prev; }
   // G3: «Riassumi» solo su email lunghe o conversazioni di 3+ email
   assert.equal(A.isLong({ body: 'breve' }, 1), false);
   assert.equal(A.isLong({ body: 'breve' }, 3), true);

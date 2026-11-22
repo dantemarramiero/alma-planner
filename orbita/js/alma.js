@@ -607,6 +607,7 @@ export function createChat(opts = {}) {
         body: JSON.stringify({ text, conversation_id: convId || undefined, context: opts.context ? opts.context() : undefined, retry: retry || undefined, images: imgs.length ? imgs : undefined, files: fls.length ? fls : undefined }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (data.code === 'daily_limit') refreshBudget();
         showError(data.error || `Errore ${res.status}`, !['daily_limit', 'month_limit', 'not_configured', 'disabled'].includes(data.code));
         return;
       }
@@ -625,8 +626,8 @@ export function createChat(opts = {}) {
           if (old) old.replaceWith(card); else shell.extra.append(card);
           syncAll(shell.extra);
           scrollDown();
-        } else if (event === 'done') { finished = true; renderAnswer(shell, { ...data, text: data.reply, question: text }); scrollDown(); opts.onConversation?.(convId, data.title, true); }
-        else if (event === 'error') { finished = true; showError(data.error, !['daily_limit', 'month_limit'].includes(data.code)); }
+        } else if (event === 'done') { finished = true; refreshBudget(); renderAnswer(shell, { ...data, text: data.reply, question: text }); scrollDown(); opts.onConversation?.(convId, data.title, true); }
+        else if (event === 'error') { finished = true; refreshBudget(); showError(data.error, !['daily_limit', 'month_limit'].includes(data.code)); }
       };
       for (;;) {
         const { value, done } = await reader.read();
@@ -816,6 +817,94 @@ export async function almaView(view, parts = [], params = new URLSearchParams())
 
 // ── pannello laterale da ogni pagina ──────────────────────────────────────────────────────────────
 let panel = null;
+
+// ── Budget AI di oggi (ALM2-62, tavola «Budget AI di Alma» del 22/11/2026) ─────────────────────────────────────
+// Anello attorno alla stellina del tasto che si consuma; pastiglia nel pannello con il dettaglio al clic.
+// Chi è senza limite (di serie gli amministratori) vede l'anello a puntini e quanto ha speso.
+let budget = null;
+const budgetSubs = new Set();
+const money = n => `${Number(n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+async function refreshBudget() {
+  budget = await get('/api/alma/budget', { quiet: true }).catch(() => null);
+  for (const fn of budgetSubs) fn(budget);
+}
+// left = 0–1 di quanto resta; out = finito; low = sotto il 20%; unl = senza limite
+function budgetState(b) {
+  if (!b || b.enabled === false) return null;
+  if (b.unlimited) return { unl: true };
+  const left = b.daily_eur ? Math.max(0, b.left_eur) / b.daily_eur : 0;
+  return { left, out: b.left_eur <= 0.004, low: left < 0.2 };
+}
+const RING_C = 81.68; // 2π·13
+function ringEl(st) {
+  const span = h('span.al-ring', { 'aria-hidden': 'true' });
+  const arc = st.unl ? '' : `<circle class="al-ring-arc" cx="15" cy="15" r="13" stroke-dasharray="${(st.left * RING_C).toFixed(1)} ${RING_C}" transform="rotate(-90 15 15)"></circle>`;
+  const dot = st.low && !st.out ? '<circle class="al-ring-dot" cx="25" cy="5" r="4"></circle>' : '';
+  span.innerHTML = `<svg viewBox="0 0 30 30"><circle class="al-ring-track${st.unl ? ' unl' : ''}" cx="15" cy="15" r="13"></circle>${arc}${dot}</svg>`;
+  span.append(ic('sparkles', 14));
+  return span;
+}
+function budgetTip(b, st) {
+  if (st.unl) return `Budget illimitato${b.source === 'amministratore' ? ' (amministratore)' : ''} · oggi hai usato ${money(b.used_today_eur)}`;
+  if (st.out) return `Per oggi la quota di Alma è finita (${money(b.daily_eur)}). Riparte a mezzanotte.`;
+  return `Oggi ti restano ${money(b.left_eur)} di ${money(b.daily_eur)} · si ricarica a mezzanotte`;
+}
+function budgetPopover(b, st) {
+  const max = Math.max(st.unl ? 0 : b.daily_eur, ...b.days.map(d => d.eur), 0.01);
+  const dayLbl = (d, i) => (i === 6 ? 'oggi' : new Date(`${d.day}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', ''));
+  const bars = h('div.al-bp-bars', { role: 'img', 'aria-label': b.days.map((d, i) => `${dayLbl(d, i)} ${money(d.eur)}`).join(', ') },
+    b.days.map((d, i) => h('i', { class: i === 6 ? 'now' : '', style: { height: `${Math.max(4, Math.round(d.eur / max * 100))}%` } })));
+  const labels = h('div.al-bp-days', b.days.map((d, i) => h('span', { class: i === 6 ? 'now' : '' }, dayLbl(d, i))));
+  const tile = (k, v) => h('div.al-bp-tile', h('div.al-muted', k), h('div.al-t5', v));
+  const domande = n => `${n} ${n === 1 ? 'domanda' : 'domande'}`;
+  const dayOfMonth = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }).slice(8, 10)) || 1;
+  const top = st.unl
+    ? [h('div.al-lbl', `Budget illimitato${b.source === 'amministratore' ? ' · amministratore' : ''}`),
+      h('div.al-bp-big', h('span', money(b.used_today_eur)), h('span.al-small.al-muted', `usati oggi · ${domande(b.questions_today)}`)),
+      h('div.al-bp-tiles', tile('Tu, questo mese', money(b.month_eur)), tile('Media al giorno', money((b.month_eur || 0) / dayOfMonth)))]
+    : [h('div.al-lbl', 'Il tuo budget AI di oggi'),
+      h('div.al-bp-big', h('span', money(b.left_eur)), h('span.al-small.al-muted', `rimasti di ${money(b.daily_eur)}`)),
+      h('div.al-bp-bar', h('i', { style: { width: `${Math.round(st.left * 100)}%` } })),
+      h('div.al-bp-tiles', tile('Usati oggi', `${money(b.used_today_eur)} · ${domande(b.questions_today)}`), tile('Si ricarica', 'a mezzanotte'))];
+  const team = b.team_month_eur !== undefined ? h('div.al-bp-team',
+    h('div.al-row', h('span.al-grow.al-small.al-muted', `Tutta l'azienda, ${new Date().toLocaleDateString('it-IT', { month: 'long' })}`), h('span.al-small.al-t5', `${money(b.team_month_eur)} di ${money(b.cap_eur)}`)),
+    h('div.al-bp-bar', h('i', { style: { width: `${Math.min(100, Math.round(b.team_month_eur / (b.cap_eur || 1) * 100))}%` } })),
+    h('a.al-lnk', { href: '#/impostazioni/costi' }, 'Costi AI e quote per persona', ic('chevron-right', 13))) : null;
+  return [...top,
+    h('div.al-bp-week', h('div.al-small.al-muted', st.unl ? 'Ultimi 7 giorni' : `Ultimi 7 giorni (su ${money(b.daily_eur)} al giorno)`), bars, labels),
+    st.unl ? null : h('div.al-small.al-muted', 'Le domande con grafici, file o voce costano di più. La quota la decide la direzione.'),
+    team];
+}
+// Pastiglia nell'intestazione del pannello, con il dettaglio che si apre sotto.
+function budgetChip(box) {
+  const chip = h('button.al-bud', { type: 'button', hidden: true, 'aria-expanded': 'false' });
+  let pop = null;
+  const away = e => { if (pop && !pop.contains(e.target) && !chip.contains(e.target)) shut(); };
+  function shut() { pop?.remove(); pop = null; chip.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', away, true); }
+  const draw = b => {
+    const st = budgetState(b);
+    chip.hidden = !st;
+    if (!st) { shut(); return; }
+    chip.classList.toggle('unl', Boolean(st.unl));
+    chip.classList.toggle('out', Boolean(st.out));
+    chip.setAttribute('aria-label', budgetTip(b, st));
+    chip.title = budgetTip(b, st);
+    fill(chip, st.unl ? [ic('infinity', 14), money(b.used_today_eur)] : [h('span.al-bud-bar', h('i', { style: { width: `${Math.round(st.left * 100)}%` } })), money(b.left_eur)]);
+    if (pop) { pop.classList.toggle('unl', Boolean(st.unl)); fill(pop, budgetPopover(b, st)); }
+  };
+  chip.addEventListener('click', () => {
+    if (pop) { shut(); return; }
+    const st = budgetState(budget);
+    if (!st) return;
+    pop = h('div.al-budpop', { class: st.unl ? 'unl' : '', role: 'dialog', 'aria-label': 'Budget AI di oggi' }, budgetPopover(budget, st));
+    box.append(pop);
+    chip.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', away, true);
+  });
+  budgetSubs.add(draw);
+  draw(budget);
+  return { el: chip, shut };
+}
 function pageContext() {
   const route = (location.hash || '#/').split('?')[0];
   const h1 = document.querySelector('#view h1');
@@ -834,10 +923,11 @@ export function closePanelOnPhone() { if (panel && isMobile()) panel.close(); }
 function buildPanel() {
   let ctx = pageContext();
   const where = h('div.al-where');
+  const bud = budgetChip({ append: n => box.append(n) });
   const chat = createChat({ compact: true, context: () => ctx, suggestions: () => suggestionsFor(ctx), placeholder: 'Chiedi ad Alma…' });
   const drawWhere = () => fill(where, ctx.label || ctx.route !== '#/' ? [ic('map-pin', 12), h('span.al-ell', `Stai guardando: ${ctx.label || 'questa pagina'}`)] : null);
   const box = h('aside.al-panel', { role: 'dialog', 'aria-label': 'Alma, l\'assistente', hidden: true },
-    h('div.al-ph', ava(32), h('div.al-grow', h('div.al-t5', 'Alma'), where),
+    h('div.al-ph', ava(32), h('div.al-grow', h('div.al-t5', 'Alma'), where), bud.el,
       h('button.btn.btn-ghost.btn-sm.al-icobtn', { type: 'button', title: 'Nuova conversazione', 'aria-label': 'Nuova conversazione', on: { click: () => { ctx = pageContext(); drawWhere(); chat.open(null); } } }, ic('plus', 16)),
       h('a.btn.btn-ghost.btn-sm.al-icobtn', { href: '#/alma', title: 'Apri a tutta pagina', 'aria-label': 'Apri a tutta pagina', on: { click: e => { e.preventDefault(); const id = chat.id; close(); location.hash = id ? `#/alma?c=${id}` : '#/alma'; } } }, ic('expand', 16)),
       h('button.btn.btn-ghost.btn-sm.al-icobtn', { type: 'button', 'aria-label': 'Chiudi', on: { click: () => close() } }, ic('x', 16))),
@@ -851,10 +941,11 @@ function buildPanel() {
     box.hidden = false;
     document.body.classList.add('al-panel-open');
     await loadStatus();
+    refreshBudget();
     if (!chat.id) await chat.open(null);
     chat.focus();
   }
-  function close() { box.hidden = true; document.body.classList.remove('al-panel-open'); closeReceipt(); }
+  function close() { box.hidden = true; document.body.classList.remove('al-panel-open'); closeReceipt(); bud.shut(); }
   // cambiando pagina il pannello resta aperto e sa dove sei
   window.addEventListener('hashchange', () => {
     if ((location.hash || '').startsWith('#/alma')) return close();
@@ -868,6 +959,19 @@ export function setupAlma() {
   const fab = h('button.al-fab', { type: 'button', 'aria-label': 'Chiedi ad Alma', title: 'Chiedi ad Alma' }, ic('sparkles', 20), h('span', 'Alma'));
   fab.addEventListener('click', () => { panel = panel || buildPanel(); panel.open(); });
   document.body.append(fab);
+  // il budget sul tasto: anello, puntino sotto il 20%, bianco quando è finito, a puntini per chi è senza limite
+  budgetSubs.add(b => {
+    const st = budgetState(b);
+    fab.classList.toggle('out', Boolean(st?.out));
+    if (!st) { fill(fab, ic('sparkles', 20), h('span', 'Alma')); fab.title = 'Chiedi ad Alma'; delete fab.dataset.tip; fab.setAttribute('aria-label', 'Chiedi ad Alma'); return; }
+    const tip = budgetTip(b, st);
+    fill(fab, ringEl(st), h('span', 'Alma', st.unl ? h('small', ` · ${money(b.used_today_eur)}`) : st.out ? h('small', ' · domani') : null));
+    fab.removeAttribute('title');
+    fab.dataset.tip = tip;
+    fab.setAttribute('aria-label', `Chiedi ad Alma. ${tip}`);
+  });
+  refreshBudget();
+  setInterval(() => { if (!document.hidden) refreshBudget(); }, 3 * 60 * 1000);
   const sync = () => { fab.hidden = (location.hash || '').startsWith('#/alma'); };
   window.addEventListener('hashchange', sync);
   sync();
