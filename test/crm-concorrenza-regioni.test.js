@@ -91,3 +91,10 @@ test('Partner: chi vince in ATI nella regione, senza noi né i concorrenti; «Pr
   const again = await D('GET', '/api/crm/concorrenza/partner?bu=edilizia&region=Abruzzo');
   assert.equal(again.body.partners[0].subject.roles[0], 'partner');
 });
+
+test('Impostazioni Concorrenza: le categorie in più tengono la S, i CPV solo le cifre (barre perse, 22/11)', () => {
+  const { clean } = require('../lib/crm-commerciale');
+  const v = clean('concorrenza', { on: true, months: 24, min_amount: 40000, cpv: { edilizia: ['45214200-3'] }, extra_categories: ['os 28', 'OG1'], our_cf: ['01234567890'], our_names: ['ALMACIS'] }, { asaKeys: ['edilizia'] });
+  assert.deepEqual(v.extra_categories, ['OS28', 'OG1']);
+  assert.deepEqual(v.cpv.edilizia, ['452142003']);
+});

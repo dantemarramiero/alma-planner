@@ -9,11 +9,17 @@ const { loadSettings } = require('../lib/crm-commerciale');
 const { normCat } = require('../lib/crm-anac');
 const { scopeOf } = require('../lib/crm-business-mercato');
 const S = require('../lib/crm-soa');
+const C = require('../lib/crm-soa-crm');
 
 const FILTERS = ['tutte', 'mai', 'classe', 'crm'];
 
 function registerCrmSoa(app, { db, anacFetch }) {
-  const sync = () => S.syncSoa(db, anacFetch ? { fetchImpl: anacFetch } : {});
+  // dopo ogni caricamento ANAC si aggiornano le SOA delle aziende del CRM (canvas v14)
+  const sync = () => S.syncSoa(db, anacFetch ? { fetchImpl: anacFetch } : {}).then(async r => {
+    const c = await C.syncSubjectsSoa(db).catch(e => { console.log(`[soa] aziende del CRM non aggiornate: ${e.message}`); return null; });
+    if (c) console.log(`[soa] aziende del CRM: ${c.checked} controllate, ${c.found} con attestazione, ${c.changed} cambiate`);
+    return r;
+  });
 
   app.get('/api/crm/business/:id/mercato/qualificate', async (req, res) => {
     const id = Number(req.params.id);
@@ -48,12 +54,29 @@ function registerCrmSoa(app, { db, anacFetch }) {
     res.json({ running: true });
   });
 
+  // SOA da ANAC diverse da quelle scritte a mano (Impostazioni → Commerciale → Dati di mercato)
+  app.get('/api/crm/soa/differenze', async (req, res) => {
+    const { rows } = await db.query("SELECT id, name, soa, soa_anac, soa_choice FROM crm_subjects WHERE merged_into IS NULL AND soa_anac->>'found' = 'true' AND jsonb_array_length(soa) > 0 AND soa_choice = '' ORDER BY lower(name)");
+    const list = rows.map(r => ({ id: r.id, name: r.name, conflict: C.soaConflict(r) })).filter(r => r.conflict);
+    const { rows: [n] } = await db.query("SELECT count(*) FILTER (WHERE vat <> '' OR tax_code <> '')::int AS with_vat, count(*) FILTER (WHERE soa_anac->>'found' = 'true')::int AS found FROM crm_subjects WHERE merged_into IS NULL");
+    res.json({ subjects: list, with_vat: n.with_vat, found: n.found, admin: req.crm.admin });
+  });
+  app.post('/api/crm/soa/usa-anac', async (req, res) => {
+    if (!req.crm.admin) throw new HttpError(403, 'Solo la direzione');
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 5000);
+    for (const id of ids) await C.chooseSoa(db, id, 'anac');
+    res.json({ done: ids.length });
+  });
+
   // ogni lunedì alle 04:30 (ora di Roma); la prima volta pochi minuti dopo l'avvio se la tabella è vuota
   if (!process.env.NODE_TEST_CONTEXT) {
     const first = setTimeout(async () => {
       try { const { rows: [r] } = await db.query('SELECT count(*)::int AS n FROM crm_soa'); if (!r.n) await sync(); } catch { /* riprova lunedì */ }
     }, 10 * 60000);
     first.unref?.();
+    // passata unica sulle aziende del CRM mai controllate (dopo il deploy), poi ci pensa il caricamento del lunedì
+    const once = setTimeout(() => C.syncSubjectsSoa(db, { onlyMissing: true }).then(c => c.checked && console.log(`[soa] aziende del CRM: ${c.checked} controllate, ${c.found} con attestazione`)).catch(() => {}), 3 * 60000);
+    once.unref?.();
     let lastDay = '';
     const tick = setInterval(() => {
       const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Rome' }));
