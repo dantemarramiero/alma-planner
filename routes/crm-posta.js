@@ -197,39 +197,54 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     res.json({ ...r, emails: conv.length, words: conv.reduce((s, x) => s + (String(x.body || '').match(/\S+/g) || []).length, 0) });
   });
 
+  // Rispondi / Rispondi a tutti (Dante 22/11, «come su Outlook»): sempre all'email aperta. A chi: chi l'ha scritta (se
+  // l'ho scritta io, il primo destinatario); a tutti = anche destinatari e copie, senza di me.
+  function recipients(m, me, tutti) {
+    const target = m.from.address !== me ? m.from : (m.to[0] || m.from);
+    const all = [...new Map([m.from, ...m.to, ...m.cc].filter(p => p.address && p.address !== me).map(p => [p.address, p])).values()];
+    return { target, to: tutti ? all : [target] };
+  }
+
   app.post('/api/crm/posta/:id/bozza', async (req, res) => {
     const id = v.text(req.params.id, 'email', { max: 500, required: true });
     const istruzione = v.text(req.body?.istruzione, 'istruzione', { max: 600 }) || '';
     const stile = Object.hasOwn(A.STILI, req.body?.stile) ? req.body.stile : '';
     const attuale = v.text(req.body?.attuale, 'bozza', { max: 8000 }) || '';
+    const tutti = req.body?.tutti !== false;
     const t = await token(req.user.id);
     const { m, conv } = await messageAndThread(t, id);
     const me = String(req.user.email || '').toLowerCase();
-    // a chi rispondo: l'ultimo che ha scritto e non sono io (se l'ultima è mia, il primo destinatario)
-    const lastOther = conv.slice().reverse().find(x => x.from.address !== me) || m;
-    const target = lastOther.from.address !== me ? lastOther.from : (m.to[0] || m.from);
+    const { target, to } = recipients(m, me, tutti);
     const samples = target?.address ? await sentTo(t, target.address) : [];
     const tone = A.toneOf(samples, { name: target?.name });
-    const r = await A.toneDraft({ messages: conv, target, tone, samples: samples.map(s => S.ownPart(s)).slice(0, 6), meName: req.user.name, me, istruzione, stile, attuale }, ai());
+    const r = await A.toneDraft({ messages: conv, reply: m, tutti, target, tone, samples: samples.map(x => S.ownPart(x)).slice(0, 6), meName: req.user.name, me, istruzione, stile, attuale }, ai());
     await spend(r.eur);
-    const to = [...new Map([lastOther.from, ...lastOther.to, ...lastOther.cc].filter(p => p.address && p.address !== me).map(p => [p.address, p])).values()];
-    res.json({ text: r.text, eur: r.eur, ai: r.ai, tone: { n: tone.n, chips: tone.chips }, target, to, reply_to: lastOther.id, subject: `Re: ${A.subjectOf(m.subject)}` });
+    res.json({ text: r.text, eur: r.eur, ai: r.ai, model: r.model, tone: { n: tone.n, chips: tone.chips }, target, to, tutti, subject: `Re: ${A.subjectOf(m.subject)}` });
   });
 
-  // Invia a tutti o salva tra le bozze di Outlook (G4): risposta nella stessa conversazione.
+  // Invia o salva tra le bozze di Outlook (G4): risposta nella stessa conversazione, a una persona o a tutti.
   app.post('/api/crm/posta/:id/rispondi', async (req, res) => {
     const id = v.text(req.params.id, 'email', { max: 500, required: true });
     const text = v.text(req.body?.testo, 'testo', { max: 20000, required: true });
     const draft = req.body?.bozza === true;
+    const tutti = req.body?.tutti !== false;
+    const me = String(req.user.email || '').toLowerCase();
+    const t0 = await token(req.user.id);
+    const m = P.normMsg(await mail(t0, 'GET', `/me/messages/${encodeURIComponent(id)}?$select=${SELECT}`));
+    const { to } = recipients(m, me, tutti);
+    if (!to.length) throw new HttpError(400, 'Non c\'è nessuno a cui rispondere');
+    const rcpt = list => list.map(p => ({ emailAddress: { address: p.address, ...(p.name ? { name: p.name } : {}) } }));
+    // destinatari sempre espliciti: così «Rispondi» a un'email che ho mandato io va a chi l'ha ricevuta, non a me
+    const body = { comment: text, message: tutti ? { toRecipients: rcpt(to.filter(p => !m.cc.some(c => c.address === p.address))), ccRecipients: rcpt(m.cc.filter(c => c.address !== me)) } : { toRecipients: rcpt(to), ccRecipients: [] } };
+    const action = tutti ? 'replyAll' : 'reply';
     if (draft) {
       const t = await writeToken(req.user.id);
-      const d = await g(t, 'POST', `/me/messages/${encodeURIComponent(id)}/createReplyAll`, { body: { comment: text } });
-      return res.json({ ok: true, draft: true, web_link: d?.webLink || null });
+      const d = await g(t, 'POST', `/me/messages/${encodeURIComponent(id)}/create${action[0].toUpperCase()}${action.slice(1)}`, { body });
+      return res.json({ ok: true, draft: true, to, web_link: d?.webLink || null });
     }
-    const t = await token(req.user.id);
-    await mail(t, 'POST', `/me/messages/${encodeURIComponent(id)}/replyAll`, { body: { comment: text } });
+    await mail(t0, 'POST', `/me/messages/${encodeURIComponent(id)}/${action}`, { body });
     // se la conversazione è in un progetto, la risposta entra con il prossimo giro (o subito, all'apertura della scheda)
-    res.json({ ok: true, draft: false });
+    res.json({ ok: true, draft: false, to });
   });
 
   app.get('/api/crm/posta/:id', async (req, res) => {
