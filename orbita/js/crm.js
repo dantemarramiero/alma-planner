@@ -17,6 +17,7 @@ import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.j
 import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
 import { soaCard, soaShort } from './crm-soa-card.js';
+import { doppioniPage, dupBanner, dupLine, mergeDialog, conflictBox } from './crm-doppioni.js'; // canvas v15
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
 import { ic, dots, pill, av, pageTop, title, card, link, listRow, emptyState, seg, tabsBar as cvTabs, moreMenu, cvModal, choiceChips } from './crm-v2.js';
@@ -141,6 +142,7 @@ export async function crmView(container, parts = []) {
   if (parts[1] === 'contatti' && parts[2] === 'scrivo') { const body = h('div.cv'); fill(container, body); return scrivoTab(body); } // persone con cui mi scrivo (canvas v10, ALM2-46)
   if (parts[1] === 'contatti' && parts[2] === 'biglietti') { const body = h('div.cv'); fill(container, body); return bigliettiTab(body); } // biglietti da visita (canvas v10)
   if (parts[1] === 'contatti' && Number(parts[2])) return contactPage(container, Number(parts[2]), parts[3]);
+  if (parts[1] === 'doppioni') { const body = h('div.cv'); fill(container, body); return doppioniPage(body, parts[2] === 'contatti' ? 'contact' : 'subject'); } // canvas v15
   if (parts[1] === 'incontro' && Number(parts[2])) { // dalla notifica «mancano le note»
     openCrmMeeting(Number(parts[2]));
     parts = ['crm', 'lead'];
@@ -213,7 +215,7 @@ async function leadTab(box, mode, again) {
   const stageSel = select([['', 'Fase: tutte'], ...data.meta.leadStages.filter(([k]) => k !== 'non_interessato').map(([k, l]) => [k, `Fase: ${l}`])], '', { 'aria-label': 'Fase',
     on: { change: e => { state.stage = e.target.value; e.target.classList.toggle('on', Boolean(state.stage)); state.page = 0; load(); } } });
   const modes = h('div');
-  fill(box, hero, alerts, filterRow(state, () => { state.page = 0; load(); }, { again, extra: [stageSel, prio, modes] }), content);
+  fill(box, hero, dupBanner('subject', 'lead'), alerts, filterRow(state, () => { state.page = 0; load(); }, { again, extra: [stageSel, prio, modes] }), content);
   let all = [];
   async function load() {
     all = (await get(`/api/crm/subjects${qs({ role: 'lead', asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`)).subjects;
@@ -463,6 +465,7 @@ async function subjectsTab(box, tab, again) {
         h('button.btn.btn-primary', { type: 'button', on: { click: () => subjectForm({ preset: { roles: newRole ? [newRole] : [] }, onSaved: s => { location.hash = `#/crm/scheda/${s.id}`; } }) } },
           ic('plus', 15), sub === 'clienti' ? 'Nuovo cliente' : sub === 'fornitori' ? 'Nuovo fornitore' : sub === 'partner' ? 'Nuovo partner' : sub === 'concorrenti' ? 'Nuovo concorrente' : 'Nuova anagrafica')] }),
     h('div.cv-row', switcher),
+    dupBanner('subject', sub === 'concorrenti' ? 'concorrente' : sub === 'partner' ? 'partner' : role),
     filterRow(state, () => { state.page = 0; load(); }, { key: true, again, extra }),
     list);
   async function load() {
@@ -495,7 +498,7 @@ async function roleListTab(box, tab, again) {
   const alerts = h('div');
   const content = h('div', loading());
   let all = [];
-  fill(box, hero, alerts, filterRow(state, () => { state.page = 0; load(); }, { key: true, again }), content);
+  fill(box, hero, dupBanner('subject', role), alerts, filterRow(state, () => { state.page = 0; load(); }, { key: true, again }), content);
   const week = addDaysIso(7);
   const TILES = sup ? Object.keys(data.meta.supplierCategories).map(k => [k, CAT_SHORT[k] || data.meta.supplierCategories[k], s => (s.supplier_categories || []).includes(k)]) : CLIENT_GROUPS;
   const ALERTS = sup
@@ -694,7 +697,7 @@ async function subjectPage(container, id, tabKey) {
     ['Trasforma in…', () => transformDialog(s, () => refresh())],
     ['Modifica i dati', () => subjectForm({ subject: s, onSaved: () => refresh() })],
     ['Key account', () => keyAccountDialog(s, () => refresh(), data.keyRhythm || 90)],
-    data.admin ? ['Unisci a un\'altra scheda', () => mergeForm(s)] : null,
+    ['Unisci a un\'altra scheda…', () => mergeForm(s, r => (r.into === s.id ? refresh() : (location.hash = `#/crm/scheda/${r.into}`)))],
     data.admin ? ['Cancella', async () => {
       if (!await confirmDialog(`Cancellare «${s.name}» dal CRM? I contatti restano, i loro collegamenti a questa scheda si tolgono.`, { ok: 'Cancella', danger: true })) return;
       await del(base);
@@ -703,6 +706,7 @@ async function subjectPage(container, id, tabKey) {
   const place = [s.city, s.province && `(${s.province})`].filter(Boolean).join(' ');
   fill(container, h('div.cv',
     h('a.cv-crumb', { href: `#/crm/${back}` }, ic('chevron-left', 14), TABS.find(([k]) => k === back)[1]),
+    dupLine('subject', s.id, r => (r.into === s.id ? refresh() : (location.hash = `#/crm/scheda/${r.into}`))), // canvas v15
     h('section.cv-card.pad.cv-head.visible',
       h('div.cv-head-main',
         h('span.cv-mono', { 'aria-hidden': 'true' }, initialsOf(s.short_name || s.name)),
@@ -808,16 +812,25 @@ async function webSearchDialog(s, onSaved) {
     }
     const checks = r.fields.map(f => ({ f, on: !f.current }));
     const count = h('span');
+    const conflictSlot = h('div');
     const useBtn = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
       const picked = checks.filter(c => c.on);
       if (!picked.length) return;
       useBtn.disabled = true;
-      try {
-        const out = await post(`/api/crm/subjects/${s.id}/da-web`, { fields: Object.fromEntries(picked.map(c => [c.f.key, c.f.value])), sources: Object.fromEntries(picked.map(c => [c.f.key, c.f.source])) });
+      const send = async list => {
+        const out = await post(`/api/crm/subjects/${s.id}/da-web`, { fields: Object.fromEntries(list.map(c => [c.f.key, c.f.value])), sources: Object.fromEntries(list.map(c => [c.f.key, c.f.source])) }, { quiet: true });
         m.close();
         toast(`${out.saved.length} ${out.saved.length === 1 ? 'dato salvato' : 'dati salvati'}${out.skipped?.length ? ` (saltati: ${out.skipped.join(', ')})` : ''}`);
         onSaved?.();
-      } catch { useBtn.disabled = false; }
+      };
+      try { await send(picked); } catch (err) {
+        // la P.IVA trovata è già di un'altra scheda: «È la stessa azienda?» invece dell'errore (canvas v15)
+        const others = picked.filter(c => !['vat', 'tax_code'].includes(c.f.key));
+        const box = conflictBox(err, { currentId: s.id, onMerged: r => { m.close(); location.hash = `#/crm/scheda/${r.into}`; },
+          onSaveWithout: others.length ? () => send(others).catch(e => toast(e.message, 'err')) : null });
+        if (box) { fill(conflictSlot, box); conflictSlot.scrollIntoView({ block: 'center', behavior: 'smooth' }); } else toast(err.message, 'err');
+        useBtn.disabled = false;
+      }
     } } }, ic('check', 15), count);
     const drawCount = () => { const n = checks.filter(c => c.on).length; count.textContent = n ? `Usa ${n === 1 ? 'quello spuntato' : `i ${n} spuntati`}` : 'Spunta i dati da usare'; useBtn.disabled = !n; };
     const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
@@ -829,6 +842,7 @@ async function webSearchDialog(s, onSaved) {
           c.f.current ? h('small.an-was', `nella scheda: ${c.f.current}`) : null,
           c.f.source ? h('a.an-src', { href: c.f.source, target: '_blank', rel: 'noopener' }, ic('link', 10), host(c.f.source) || 'fonte') : null));
       })),
+      conflictSlot,
       h('div.cv-row', { style: { gap: '8px', marginTop: '12px' } }, useBtn, h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla')),
       h('p.cv-small.cv-muted', { style: { marginTop: '8px' } }, 'Niente si salva da solo: i dati presi da internet restano segnati finché qualcuno non li conferma.'));
     drawCount();
@@ -971,7 +985,7 @@ async function overviewTab(box, s, base, go, people, refresh) {
     h('p.cv-small.cv-muted', 'Qualifica e documenti a scadenza arriveranno da Vittoria.')));
   }
   if (s.history.length) {
-    left.push(card({ title: 'Storico', count: s.history.length }, s.history.slice(0, 6).map(x => listRow({ icon: 'clock', title: x.to_stage === 'cliente' ? 'Cliente' : x.to_stage === 'ruoli' ? 'Ruoli' : stageLabel(x.to_stage),
+    left.push(card({ title: 'Storico', count: s.history.length }, s.history.slice(0, 6).map(x => listRow({ icon: 'clock', title: x.to_stage === 'cliente' ? 'Cliente' : x.to_stage === 'ruoli' ? 'Ruoli' : x.to_stage === 'unione' ? 'Unione' : stageLabel(x.to_stage),
       meta: dots([new Date(x.at).toLocaleDateString('it-IT'), x.user_name, x.note]) }))));
   }
   const contactsLine = [s.pec && h('a', { href: `mailto:${s.pec}` }, s.pec), s.email && h('a', { href: `mailto:${s.email}` }, s.email), s.phone && h('a', { href: `tel:${s.phone}` }, s.phone), s.website].filter(Boolean);
@@ -1083,7 +1097,7 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
     const { matches } = await get(`/api/crm/subjects/check${qs({ vat: vatIn.value, tax_code: taxIn.value, name: nameIn.value })}`, { quiet: true });
     const other = matches.filter(x => x.id !== subject?.id);
     fill(dup, other.length ? h('div.banner.crm-dup', 'Sembra già presente: ', other.map((x, i) => [i ? ', ' : '',
-      x.visible ? h('a', { href: `#/crm/scheda/${x.id}`, on: { click: () => m.close() } }, x.name)
+      x.visible ? [h('a', { href: `#/crm/scheda/${x.id}`, on: { click: () => m.close() } }, x.name), x.similar ? ' (nome simile)' : '']
         : h('span', x.name, x.vat ? ` (P.IVA ${x.vat})` : '', ' di un\'altra ASA ',
           data.myAsa.length ? h('button.btn.btn-sm', { type: 'button', on: { click: async () => {
             const mine = currentAsa() || data.myAsa[0];
@@ -1156,7 +1170,14 @@ async function subjectForm({ subject = null, preset = {}, onSaved }) {
         f.supplier_zones = [...zones.values];
       }
       if (['fornitore', 'partner', 'concorrente'].some(k => roles.values.has(k))) f.soa = soa.value();
-      const saved = subject ? await patch(`/api/crm/subjects/${subject.id}`, f) : await post('/api/crm/subjects', f);
+      let saved;
+      try { saved = subject ? await patch(`/api/crm/subjects/${subject.id}`, f, { quiet: true }) : await post('/api/crm/subjects', f, { quiet: true }); } catch (err) {
+        // P.IVA già di un'altra scheda: «È la stessa azienda?» con Unisci (canvas v15)
+        const box = conflictBox(err, { currentId: subject?.id, onMerged: r => { m.close(); location.hash = `#/crm/scheda/${r.into}`; },
+          onSaveWithout: () => { vatIn.value = ''; taxIn.value = ''; fill(dup); toast('P.IVA tolta: ora puoi salvare'); } });
+        if (box) { fill(dup, box); dup.scrollIntoView({ block: 'center', behavior: 'smooth' }); } else toast(err.message, 'err');
+        return;
+      }
       m.close();
       toast(`${subject ? 'Anagrafica aggiornata' : 'Anagrafica creata'}${saved.soa_found ? ` · ${saved.soa_found} ${saved.soa_found === 1 ? 'categoria SOA' : 'categorie SOA'} da ANAC` : ''}`);
       onSaved?.(saved);
@@ -1225,19 +1246,21 @@ function transformDialog(s, onDone) {
   });
 }
 
-async function mergeForm(s) {
+// «Unisci a un'altra scheda…»: si sceglie l'altra (le più simili in cima), poi la finestra Unisci dato per dato (canvas v15)
+async function mergeForm(s, onDone) {
   const { subjects } = await get('/api/crm/subjects');
-  const target = select([['', 'Scegli la scheda buona…'], ...subjects.filter(x => x.id !== s.id).map(x => [x.id, `${x.name}${x.vat ? ` · ${x.vat}` : ''}`])], '');
+  const { matches = [] } = await get(`/api/crm/subjects/check${qs({ name: s.name })}`, { quiet: true }).catch(() => ({}));
+  const near = matches.filter(x => x.id !== s.id).map(x => [x.id, `${x.name}${x.vat ? ` · ${x.vat}` : ''} (nome simile)`]);
+  const rest = subjects.filter(x => x.id !== s.id && !near.some(n => n[0] === x.id)).map(x => [x.id, `${x.name}${x.vat ? ` · ${x.vat}` : ''}`]);
+  const target = select([['', 'Scegli l\'altra scheda…'], ...near, ...rest], near[0]?.[0] || '');
   const m = cvModal({
     title: `Unisci «${s.name}»`,
-    body: h('div.en-form', h('p', 'Contatti, email, incontri, note e progetti passano alla scheda buona; questa resta come rimando, così i collegamenti di BOSS non si rompono.'), field('Scheda buona', target)),
-    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-      if (!target.value) return toast('Scegli la scheda buona', 'err');
-      await post(`/api/crm/subjects/${s.id}/merge`, { into: Number(target.value) });
+    body: h('div.en-form', h('p', 'Scegli l\'altra scheda: poi decidi dato per dato cosa tenere.'), field('Con', target)),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => {
+      if (!target.value) return toast('Scegli l\'altra scheda', 'err');
       m.close();
-      toast('Schede unite');
-      location.hash = `#/crm/scheda/${target.value}`;
-    } } }, 'Unisci')],
+      mergeDialog({ kind: 'subject', a: s.id, b: Number(target.value), onDone });
+    } } }, 'Avanti')],
   });
 }
 
@@ -1261,7 +1284,7 @@ async function contactsTab(box, again) {
     k => { if (k !== 'tutti') location.hash = `#/crm/contatti/${k}`; }));
   drawContactsTabs(0);
   get('/api/biglietto', { quiet: true }).then(r => drawContactsTabs(r?.leads_new)).catch(() => {});
-  fill(box, hero, contactsTabs, alerts, h('div.cv-filters', filterRow(state, () => { state.page = 0; load(); }, { search: 'Cerca per nome, email o azienda', fn: false, again })), content);
+  fill(box, hero, contactsTabs, dupBanner('contact'), alerts, h('div.cv-filters', filterRow(state, () => { state.page = 0; load(); }, { search: 'Cerca per nome, email o azienda', fn: false, again })), content);
   const noCo = c => !c.links.some(l => !l.date_to);
   const noReach = c => !dirty(c) && !c.email && !c.mobile && !c.phone;
   const hasRole = (c, r) => c.links.some(l => !l.date_to && (l.roles || []).includes(r));
@@ -1375,6 +1398,7 @@ async function contactPage(container, id, tabKey) {
     }, true] : null]);
   fill(container, h('div.cv',
     h('a.cv-crumb', { href: '#/crm/contatti' }, ic('chevron-left', 14), 'Contatti'),
+    dupLine('contact', id, r => (r.into === id ? contactPage(container, id, tabKey) : (location.hash = `#/crm/contatti/${r.into}`))), // canvas v15
     h('section.cv-card.pad.cv-head.visible', h('div.cv-head-main',
       h('span.cv-mono', { 'aria-hidden': 'true', style: { borderRadius: '50%' } }, initialsOf(personName(c) || '?')),
       h('div.cv-grow', h('div.cv-row.cv-wrap', { style: { gap: '8px 10px' } }, h('h1.cv-head-name', personName(c)), c.status !== 'attivo' ? pill(data.meta.contactStatus[c.status], 'rd') : null,

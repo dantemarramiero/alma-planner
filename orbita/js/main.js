@@ -174,7 +174,7 @@ async function route() {
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
     : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
-    : section === 'hr' ? `hr-${parts[1] === 'persona' ? 'persone' : parts[1] === 'ruolo' ? 'mansionario' : parts[1] === 'candidato' ? 'richieste' : parts[1] || 'percorso'}`
+    : section === 'hr' ? `hr-${parts[1] === 'persona' ? 'persone' : parts[1] === 'ruolo' ? 'mansionario' : parts[1] === 'candidato' ? 'richieste' : ['incontro', 'fineprova', 'onboarding'].includes(parts[1]) ? (store.me?.hr ? 'onboarding' : 'onboarding-mie') : parts[1] || 'percorso'}`
     : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'
     : section === 'it' ? `it-${parts[1] === 'software' || parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'strumenti'}` : section;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
@@ -396,6 +396,9 @@ async function start() {
   // la dashboard dei team la vedono gli amministratori, il team HR e chi è responsabile di qualcuno
   document.getElementById('nav-pm-team').hidden = !store.me.is_admin;
   for (const el of document.querySelectorAll('.nav-hr-team')) el.hidden = !store.me.hr; // Alma HR: solo il team HR
+  for (const el of document.querySelectorAll('.nav-hr-qhse')) el.hidden = !(store.me.hr || store.me.qhse); // formazione: HR e QHSE
+  for (const el of document.querySelectorAll('.nav-onb')) el.hidden = !store.me.onboarding; // il mio inserimento
+  for (const el of document.querySelectorAll('.nav-onb-team')) el.hidden = store.me.hr || !store.me.onb_team; // responsabili e buddy con qualcuno in inserimento
   document.getElementById('nav-settings').hidden = !(store.me.is_admin || store.me.privacy?.costi_ai === 'all'); // Impostazioni uniche
   if (!store.me.is_admin) get('/api/pm/flags', { quiet: true }).then(f => { document.getElementById('nav-pm-team').hidden = !(f?.manager || f?.hr); }).catch(() => {});
   refreshBadges();

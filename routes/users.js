@@ -17,6 +17,9 @@ function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAc
       energy: energyAccess ? await energyAccess.canUse(req) : false,
       crm: crmAccess ? await crmAccess.canUse(req) : false,
       hr: gov ? gov.roleOf(req.user.email).key === 'hr' : false,
+      qhse: gov ? gov.roleOf(req.user.email).key === 'qhse' : false,
+      onboarding: Boolean((await db.query("SELECT 1 FROM hr_onboardings WHERE email = $1 AND stato = 'aperto' LIMIT 1", [req.user.email.toLowerCase()]).catch(() => ({ rows: [] }))).rows.length),
+      onb_team: Boolean((await db.query("SELECT 1 FROM hr_onboardings WHERE (resp_email = $1 OR buddy_email = $1) AND stato = 'aperto' LIMIT 1", [req.user.email.toLowerCase()]).catch(() => ({ rows: [] }))).rows.length),
       posta_voce: postaVoce ? postaVoce.canUse(req) : false });
   });
 
