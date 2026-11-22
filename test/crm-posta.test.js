@@ -190,3 +190,21 @@ test('Il progetto compare in I miei progetti con le tappe della trattativa', asy
   const mine = await D('GET', '/api/crm/progetti?vista=miei');
   assert.ok(mine.body.projects.some(p => p.id === projectId));
 });
+
+test('Dalla email (ALM2-58): persone, azienda e opportunità con lo stato nel CRM', async () => {
+  const pace = await D('GET', '/api/crm/posta/m-pc-1');
+  assert.equal(pace.status, 200);
+  const c = pace.body.crm;
+  assert.equal(c.people[0].email, 'andrea.pace@studiopace-ing.com');
+  assert.equal(c.people[0].kind, 'nuova');
+  assert.equal(c.people[0].job, 'Responsabile progettazione');
+  assert.equal(c.company.kind, 'nuova');
+  assert.equal(c.company.domain, 'studiopace-ing.com');
+  assert.equal(c.opportunity.title, 'Sopralluogo capannone Val Pescara');
+  assert.ok(c.asa.length > 0);
+  // la conversazione del data center è già in un progetto, Rossi e Studio Tecnico Rossi sono nel CRM
+  const dc = (await D('GET', `/api/crm/posta/${msgId}`)).body.crm;
+  assert.equal(dc.opportunity.project.id, projectId);
+  assert.equal(dc.people.find(p => p.email === 'l.rossi@studiotecnicorossi.it').kind, 'crm');
+  assert.equal(dc.company.kind, 'crm');
+});

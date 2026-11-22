@@ -63,6 +63,7 @@ export async function postaPage(container) {
         h('div.pm-rtitle', h('h1', e.subject), h('span.pm-rmeta', `${e.from.name || ''} <${e.from.address}> · a ${e.to.map(x => x.name || x.address).join(', ')}${e.cc.length ? `, cc ${e.cc.map(x => x.name || x.address).join(', ')}` : ''}`), h('small.cv-muted', `${fmtDate(String(e.date).slice(0, 10), { year: true })} ${String(e.date).slice(11, 16)}${e.conversation_count > 1 ? ` · ${e.conversation_count} email nella conversazione` : ''}`)),
         place || h('button.btn.btn-primary.pm-create', { type: 'button', on: { click: () => openProposal(e.id) } }, ic('sparkles', 15), 'Crea progetto commerciale'),
         place ? null : h('button.btn', { type: 'button', on: { click: () => addToProject(e) } }, 'Aggiungi a un progetto')),
+      fromMailBar(e, () => open({ id: e.id })),
       h('div.pm-body', e.body.trim()),
       e.attachments.length ? h('div.pm-atts', e.attachments.map(a => h('span.pm-att', ic('paperclip', 13), `${a.name} · ${(a.size / 1048576).toLocaleString('it-IT', { maximumFractionDigits: 1 })} MB`))) : null,
       h('div.pm-also',
@@ -77,6 +78,135 @@ export async function postaPage(container) {
     } } }, h('b', p.name), h('small', p.steps?.[p.step] || '')))) : emptyState('folder', 'Non segui ancora nessun progetto del CRM.') });
   }
   load();
+}
+
+// ═══ Dalla email: contatto, azienda, opportunità (tavola F, ALM2-58) ══════════════════════════════
+function fromMailBar(e, again) {
+  const c = e.crm;
+  if (!c) return null;
+  const NOT = (t = 'non nel CRM') => pill(t, 'or');
+  const IN = () => pill('nel CRM', 'gr');
+  const people = c.people || [];
+  const newPeople = people.filter(p => p.kind === 'nuova');
+  const addContact = async p => {
+    const pick = p || (newPeople.length === 1 ? newPeople[0] : await choosePerson(newPeople.length ? newPeople : people));
+    if (!pick) return;
+    const { openContactFromMail } = await import('./crm-scrivo.js');
+    const r = await openContactFromMail({ email: pick.email, name: pick.name });
+    if (r === 'ok') again();
+  };
+  const tiles = [];
+  if (c.company && c.company.kind !== 'personale') {
+    tiles.push(h('div.pm-ft', h('span.pm-ft-k', 'Azienda · dal dominio e dalla firma'), h('b', c.company.name), c.company.kind === 'crm' ? IN() : NOT(),
+      c.company.kind === 'crm' ? h('a', { href: `#/crm/scheda/${c.company.subject_id}` }, 'Apri la scheda ›') : h('button.cv-lnk', { type: 'button', on: { click: () => addCompany(e, again) } }, 'Aggiungi azienda ›')));
+  }
+  for (const p of people.slice(0, 3)) {
+    tiles.push(h('div.pm-ft', h('span.pm-ft-k', p.role === 'ha scritto' ? 'Ha scritto' : p.role === 'in copia' ? 'In copia' : 'Destinatario'), h('b', p.name || p.email),
+      p.job || p.subject ? h('small', [p.job, p.subject].filter(Boolean).join(' · ')) : h('small', p.email), p.kind === 'crm' ? IN() : NOT(),
+      p.kind === 'crm' ? h('a', { href: `#/crm/contatti/${p.contact_id}` }, 'Apri la scheda ›') : h('button.cv-lnk', { type: 'button', on: { click: () => addContact(p) } }, 'Aggiungi contatto ›')));
+  }
+  const o = c.opportunity || {};
+  tiles.push(h('div.pm-ft', h('span.pm-ft-k', 'Opportunità'),
+    o.project ? [h('b', o.project.name), pill('in un progetto', 'gr'), h('a', { href: `#/crm/progetto/${o.project.id}` }, 'Apri il progetto ›')]
+      : o.signal ? [h('b', o.signal.title), pill('nel Radar', 'gr'), h('a', { href: `#/crm/lancio/s/${o.signal.id}` }, 'Portala avanti ›')]
+        : [h('b', [o.title, o.importo ? `circa ${eur(o.importo)}` : null].filter(Boolean).join(', ')), o.scadenza ? h('small', `offerte entro ${fmtDate(o.scadenza, { year: true })}`) : null,
+          pill('non nel Radar', ''), h('button.cv-lnk', { type: 'button', on: { click: () => addOpportunity(e) } }, 'Aggiungi opportunità ›')]));
+  const btn = (label, fn, off) => h('button.btn.btn-sm', { type: 'button', disabled: off || undefined, on: { click: fn } }, ic('plus', 13), label);
+  return h('section.pm-from',
+    h('div.pm-from-h', h('span.pm-hint-k', 'Dalla email · cosa c\'è già nel CRM'),
+      btn('Contatto', () => addContact(null), !people.length),
+      btn('Azienda', () => addCompany(e, again), !c.company || c.company.kind === 'personale'),
+      btn('Opportunità', () => addOpportunity(e), Boolean(o.project || o.signal))),
+    h('div.pm-ftiles', tiles));
+}
+
+function choosePerson(list) {
+  return new Promise(resolve => {
+    let done = false;
+    const m = cvModal({ title: 'Quale persona dell\'email?', body: h('div.pm-pick', list.map(p => h('button.pm-pick-i', { type: 'button', on: { click: () => { done = true; m.close(); resolve(p); } } },
+      h('b', p.name || p.email), h('small', [p.role, p.email, p.kind === 'crm' ? 'già nel CRM' : null].filter(Boolean).join(' · '))))),
+    onClose: () => { if (!done) resolve(null); } });
+  });
+}
+
+// Aggiungi azienda: nome, sito, città dalla firma e dal dominio; categoria e ASA; l'email resta collegata
+function addCompany(e, again) {
+  const c = e.crm.company || {};
+  const lead = (e.crm.people || []).find(p => p.role === 'ha scritto' && p.kind === 'nuova');
+  const name = h('input.input', { value: c.name || '' });
+  const site = h('input.input', { value: c.domain || '' });
+  const city = h('input.input', { value: c.city || '' });
+  let role = 'lead';
+  const roles = h('div.pm-roles');
+  const drawRoles = () => fill(roles, [['lead', 'Lead'], ['cliente', 'Cliente'], ['fornitore', 'Fornitore'], ['partner', 'Partner']].map(([k, l]) => h('button.cv-pill.big', { type: 'button', class: role === k ? 'dark' : 'line', 'aria-pressed': String(role === k), on: { click: () => { role = k; drawRoles(); } } }, l)));
+  drawRoles();
+  const asa = h('select.select', e.crm.asa.map(a => h('option', { value: a.key }, a.label)));
+  const linkMail = h('input', { type: 'checkbox', checked: true });
+  const alsoLead = h('input', { type: 'checkbox', checked: Boolean(lead) });
+  const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+    if (!name.value.trim()) return toast('Scrivi il nome dell\'azienda', 'err');
+    save.disabled = true;
+    try {
+      const s = await post('/api/crm/subjects/rapida', { name: name.value.trim(), website: site.value.trim() || undefined, city: city.value.trim() || undefined, roles: [role], asa: asa.value, origin: 'Posta Outlook' });
+      if (linkMail.checked) await post(`/api/crm/subjects/${s.id}/emails`, { message_ids: [e.id] }, { quiet: true }).catch(() => {});
+      m.close();
+      toast(s.existing ? `«${s.name}» era già nel CRM: email collegata` : `«${s.name}» è nel CRM`);
+      if (alsoLead.checked && lead) {
+        const { openContactFromMail } = await import('./crm-scrivo.js');
+        await openContactFromMail({ email: lead.email, name: lead.name });
+      }
+      again();
+    } catch { save.disabled = false; }
+  } } }, 'Crea azienda');
+  const m = cvModal({ title: h('div.pp-title', h('span.pp-k', 'Aggiungi azienda · dal dominio e dalla firma'), h('h2', c.name || 'Nuova azienda')),
+    body: h('div.dl-form',
+      h('label.field', h('span', 'Nome'), name),
+      h('div.dl-form2', h('label.field', h('span', 'Sito'), site), h('label.field', h('span', 'Città'), city)),
+      h('div.field', h('span', 'Categoria'), roles),
+      h('label.field', h('span', 'ASA'), asa),
+      h('label.pm-chk', linkMail, 'Collega questa email all\'azienda'),
+      lead ? h('label.pm-chk', alsoLead, `Aggiungi anche ${lead.name} (dalla firma)`) : null),
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), save] });
+}
+
+// Aggiungi opportunità: Alma legge la conversazione, la scheda corta e «Salva nel Radar» (o tutti i dettagli)
+async function addOpportunity(e) {
+  const body = h('div.dl-form', h('div.pp-wait', loading(), h('p', 'Alma sta leggendo la conversazione…')));
+  const m = cvModal({ title: h('div.pp-title', h('span.pp-k', 'Aggiungi opportunità'), h('h2', 'Alma sta leggendo la conversazione')), body });
+  let r;
+  try { r = await post('/api/crm/posta/proposta', { message_id: e.id }); } catch { m.close(); return; }
+  if (r.already) { m.close(); location.hash = r.already.project_id ? `#/crm/progetto/${r.already.project_id}` : `#/crm/lancio/s/${r.already.signal_id}`; return; }
+  m.head.querySelector('.pp-k').textContent = `Aggiungi opportunità · Alma ha letto ${r.messages.length} email`;
+  m.head.querySelector('h2').textContent = r.fields.title;
+  const f = { ...r.fields };
+  const inp = (k, attrs = {}) => h('input.input', { value: f[k] ?? '', ...attrs, on: { input: ev => { f[k] = ev.target.value; } } });
+  const amount = h('input.input', { value: f.importo ? `circa ${eur(f.importo)}` : (f.importo_testo || ''), on: { input: ev => { const v = ev.target.value; const n = Number(v.replace(/[^\d,]/g, '').replace(',', '.')); f.importo = /milion|mln|m€/i.test(v) && n ? Math.round(n * 1e6) : n > 1000 ? Math.round(n) : f.importo; } } });
+  let company = r.company?.kind === 'crm' ? { subject_id: r.company.subject_id } : r.company?.kind === 'nuova' ? { new: { name: r.company.name, domain: r.company.domain } } : null;
+  const coSel = h('select.select', { on: { change: ev => { const v = ev.target.value; company = v === 'new' ? { new: { name: r.company?.name || '', domain: r.company?.domain || '' } } : v ? { subject_id: Number(v) } : null; } } },
+    r.company?.kind === 'nuova' ? h('option', { value: 'new' }, `${r.company.name} · nuova, lead`) : null,
+    r.company_options.map(o => h('option', { value: String(o.subject_id), selected: r.company?.subject_id === o.subject_id }, `${o.name} · nel CRM`)),
+    h('option', { value: '' }, 'Nessuna azienda'));
+  const bu = h('select.select', { on: { change: ev => { f.bu = ev.target.value; } } }, h('option', { value: '' }, '—'), r.asa.map(a => h('option', { value: a.key, selected: a.key === f.bu }, a.label)));
+  const radar = new Set(r.insights.filter(x => x.signal_id).map(x => x.signal_id));
+  const top = r.insights.find(x => x.signal_id) || r.insights[0];
+  fill(body,
+    h('label.field', h('span', 'Titolo'), inp('title')),
+    h('label.field', h('span', 'Cosa'), inp('cosa')),
+    h('div.dl-form2', h('label.field', h('span', 'Importo'), amount), h('label.field', h('span', 'Offerte entro'), inp('scadenza', { type: 'date' }))),
+    h('label.field', h('span', 'Azienda'), coSel),
+    h('label.field', h('span', 'BU'), bu),
+    top ? h('div.pm-know', h('span', 'Cosa sa già il CRM: '), top.text) : null,
+    h('small.cv-muted', 'Finisce nel Radar con la conversazione collegata. La porti avanti quando vuoi, con la sala di lancio.'));
+  const people = r.people.map(p => ({ ...p, on: p.kind !== 'nuova' }));
+  const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+    if (!String(f.title || '').trim()) return toast('Scrivi il titolo', 'err');
+    save.disabled = true;
+    try {
+      await post('/api/crm/posta/crea', { conversation_id: r.conversation_id, message_id: r.message_id, fields: f, company, people, extra_ids: [], link_signal_ids: [...radar] });
+      m.close(); toast('Opportunità nel Radar, con la conversazione collegata'); location.hash = '#/crm/radar';
+    } catch { save.disabled = false; }
+  } } }, 'Salva nel Radar');
+  m.box.append(h('div.modal-foot', h('div.left'), h('button.btn', { type: 'button', on: { click: () => { m.close(); openProposal(e.id); } } }, 'Tutti i dettagli'), save));
 }
 
 // ═══ Cosa ha capito Alma (tavola B) ═══════════════════════════════════════════════════════════════
