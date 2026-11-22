@@ -14,9 +14,9 @@ const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', prog
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
 const KINDS = { investimento: 'Investimento privato', permesso: 'Permesso o piano attuativo', opera_finanziata: 'Opera pubblica finanziata', scadenza: 'Contratto in scadenza',
-  nuovo_gestore: 'Nuovo gestore o proprietà', cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara già bandita' };
+  nuovo_gestore: 'Nuovo gestore o proprietà', cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara già bandita', preinformazione: 'Gara annunciata (preinformazione)' };
 const KIND_SHORT = { investimento: 'Investimento', permesso: 'Permesso', opera_finanziata: 'Opera finanziata', scadenza: 'Contratto in scadenza', nuovo_gestore: 'Nuovo gestore',
-  cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara' };
+  cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara', preinformazione: 'Gara annunciata' };
 const PARTS = [['fit', 'Coerenza'], ['concreteness', 'Concretezza'], ['timing', 'Tempi'], ['relationship', 'Rapporto'], ['value', 'Valore']];
 const OUTCOMES = { opportunita: 'Opportunità in BOSS', rimandato: 'Rimandato', perso: 'Perso' };
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -139,6 +139,17 @@ export async function openSignal(id, onDone, data, list = []) {
   drawKnown(false);
 }
 // riga di un segnale: anello, titolo su 2 righe, un rigo di dettagli con il perché in pillola, Scarta · Interessa
+// data della gara nelle righe: scadenza vicina in arancio, date passate in rosso (Dante 22/11)
+function dateFlag(sig) {
+  if (sig.deadline) {
+    const d = daysTo(sig.deadline);
+    if (d < 0) return [h('i', '·'), pill(`scaduta il ${day(sig.deadline)}`, 'rd')];
+    if (d <= 15) return [h('i', '·'), pill(d === 0 ? 'scade oggi' : `scade tra ${d} giorni`, 'or')];
+    return [h('i', '·'), `scade ${day(sig.deadline)}`];
+  }
+  if (sig.expected_on && daysTo(sig.expected_on) < 0) return [h('i', '·'), pill(`bando atteso il ${day(sig.expected_on)}: da verificare`, 'rd')];
+  return null;
+}
 export function signalRow(sig, { highlight = 70, reasons, onChange, data, list = [], weak = null }) {
   const bu = data?.asa?.find(a => a.key === sig.bu)?.label || sig.bu_label;
   return h('div.cv-sig',
@@ -146,7 +157,7 @@ export function signalRow(sig, { highlight = 70, reasons, onChange, data, list =
     h('button.cv-sig-main', { type: 'button', on: { click: () => openSignal(sig.id, onChange, data, list) } },
       h('div.cv-sig-t.cv-clamp', sig.title),
       h('div.cv-sig-m', [sig.subject_name || sig.entity, sig.amount ? eur(sig.amount) : null, KIND_SHORT[sig.kind]].filter(Boolean).flatMap((x, i) => (i ? [h('i', '·'), x] : [x])),
-        weak ? [h('i', '·'), weak] : bu ? [h('i', '·'), pill(bu, 'line')] : null)),
+        weak ? [h('i', '·'), weak] : bu ? [h('i', '·'), pill(bu, 'line')] : null, dateFlag(sig))),
     sig.status === 'nuovo' && !sig.to_gare ? h('div.cv-acts',
       h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => discardDialog({ ...sig, to_gare: false }, reasons, onChange) } }, 'Scarta'),
       h('button.btn.btn-sm', { type: 'button', on: { click: () => interessa(sig, onChange) } }, ic('check', 14), weak ? 'Interessa lo stesso' : 'Interessa')) : null);
@@ -447,11 +458,11 @@ const emptyFilters = () => ({ q: '', bu: '', kind: '', regions: [], min: '', war
 const upgradeFilters = x => { const f = { ...emptyFilters(), ...x }; if (!Array.isArray(f.regions)) f.regions = []; if (x?.region && !f.regions.length) f.regions = [x.region]; delete f.region; delete f.prov; return f; };
 const PER_COL = 12;
 // fonti del Radar: chiave del segnale (source) → [nome, cosa porta, classe dell'etichetta]
-const SRC = { stampa: ['Radar AI', 'stampa e siti degli enti', 'ai'], opencup: ['OpenCUP', 'opere finanziate', 'cup'], infordat: ['Infordat', 'bandi già usciti', 'inf'],
+const SRC = { stampa: ['Radar AI', 'stampa e siti degli enti', 'ai'], opencup: ['OpenCUP', 'opere finanziate', 'cup'], ted: ['TED · preinformazione', 'gare annunciate', 'ted'], infordat: ['Infordat', 'bandi già usciti', 'inf'],
   manuale: ['A mano', 'segnalate da noi', 'man'], anac: ['Vinte da altri', 'ANAC', 'anac'] };
 const srcOf = g => (['manual', 'mano', 'manuale', ''].includes(g.source || '') ? 'manuale' : SRC[g.source] ? g.source : 'manuale');
 // fonti nuove, in arrivo una alla volta (canvas v17 · Le fonti del Radar)
-const SOON = [['ted', 'TED · preinformazione'], ['triennali', 'Programmi triennali'], ['via', 'Valutazioni ambientali'], ['gestori', 'Piani dei gestori'], ['bollettini', 'Bollettini regionali']];
+const SOON = [['triennali', 'Programmi triennali'], ['via', 'Valutazioni ambientali'], ['gestori', 'Piani dei gestori'], ['bollettini', 'Bollettini regionali']];
 const SRC_INFO = [
   ['stampa', 'Radar AI', 'Stampa nazionale e locale, siti degli enti: programmi, delibere, determine (anche il secondo giro «Prima del bando»)', 'tutte', 'ogni notte'],
   ['opencup', 'OpenCUP', 'Opere pubbliche finanziate con il CUP, nei tipi di lavoro e nelle zone di ogni BU', 'finanziata', 'ogni mese'],
@@ -614,8 +625,9 @@ export async function radarTab(box, data, sub = '') {
       h('span.rk-avs', (g.warm_us.length ? g.warm_us : ['?']).slice(0, 3).map(n => h('span.rk-av', initials(n)))))
     : h('span.rk-warm.none', 'nessuno ci conosce');
   const due = g => {
-    if (g.deadline) { const d = daysTo(g.deadline); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 40 ? 'soon' : '' }, ic('clock', 11), d < 0 ? `scaduta ${day(g.deadline)}` : d <= 40 ? `gara entro ${d} giorni` : `scade ${day(g.deadline)}`); }
-    if (g.expected_on) { const d = daysTo(g.expected_on); return h('span.rk-due', { class: d >= 0 && d <= 60 ? 'soon' : '' }, ic('clock', 11), `bando atteso ${day(g.expected_on)}`); }
+    // date passate sempre in rosso (Dante 22/11): «scaduta il …» o «data passata, da verificare»
+    if (g.deadline) { const d = daysTo(g.deadline); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 40 ? 'soon' : '' }, ic(d < 0 ? 'alert-triangle' : 'clock', 11), d < 0 ? `scaduta il ${day(g.deadline)}` : d === 0 ? 'scade oggi' : d <= 40 ? `gara entro ${d} giorni` : `scade ${day(g.deadline)}`); }
+    if (g.expected_on) { const d = daysTo(g.expected_on); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 60 ? 'soon' : '' }, ic(d < 0 ? 'alert-triangle' : 'clock', 11), d < 0 ? `bando atteso il ${day(g.expected_on)}: data passata, da verificare` : `bando atteso ${day(g.expected_on)}`); }
     return g.stage === 'determina' ? h('span.rk-due', ic('clock', 11), 'determina a contrarre') : null;
   };
   const srcTag = g => { const k = srcOf(g); return h('span.rk-src', { class: SRC[k]?.[2] || 'man' }, SRC[k]?.[0] || 'A mano'); };
