@@ -189,9 +189,17 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     return rows.map(a => ({ ...a, keywords: settings.profiles[a.key]?.keywords || [], works: settings.profiles[a.key]?.works || [] }));
   }
   app.post('/api/crm/posta/proposta', async (req, res) => {
-    const id = v.text(req.body?.message_id, 'email', { max: 500, required: true });
     const uid = req.user.id;
     const t = await token(uid);
+    // dalla scheda di un contatto o di un'azienda arriva l'id internet dell'email: la si cerca nella propria casella
+    let id = req.body?.message_id ? v.text(req.body.message_id, 'email', { max: 500, required: true }) : null;
+    if (!id && req.body?.internet_message_id) {
+      const imid = v.text(req.body.internet_message_id, 'email', { max: 1000, required: true });
+      const found = await mail(t, 'GET', `/me/messages?$filter=${encodeURIComponent(`internetMessageId eq '${q1(imid)}'`)}&$select=id&$top=1`);
+      id = (found.value || [])[0]?.id || null;
+      if (!id) throw new HttpError(404, 'Questa email non è nella tua casella: la può trasformare in progetto chi l\'ha ricevuta');
+    }
+    if (!id) throw new HttpError(400, 'Scegli un\'email');
     const first = P.normMsg(await mail(t, 'GET', `/me/messages/${encodeURIComponent(id)}?$select=${FULL}`, { headers: TEXT }));
     const msgs = first.conversation_id ? await conversation(t, first.conversation_id) : [first];
     if (!msgs.some(m => m.id === first.id)) msgs.push(first);

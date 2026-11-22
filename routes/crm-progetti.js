@@ -117,7 +117,7 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
     if (kind === 'trattativa') {
       return { ...base, phases: [
         { title: 'Primo incontro', tasks: [
-          { title: c.prossimo_passo ? c.prossimo_passo.replace(/\?\s*$/, '').slice(0, 180) : `Primo incontro con ${entity}`, owner_id: contactWho, due_date: clamp(addDays(today, 5)) },
+          { title: /sopralluog/i.test(c.prossimo_passo || '') ? `Sopralluogo con ${entity}` : /incontr|vederci|riunion|call|appuntament/i.test(c.prossimo_passo || '') || !c.prossimo_passo ? `Primo incontro con ${entity}` : c.prossimo_passo.replace(/\?\s*$/, '').slice(0, 180), owner_id: contactWho, due_date: clamp(addDays(today, 5)) },
           ...(!c.committente ? [{ title: 'Capire chi è il committente', owner_id: owner, due_date: clamp(addDays(today, 5)) }] : []),
           { title: 'Mandare referenze di lavori simili', owner_id: owner, due_date: clamp(addDays(today, 7)) }] },
         { title: 'Sopralluogo e richiesta', tasks: [

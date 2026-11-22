@@ -6,6 +6,7 @@
 // dei fornitori in Vittoria. Ovunque abbia senso i campi sono elenchi da cui scegliere (Dante 13/11).
 import { bigliettiTab } from './biglietti.js';
 import { scrivoTab } from './crm-scrivo.js';
+import { postaPage } from './crm-posta.js';
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading, debounce } from './ui.js';
 import { get, post, patch, del, qs } from './api.js';
 import { store } from './store.js';
@@ -134,6 +135,7 @@ export async function crmView(container, parts = []) {
   // «Porta avanti» e «I miei progetti» (canvas v9): sala di lancio, portafoglio e scheda del progetto
   if (parts[1] === 'lancio' && ['s', 'i'].includes(parts[2]) && Number(parts[3])) return launchRoom(container, parts[2], Number(parts[3]));
   if (parts[1] === 'progetti') return mieiProgetti(container);
+  if (parts[1] === 'posta') return postaPage(container); // la propria casella: da un'email nasce un progetto (ALM2-55)
   if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && parts[2] === 'scrivo') { const body = h('div.cv'); fill(container, body); return scrivoTab(body); } // persone con cui mi scrivo (canvas v10, ALM2-46)

@@ -68,7 +68,8 @@ export function emailsTab(box, base, { canWrite = true, onCount } = {}) {
     fill(list, emails.length ? emails.map(e => listRow({ icon: 'mail', tone: 'bl', title: e.subject || '(senza oggetto)',
       meta: dots([e.from_name || e.from_address, fmtDate(String(e.sent_at || '').slice(0, 10)), e.attachment_count ? `${e.attachment_count} allegati` : null, viaText(e.via)]),
       onClick: () => openCrmEmail(e.id),
-      actions: canWrite && !e.via ? [h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Togli «${e.subject}»`, on: { click: async () => {
+      actions: canWrite && !e.via ? [h('button.btn.btn-sm', { type: 'button', title: 'Progetto commerciale da questa conversazione (Alma la legge)', on: { click: async () => (await import('./crm-posta.js')).openProposal(null, { internet_message_id: e.internet_message_id }) } }, ic('sparkles', 13), 'Crea progetto'),
+        h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Togli «${e.subject}»`, on: { click: async () => {
         if (!await confirmDialog(`Togliere «${e.subject}» da questa scheda?`, { ok: 'Togli', danger: true })) return;
         await del(`${base}/emails/${e.id}`);
         load();
