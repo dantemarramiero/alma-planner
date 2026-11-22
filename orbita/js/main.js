@@ -81,6 +81,28 @@ function setupRail() {
     try { localStorage.setItem(RAIL_KEY, pinned ? '1' : '0'); } catch { /* niente */ }
     apply();
   });
+  // menu più lungo della barra (schermi bassi): sfumatura in fondo finché ci sono voci più giù (22/11/2026)
+  const more = (showActive = false) => {
+    for (const nav of document.querySelectorAll('.sidebar > .nav')) {
+      if (nav.hidden) continue;
+      // la pagina aperta resta sempre in vista, anche quando il menu scorre
+      const act = showActive && nav.querySelector('a.active');
+      if (act) {
+        const a = act.getBoundingClientRect(), n = nav.getBoundingClientRect();
+        const top = a.top - n.top + nav.scrollTop;
+        if (nav.scrollHeight > nav.clientHeight + 2 && (top < nav.scrollTop || top + act.offsetHeight > nav.scrollTop + nav.clientHeight - 28)) nav.scrollTop = top - nav.clientHeight / 2;
+        // barra in alto (tablet): il menu scorre di lato
+        const left = a.left - n.left + nav.scrollLeft;
+        if (nav.scrollWidth > nav.clientWidth + 2 && (left < nav.scrollLeft || left + act.offsetWidth > nav.scrollLeft + nav.clientWidth)) nav.scrollLeft = left - (nav.clientWidth - act.offsetWidth) / 2;
+      }
+      nav.classList.toggle('more-below', nav.scrollTop + nav.clientHeight < nav.scrollHeight - 4);
+    }
+  };
+  for (const nav of document.querySelectorAll('.sidebar > .nav')) nav.addEventListener('scroll', () => more(), { passive: true });
+  addEventListener('resize', () => more(true));
+  addEventListener('hashchange', () => setTimeout(() => more(true), 80));
+  new MutationObserver(() => more()).observe(document.querySelector('.sidebar'), { subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  setTimeout(() => more(true), 400);
 }
 // ── selettore del modulo nella barra laterale, come in MyWinery ──
 // Alma Agorà è la intranet (feed, chat, persone), Alma Project il planner (ticket, progetti, calendario, mezzi),

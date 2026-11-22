@@ -117,7 +117,7 @@
 .hk-kchip { width: 21px; height: 21px; padding: 0; border-radius: 11px; border: 1px solid var(--rule); background: var(--card); color: var(--rule-strong); font-size: 10px; font-weight: var(--ap-fw-bold); cursor: pointer; }
 .hk-kchip.on { color: var(--ink); }
 .hk-actions { white-space: nowrap; text-align: right; }
-.hk-icon { border: 0; background: transparent; padding: 6px; border-radius: 8px; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; text-decoration: none; }
+.hk-icon { border: 0; background: transparent; padding: 6px; border-radius: 8px; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .hk-icon:hover { background: var(--hover); color: var(--ink); }
 .hk-addrow { margin-top: var(--ap-space-3); display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--rule-strong); background: transparent; border-radius: var(--radius); padding: 8px 14px; font: inherit; font-size: 13px; color: var(--mid); cursor: pointer; }
 .hk-addrow:hover { border-color: var(--orange); color: var(--orange-dark); }

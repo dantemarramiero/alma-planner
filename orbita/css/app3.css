@@ -56,13 +56,14 @@
   .a3-ini { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none; }
   .a3-ini.sq { border-radius: 12px; }
   .a3-ini.xl { width: 64px; height: 64px; border-radius: 32px; font-size: 22px; }
+  /* toni generici dell'app del telefono: :where() così non vincono sui componenti che hanno i loro colori (es. le card di Concorrenza e gare, 22/11/2026) */
   .a3-tag { font-size: 12px; font-weight: 500; border-radius: 999px; padding: 3px 10px; flex: none; }
-  .or { background: var(--a2-orange-t); color: var(--a2-orange-d); }
-  .gr { background: var(--a2-green-t); color: #1F6A41; }
-  .bl { background: var(--a2-blue-t); color: var(--a2-blue); }
-  .pu { background: #F3ECFA; color: #6A4A96; }
-  .gy { background: var(--a2-soft); color: var(--a2-text); }
-  .wh { background: var(--a2-card); color: var(--a2-ink); border: 1px solid var(--a2-line); }
+  :where(.or) { background: var(--a2-orange-t); color: var(--a2-orange-d); }
+  :where(.gr) { background: var(--a2-green-t); color: #1F6A41; }
+  :where(.bl) { background: var(--a2-blue-t); color: var(--a2-blue); }
+  :where(.pu) { background: #F3ECFA; color: #6A4A96; }
+  :where(.gy) { background: var(--a2-soft); color: var(--a2-text); }
+  :where(.wh) { background: var(--a2-card); color: var(--a2-ink); border: 1px solid var(--a2-line); }
   .a3-check { width: 28px; height: 28px; border-radius: 14px; border: 2px solid #BEBEBC; background: var(--a2-card); flex: none; cursor: pointer; padding: 0; }
   .a3-check.red { border-color: var(--a2-red); }
   .a3-check:active { background: var(--a2-green-t); border-color: var(--a2-green); }

@@ -334,3 +334,29 @@
   .a2-near-list { z-index: 1; }
   .a2-btn { gap: 6px; }
 }
+
+/* ── tema scuro, controllo del 22/11/2026: cose che sparivano (testo bianco su bianco, iniziali bianche su chiaro) ── */
+@media (max-width: 760px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .seg button.on { background: var(--a2-soft); color: var(--a2-ink); }
+  :root:not([data-theme="light"]) .avatar:is([style*="grey-900"], [style*="grey-700"], [style*="grey-500"]) { color: var(--a2-bg); }
+}
+@media (max-width: 760px) {
+  :root[data-theme="dark"] .seg button.on { background: var(--a2-soft); color: var(--a2-ink); }
+  :root[data-theme="dark"] .avatar:is([style*="grey-900"], [style*="grey-700"], [style*="grey-500"]) { color: var(--a2-bg); }
+}
+
+/* tema scuro: componenti con fondo «inchiostro» e testo bianco fisso (in scuro l'inchiostro diventa chiaro):
+   chip, numeri e tab scelti passano a testo scuro; quelli scuri per scelta (card scura, suggerimento, barra azioni) restano scuri */
+@media (max-width: 760px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .qz-av, :root:not([data-theme="light"]) .hr-lock, :root:not([data-theme="light"]) .hr-tabs a.on, :root:not([data-theme="light"]) .hr-chip-dark, :root:not([data-theme="light"]) .wl-badge, :root:not([data-theme="light"]) .m-pill.on, :root:not([data-theme="light"]) .hk-chip.on, :root:not([data-theme="light"]) .hk-num, :root:not([data-theme="light"]) .hk-cm .hk-num.done, :root:not([data-theme="light"]) .hk-steps .hk-num.done, :root:not([data-theme="light"]) .pm-quarters button.on, :root:not([data-theme="light"]) .kp-legend-i b { color: var(--a2-bg); }
+  :root:not([data-theme="light"]) .hk-card.dark, :root:not([data-theme="light"]) .kp-tip, :root:not([data-theme="light"]) .hr-bulk { background: var(--a2-dark); color: #fff; }
+  :root:not([data-theme="light"]) .profile-tabs span.on, :root:not([data-theme="light"]) .profile-tabs button.on, :root:not([data-theme="light"]) .dm-item.on { background: var(--a2-soft); color: var(--a2-ink); }
+}
+@media (max-width: 760px) {
+  :root[data-theme="dark"] .qz-av, :root[data-theme="dark"] .hr-lock, :root[data-theme="dark"] .hr-tabs a.on, :root[data-theme="dark"] .hr-chip-dark, :root[data-theme="dark"] .wl-badge, :root[data-theme="dark"] .m-pill.on, :root[data-theme="dark"] .hk-chip.on, :root[data-theme="dark"] .hk-num, :root[data-theme="dark"] .hk-cm .hk-num.done, :root[data-theme="dark"] .hk-steps .hk-num.done, :root[data-theme="dark"] .pm-quarters button.on, :root[data-theme="dark"] .kp-legend-i b { color: var(--a2-bg); }
+  :root[data-theme="dark"] .hk-card.dark, :root[data-theme="dark"] .kp-tip, :root[data-theme="dark"] .hr-bulk { background: var(--a2-dark); color: #fff; }
+  :root[data-theme="dark"] .profile-tabs span.on, :root[data-theme="dark"] .profile-tabs button.on, :root[data-theme="dark"] .dm-item.on { background: var(--a2-soft); color: var(--a2-ink); }
+}
+/* tema scuro: chip dei KPI con il colore pastello scritto dal codice → testo scuro */
+@media (max-width: 760px) and (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kp-chip { color: var(--a2-bg); } }
+@media (max-width: 760px) { :root[data-theme="dark"] .kp-chip { color: var(--a2-bg); } }
