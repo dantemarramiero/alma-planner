@@ -9,6 +9,7 @@ const { loadSettings } = require('../lib/crm-commerciale');
 const { normCat } = require('../lib/crm-anac');
 const { scopeOf } = require('../lib/crm-business-mercato');
 const F = require('../lib/crm-fonti');
+const T = require('../lib/crm-ted');
 
 const list = x => String(x || '').split(',').map(t => t.trim()).filter(Boolean).slice(0, 60);
 
@@ -34,8 +35,9 @@ function registerCrmFonti(app, { db }) {
     const cf = String(req.query.cf || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
     let { sql, params } = scope;
     if (cf) { params = [...params, cf]; sql += ` AND EXISTS (SELECT 1 FROM jsonb_array_elements(a.winners) w WHERE upper(w->>'cf') = $${params.length})`; }
-    const [sources, quality] = await Promise.all([F.sources(db), F.quality(db, sql, params)]);
-    res.json({ scope: { categories: scope.cats, regions: scope.regions, months, cf: cf || null }, sources, quality, limits: F.limits(settings), next_update: '05:00' });
+    const [sources, quality, ted] = await Promise.all([F.sources(db), F.quality(db, sql, params),
+      scope.cats.length && !cf ? T.quality(db, T.codesFor(scope.cats, settings)).catch(() => null) : null]);
+    res.json({ scope: { categories: scope.cats, regions: scope.regions, months, cf: cf || null }, sources, quality, ted_quality: ted && ted.n ? ted : null, limits: F.limits(settings), next_update: '05:00' });
   });
 }
 

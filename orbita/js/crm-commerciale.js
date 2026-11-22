@@ -2,6 +2,7 @@
 // design v2 dello stesso giorno (artboard «Settimana», «Telefono», «Dialoghi», «Imp-*»):
 // «La mia settimana» del responsabile di BU, prossimi passi sulla scheda, key account, impostazioni modificabili.
 import { h, fill, modal, confirmDialog, toast, fmtDate, loading } from './ui.js';
+import { soaSettings } from './crm-soa-card.js';
 import { get, post, put, patch, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
@@ -380,7 +381,7 @@ export async function weekTab(box, data, { userId = null } = {}) {
 // Menu a sinistra con una riga di spiegazione, interruttori al posto delle caselle, barra scura «Modifiche non salvate».
 const SECTIONS = [['radar', 'Radar', 'BU accese, budget, giro notturno', 'radar'], ['scoring', 'Punteggio', 'pesi e soglie', 'target'],
   ['primo_passo', 'Primo passo', 'tono, firma, quando prepararlo', 'sparkles'], ['relazioni', 'Relazioni', 'come si misura la forza', 'users'], ['esiti', 'Esiti', 'motivi, probabilità, BOSS', 'trophy'],
-  ['prima_bando', 'Prima del bando', 'secondo giro del radar, vinte da altri', 'hourglass'], ['concorrenza', 'Concorrenza', 'dati ANAC, CPV, Almacis', 'scale'],
+  ['prima_bando', 'Prima del bando', 'secondo giro del radar, vinte da altri', 'hourglass'], ['concorrenza', 'Concorrenza', 'dati ANAC, CPV, Almacis', 'scale'], ['soa', 'SOA delle aziende', 'da ANAC con la P.IVA', 'badge-check'],
   ['profiles', 'Profili BU', 'cosa cerca ogni BU', 'users'],
   ['sources', 'Fonti', 'Infordat, ANAC, stampa…', 'inbox'], ['playbooks', 'Playbook', 'passi per tipo di segnale', 'list'], ['rules', 'Regole e tempi', 'procedure, Go/No-Go, motivi', 'clock'],
   ['asa', 'ASA e accessi', 'chi è di quale ASA', 'key-round'], ['zoho', 'Caricamento Zoho', 'primo caricamento', 'upload']];
@@ -423,6 +424,7 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
 
   if (section === 'asa') { onSave = null; return asaTab?.(body); }
   if (section === 'zoho') { onSave = null; return fill(body, importCard?.()); }
+  if (section === 'soa') { onSave = null; return soaSettings(body); } // canvas v14
 
   if (section === 'radar') {
     const r = st.radar;
@@ -715,6 +717,18 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
     const names = tagEditor(c.our_names || [], { placeholder: 'nome', max: 80 });
     const extra = tagEditor(c.extra_categories || [], { placeholder: 'es. OS30', max: 10 });
     const cpvEd = Object.fromEntries(data.asa.map(a => [a.key, tagEditor(c.cpv?.[a.key] || [], { placeholder: 'prefisso CPV', max: 12 })]));
+    // Gare europee (TED, canvas v14): le categorie SOA diventano codici CPV; qui si aggiungono codici a quelli fissi
+    const tedEd = {};
+    const tedCard = h('section.cv-card.pad', { style: { marginTop: '24px' } }, h('div.cv-lbl', 'Gare europee (TED): categorie SOA → codici CPV'), loading());
+    get('/api/crm/ted/cpv').then(t => {
+      const cats = Object.keys(t.map);
+      fill(tedCard, h('div.cv-lbl', 'Gare europee (TED): categorie SOA → codici CPV'),
+        h('p.cv-small.cv-muted', 'TED non usa le categorie SOA ma i codici CPV europei (8 cifre; la ricerca prende anche i sotto-codici). A sinistra quelli fissi, a destra puoi aggiungerne: il caricamento della notte li usa da subito.'),
+        cats.map(cat => {
+          tedEd[cat] = tagEditor(t.extra[cat] || [], { placeholder: 'codice CPV', max: 10 });
+          return h('div.cv-fld', { style: { paddingTop: '10px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', h('b', cat), ' · ', (t.base[cat] || []).map(x => t.labels[x] ? `${x} ${t.labels[x]}` : x).join(', ') || 'nessun codice fisso'), tedEd[cat].el);
+        }));
+    }).catch(err => fill(tedCard, h('p.cv-small.cv-muted', err.message)));
     const tg = (t, d, x) => h('div.cv-row', { style: { alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('div.cv-grow', h('div.cv-t5', t), h('div.cv-small.cv-muted', d)), x.el);
     const row = (l, x) => h('div.cv-row', { style: { padding: '10px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('span.cv-grow', l), x);
     const fldTop = (l, x, hint) => h('div.cv-fld', { style: { paddingTop: '12px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', l), x, hint ? h('span.cv-hint', hint) : null);
@@ -727,8 +741,9 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
         fldTop('Almacis: nomi', names.el, 'Se manca la P. IVA, una gara è nostra quando il nome del vincitore contiene uno di questi.')),
       h('section.cv-card.pad', h('div.cv-lbl', 'BU di servizi: codici CPV'),
         h('p.cv-small.cv-muted', 'Le gare di servizi non hanno categoria SOA: per queste BU si usano i codici CPV (bastano le prime cifre, es. 507 = manutenzione di impianti).'),
-        data.asa.map(a => h('div.cv-fld', { style: { paddingTop: '10px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', a.label), cpvEd[a.key].el)))), savedLine('concorrenza'));
+        data.asa.map(a => h('div.cv-fld', { style: { paddingTop: '10px', borderTop: '1px solid var(--cv-line-2)' } }, h('span', a.label), cpvEd[a.key].el)))), tedCard, savedLine('concorrenza'));
     onSave = () => save('concorrenza', { on: on.input.checked, months: Number(months.value), min_amount: Number(min.value), our_cf: cfs.value(), our_names: names.value(), extra_categories: extra.value(),
-      cpv: Object.fromEntries(Object.entries(cpvEd).map(([k, e]) => [k, e.value()]).filter(([, l]) => l.length)) });
+      cpv: Object.fromEntries(Object.entries(cpvEd).map(([k, e]) => [k, e.value()]).filter(([, l]) => l.length)),
+      ted_cpv: Object.keys(tedEd).length ? Object.fromEntries(Object.entries(tedEd).map(([k, e]) => [k, e.value()]).filter(([, l]) => l.length)) : (c.ted_cpv || {}) });
   }
 }
