@@ -14,9 +14,9 @@ const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', prog
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
 const KINDS = { investimento: 'Investimento privato', permesso: 'Permesso o piano attuativo', opera_finanziata: 'Opera pubblica finanziata', scadenza: 'Contratto in scadenza',
-  nuovo_gestore: 'Nuovo gestore o proprietà', cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara già bandita', preinformazione: 'Gara annunciata (preinformazione)' };
+  nuovo_gestore: 'Nuovo gestore o proprietà', cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara già bandita', preinformazione: 'Gara annunciata (preinformazione)', programma: 'Opera nel programma triennale' };
 const KIND_SHORT = { investimento: 'Investimento', permesso: 'Permesso', opera_finanziata: 'Opera finanziata', scadenza: 'Contratto in scadenza', nuovo_gestore: 'Nuovo gestore',
-  cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara', preinformazione: 'Gara annunciata' };
+  cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara', preinformazione: 'Gara annunciata', programma: 'Programma triennale' };
 const PARTS = [['fit', 'Coerenza'], ['concreteness', 'Concretezza'], ['timing', 'Tempi'], ['relationship', 'Rapporto'], ['value', 'Valore']];
 const OUTCOMES = { opportunita: 'Opportunità in BOSS', rimandato: 'Rimandato', perso: 'Perso' };
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -458,11 +458,11 @@ const emptyFilters = () => ({ q: '', bu: '', kind: '', regions: [], min: '', war
 const upgradeFilters = x => { const f = { ...emptyFilters(), ...x }; if (!Array.isArray(f.regions)) f.regions = []; if (x?.region && !f.regions.length) f.regions = [x.region]; delete f.region; delete f.prov; return f; };
 const PER_COL = 12;
 // fonti del Radar: chiave del segnale (source) → [nome, cosa porta, classe dell'etichetta]
-const SRC = { stampa: ['Radar AI', 'stampa e siti degli enti', 'ai'], opencup: ['OpenCUP', 'opere finanziate', 'cup'], ted: ['TED · preinformazione', 'gare annunciate', 'ted'], infordat: ['Infordat', 'bandi già usciti', 'inf'],
+const SRC = { stampa: ['Radar AI', 'stampa e siti degli enti', 'ai'], opencup: ['OpenCUP', 'opere finanziate', 'cup'], ted: ['TED · preinformazione', 'gare annunciate', 'ted'], triennali: ['Programmi triennali', 'opere in programma', 'pt'], infordat: ['Infordat', 'bandi già usciti', 'inf'],
   manuale: ['A mano', 'segnalate da noi', 'man'], anac: ['Vinte da altri', 'ANAC', 'anac'] };
 const srcOf = g => (['manual', 'mano', 'manuale', ''].includes(g.source || '') ? 'manuale' : SRC[g.source] ? g.source : 'manuale');
 // fonti nuove, in arrivo una alla volta (canvas v17 · Le fonti del Radar)
-const SOON = [['triennali', 'Programmi triennali'], ['via', 'Valutazioni ambientali'], ['gestori', 'Piani dei gestori'], ['bollettini', 'Bollettini regionali']];
+const SOON = [['via', 'Valutazioni ambientali'], ['gestori', 'Piani dei gestori'], ['bollettini', 'Bollettini regionali']];
 const SRC_INFO = [
   ['stampa', 'Radar AI', 'Stampa nazionale e locale, siti degli enti: programmi, delibere, determine (anche il secondo giro «Prima del bando»)', 'tutte', 'ogni notte'],
   ['opencup', 'OpenCUP', 'Opere pubbliche finanziate con il CUP, nei tipi di lavoro e nelle zone di ogni BU', 'finanziata', 'ogni mese'],

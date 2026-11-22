@@ -707,6 +707,8 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
     const ocMax = input({ type: 'number', min: 1, max: 30, value: p.opere_max ?? 5, 'aria-label': 'Opere finanziate per BU', style: { width: '120px' } });
     const tp = toggle(p.ted_pin !== false, ''); // v17: preinformazione TED
     const sc = toggle(p.scadute !== false, ''); // v17: scadute tolte da sole
+    const pt = toggle(p.triennali !== false, ''); // v17: programmi triennali
+    const ptMax = input({ type: 'number', min: 1, max: 30, value: p.triennali_max ?? 5, 'aria-label': 'Interventi dei programmi triennali per BU', style: { width: '120px' } });
     const tg = (t, d, x) => h('div.cv-row', { style: { alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('div.cv-grow', h('div.cv-t5', t), h('div.cv-small.cv-muted', d)), x.el);
     const row = (l, x) => h('div.cv-row', { style: { padding: '10px 0', borderTop: '1px solid var(--cv-line-2)' } }, h('span.cv-grow', l), x);
     fill(body, h('section.cv-card.pad', { style: { maxWidth: '760px' } }, h('div.cv-lbl', 'Prima del bando'),
@@ -716,9 +718,11 @@ export async function settingsTab(box, data, section = 'radar', { asaTab, import
       tg('Opere finanziate (OpenCUP)', 'Ogni mese, dopo il caricamento OpenCUP, le opere nuove ancora senza gara nei tipi di lavoro, nelle zone e negli importi del profilo di ogni BU diventano segnali nella colonna «Finanziata».', oc),
       row('Opere finanziate: al massimo per BU, ogni mese (le più grandi prima)', ocMax),
       tg('Avvisi di preinformazione (TED)', 'Ogni notte, le gare annunciate dagli enti sulla gazzetta europea nei codici CPV e nelle zone di ogni BU diventano segnali nella colonna «Gara in arrivo», con la data prevista del bando.', tp),
+      tg('Programmi triennali dei lavori pubblici', 'Ogni settimana, gli interventi che gli enti hanno messo in programma per quest\'anno e il prossimo, nei tipi di lavoro, nelle zone e negli importi di ogni BU, diventano segnali nella colonna «Programmata» con la data prevista della gara. Se l\'opera è già nel Radar con lo stesso CUP, si aggiorna quella scheda.', pt),
+      row('Programmi triennali: al massimo per BU, ogni settimana (prima annualità e priorità alta prima)', ptMax),
       tg('Togli da sole le opportunità scadute', 'Le opportunità ancora da valutare con la gara scaduta, o con il bando atteso da più di 3 mesi, passano tra le scartate con il motivo «scaduta». Si ritrovano con «Mostra: anche scartate».', sc)), savedLine('prima_bando'));
     onSave = () => save('prima_bando', { on: on.input.checked, vinte_altri: va.input.checked, days: Number(days.value), max_per_bu: Number(max.value), opere_cup: oc.input.checked, opere_max: Number(ocMax.value),
-      ted_pin: tp.input.checked, scadute: sc.input.checked });
+      ted_pin: tp.input.checked, scadute: sc.input.checked, triennali: pt.input.checked, triennali_max: Number(ptMax.value) });
   } else if (section === 'concorrenza') { // canvas «v4 · Concorrenza» (17/11)
     const c = st.concorrenza;
     const on = toggle(c.on, '');
