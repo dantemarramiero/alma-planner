@@ -39,7 +39,6 @@ export async function cruscottoView(c, params) {
   const d = await get(`/api/hr/onboarding?${ambQs()}`);
   const amb = d.is_hr ? await ambitoSelect(() => cruscottoView(c, params)) : null;
   const aperti = d.onboarding.filter(o => o.stato === 'aperto');
-  const avvia = d.is_hr ? h('button.btn.btn-primary', { type: 'button', on: { click: () => avviaModal() } }, icon('plus', { size: 16 }), 'Avvia un inserimento') : null;
   const row = o => h('tr', { class: 'clickable', on: { click: () => { location.hash = `#/hr/onboarding/${o.id}`; } } },
     h('td', h('b', o.nome)), h('td.small', `${o.ruolo || '—'}${o.area ? ` · ${o.area}` : ''}`), h('td', o.stato === 'aperto' ? String(o.giorno) : '—'),
     h('td', { style: { minWidth: '110px' } }, prog(o.fatti, o.compiti), h('div.small.muted', `${o.fatti} di ${o.compiti}${o.ritardo ? ` · ${o.ritardo} in ritardo` : ''}`)),
@@ -54,7 +53,8 @@ export async function cruscottoView(c, params) {
   const k = d.kpi;
   const kpi = (l, v, s, cl) => h('div.hr-kpi', h('div.l', l), h('div.v', { class: cl || '' }, v), s ? h('div.small.muted', s) : null);
   const minQ = Object.entries(k.pulse_q || {}).filter(([, x]) => x != null).sort((a, b) => a[1] - b[1])[0];
-  fill(c, head('Cruscotto dell\'onboarding', 'Tutti i nuovi assunti: piano, ritardi, come si sentono, quando scade la prova. Con lo stesso «Ambito» delle altre analisi.', h('div.hr-row', amb, avvia)),
+  fill(c, head('Cruscotto dell\'onboarding', 'Tutti i nuovi assunti: piano, ritardi, come si sentono, quando scade la prova. Con lo stesso «Ambito» delle altre analisi.', h('div.hr-row', amb)),
+    filaBoss(d.da_avviare || [], () => cruscottoView(c, params)),
     h('div.hr-grid4', kpi('In inserimento', String(k.aperti), `${k.cantiere} in cantiere, ${k.aperti - k.cantiere} in ufficio`),
       kpi('Compiti in ritardo', String(k.ritardo), 'sommati su tutti i piani aperti', k.ritardo ? 'z-bad-t' : ''),
       kpi('Pulse medio', k.pulse != null ? String(k.pulse).replace('.', ',') : '—', minQ ? `su 5 · «${minQ[0]}» il più basso (${String(minQ[1]).replace('.', ',')})` : 'nessuna risposta ancora'),
@@ -67,19 +67,29 @@ export async function cruscottoView(c, params) {
     d.onboarding.some(o => o.stato !== 'aperto') ? h('details.card.hr-pad', h('summary.hr-label', 'Inserimenti chiusi'), table(d.onboarding.filter(o => o.stato !== 'aperto'))) : null,
     howTo('Una riga per persona in inserimento; la barra è la quota di compiti del piano già fatti. Pulse = media delle 3 domande dell\'ultimo giro, da 1 a 5; giallo sotto 3. «Dove si inceppa» conta i compiti finiti in ritardo negli ultimi 12 mesi: dice cosa cambiare nei modelli.'));
 }
-async function avviaModal() {
-  const d = await get('/api/hr/onboarding/da-avviare');
-  const sel = h('select.select', d.persone.length ? d.persone.map(p => h('option', { value: p.key }, `${p.nome} ${p.cognome} · assunto il ${itDate(p.data_assunzione)}${p.qualifica ? ` · ${p.qualifica}` : ''}`)) : h('option', { value: '' }, 'Nessuna persona assunta negli ultimi 120 giorni senza piano'));
-  const inizio = h('input.input', { type: 'date' });
-  const sede = h('select.select', h('option', { value: '' }, 'Dal ruolo'), h('option', { value: 'cantiere' }, 'Cantiere'), h('option', { value: 'ufficio' }, 'Ufficio'));
-  const mesi = h('input.input', { type: 'number', min: 0, max: 12, placeholder: '6' });
-  const m = modal({ title: 'Avvia un inserimento', body: h('div.hr-form', field('Persona (da BOSS)', sel), h('div.hr-grid2', field('Primo giorno (vuoto = data di assunzione su BOSS)', inizio), field('Sede', sede), field('Mesi di prova', mesi)),
-    h('p.small.muted', 'Chi arriva da una selezione in Alma parte da solo quando il pre-boarding lo trova su BOSS. Qui si avvia a mano per chi è entrato in altro modo.')),
-  actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-    if (!sel.value) return;
-    const r = await post('/api/hr/onboarding', { person_key: sel.value, inizio: inizio.value || null, sede: sede.value || undefined, prova_mesi: mesi.value ? Number(mesi.value) : null });
-    m.close(); location.hash = `#/hr/onboarding/${r.id}`;
-  } } }, 'Avvia')] });
+// fila delle persone nuove arrivate da BOSS: «Avvia onboarding» chiede solo la data d'ingresso e la sede
+function filaBoss(list, reload) {
+  const avvia = p => {
+    const inizio = h('input.input', { type: 'date', value: p.data_assunzione || '' });
+    const sede = h('select.select', ['cantiere', 'ufficio'].map(x => h('option', { value: x, selected: p.sede === x }, x === 'cantiere' ? 'Cantiere' : 'Ufficio')));
+    const mesi = h('input.input', { type: 'number', min: 0, max: 12, value: 6 });
+    const m = modal({ title: `Avvia onboarding · ${p.nome} ${p.cognome}`, body: h('div.hr-form',
+      h('p.small', `${p.ruolo || 'ruolo da assegnare'}${p.area ? ` · ${p.area}` : ''}${p.incarico ? ` · incarico «${p.incarico}»` : ''} (da BOSS)`),
+      h('div.hr-grid2', field('Entra il (proposta: data di assunzione su BOSS)', inizio), field('Sede', sede), field('Mesi di prova', mesi)),
+      h('p.small.muted', "Il piano parte dal modello del ruolo; il giorno 1 la persona trova «Il mio inserimento» e il responsabile riceve l'avviso per scegliere il buddy.")),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+      if (!inizio.value) return toast("Scrivi la data d'ingresso", 'err');
+      const r = await post('/api/hr/onboarding', { person_key: p.key, inizio: inizio.value, sede: sede.value, prova_mesi: mesi.value ? Number(mesi.value) : null });
+      m.close(); toast('Onboarding avviato'); location.hash = `#/hr/onboarding/${r.id}`;
+    } } }, 'Avvia onboarding')] });
+  };
+  return h('div.card.hr-pad.hr-fila', h('div.hr-row', h('div.hr-label', { style: { margin: 0 } }, `Nuove persone da BOSS · ${list.length}`), h('span.small.muted', 'arrivano dalla sincronizzazione notturna: qui non si crea nessuno')),
+    list.length ? h('table.hr-t', h('tr', ['Persona', 'Ruolo · area (da BOSS)', 'Entra il', 'Da dove', ''].map(x => h('th', x))),
+      list.map(p => h('tr', h('td', h('b', `${p.nome} ${p.cognome}`)), h('td.small', `${p.ruolo || '—'}${p.area ? ` · ${p.area}` : ''}`), h('td', itDate(p.data_assunzione)),
+        h('td.small.muted', p.da_selezione ? "dalla selezione (Fase 3): parte da solo all'arrivo" : 'nuova assunzione su BOSS'),
+        h('td', { style: { textAlign: 'right' } }, p.da_selezione ? h('span.hr-chip.z-info', 'automatico') : h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: () => avvia(p) } }, 'Avvia onboarding'))))) 
+      : h('p.small.muted', 'Nessuna persona nuova su BOSS senza piano. Chi viene assunto compare qui il giorno dopo la sincronizzazione.'),
+    list.length ? h('p.small.muted', 'Chi arriva da una selezione in Alma parte da solo quando il pre-boarding lo trova su BOSS.') : null);
 }
 
 // ── AA · piano della persona ────────────────────────────────────────────────────────────────────────────────

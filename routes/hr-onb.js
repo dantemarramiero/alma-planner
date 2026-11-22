@@ -196,15 +196,29 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
           uscite: esiti.filter(x => !x.decisione && x.attivo === false).length, anno: anno.su ? anno : null },
       };
     }
+    if (hr) extra.da_avviare = await daAvviare(ambito);
     res.json({ onboarding: out, is_hr: hr, ...extra });
   });
 
   // persone entrate da poco senza inserimento (per l'avvio a mano)
+  // Fila delle persone nuove arrivate da BOSS (assunte da poco o in arrivo) senza inserimento: qui non si crea nessuno.
+  // Chi viene da una selezione in Alma parte da solo quando il pre-boarding lo trova su BOSS.
+  async function daAvviare(ambito) {
+    const { rows } = await db.query(`SELECT h.key, h.nome, h.cognome, lower(h.email) AS email, h.data_assunzione::text AS data_assunzione, h.qualifica,
+        i.nome AS incarico, a.id AS area_id, a.nome AS area, a.tipo AS area_tipo, r.hr_name, r.hr_level, r.title AS role_title, r.hr_family, r.grade,
+        EXISTS (SELECT 1 FROM hr_preboarding p JOIN hr_applications ap ON ap.id = p.app_id JOIN hr_candidates c ON c.id = ap.candidate_id
+          WHERE p.stato = 'aperto' AND (lower(c.email) = lower(h.email) OR (lower(c.nome) = lower(h.nome) AND lower(c.cognome) = lower(h.cognome)))) AS da_selezione
+      FROM hr_people h
+      LEFT JOIN LATERAL (SELECT i.* FROM org_incarichi i WHERE i.attivo AND lower(i.ricoperto_da) = lower(h.email) ORDER BY i.id LIMIT 1) i ON true
+      LEFT JOIN org_aree a ON a.id = i.area_id LEFT JOIN hr_incarico_roles ir ON ir.incarico_id = i.id LEFT JOIN pm_roles r ON r.id = COALESCE(ir.role_id, h.role_id)
+      WHERE h.attivo AND h.data_assunzione >= current_date - 60 AND NOT EXISTS (SELECT 1 FROM hr_onboardings o WHERE o.person_key = h.key AND o.stato <> 'annullato')
+      ORDER BY h.data_assunzione`);
+    return rows.filter(x => !ambito || hrMod().inScope({ id: x.area_id, tipo: x.area_tipo }, ambito))
+      .map(x => ({ ...x, ruolo: x.hr_name ? `${x.hr_name}${x.hr_level ? ` ${x.hr_level}` : ''}` : x.role_title || x.qualifica || '', sede: O.sedeFor(x) }));
+  }
   app.get('/api/hr/onboarding/da-avviare', async (req, res) => {
     hrOnly(req);
-    const { rows } = await db.query(`SELECT h.key, h.nome, h.cognome, h.data_assunzione::text AS data_assunzione, h.qualifica FROM hr_people h
-      WHERE h.attivo AND h.esclusione IS NULL AND h.data_assunzione >= current_date - 120 AND NOT EXISTS (SELECT 1 FROM hr_onboardings o WHERE o.person_key = h.key) ORDER BY h.data_assunzione DESC`);
-    res.json({ persone: rows });
+    res.json({ persone: await daAvviare(hrMod().ambitoOf(req)) });
   });
   app.post('/api/hr/onboarding', async (req, res) => {
     hrOnly(req);

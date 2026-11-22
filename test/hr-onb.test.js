@@ -108,6 +108,12 @@ test('avvio dal team HR: piano dai modelli, responsabile dal riporto, chi vede c
   assert.equal(q.prova, null, 'QHSE non vede la fine prova');
   assert.equal(q.obiettivi.length, 0);
   assert.equal((await api(NEW, 'GET', '/api/me')).body.onboarding, true);
+  const fila = (await api(HRP, 'GET', '/api/hr/onboarding')).body.da_avviare;
+  assert.ok(fila.some(p => p.nome === 'Eva' && p.ruolo === 'Responsabile di BU'), 'la fila delle persone nuove da BOSS');
+  assert.ok(!fila.some(p => p.nome === 'Giulio'), 'chi ha già il piano esce dalla fila');
+  assert.equal((await api(RESP, 'GET', '/api/hr/onboarding')).body.da_avviare, undefined, 'la fila la vede solo HR');
+  assert.equal((await api(RESP, 'GET', '/api/me')).body.onb_team, true, 'il responsabile vede «Le mie persone in inserimento»');
+  assert.equal((await api(OTHER, 'GET', '/api/me')).body.onb_team, false);
 });
 
 test('buddy, compiti per chi li fa, obiettivi', async () => {

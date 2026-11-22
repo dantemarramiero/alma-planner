@@ -239,3 +239,6 @@
 .hr-mod.on { border: 1.5px solid var(--orange); background: var(--orange-soft); }
 .hr-onb-card { display: grid; gap: 6px; padding: var(--ap-space-4); text-decoration: none; color: inherit; border: 1.5px solid #FFD9B5; margin-bottom: var(--ap-space-4); }
 .hr-onb-card:hover { border-color: var(--orange); }
+
+.hr-fila { border: 1.5px solid #FFD9B5; background: var(--orange-soft); margin-bottom: var(--ap-space-4); }
+.hr-fila .hr-t { background: transparent; }
