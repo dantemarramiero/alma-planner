@@ -158,3 +158,26 @@ test('Impostazioni: tipi di lavoro CUP in più', async () => {
   assert.deepEqual(t.body.extra, { OG10: ['05.99.191'] });
   assert.ok(t.body.map.OG10.includes('05.99.191'));
 });
+
+test('download fermo: riprova, poi salva le aree lette e scrive quelle mancanti', async () => {
+  await db.query(`INSERT INTO crm_initiatives (name, profile, created_by) VALUES ('Marche', $1::jsonb, (SELECT id FROM users LIMIT 1))`, [JSON.stringify({ soa: ['OG10'], regions: ['Marche'] })]);
+  let centro = 0;
+  const stuck = async (url, opts) => {
+    if (url.endsWith('/dettaglio-opendata-centro')) return new Response('<a href="/x/OpendataCsvCentro.zip/zz">CSV</a>', { status: 200, headers: { 'content-type': 'text/html' } });
+    if (url.includes('OpendataCsvCentro.zip')) { // il server risponde e poi non manda più niente
+      centro++;
+      const body = new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0x50, 0x4b])); opts.signal?.addEventListener('abort', () => c.error(opts.signal.reason)); } });
+      return new Response(body, { status: 200 });
+    }
+    return fakeCup(url, opts);
+  };
+  const out = await C.syncCup(db, { fetchImpl: stuck, settings: { concorrenza: {}, profiles: {} }, stallMs: 150, log: () => {} });
+  assert.equal(out.partial, true);
+  assert.equal(centro, 3);
+  const { rows: [imp] } = await db.query('SELECT areas, error FROM crm_cup_imports ORDER BY id DESC LIMIT 1');
+  assert.deepEqual(imp.areas, ['sud']);
+  assert.match(imp.error, /centro/);
+  assert.ok((await C.lastImport(db)).updated_at);
+  const { rows } = await db.query('SELECT cup FROM crm_cup_works ORDER BY cup');
+  assert.deepEqual(rows.map(r => r.cup), ['A11', 'B22']);
+});
