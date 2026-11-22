@@ -88,3 +88,13 @@ test('«Trova su LinkedIn»: solo link linkedin.com/in/ puliti e senza doppioni;
   assert.match(prompts.at(-1), /Paolo Di Fabio/);
   assert.equal((await D('GET', `/api/crm/contacts/${c.id}`)).body.linkedin, '');
 });
+
+test('Azienda al volo con la categoria scelta (22/11): fornitore e partner, cliente; lead se non detta; lead e cliente no', async () => {
+  const a = (await D('POST', '/api/crm/subjects/rapida', { name: 'Termo Abruzzo', roles: ['fornitore', 'partner'] })).body;
+  assert.deepEqual(a.roles, ['fornitore', 'partner']);
+  const b = (await D('POST', '/api/crm/subjects/rapida', { name: 'Comune di Prova', roles: ['cliente'] })).body;
+  assert.deepEqual(b.roles, ['cliente']);
+  assert.ok(b.client_since);
+  assert.deepEqual((await D('POST', '/api/crm/subjects/rapida', { name: 'Senza categoria', roles: ['boh'] })).body.roles, ['lead']);
+  assert.equal((await D('POST', '/api/crm/subjects/rapida', { name: 'Doppia', roles: ['lead', 'cliente'] })).status, 400);
+});

@@ -359,7 +359,7 @@ export function contactSheet({ name = '', contact = null, onSaved } = {}) {
   const state = { role: 'lead', company: link ? { id: link.subject_id, name: link.name, roles: link.roles } : null };
   const roleBox = h('fieldset.a3-roles', { hidden: true });
   const drawRoles = () => fill(roleBox, h('legend', 'La nuova azienda è un'), h('div.a3-chips',
-    [['lead', 'Lead'], ['cliente', 'Cliente'], ['fornitore', 'Fornitore'], ['partner', 'Partner']].map(([k, l]) =>
+    [['lead', 'Lead'], ['cliente', 'Cliente'], ['fornitore', 'Fornitore'], ['partner', 'Partner'], ['concorrente', 'Concorrente']].map(([k, l]) =>
       h('button.a3-chip', { type: 'button', class: state.role === k ? 'on' : '', 'aria-pressed': String(state.role === k), on: { click: () => { state.role = k; drawRoles(); } } }, l))));
   drawRoles();
   const picker = companyPicker({ initial: state.company?.name || '', onPick: s => { state.company = s; roleBox.hidden = !(s && !s.id); } });
@@ -372,9 +372,7 @@ export function contactSheet({ name = '', contact = null, onSaved } = {}) {
     try {
       let company = picker.value;
       if (company && !company.id) {
-        const s = await post('/api/crm/subjects/rapida', { name: company.name });
-        if (!s.existing && state.role !== 'lead') await post(`/api/crm/subjects/${s.id}/roles`, { mode: 'set', roles: [state.role] }, { quiet: true }).catch(() => toast('L\'azienda resta lead: il ruolo lo cambia la direzione', 'err'));
-        company = s;
+        company = await post('/api/crm/subjects/rapida', { name: company.name, roles: [state.role] });
       }
       const isMob = /^\+?3/.test(tel.value.replace(/\s/g, '')) || !tel.value.trim();
       const body = { email: mail.value.trim(), [isMob ? 'mobile' : 'phone']: tel.value.trim(),

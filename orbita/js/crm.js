@@ -1409,10 +1409,25 @@ async function quickContactForm({ preset = {}, onSaved }) {
     fill(chips, nameIn.value.trim() ? [split.title ? ['titolo', split.title] : null, split.first ? ['nome', split.first] : null, ['cognome', split.last]].filter(Boolean)
       .map(([l, v]) => h('span.cv-pill.line', `${l}: ${v}`)) : null);
   };
+  // categoria dell'azienda nuova (Dante 22/11): non solo lead; più di una insieme, ma lead e cliente no
+  const newRoles = new Set(['lead']);
+  const rolesBox = h('div.crm-qroles', { hidden: true });
+  const rolesText = () => [...newRoles].map(r => (data.meta.roles[r] || r).toLowerCase()).join(' e ');
+  const drawRoles = () => {
+    rolesBox.hidden = !(chosen?.create || (!chosen && companyIn.value.trim()));
+    fill(rolesBox, h('span.cv-small.cv-muted', 'L\'azienda nuova è'), h('div.en-chips', Object.entries(data.meta.roles).map(([k, label]) => h('button.pill.en-chip', {
+      type: 'button', class: newRoles.has(k) ? 'on' : '', 'aria-pressed': String(newRoles.has(k)),
+      on: { click: () => {
+        if (newRoles.has(k)) newRoles.delete(k); else { newRoles.add(k); if (k === 'lead') newRoles.delete('cliente'); if (k === 'cliente') newRoles.delete('lead'); }
+        if (!newRoles.size) newRoles.add('lead');
+        drawRoles(); if (chosen?.create) drawPicked();
+      } } }, label))));
+  };
   const drawPicked = () => {
     companyIn.hidden = Boolean(chosen);
+    drawRoles();
     fill(picked, chosen ? h('div.cv-row.crm-qpicked', icon(chosen.create ? 'plus' : 'building', { size: 15 }),
-      h('span.cv-grow', chosen.create ? `Nuova: «${chosen.create}» · lead · owner tu · tua ASA · da completare` : chosen.name),
+      h('span.cv-grow', chosen.create ? `Nuova: «${chosen.create}» · ${rolesText()} · owner tu · tua ASA · da completare` : chosen.name),
       h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Cambia azienda', on: { click: () => { chosen = null; drawPicked(); companyIn.focus(); } } }, icon('x', { size: 14 }))) : null);
   };
   const option = (title, sub, onPick, cls = '') => h(`button.crm-qopt${cls}`, { type: 'button', on: { click: () => { onPick(); list.hidden = true; drawPicked(); check(); } } }, h('span.cv-t5', title), sub ? h('span.cv-small.cv-muted', sub) : null);
@@ -1422,11 +1437,12 @@ async function quickContactForm({ preset = {}, onSaved }) {
     const dom = byDomain.filter(s => !subjects.some(x => x.id === s.id));
     const opts = [...dom.map(s => option(s.name, `${(s.roles || []).join(', ')} · suggerita dal dominio dell'email`, () => { chosen = { id: s.id, name: s.name }; }, '.dom')),
       ...subjects.slice(0, 6).map(s => option(s.name, [(s.roles || []).join(', '), s.city].filter(Boolean).join(' · '), () => { chosen = { id: s.id, name: s.name }; })),
-      ...(q ? [option(`Crea «${q}»`, 'lead · owner tu · tua ASA · da completare', () => { chosen = { create: q }; }, '.new')] : [])];
+      ...(q ? [option(`Crea «${q}»`, 'nuova azienda: scegli sotto se è lead, cliente, fornitore, partner o concorrente', () => { chosen = { create: q }; }, '.new')] : [])];
     fill(list, opts);
     list.hidden = !opts.length;
   }, 250);
   companyIn.addEventListener('input', search);
+  companyIn.addEventListener('input', drawRoles);
   companyIn.addEventListener('focus', search);
   const domain = debounce(async () => {
     const { subjects = [] } = emailIn.value.includes('@') ? await get(`/api/crm/subjects/da-email${qs({ email: emailIn.value })}`, { quiet: true }).catch(() => ({})) : {};
@@ -1445,7 +1461,7 @@ async function quickContactForm({ preset = {}, onSaved }) {
   const form = h('div.en-form',
     field('Nome', h('div', nameIn, chips), 'Scrivilo tutto insieme: titolo, nome e cognome si dividono da soli.'),
     field('Email', emailIn),
-    field('Azienda', h('div.crm-qcompany', picked, companyIn, list), 'Se non c\'è, la crea da sola quando salvi: P.IVA e città si aggiungono dopo.'),
+    field('Azienda', h('div.crm-qcompany', picked, companyIn, list, rolesBox),'Se non c\'è, la crea da sola quando salvi: P.IVA e città si aggiungono dopo.'),
     field('Cellulare', mobileIn),
     toggleMore, more, dup);
   m = cvModal({
@@ -1459,7 +1475,7 @@ async function quickContactForm({ preset = {}, onSaved }) {
         // azienda scritta ma non scelta dall'elenco (Dante 19/11): la crea da sola, o usa quella che ha già lo stesso nome
         const typed = !chosen && companyIn.value.replace(/\s+/g, ' ').trim();
         let subjectId = chosen?.id || null, made = null;
-        if (chosen?.create || typed) { made = await post('/api/crm/subjects/rapida', { name: chosen?.create || typed }); subjectId = made.id; }
+        if (chosen?.create || typed) { made = await post('/api/crm/subjects/rapida', { name: chosen?.create || typed, roles: [...newRoles] }); subjectId = made.id; }
         const saved = await post('/api/crm/contacts', { title: s.title, first_name: s.first, last_name: s.last, email: emailIn.value.trim(), mobile: mobileIn.value.trim(),
           phone: extra.phone || '', linkedin: extra.linkedin || '', notes: extra.notes || '', links: subjectId ? [{ subject_id: subjectId, job: extra.job || '', is_primary: true }] : [] });
         m.close();
