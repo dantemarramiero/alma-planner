@@ -157,7 +157,7 @@ export async function crmView(container, parts = []) {
   else if (tab === 'asa') await settingsTab(body, data, 'asa', { asaTab, importCard }); // ASA e accessi ora stanno nelle Impostazioni (artboard «Imp-asa»)
   else if (tab === 'gare') await gareTab(body, data);
   else if (tab === 'sottosoglia') await belowTab(body, data);
-  else if (tab === 'radar') await radarTab(body, data);
+  else if (tab === 'radar') await radarTab(body, data, parts[2] || ''); // v17: #/crm/radar/opere = Opere finanziate (OpenCUP)
   else if (tab === 'esiti') await esitiTab(body, data);
   else if (tab === 'relazioni') await relazioniTab(body, data);
   // «Concorrenza e gare» (v11, 20/11): Concorrenza e Prima del bando in una pagina sola, a sezioni

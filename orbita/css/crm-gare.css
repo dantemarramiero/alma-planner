@@ -185,3 +185,23 @@ button.cg-chip:hover { border-color: var(--cv-orange); }
 /* «Da dove vengono i dati» sui fondi scuri della testata e della regione (ALM2-49) */
 .cg-kpi .fd-q, .rg-side-top .fd-q { color: rgba(255,255,255,.6); }
 .cg-kpi .fd-q { margin-top: 4px; font-size: 11px; }
+/* filtro «Regioni» a scelta multipla (canvas v17): Chi vince e Partner */
+.rp { position: relative; display: inline-flex; }
+.rp-btn { display: inline-flex; gap: 6px; align-items: center; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--cv-line-strong); background: var(--cv-card); font: inherit; font-size: 12.5px; color: var(--cv-text-2); cursor: pointer; max-width: 360px; }
+.rp-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-btn:hover { border-color: var(--cv-orange); }
+.rp-btn.on { border: 1.5px solid var(--cv-text); color: var(--cv-text); font-weight: 600; }
+.rp-menu { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: 280px; background: var(--cv-card); border: 1px solid var(--cv-line); border-radius: 16px; box-shadow: 0 20px 50px -20px rgba(28,24,20,.35); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rp-menu[hidden] { display: none; }
+.rp-list { max-height: 320px; overflow-y: auto; display: grid; gap: 2px; }
+.rp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; font-size: 13px; color: var(--cv-text); cursor: pointer; }
+.rp-row:hover { background: var(--cv-bg, #F7F6F3); }
+.rp-row input { width: 16px; height: 16px; accent-color: var(--cv-orange); margin: 0; }
+.rp-row .rp-name { flex: 1; }
+.rp-row small { font-size: 11.5px; color: var(--cv-text-3, #8A8A8A); }
+.rp-none { margin: 8px; font-size: 12.5px; color: var(--cv-text-3, #8A8A8A); }
+.rp-foot { display: flex; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--cv-line); flex-wrap: wrap; }
+.rp-gap { flex: 1; }
+.rp-link { border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--cv-orange-dark, #E0731A); cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+.rp-link:hover { background: var(--cv-bg, #F7F6F3); }
+.rp-ok { border: 0; background: var(--cv-orange); color: #fff; font: inherit; font-size: 12.5px; font-weight: 600; height: 30px; padding: 0 14px; border-radius: 10px; cursor: pointer; }
