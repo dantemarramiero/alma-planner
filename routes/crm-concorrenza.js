@@ -21,19 +21,28 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     return { settings, users, myBus };
   }
   const buOk = (c, bu) => { if (bu && !c.settings.profiles[bu]) throw new HttpError(404, 'BU sconosciuta'); return bu || ''; };
+  // ?regions=tutte → [] (tutta Italia) · ?regions=Abruzzo,Marche → quelle · assente → undefined (zone del profilo BU)
+  const regionsParam = q => {
+    if (q === undefined || q === null || q === '') return undefined;
+    if (q === 'tutte') return [];
+    return String(q).split(',').map(r => r.trim()).filter(Boolean).slice(0, 25).map(r => r.slice(0, 40));
+  };
 
   app.get('/api/crm/concorrenza', async (req, res) => {
     const c = await ctx(req);
     const bu = buOk(c, String(req.query.bu ?? (c.myBus[0] || '')));
     const months = [12, 24].includes(Number(req.query.months)) ? Number(req.query.months) : Math.min(12, c.settings.concorrenza.months);
     const amount = req.query.amount === 'tutte' ? null : 'profilo';
-    const regions = req.query.regions === 'tutte' ? [] : undefined;
-    const [o, { rows: [st] }] = await Promise.all([
+    // regioni (v17): «tutte» = tutta Italia; un elenco = quelle; niente = quelle del profilo della BU
+    const regions = regionsParam(req.query.regions);
+    const all = scopeOf(c.settings, bu || null, { months, amount, regions: [] }); // conteggio per regione, senza il filtro regioni
+    const [o, { rows: [st] }, { rows: counts }] = await Promise.all([
       overview(db, c.settings, bu || null, { months, amount, regions }),
       db.query("SELECT COUNT(*)::int AS gare, MAX(month) AS ultimo FROM crm_anac_awards"),
+      db.query(`SELECT a.region, count(*)::int AS n FROM crm_anac_awards a WHERE ${all.sql} AND a.region <> '' GROUP BY 1 ORDER BY 2 DESC, 1`, all.params),
     ]);
     const { rows: imports } = await db.query('SELECT month, kept, error, at FROM crm_anac_imports ORDER BY month DESC LIMIT 1');
-    res.json({ ...o, bus: Object.keys(c.settings.profiles).filter(k => (c.settings.profiles[k].soa || []).length || (c.settings.concorrenza.cpv?.[k] || []).length), myBus: c.myBus,
+    res.json({ ...o, region_counts: counts, profile_regions: bu ? c.settings.profiles[bu]?.regions || [] : [], bus: Object.keys(c.settings.profiles).filter(k => (c.settings.profiles[k].soa || []).length || (c.settings.concorrenza.cpv?.[k] || []).length), myBus: c.myBus,
       data: { gare: st.gare, ultimo: st.ultimo, at: imports[0]?.at || null, running: isRunning(), on: c.settings.concorrenza.on }, admin: req.crm.admin });
   });
 
@@ -106,7 +115,7 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
   app.get('/api/crm/concorrenza/partner', async (req, res) => {
     const c = await ctx(req);
     const bu = req.query.bu ? buOk(c, String(req.query.bu)) : (c.myBus.find(b => busOf(c).includes(b)) || '');
-    res.json(await partnersView(db, c.settings, { months: monthsOf(c, req.query.months), bus: busOf(c), bu, region: String(req.query.region || '') }));
+    res.json(await partnersView(db, c.settings, { months: monthsOf(c, req.query.months), bus: busOf(c), bu, region: String(req.query.region || ''), only: regionsParam(req.query.regions) }));
   });
   // «Proponi un incontro»: l'impresa nel CRM come partner e un passo «Incontro» a chi lo chiede, entro una settimana
   app.post('/api/crm/concorrenza/incontro', async (req, res) => {

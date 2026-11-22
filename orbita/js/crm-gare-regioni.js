@@ -8,6 +8,7 @@ import { ic, dots, pill, emptyState } from './crm-v2.js';
 import { bandBar, nice, crmCell } from './crm-concorrenza.js';
 import { openImpresaMercato } from './crm-impresa-mercato.js';
 import { sourceLine, basedOn } from './crm-fonti.js';
+import { regionPicker, regionsQuery } from './crm-regioni-pick.js';
 
 const it1 = n => (n === null || n === undefined ? '—' : Number(n).toLocaleString('it-IT', { maximumFractionDigits: 1 }));
 const pct = n => (n === null || n === undefined ? '—' : `${it1(n)}%`);
@@ -122,11 +123,13 @@ async function regionAside(side, { st, r, buLabel, go }) {
 // ── Partner ──────────────────────────────────────────────────────────────────────────────────────
 export async function partnerSection(box, { st, buLabel, tabs, again }) {
   fill(box, loading());
-  const q = new URLSearchParams({ months: st.months, ...(st.pbu ? { bu: st.pbu } : {}), ...(st.pregion ? { region: st.pregion } : {}) });
+  const q = new URLSearchParams({ months: st.months, ...(st.pbu ? { bu: st.pbu } : {}), ...(st.pregion ? { region: st.pregion } : {}), ...(regionsQuery(st.prsel) !== undefined ? { regions: regionsQuery(st.prsel) } : {}) });
   const r = await get(`/api/crm/concorrenza/partner?${q}`);
   st.pbu = r.bu;
   st.pregion = r.region;
-  const bar = buBar(r.bus, r.bu, buLabel, b => { st.pbu = b; st.pregion = ''; again(); }, st, again);
+  // filtro Regioni (v17): solo le regioni scelte nella mappa e nei partner da contattare
+  const picker = regionPicker({ counts: r.region_counts || [], selected: st.prsel ?? undefined, profile: [], unit: 'partner', none: 'Regioni: le 8 migliori', onChange: v => { st.prsel = v; st.pregion = ''; again(); } });
+  const bar = buBar(r.bus, r.bu, buLabel, b => { st.pbu = b; st.pregion = ''; again(); }, st, again, picker);
   const openCo = p => openImpresaMercato(p.cf ? { cf: p.cf } : { name: p.name }, { regions: [p.region], months: st.months, onChange: () => again() })
     .catch(err => toast(err.message || 'Scheda non disponibile', 'error'));
   const cell = (reg, b) => {
@@ -136,7 +139,7 @@ export async function partnerSection(box, { st, buLabel, tabs, again }) {
       h('b', c.n ? nice(c.best.name) : '—'), h('small', c.n ? dots([`${c.n} ${c.n === 1 ? 'partner' : 'partner'}`, c.crm ? `${c.crm} nel CRM` : '']) : 'nessuno'));
   };
   const matrix = r.regions.length ? h('section.pv-card.pt-matrix',
-    h('div.pv-row', h('b.pv-grow', 'Partner migliori per regione e BU ', h('span.rg-muted', `· ${r.totale} da valutare, ${r.nel_crm} già nel CRM`)), h('small.rg-muted', `regioni ordinate per «Conviene» di ${buLabel(r.bu)}`)),
+    h('div.pv-row', h('b.pv-grow', 'Partner migliori per regione e BU ', h('span.rg-muted', `· ${r.totale} da valutare, ${r.nel_crm} già nel CRM`)), h('small.rg-muted', r.only?.length ? `le regioni scelte, ordinate per «Conviene» di ${buLabel(r.bu)}` : `le 8 regioni migliori per «Conviene» di ${buLabel(r.bu)}`)),
     h('div.pt-grid', { style: { gridTemplateColumns: `130px repeat(${r.bus.length}, minmax(130px, 1fr))` } },
       h('span'), r.bus.map(b => h('span.pt-h', buLabel(b))),
       r.matrix.map(reg => [h('div.pt-reg', h('b', reg.region), r.conviene?.[reg.region] !== null && r.conviene?.[reg.region] !== undefined ? conv(r.conviene[reg.region]) : null), r.bus.map(b => cell(reg, b))]))) : null;

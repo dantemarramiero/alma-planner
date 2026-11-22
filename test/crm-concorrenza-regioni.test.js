@@ -98,3 +98,22 @@ test('Impostazioni Concorrenza: le categorie in più tengono la S, i CPV solo le
   assert.deepEqual(v.extra_categories, ['OS28', 'OG1']);
   assert.deepEqual(v.cpv.edilizia, ['452142003']);
 });
+
+test('filtro Regioni (v17): Chi vince su una o più regioni con il conteggio per regione; Partner solo le regioni scelte', async () => {
+  const prof = (await D('GET', '/api/crm/concorrenza?bu=edilizia')).body;
+  assert.deepEqual(prof.scope.regions, ['Abruzzo']); // di partenza le zone del profilo
+  assert.deepEqual(prof.profile_regions, ['Abruzzo']);
+  const counts = Object.fromEntries(prof.region_counts.map(r => [r.region, r.n]));
+  assert.equal(counts.Abruzzo, 8);
+  assert.equal(counts.Lazio, 10);
+  const two = (await D('GET', '/api/crm/concorrenza?bu=edilizia&regions=Lazio,Molise')).body;
+  assert.deepEqual(two.scope.regions, ['Lazio', 'Molise']);
+  assert.equal(two.kpi.gare, 12);
+  assert.equal((await D('GET', '/api/crm/concorrenza?bu=edilizia&regions=tutte')).body.kpi.gare, 20);
+  const p = (await D('GET', '/api/crm/concorrenza/partner?bu=edilizia&regions=Abruzzo')).body;
+  assert.deepEqual(p.regions, ['Abruzzo']);
+  assert.ok(p.region_counts.some(r => r.region === 'Abruzzo'));
+  const pl = (await D('GET', '/api/crm/concorrenza/partner?bu=edilizia&regions=Lazio&region=Abruzzo')).body;
+  assert.ok(!pl.regions.includes('Abruzzo'));
+  assert.notEqual(pl.region, 'Abruzzo');
+});
