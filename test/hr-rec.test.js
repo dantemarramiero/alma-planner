@@ -7,7 +7,7 @@ const { createApp, readConfig } = require('../server');
 const { createDb } = require('../lib/db');
 const R = require('../lib/hr-rec');
 const { syncPeopleFromBoss } = require('../routes/hr');
-const { purgeCandidates } = require('../routes/hr-rec');
+const { purgeCandidates, workDaysSince, remindApprovals } = require('../routes/hr-rec');
 
 let server, base, db, gov;
 const cookies = {};
@@ -73,6 +73,7 @@ test('logica pura: catene, slug, controlli dell\'annuncio, scadenze', () => {
   assert.equal(R.offerChain(58000, band).fuori, true);
   assert.match(R.slugify('Capo zona · Puglia', 7), /^capo-zona-puglia-7$/);
   assert.equal(R.scadenza('2026-12-01', -7), '2026-11-24');
+  assert.equal(workDaysSince('2026-11-20T10:00:00Z', new Date('2026-11-24T11:00:00Z')), 2, 'venerdì → martedì: lunedì e martedì');
 });
 
 let reqId, appId, offerId, preId, token;
@@ -93,6 +94,8 @@ test('richiesta dal vacante: la apre il responsabile, non un estraneo; catena HR
   assert.equal((await api(HRP, 'POST', `/api/hr/richieste/${reqId}/decidi`, { decisione: 'no' })).status, 400, 'il no vuole il motivo');
   assert.equal((await api(HRP, 'POST', `/api/hr/richieste/${reqId}/decidi`, { decisione: 'ok' })).body.stato, 'approvazione');
   assert.equal((await api(DIR, 'POST', `/api/hr/richieste/${reqId}/decidi`, { decisione: 'ok' })).body.stato, 'approvata');
+  assert.equal((await api(DIR, 'GET', `/api/hr/richieste/${reqId}`)).status, 200, 'chi ha approvato continua a vederla');
+  assert.ok((await api(DIR, 'GET', '/api/hr/richieste')).body.richieste.some(x => x.id === reqId));
   d = (await api(HRP, 'GET', `/api/hr/richieste/${reqId}`)).body;
   assert.ok(d.annuncio, 'nasce la bozza dell\'annuncio');
   assert.ok(d.annuncio.ral_min > 0 && d.annuncio.ral_max > d.annuncio.ral_min);
@@ -195,6 +198,16 @@ test('pre-boarding: compiti con le scadenze, pagina del nuovo assunto, arrivo da
   q = (await api(HRP, 'GET', `/api/hr/preboarding/${preId}`)).body;
   assert.equal(q.preboarding.stato, 'arrivato');
   assert.equal((await fetch(`${base}/benvenuto/${token}`)).status, 404, 'il link non serve più');
+});
+
+test('sollecito: un passo fermo da 2 giorni lavorativi riceve il promemoria', async () => {
+  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Ferma', tipo: 'sostituzione' });
+  await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/invia`);
+  await db.query("UPDATE hr_requisitions SET created_at = now() - interval '6 days' WHERE id = $1", [r.body.id]);
+  const sent = [];
+  const n = await remindApprovals(db, gov, { notify: async x => { sent.push(x); } });
+  assert.ok(n >= 1);
+  assert.match(sent.find(x => x.body.includes('Ferma')).body, /promemoria/);
 });
 
 test('numeri con l\'ambito e cancellazione dei CV', async () => {

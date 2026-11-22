@@ -43,7 +43,7 @@ const notHr = c => fill(c, head('Riservato al team HR'), h('div.card.empty', 'Qu
 
 export async function hrView(c, parts, params) {
   const page = parts[1] || 'percorso';
-  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia'];
+  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia', 'preboarding-lista', 'recruitment'];
   if (hrPages.includes(page) && !store.me.hr) return notHr(c);
   fill(c, loading());
   try {
@@ -63,6 +63,11 @@ export async function hrView(c, parts, params) {
       case 'scenari': return (await import('./hr-org.js')).scenariView(c, Number(parts[2]) || null);
       case 'cambi': return (await import('./hr-org.js')).cambiView(c);
       case 'strategia': return (await import('./hr-org.js')).strategiaView(c);
+      // Fase 3 (ALM2-53): recruitment in hr-rec.js (richieste: anche i responsabili; candidato: anche chi intervista o approva)
+      case 'richieste': return parts[2] ? (await import('./hr-rec.js')).richiestaView(c, Number(parts[2])) : (await import('./hr-rec.js')).richiesteView(c, params);
+      case 'candidato': return (await import('./hr-rec.js')).candidatoView(c, Number(parts[2]));
+      case 'preboarding': return (await import('./hr-rec.js')).preboardingView(c, Number(parts[2]) || null);
+      case 'recruitment': return (await import('./hr-rec.js')).numeriView(c, params);
       default: return await percorsoView(c);
     }
   } catch (err) {

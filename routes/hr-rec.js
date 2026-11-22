@@ -123,7 +123,9 @@ function registerHrRec(app, { db, gov, notifier, auth, config = {} }) {
   }
   async function canSeeReq(req, r) {
     if (isHr(req) || r.requested_by === req.user.id) return true;
-    const p = pending(await steps('richiesta', r.id));
+    const st = await steps('richiesta', r.id);
+    if (st.some(s => s.user_id === req.user.id)) return true; // ha già deciso un passo: continua a vederla
+    const p = r.stato === 'approvazione' ? pending(st) : null;
     if (p && await canDecide(req, p, r)) return true;
     return interviewerOf(req, r.id);
   }
@@ -149,7 +151,7 @@ function registerHrRec(app, { db, gov, notifier, auth, config = {} }) {
       const st = await steps('richiesta', r.id);
       const p = r.stato === 'approvazione' ? pending(st) : null;
       const tocca = p ? await canDecide(req, p, r) : false;
-      if (!hr && r.requested_by !== req.user.id && !tocca && !(await interviewerOf(req, r.id))) continue;
+      if (!hr && r.requested_by !== req.user.id && !tocca && !st.some(x => x.user_id === req.user.id) && !(await interviewerOf(req, r.id))) continue;
       out.push({ ...r, da_approvare: tocca, passo: p ? RUOLI_LABEL[p.ruolo] : null });
     }
     // incarichi vacanti per la nuova richiesta: tutti per HR, quelli sotto i propri incarichi per gli altri
@@ -157,9 +159,13 @@ function registerHrRec(app, { db, gov, notifier, auth, config = {} }) {
         lower(sopra.ricoperto_da) AS sopra_email
       FROM org_incarichi i LEFT JOIN org_aree a ON a.id = i.area_id LEFT JOIN hr_incarico_roles r ON r.incarico_id = i.id LEFT JOIN pm_roles p ON p.id = r.role_id
       LEFT JOIN org_incarichi sopra ON sopra.id = i.riporta_a_id
-      WHERE i.attivo AND i.ricoperto_da IS NULL AND NOT EXISTS (SELECT 1 FROM hr_requisitions q WHERE q.incarico_id = i.id AND q.stato NOT IN ('rifiutata', 'chiusa', 'coperta'))
+      WHERE i.attivo AND i.ricoperto_da IS NULL AND NOT EXISTS (SELECT 1 FROM hr_requisitions q WHERE q.incarico_id = i.id AND q.stato NOT IN ('rifiutata', 'chiusa'))
       ORDER BY a.nome NULLS LAST, i.nome`);
-    res.json({ richieste: out, vacanti: vac.filter(x => hr || x.sopra_email === req.user.email.toLowerCase()), is_hr: hr });
+    const grid = await hrMod().currentGrid(db);
+    const roles = hr ? (await hrMod().hrRoles(db)).map(r => ({ id: r.id, title: H.roleTitle(r), grade: r.grade, band: H.bandOf(grid.bands, r.grade) })) : [];
+    const aree = hr ? (await db.query('SELECT id, nome, tipo FROM org_aree WHERE attiva ORDER BY nome')).rows : [];
+    res.json({ richieste: out, vacanti: vac.filter(x => hr || x.sopra_email === req.user.email.toLowerCase()).map(x => ({ ...x, sopra_email: undefined, band: x.grade ? H.bandOf(grid.bands, x.grade) : null })),
+      roles, aree, coeff: Number(grid.rules.costCoeff) || 1.38, is_hr: hr });
   });
 
   const reqBody = b => ({
@@ -176,6 +182,8 @@ function registerHrRec(app, { db, gov, notifier, auth, config = {} }) {
       ({ rows: [inc] } = await db.query(`SELECT i.id, i.nome, i.area_id, r.role_id, lower(sopra.ricoperto_da) AS sopra_email FROM org_incarichi i
         LEFT JOIN hr_incarico_roles r ON r.incarico_id = i.id LEFT JOIN org_incarichi sopra ON sopra.id = i.riporta_a_id WHERE i.id = $1 AND i.attivo`, [incaricoId]));
       if (!inc) throw new HttpError(404, 'Incarico non trovato');
+      const { rows: [dup] } = await db.query("SELECT id FROM hr_requisitions WHERE incarico_id = $1 AND stato NOT IN ('rifiutata', 'chiusa')", [inc.id]);
+      if (dup) throw new HttpError(409, `Per questo incarico c'è già la richiesta n. ${dup.id}`);
     }
     if (!isHr(req) && !(inc && inc.sopra_email === req.user.email.toLowerCase())) throw new HttpError(403, 'La richiesta la apre il responsabile dell\'incarico o il team HR');
     const posizione = f.posizione || inc?.nome;
@@ -199,7 +207,7 @@ function registerHrRec(app, { db, gov, notifier, auth, config = {} }) {
     const { rows: [posting] } = await db.query('SELECT * FROM hr_postings WHERE req_id = $1', [r.id]);
     let apps = [];
     if (hr || r.requested_by === req.user.id) {
-      ({ rows: apps } = await db.query(`SELECT a.id, a.stage, a.fonte, a.match_pct, a.created_at, c.nome, c.cognome FROM hr_applications a JOIN hr_candidates c ON c.id = a.candidate_id
+      ({ rows: apps } = await db.query(`SELECT a.id, a.stage, a.fonte, a.match_pct, a.created_at, a.motivo_scarto, c.nome, c.cognome, (SELECT o.stato FROM hr_offers o WHERE o.app_id = a.id ORDER BY o.id DESC LIMIT 1) AS offerta, (SELECT json_build_object('tipo', i.tipo, 'quando', i.quando, 'chi', COALESCE(u.name, i.interviewer_email)) FROM hr_interviews i LEFT JOIN users u ON lower(u.email) = lower(i.interviewer_email) WHERE i.app_id = a.id ORDER BY i.quando DESC NULLS LAST LIMIT 1) AS colloquio, (SELECT count(DISTINCT s.email)::int FROM hr_scores s WHERE s.app_id = a.id) AS votanti FROM hr_applications a JOIN hr_candidates c ON c.id = a.candidate_id
         WHERE a.req_id = $1 ORDER BY a.updated_at DESC`, [r.id]));
     } else {
       ({ rows: apps } = await db.query(`SELECT DISTINCT a.id, a.stage, c.nome, c.cognome FROM hr_applications a JOIN hr_candidates c ON c.id = a.candidate_id JOIN hr_interviews i ON i.app_id = a.id
@@ -440,7 +448,8 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
     if (i) return 'intervistatore';
     const { rows: [o] } = await db.query("SELECT id FROM hr_offers WHERE app_id = $1 AND stato = 'approvazione' ORDER BY id DESC LIMIT 1", [a.id]);
     if (o) { const p = pending(await steps('offerta', o.id)); if (p && await canDecide(req, p, a)) return 'approvatore'; }
-    return null;
+    const { rows: [dec] } = await db.query("SELECT 1 FROM hr_approvals s JOIN hr_offers f ON f.id = s.oggetto_id WHERE s.oggetto = 'offerta' AND f.app_id = $1 AND s.user_id = $2 LIMIT 1", [a.id, req.user.id]);
+    return dec ? 'approvatore' : null;
   }
   const addEvent = (appId, userId, testo) => db.query('INSERT INTO hr_app_events (app_id, user_id, testo) VALUES ($1, $2, $3)', [appId, userId, testo]);
 
@@ -448,7 +457,7 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
     const a = await appRow(v.int(req.params.id, 'id', { min: 1 }));
     const acc = await appAccess(req, a);
     if (!acc) throw new HttpError(403, 'Non puoi vedere questo candidato');
-    const { role, band } = await roleAndBand(a.role_id);
+    const { role, band, grid } = await roleAndBand(a.role_id);
     const [files, events, interviews, scores, offers] = await Promise.all([
       db.query('SELECT id, tipo, nome, mime, size, created_at FROM hr_files WHERE candidate_id = $1 ORDER BY created_at', [a.candidate_id]),
       db.query('SELECT e.at, e.testo, u.name AS chi FROM hr_app_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.app_id = $1 ORDER BY e.at', [a.id]),
@@ -479,8 +488,9 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
       accesso: acc, candidatura: { id: a.id, stage: a.stage, fonte: a.fonte, fonte_label: R.FONTI[a.fonte], match_pct: a.match_pct, match_note: a.match_note, motivo_scarto: a.motivo_scarto, created_at: a.created_at, req_id: a.req_id, posizione: a.posizione },
       candidato: acc === 'hr' ? { nome: a.nome, cognome: a.cognome, email: a.email, telefono: a.telefono, consenso: a.consenso, conserva: a.conserva, conservare_fino: a.conservare_fino } : { nome: a.nome, cognome: a.cognome },
       ruolo: role ? { id: role.id, title: H.roleTitle(role), grade: role.grade } : null, band: canSeeRal ? band : null,
+      variabile: canSeeRal && role && grid.rules.variabile?.[role.grade] ? `${grid.rules.variabile[role.grade][0]}–${grid.rules.variabile[role.grade][1]}%` : null,
       files: ['hr', 'intervistatore', 'responsabile'].includes(acc) ? files.rows : [], storia: acc === 'hr' || acc === 'responsabile' ? events.rows : [],
-      colloqui: interviews.rows, scorecard: { voci: items, ...sv, posso_votare: interviews.rows.some(i => i.interviewer_email.toLowerCase() === req.user.email.toLowerCase()) },
+      colloqui: interviews.rows, scorecard: { voci: items, ...sv, io: req.user.email.toLowerCase(), posso_votare: interviews.rows.some(i => i.interviewer_email.toLowerCase() === req.user.email.toLowerCase()) },
       offerta: offerOut, preboarding_id: pre?.id || null, stages: R.STAGES, fonti: R.FONTI,
     });
   });
@@ -548,7 +558,7 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
     await db.query('INSERT INTO hr_interviews (app_id, tipo, interviewer_email, quando, outlook_id, join_url) VALUES ($1, $2, $3, $4, $5, $6)', [a.id, tipo, email, quando, outlookId, joinUrl]);
     const next = tipo === 'hr' ? 'colloquio_hr' : 'colloquio_tecnico';
     await db.query(`UPDATE hr_applications SET stage = CASE WHEN stage IN ('nuovi','screening','colloquio_hr') THEN $1 ELSE stage END, passi = CASE WHEN $1 = ANY(passi) THEN passi ELSE array_append(passi, $1) END, updated_at = now() WHERE id = $2`, [next, a.id]);
-    await addEvent(a.id, req.user.id, `colloquio ${tipo === 'hr' ? 'HR' : 'tecnico'} con ${email}${quando ? ` il ${quando.toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}`);
+    await addEvent(a.id, req.user.id, `colloquio ${tipo === 'hr' ? 'HR' : 'tecnico'} con ${email}${quando ? ` il ${quando.toLocaleString('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })}` : ''}`);
     const { rows: [u] } = await db.query('SELECT id FROM users WHERE lower(email) = $1', [email]);
     if (u) await notify([u.id], req.user.id, `ti ha chiesto un colloquio con ${a.nome} ${a.cognome} (${a.posizione}): la scorecard è nella scheda.`, `/hr/candidato/${a.id}`);
     res.json({ ok: true, avviso, join_url: joinUrl });
@@ -774,8 +784,7 @@ ${docs.length ? `<p class="ok">Già ricevuti: ${docs.map(d => esc(d.nome)).join(
   });
 
   // ── numeri (tavola Z), con l'ambito ──
-  app.get('/api/hr/recruitment/numeri', async (req, res) => {
-    hrOnly(req);
+  async function numeri(req) {
     const ambito = hrMod().ambitoOf(req);
     const da = v.date(req.query.dal, 'dal') || plusMonths(todayIso(), -12);
     const [{ rows: reqs }, { rows: apps }, { rows: offers }, { rows: arrived }] = await Promise.all([
@@ -795,9 +804,24 @@ ${docs.length ? `<p class="ok">Già ricevuti: ${docs.map(d => esc(d.nome)).join(
     const byRole = {};
     for (const o of offers.filter(sc).filter(x => x.sesso && ['approvata', 'inviata', 'accettata', 'rifiutata'].includes(x.stato))) (byRole[o.role_id] ||= { F: [], M: [] })[o.sesso].push(o.ral);
     const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
-    const equita = Object.entries(byRole).filter(([, g]) => g.F.length && g.M.length).map(([role, g]) => ({ role_id: Number(role), gap: Math.round((avg(g.F) / avg(g.M) - 1) * 1000) / 10, f: g.F.length, m: g.M.length }));
+    const titles = new Map((await hrMod().hrRoles(db)).map(r => [r.id, H.roleTitle(r)]));
+    const equita = Object.entries(byRole).filter(([, g]) => g.F.length && g.M.length).map(([role, g]) => ({ role_id: Number(role), ruolo: titles.get(Number(role)) || 'ruolo', gap: Math.round((avg(g.F) / avg(g.M) - 1) * 1000) / 10, f: g.F.length, m: g.M.length }));
     const arr = arrived.filter(sc);
-    res.json({ ...st, ancora_qui: arr.length ? { su: arr.length, attivi: arr.filter(x => x.attivo).length } : null, equita, ambito, dal: da });
+    return { ...st, ancora_qui: arr.length ? { su: arr.length, attivi: arr.filter(x => x.attivo).length } : null, equita, ambito, dal: da };
+  }
+  app.get('/api/hr/recruitment/numeri', async (req, res) => { hrOnly(req); res.json(await numeri(req)); });
+  app.get('/api/hr/recruitment/numeri.xlsx', async (req, res) => {
+    hrOnly(req);
+    const n = await numeri(req);
+    const { writeXlsx } = require('../lib/xlsx');
+    const sheets = {
+      Sintesi: [['Voce', 'Valore'], ['Dal', n.dal], ['Ambito', n.ambito || "tutta l'azienda"], ['Tempo per assumere (mediana, giorni)', n.tempo_mediana ?? ''], ['Posizioni chiuse', n.chiuse], ['Aperte da oltre 45 giorni', n.aperte_vecchie], ['Offerte accettate %', n.offerte_accettate_pct ?? ''], ['Ancora qui dopo 6 mesi', n.ancora_qui ? `${n.ancora_qui.attivi} di ${n.ancora_qui.su}` : '']],
+      Imbuto: [['Passo', 'Candidati'], ...n.funnel],
+      Canali: [['Canale', 'Candidature', 'Assunti', 'Resa %'], ...n.canali.map(c => [c.label, c.candidature, c.assunti, c.resa])],
+      Equità: [['Ruolo', 'Offerte a donne', 'Offerte a uomini', 'Scarto donne/uomini %'], ...n.equita.map(e => [e.ruolo, e.f, e.m, e.gap])],
+    };
+    await hrLog(req, 'export numeri del recruitment', { kind: 'accesso' });
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').set('Content-Disposition', 'attachment; filename="numeri-recruitment.xlsx"').send(writeXlsx(sheets));
   });
 }
 
@@ -811,4 +835,33 @@ async function purgeCandidates(db) {
   return rowCount;
 }
 
-module.exports = { registerHrRec, purgeCandidates };
+// Sollecito (tavola T): un passo fermo da più di 2 giorni lavorativi riceve un promemoria, una volta al giorno.
+function workDaysSince(iso, now = new Date()) {
+  let d = new Date(iso), n = 0;
+  while (d < now) { d = new Date(d.getTime() + 86400000); if (d <= now && d.getDay() !== 0 && d.getDay() !== 6) n++; }
+  return n;
+}
+async function remindApprovals(db, gov, notifier) {
+  const { rows } = await db.query(`SELECT s.id, s.oggetto, s.oggetto_id, s.ruolo,
+      COALESCE((SELECT max(p.decided_at) FROM hr_approvals p WHERE p.oggetto = s.oggetto AND p.oggetto_id = s.oggetto_id AND p.ordine < s.ordine), r.created_at, o.updated_at) AS da,
+      COALESCE(r.posizione, rr.posizione) AS posizione, COALESCE(r.requested_by, rr.requested_by) AS requested_by, o.app_id
+    FROM hr_approvals s LEFT JOIN hr_requisitions r ON s.oggetto = 'richiesta' AND r.id = s.oggetto_id AND r.stato = 'approvazione'
+    LEFT JOIN hr_offers o ON s.oggetto = 'offerta' AND o.id = s.oggetto_id AND o.stato = 'approvazione'
+    LEFT JOIN hr_applications a ON a.id = o.app_id LEFT JOIN hr_requisitions rr ON rr.id = a.req_id
+    WHERE s.decisione IS NULL AND (r.id IS NOT NULL OR o.id IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM hr_approvals p WHERE p.oggetto = s.oggetto AND p.oggetto_id = s.oggetto_id AND p.ordine < s.ordine AND (p.decisione IS NULL OR p.decisione <> 'ok'))`);
+  const { rows: users } = await db.query('SELECT id, lower(email) AS email FROM users WHERE email IS NOT NULL AND suspended_at IS NULL');
+  let n = 0;
+  for (const s of rows) {
+    if (workDaysSince(s.da) < 2) continue;
+    let ids = s.ruolo === 'bu' ? [s.requested_by].filter(Boolean) : users.filter(u => gov.roleOf(u.email).key === s.ruolo).map(u => u.id);
+    if (!ids.length && s.ruolo !== 'bu') ids = users.filter(u => gov.isAdminEmail(u.email)).map(u => u.id);
+    if (!ids.length) continue;
+    await notifier.notify({ userIds: ids, actorId: null, kind: 'hr', body: `promemoria: aspetta la tua approvazione da ${workDaysSince(s.da)} giorni lavorativi (${s.oggetto} «${s.posizione}»).`,
+      link: s.oggetto === 'richiesta' ? `/hr/richieste/${s.oggetto_id}` : `/hr/candidato/${s.app_id}` }).catch(() => {});
+    n++;
+  }
+  return n;
+}
+
+module.exports = { registerHrRec, purgeCandidates, remindApprovals, workDaysSince };

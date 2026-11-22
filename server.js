@@ -66,7 +66,7 @@ const { registerImpostazioni, startOrgNightly } = require('./routes/impostazioni
 const { registerOrganigramma } = require('./routes/organigramma');
 const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
 const { registerHrOrg } = require('./routes/hr-org');
-const { registerHrRec, purgeCandidates } = require('./routes/hr-rec');
+const { registerHrRec, purgeCandidates, remindApprovals } = require('./routes/hr-rec');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -290,7 +290,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
 if (require.main === module) {
   (async () => {
     const config = readConfig();
-    const { app, db, auth, audit, gov, digest, fleet, energyReminders, energyScreening, crmSync } = await createApp(config);
+    const { app, db, auth, audit, gov, live, digest, fleet, energyReminders, energyScreening, crmSync } = await createApp(config);
     crmSync.start(); // ogni 15 minuti i calendari (incontri con i contatti del CRM), ogni 5 gli incontri finiti senza note
     digest.start();
     energyReminders.start(); // ogni 5 minuti, di giorno: scadenze delle opportunità di Alma Energy
@@ -304,7 +304,9 @@ if (require.main === module) {
     // cantieri da BOSS (BSAL-1725): ogni ora, solo quando BOSS_CANTIERI_URL e BOSS_CANTIERI_TOKEN ci sono
     // Alma HR: persone e RAL da BOSS ogni notte, solo quando BOSS_PERSONALE_URL e BOSS_PERSONALE_TOKEN ci sono
     setInterval(() => purgeCandidates(db).then(n => n && console.log('[hr] CV cancellati: ' + n)).catch(err => console.warn('[hr] cancellazione CV non riuscita', err.message)), 24 * 3600 * 1000).unref(); // CV dei non assunti
-    if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
+    const hrNotifier = createNotifier({ db, live });
+    setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
+    if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
     if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`Alma Space su ${config.baseUrl} (porta ${config.port})`);

@@ -101,7 +101,7 @@ export async function organigrammaView(c, params) {
       body: h('div.hr-form',
         h('div.card.hr-pad', i.persona ? h('div.hr-row.hr-between', h('div', h('b', i.persona.nome), h('div.small.muted', 'da BOSS ⟳')),
           d.is_hr && i.persona.key ? h('a.btn.btn-sm', { href: `#/hr/persona/${encodeURIComponent(i.persona.key)}` }, 'Scheda persona') : null)
-          : h('div', h('b', 'Vacante'), h('div.small.muted', i.vacante_dal ? `da ${days(i.vacante_dal)} giorni` : ''), h('div.small.muted', 'In Fase 3: «Apri richiesta di personale», già compilata con ruolo e fascia.'))),
+          : h('div', h('b', 'Vacante'), h('div.small.muted', i.vacante_dal ? `da ${days(i.vacante_dal)} giorni` : ''), h('a.btn.btn-sm.btn-primary', { href: `#/hr/richieste?nuova=${i.id}`, style: { marginTop: '6px' } }, 'Apri richiesta di personale'))),
         h('div.card.hr-pad', h('div.hr-label', 'Ruolo del mansionario (Alma HR)'),
           i.role ? h('div', h('b', i.role.title), ' ', h('span.hr-chip', `G${i.role.grade}`)) : h('span.hr-chip.z-warn', i.da_confermare ? 'proposta da confermare' : 'senza ruolo'),
           d.is_hr ? h('div', { style: { marginTop: '8px' } }, h('a.btn.btn-sm', { href: '#/hr/ruoli' }, 'Cambia ruolo')) : null),
@@ -246,7 +246,7 @@ const TIPO = { incarico_nuovo: 'Nuovo incarico', incarico_disattivato: 'Incarico
 export async function cambiView(c) {
   const d = await get('/api/hr/eventi');
   const done = async e => { await post(`/api/hr/eventi/${e.id}/fatto`); cambiView(c); };
-  const link = e => (e.tipo === 'incarico_nuovo' ? '#/hr/ruoli' : e.tipo === 'persona_entrata' && e.person_key ? `#/hr/persona/${encodeURIComponent(e.person_key)}` : null);
+  const link = e => (e.tipo === 'vacante' && e.incarico_id ? `#/hr/richieste?nuova=${e.incarico_id}` : e.tipo === 'incarico_nuovo' ? '#/hr/ruoli' : e.tipo === 'persona_entrata' && e.person_key ? `#/hr/persona/${encodeURIComponent(e.person_key)}` : null);
   fill(c, head('Cambi da BOSS', 'Ogni notte Alma confronta la copia di BOSS con quella del giorno prima. I cambi che chiedono una scelta in Alma diventano avvisi.'),
     h('div.hr-grid32',
       h('div.card.hr-scroll', h('table.list.hr-nohover', h('thead', h('tr', ['Quando', 'Cambio', 'Su', 'Cosa serve in Alma'].map(x => h('th', x)))),
@@ -256,7 +256,7 @@ export async function cambiView(c) {
       h('div',
         h('div.card.hr-pad', h('div.hr-label', `Avvisi al team HR (${d.avvisi.length})`),
           d.avvisi.length ? d.avvisi.map(e => h('div.hr-li', h('div', h('b', TIPO[e.tipo] || e.tipo), h('div.small', e.oggetto), h('div.small.muted', e.azione)),
-            h('div.hr-row', link(e) ? h('a.btn.btn-sm', { href: link(e) }, 'Vai') : null, h('button.btn.btn-sm', { type: 'button', on: { click: () => done(e) } }, 'Fatto')))) : h('p.small.muted', 'Nessun avviso aperto.')),
+            h('div.hr-row', link(e) ? h('a.btn.btn-sm', { href: link(e) }, e.tipo === 'vacante' ? 'Apri richiesta' : 'Vai') : null, h('button.btn.btn-sm', { type: 'button', on: { click: () => done(e) } }, 'Fatto')))) : h('p.small.muted', 'Nessun avviso aperto.')),
         h('div.card.hr-pad', h('div.hr-label', 'Stato della sincronizzazione'),
           h('table.hr-t', h('tr', h('td', 'Ultima'), h('td', d.sync.at ? fmtDateTime(d.sync.at) : 'mai')), h('tr', h('td', 'Fonte'), h('td', d.sync.api ? 'API di BOSS, ogni notte' : 'export mensile di BOSS (l\'API non è ancora collegata)')),
             h('tr', h('td', 'Persone · incarichi'), h('td', `${d.sync.persone} · ${d.sync.incarichi}`)), h('tr', h('td', 'Incarichi senza ruolo'), h('td', d.sync.senza_ruolo))),

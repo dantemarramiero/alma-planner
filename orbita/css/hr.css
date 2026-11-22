@@ -176,3 +176,37 @@
 .hr-ambito-wrap { display: inline-flex; align-items: center; gap: 6px; background: var(--orange-soft); border: 1px solid #FFD9B5; border-radius: var(--radius-pill); padding: 2px 4px 2px 12px; }
 .hr-ambito-wrap > span { font-size: var(--ap-fs-xs); font-weight: 700; color: var(--orange-dark); text-transform: uppercase; letter-spacing: .05em; }
 .hr-ambito-wrap .select { border: 0; background: transparent; min-width: 200px; width: auto; }
+
+/* ── Fase 3 · recruitment (tavole S–Z) ── */
+.hr-chain { display: flex; gap: 8px; align-items: stretch; }
+.hr-step { flex: 1 1 0; min-width: 0; border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; background: var(--card); font-size: var(--ap-fs-sm); }
+.hr-step b { display: block; color: var(--ink); margin-bottom: 2px; }
+.hr-step.done { border-color: #9FD0B0; background: var(--green-soft); }
+.hr-step.now { border: 1.5px solid var(--orange); background: var(--orange-soft); }
+.hr-step.no { border-color: #F2B8B5; background: var(--red-soft); }
+.hr-step-ar { align-self: center; color: var(--orange); font-weight: 700; }
+@media (max-width: 700px) { .hr-chain { flex-wrap: wrap; } .hr-step-ar { display: none; } .hr-step { flex-basis: 100%; } }
+.hr-dark-soft { background: var(--ap-grey-50, #FAFAF8); border: 1px solid var(--ap-grey-100); border-radius: var(--radius); padding: 10px 12px; margin-bottom: var(--ap-space-3); display: grid; gap: 4px; }
+.hr-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(128px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 6px; margin: 8px 0; }
+.hr-kcol { background: var(--ap-grey-100); border-radius: var(--radius); padding: 8px; min-height: 220px; transition: background var(--ap-dur) var(--ap-ease); }
+.hr-kcol.over { background: var(--orange-soft); outline: 1.5px dashed var(--orange); }
+.hr-kcol h5 { margin: 2px 4px 8px; font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-medium); color: var(--mid); display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: .04em; }
+.hr-kcard { display: block; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 8px; color: inherit; text-decoration: none; font-size: var(--ap-fs-sm); cursor: grab; }
+.hr-kcard:hover { border-color: var(--orange); }
+.hr-kcard b { color: var(--ink); }
+.hr-avatar { width: 52px; height: 52px; border-radius: 50%; background: var(--orange); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 18px; flex: none; }
+.hr-score { display: inline-flex; gap: 3px; vertical-align: middle; }
+.hr-score i { width: 10px; height: 10px; border-radius: 3px; background: var(--rule); display: inline-block; }
+.hr-score i.f { background: var(--orange); }
+.hr-offbar { position: relative; height: 54px; margin: 18px 0 6px; }
+.hr-offbar-fill { position: absolute; left: 0; right: 0; top: 16px; height: 10px; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--green-soft), var(--orange-soft)); border: 1px solid var(--rule); }
+.hr-offbar-mid { position: absolute; top: 10px; width: 2px; height: 22px; background: var(--ink); }
+.hr-offbar-me { position: absolute; top: 12px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--orange); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--orange); }
+.hr-offbar-me span { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); font-size: var(--ap-fs-xs); font-weight: 700; color: var(--orange-dark); white-space: nowrap; }
+.hr-offbar .hr-zbar-legend { position: absolute; left: 0; right: 0; top: 32px; }
+.hr-task { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--ap-grey-100); font-size: var(--ap-fs-sm); }
+.hr-task.late { background: linear-gradient(90deg, var(--red-soft), transparent 40%); }
+.hr-task-w { width: 92px; flex: none; }
+.hr-task-ck { width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--rule); background: var(--card); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; padding: 0; color: #fff; }
+.hr-task-ck.on { background: var(--green); border-color: var(--green); }
+.hr-funnel { height: 26px; border-radius: 8px; background: var(--orange); color: #fff; font-size: var(--ap-fs-xs); display: flex; align-items: center; padding: 0 10px; margin-bottom: 6px; white-space: nowrap; }
