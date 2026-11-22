@@ -14,6 +14,7 @@ const { HttpError, v } = require('../lib/http');
 const { graph } = require('../lib/graph');
 const S = require('../lib/crm-scrivo');
 const P = require('../lib/crm-posta');
+const A = require('../lib/crm-posta-ai');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 const { addDays } = require('../lib/workdays');
@@ -171,6 +172,64 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       }
     }
     res.json({ moved, failed });
+  });
+
+  // ── Riassunto e bozza col tuo tono (ALM2-61, tavola G) ──────────────────────────────────────────
+  async function messageAndThread(t, id) {
+    const m = P.normMsg(await mail(t, 'GET', `/me/messages/${encodeURIComponent(id)}?$select=${FULL}`, { headers: TEXT }));
+    const conv = m.conversation_id ? await conversation(t, m.conversation_id).catch(() => [m]) : [m];
+    return { m, conv: conv.length ? conv : [m] };
+  }
+  // Le ultime email mandate a quella persona (Posta inviata): servono solo qui, non si salvano.
+  async function sentTo(t, address) {
+    const params = new URLSearchParams({ $search: `"to:${address.replace(/"/g, '')}"`, $top: '10', $select: 'body,toRecipients,sentDateTime,subject' });
+    const data = await mail(t, 'GET', `/me/mailFolders/sentitems/messages?${params}`, { headers: TEXT }).catch(() => ({ value: [] }));
+    return (data.value || []).filter(x => (x.toRecipients || []).some(r => r.emailAddress?.address?.toLowerCase() === address))
+      .sort((a, b) => String(b.sentDateTime).localeCompare(String(a.sentDateTime))).map(x => String(x.body?.content || ''));
+  }
+
+  app.post('/api/crm/posta/:id/riassunto', async (req, res) => {
+    const id = v.text(req.params.id, 'email', { max: 500, required: true });
+    const t = await token(req.user.id);
+    const { conv } = await messageAndThread(t, id);
+    const r = await A.summarize(conv, { ...ai(), me: req.user.email, meName: req.user.name });
+    await spend(r.eur);
+    res.json({ ...r, emails: conv.length, words: conv.reduce((s, x) => s + (String(x.body || '').match(/\S+/g) || []).length, 0) });
+  });
+
+  app.post('/api/crm/posta/:id/bozza', async (req, res) => {
+    const id = v.text(req.params.id, 'email', { max: 500, required: true });
+    const istruzione = v.text(req.body?.istruzione, 'istruzione', { max: 600 }) || '';
+    const stile = Object.hasOwn(A.STILI, req.body?.stile) ? req.body.stile : '';
+    const attuale = v.text(req.body?.attuale, 'bozza', { max: 8000 }) || '';
+    const t = await token(req.user.id);
+    const { m, conv } = await messageAndThread(t, id);
+    const me = String(req.user.email || '').toLowerCase();
+    // a chi rispondo: l'ultimo che ha scritto e non sono io (se l'ultima è mia, il primo destinatario)
+    const lastOther = conv.slice().reverse().find(x => x.from.address !== me) || m;
+    const target = lastOther.from.address !== me ? lastOther.from : (m.to[0] || m.from);
+    const samples = target?.address ? await sentTo(t, target.address) : [];
+    const tone = A.toneOf(samples, { name: target?.name });
+    const r = await A.toneDraft({ messages: conv, target, tone, samples: samples.map(s => S.ownPart(s)).slice(0, 6), meName: req.user.name, me, istruzione, stile, attuale }, ai());
+    await spend(r.eur);
+    const to = [...new Map([lastOther.from, ...lastOther.to, ...lastOther.cc].filter(p => p.address && p.address !== me).map(p => [p.address, p])).values()];
+    res.json({ text: r.text, eur: r.eur, ai: r.ai, tone: { n: tone.n, chips: tone.chips }, target, to, reply_to: lastOther.id, subject: `Re: ${A.subjectOf(m.subject)}` });
+  });
+
+  // Invia a tutti o salva tra le bozze di Outlook (G4): risposta nella stessa conversazione.
+  app.post('/api/crm/posta/:id/rispondi', async (req, res) => {
+    const id = v.text(req.params.id, 'email', { max: 500, required: true });
+    const text = v.text(req.body?.testo, 'testo', { max: 20000, required: true });
+    const draft = req.body?.bozza === true;
+    if (draft) {
+      const t = await writeToken(req.user.id);
+      const d = await g(t, 'POST', `/me/messages/${encodeURIComponent(id)}/createReplyAll`, { body: { comment: text } });
+      return res.json({ ok: true, draft: true, web_link: d?.webLink || null });
+    }
+    const t = await token(req.user.id);
+    await mail(t, 'POST', `/me/messages/${encodeURIComponent(id)}/replyAll`, { body: { comment: text } });
+    // se la conversazione è in un progetto, la risposta entra con il prossimo giro (o subito, all'apertura della scheda)
+    res.json({ ok: true, draft: false });
   });
 
   app.get('/api/crm/posta/:id', async (req, res) => {

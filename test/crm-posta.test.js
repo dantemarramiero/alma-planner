@@ -241,3 +241,39 @@ test('ALM2-60: cartelle di Outlook, sposta, elimina e annulla', async () => {
   assert.equal((await D('POST', '/api/crm/posta/sposta', { ids: [] })).status, 400);
   assert.equal((await D('POST', '/api/crm/posta/sposta', { ids: [a.id], cartella: '../x?y' })).status, 400);
 });
+
+test('ALM2-61: riassunto, bozza col tuo tono, bozza in Outlook e risposta a tutti', async () => {
+  const A = require('../lib/crm-posta-ai');
+  // riassunto (regole, senza chiave): cifre e date dalla conversazione del data center
+  let r = await D('POST', '/api/crm/posta/m-dc-2/riassunto');
+  assert.equal(r.status, 200);
+  assert.ok(r.body.breve.length > 20);
+  assert.match(r.body.cifre_date, /18 milioni/);
+  assert.equal(r.body.eur, 0);
+  // bozza: il tono viene dalle email mandate a Luca (tu, «Ciao Luca,», «A presto, Dante»)
+  r = await D('POST', '/api/crm/posta/m-rf-1/bozza', {});
+  assert.equal(r.status, 200);
+  assert.equal(r.body.target.address, 'l.rossi@studiotecnicorossi.it');
+  assert.ok(r.body.tone.n >= 2);
+  assert.ok(r.body.tone.chips.includes('gli dai del tu'));
+  assert.match(r.body.text, /^Ciao Luca,/);
+  assert.match(r.body.text, /A presto,\nDante$/);
+  r = await D('POST', '/api/crm/posta/m-rf-1/bozza', { stile: 'declina' });
+  assert.match(r.body.text, /non riusciamo/);
+  // salva tra le bozze di Outlook, poi invia a tutti
+  r = await D('POST', '/api/crm/posta/m-rf-1/rispondi', { testo: 'Ciao Luca,\nprova\n\nA presto,\nDante', bozza: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.draft, true);
+  assert.equal(fake.drafts.at(-1).reply_to, 'm-rf-1');
+  const before = fake.sent.length;
+  r = await D('POST', '/api/crm/posta/m-rf-1/rispondi', { testo: 'Ciao Luca,\nok\n\nA presto,\nDante' });
+  assert.equal(r.status, 200);
+  assert.equal(fake.sent.length, before + 1);
+  assert.equal((await D('POST', '/api/crm/posta/m-rf-1/rispondi', { testo: '' })).status, 400);
+  // G3: «Riassumi» solo su email lunghe o conversazioni di 3+ email
+  assert.equal(A.isLong({ body: 'breve' }, 1), false);
+  assert.equal(A.isLong({ body: 'breve' }, 3), true);
+  assert.equal(A.isLong({ body: 'parola '.repeat(200) }, 1), true);
+  // tono senza email passate: niente chip
+  assert.deepEqual(A.toneOf([]).chips, []);
+});
