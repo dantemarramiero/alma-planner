@@ -434,3 +434,35 @@ test('ALM2-67: se lancia un collega, le email aspettano il sì del proprietario;
   const list = await D('GET', '/api/crm/posta');
   assert.ok(list.body.pending >= 1);
 });
+
+test('ALM2-68: email nuova con HTML ripulito, Ccn e firma; bozza da email ricevuta + indicazioni in inglese', async () => {
+  let r = await D('POST', '/api/crm/posta/nuova', {
+    a: [{ name: 'Luca Rossi', address: 'l.rossi@studiotecnicorossi.it' }], ccn: [{ address: 'archivio@almacis.it' }], oggetto: 'Referenze data center',
+    html: '<p>Ciao Luca, ti giro le referenze. <span class="mention">@Marco Bianchi</span> ti chiama.</p><script>alert(1)</script><img src=x onerror=y>',
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  let s = fake.sent.at(-1);
+  assert.equal(s.kind, 'new');
+  assert.equal(s.subject, 'Referenze data center');
+  assert.deepEqual(s.bccRecipients.map(x => x.emailAddress.address), ['archivio@almacis.it']);
+  assert.match(s.body, /ti giro le referenze/);
+  assert.match(s.body, /almacis-firma/);
+  assert.ok(!/script|onerror|<img/i.test(s.body.replace(/almacis-firma[\s\S]*/, '')), 'niente script né immagini dall\'editor');
+  assert.equal((await D('POST', '/api/crm/posta/nuova', { a: [{ address: 'a@b.it' }], html: '<p>x</p>' })).status, 400, 'serve l\'oggetto');
+  // risposta con oggetto cambiato e HTML
+  r = await D('POST', '/api/crm/posta/m-rf-1/componi', { modo: 'rispondi', a: [{ address: 'l.rossi@studiotecnicorossi.it' }], oggetto: 'Re: Raffrescamento · stima', html: '<p>Ok <b>entro venerdì</b></p>' });
+  assert.equal(r.status, 200);
+  s = fake.sent.at(-1);
+  assert.equal(s.subject, 'Re: Raffrescamento · stima');
+  assert.match(s.body, /<b>entro venerdì<\/b>/);
+  // bozza: indicazioni usate tutte (senza AI: una riga per indicazione), in inglese
+  r = await D('POST', '/api/crm/posta/m-rf-1/bozza', { indicazioni: '- grazie\n- stima entro venerdì\n- chiedere il computo in pdf', lingua: 'en', tutti: false });
+  assert.equal(r.status, 200);
+  assert.match(r.body.text, /^Hi Luca,/);
+  assert.match(r.body.text, /Stima entro venerdì\./);
+  assert.match(r.body.text, /Chiedere il computo in pdf\./);
+  r = await D('POST', '/api/crm/posta/nuova/bozza', { a: [{ name: 'Luca Rossi', address: 'l.rossi@studiotecnicorossi.it' }], indicazioni: 'ti mando le referenze', lingua: 'it' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.text, /^Ciao Luca,/);
+  assert.equal((await D('POST', '/api/crm/posta/nuova/bozza', { a: [], indicazioni: '' })).status, 400);
+});

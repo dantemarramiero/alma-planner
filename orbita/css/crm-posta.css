@@ -344,3 +344,56 @@
 .pmy-t b { color: var(--cv-ink); font-weight: 500; }
 .pmy .cv-card + .cv-card { margin-top: 16px; }
 @media (max-width: 560px) { .pm-appr { padding: 12px; } .pm-appr-a { width: 100%; } .pm-appr-a .btn { flex: 1; } }
+/* ALM2-68 (tavola N): scrivere come in Outlook — la scrittura prende tutta la parte destra */
+.pm-list-t { display: flex; align-items: center; gap: 8px; }
+.pm-list-t strong { flex: 1; }
+.ps { position: relative; display: flex; flex-direction: column; gap: 0; margin: -24px -28px; min-height: 620px; }
+@media (max-width: 900px) { .ps { margin: -18px; } }
+.ps.busy { opacity: .65; pointer-events: none; }
+.ps-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--cv-line); background: var(--cv-head); border-radius: 18px 18px 0 0; position: sticky; top: 0; z-index: 5; }
+.ps-top .pm-sep { flex: 1; }
+.ps-div { width: 1px; height: 22px; background: var(--cv-line-strong); }
+.ps-status { color: var(--cv-muted); font-size: 12px; }
+.ps-lang { display: inline-flex; border: 1px solid var(--cv-line-strong); border-radius: 10px; overflow: hidden; }
+.ps-lang button { border: 0; background: var(--cv-card); color: var(--cv-muted); font: inherit; font-size: 12px; font-weight: 600; padding: 6px 10px; cursor: pointer; }
+.ps-lang button.on { background: var(--cv-dark); color: var(--cv-on-dark); }
+.ps-title { padding: 12px 18px 4px; font-size: 13px; color: var(--cv-muted); }
+.ps-fields { display: grid; }
+.ps-f { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 18px; min-height: 40px; border-bottom: 1px solid var(--cv-line); }
+.ps-k { width: 62px; flex: none; font-size: 13px; color: var(--cv-muted); }
+.ps-ccl { display: inline-flex; gap: 10px; margin-left: auto; font-size: 12.5px; }
+.ps-subj { flex: 1; min-width: 200px; height: 30px; border: 0; outline: 0; font: inherit; font-size: 15px; font-weight: 500; color: var(--cv-ink); background: transparent; }
+.ps-crm { padding: 10px 18px 0; }
+.ps-crm .pm-from { margin: 0; }
+.ps-alma { margin: 12px 18px 0; border: 1px solid var(--cv-or-mid); background: var(--cv-or-t); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; }
+.ps-alma[hidden] { display: none; }
+.ps-alma.busy { opacity: .6; pointer-events: none; }
+.ps-alma-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ps-alma-h .kc-k { flex: 1; color: var(--cv-or-ink); }
+.ps-ind { width: 100%; box-sizing: border-box; border: 1px solid var(--cv-line-strong); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; line-height: 1.55; color: var(--cv-ink); background: var(--cv-card); resize: vertical; min-height: 110px; }
+.ps-alma-o { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.ps-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--cv-muted); }
+.ps-chips > span { margin-right: 2px; }
+.ps-alma-f { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ps-alma-f .pm-sep { flex: 1; }
+.ps-fmts { display: flex; align-items: center; gap: 4px; padding: 10px 18px 0; }
+.ps-fmts small { margin-left: auto; }
+.ps-fmt { min-width: 30px; height: 28px; border: 1px solid var(--cv-line); border-radius: 8px; background: var(--cv-card); color: var(--cv-text); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0 6px; }
+.ps-fmt:hover { border-color: var(--cv-orange); }
+.ps-editor { margin: 8px 18px 0; min-height: 260px; padding: 14px 16px; border: 1px solid var(--cv-line); border-radius: 12px; outline: 0; font-family: Calibri, Arial, sans-serif; font-size: 15px; line-height: 1.55; color: #222; background: #fff; overflow-wrap: anywhere; }
+.ps-editor:focus { border-color: var(--cv-orange); box-shadow: 0 0 0 3px var(--cv-or-t); }
+.ps-editor:empty::before { content: attr(data-ph); color: #9a9a9a; }
+.ps-editor .mention, .ps-quote-b .mention { color: #0563C1; font-weight: 600; background: #EAF2FF; border-radius: 4px; padding: 0 2px; }
+.ps-editor ul, .ps-editor ol { margin: 4px 0; padding-left: 24px; }
+.ps-mention { position: absolute; left: 30px; top: 0; right: auto; width: 320px; z-index: 30; }
+.ps-mention button.on { background: var(--cv-or-t); }
+.ps-sig { margin: 0 18px; padding: 10px 16px; border: 1px solid var(--cv-line); border-top: 1px dashed var(--cv-line-strong); border-radius: 0 0 12px 12px; background: #fff; margin-top: -1px; }
+.ps-sig-bar { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--cv-muted); margin-bottom: 6px; }
+.ps-sig-bar a { color: var(--cv-or-ink); }
+.ps-sig-prev.off { display: none; }
+.ps-sig-off { font-size: 12.5px; color: var(--cv-muted); }
+.ps-quote { margin: 12px 18px 0; font-size: 12.5px; color: var(--cv-muted); }
+.ps-quote summary { cursor: pointer; padding: 6px 0; }
+.ps-quote-b { white-space: pre-wrap; border-left: 3px solid var(--cv-line-strong); padding: 6px 12px; color: var(--cv-text); max-height: 320px; overflow-y: auto; }
+.ps-atts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 18px 18px; }
+.ps-atts:empty { padding: 6px; }

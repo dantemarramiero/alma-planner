@@ -284,9 +284,12 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
     return { target, to: tutti ? all : [target] };
   }
 
-  app.post('/api/crm/posta/:id/bozza', async (req, res) => {
+  app.post('/api/crm/posta/:id/bozza', async (req, res, next) => {
+    if (req.params.id === 'nuova') return next(); // /api/crm/posta/nuova/bozza è più sotto
     const id = v.text(req.params.id, 'email', { max: 500, required: true });
     const istruzione = v.text(req.body?.istruzione, 'istruzione', { max: 600 }) || '';
+    const indicazioni = v.text(req.body?.indicazioni, 'indicazioni', { max: 4000 }) || '';
+    const lingua = ['it', 'en', 'auto'].includes(req.body?.lingua) ? req.body.lingua : 'auto';
     const stile = Object.hasOwn(A.STILI, req.body?.stile) ? req.body.stile : '';
     const attuale = v.text(req.body?.attuale, 'bozza', { max: 8000 }) || '';
     const tutti = req.body?.tutti !== false;
@@ -296,7 +299,7 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
     const { target, to } = recipients(m, me, tutti);
     const samples = target?.address ? await sentTo(t, target.address) : [];
     const tone = A.toneOf(samples, { name: target?.name });
-    const r = await A.toneDraft({ messages: conv, reply: m, tutti, target, tone, samples: samples.map(x => S.ownPart(x)).slice(0, 6), meName: req.user.name, me, istruzione, stile, attuale }, ai());
+    const r = await A.toneDraft({ messages: conv, reply: m, tutti, target, tone, samples: samples.map(x => S.ownPart(x)).slice(0, 6), meName: req.user.name, me, istruzione, indicazioni, lingua, stile, attuale }, ai());
     await spend(r.eur);
     res.json({ text: r.text, eur: r.eur, ai: r.ai, model: r.model, tone: { n: tone.n, chips: tone.chips }, target, to, tutti, subject: `Re: ${A.subjectOf(m.subject)}` });
   });
@@ -304,11 +307,11 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
   // ── Rispondi, Rispondi a tutti, Inoltra con A/Cc, allegati e firma Almacis (ALM2-64, tavola H) ──────
   const graphMe = uid => (mailFake ? null : async () => g(await token(uid), 'GET', '/me?$select=displayName,jobTitle,mobilePhone,businessPhones'));
   const upload = (url, buf) => (mailFake ? mailFake.upload(url, buf) : I.uploadChunks(url, buf));
-  async function sendFrom(req, id, { mode, to, cc, text, attachments = [], drop = [], firma = true, draft = false }) {
+  async function sendFrom(req, id, { mode, to, cc, bcc = [], subject = '', text, html = '', attachments = [], drop = [], firma = true, draft = false }) {
     const signature = firma ? await F.signatureOf({ db, userId: req.user.id, graphMe: graphMe(req.user.id) }) : null;
     const t = await writeToken(req.user.id);
     try {
-      return await I.compose({ g, upload, t, id, mode, to, cc, text, attachments, drop, signature: signature?.enabled ? signature : null, draft });
+      return await I.compose({ g, upload, t, id, mode, to, cc, bcc, subject, text, html, attachments, drop, signature: signature?.enabled ? signature : null, draft });
     } catch (err) {
       if (err.status === 403) throw new HttpError(403, 'Per mandare con firma e allegati serve il permesso «Mail.ReadWrite» di Microsoft: esci e rientra in Alma Space', 'mail_write');
       throw err;
@@ -335,11 +338,45 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
     const b = req.body || {};
     const mode = Object.hasOwn(I.MODES, b.modo) ? b.modo : null;
     if (!mode) throw new HttpError(400, 'Modo non valido: rispondi, tutti o inoltra');
+    if (mode === 'nuova') throw new HttpError(400, 'L\'email nuova parte da /api/crm/posta/nuova');
     const to = I.people(b.a);
     const cc = I.people(b.cc).filter(p => !to.some(x => x.address === p.address));
+    const bcc = I.people(b.ccn).filter(p => ![...to, ...cc].some(x => x.address === p.address));
     const text = typeof b.testo === 'string' ? b.testo.slice(0, 20000) : '';
-    const r = await sendFrom(req, id, { mode, to, cc, text, attachments: I.files(b.allegati), drop: (Array.isArray(b.togli) ? b.togli : []).map(String).slice(0, 50), firma: b.firma !== false, draft: b.bozza === true });
+    const html = typeof b.html === 'string' ? b.html.slice(0, 200000) : '';
+    const subject = typeof b.oggetto === 'string' ? b.oggetto.trim().slice(0, 250) : '';
+    const r = await sendFrom(req, id, { mode, to, cc, bcc, subject, text, html, attachments: I.files(b.allegati), drop: (Array.isArray(b.togli) ? b.togli : []).map(String).slice(0, 50), firma: b.firma !== false, draft: b.bozza === true });
     res.json({ ok: true, draft: r.draft, to, cc, web_link: r.web_link || null });
+  });
+
+  // Email nuova (ALM2-68, tavola N): A/Cc/Ccn, oggetto, testo (HTML dell'editor), allegati, firma; manda o bozza
+  app.post('/api/crm/posta/nuova', async (req, res) => {
+    const b = req.body || {};
+    const to = I.people(b.a);
+    const cc = I.people(b.cc).filter(p => !to.some(x => x.address === p.address));
+    const bcc = I.people(b.ccn).filter(p => ![...to, ...cc].some(x => x.address === p.address));
+    const r = await sendFrom(req, null, { mode: 'nuova', to, cc, bcc, subject: String(b.oggetto || '').trim().slice(0, 250),
+      text: typeof b.testo === 'string' ? b.testo.slice(0, 20000) : '', html: typeof b.html === 'string' ? b.html.slice(0, 200000) : '',
+      attachments: I.files(b.allegati), firma: b.firma !== false, draft: b.bozza === true });
+    res.json({ ok: true, draft: r.draft, to, cc, web_link: r.web_link || null });
+  });
+
+  // Bozza di Alma per un'email nuova: le indicazioni, il tono che usi con il primo destinatario, la lingua
+  app.post('/api/crm/posta/nuova/bozza', async (req, res) => {
+    const b = req.body || {};
+    const to = I.people(b.a);
+    const indicazioni = v.text(b.indicazioni, 'indicazioni', { max: 4000 }) || '';
+    if (!indicazioni.trim() && !b.attuale) throw new HttpError(400, 'Scrivi cosa vuoi dire: Alma parte dalle tue indicazioni');
+    const lingua = ['it', 'en'].includes(b.lingua) ? b.lingua : 'it';
+    const stile = Object.hasOwn(A.STILI, b.stile) ? b.stile : '';
+    const t = await token(req.user.id);
+    const target = to[0] || null;
+    const samples = target ? await sentTo(t, target.address) : [];
+    const tone = A.toneOf(samples, { name: target?.name });
+    const r = await A.toneDraft({ messages: [], reply: null, target, tone, samples: samples.map(x => S.ownPart(x)).slice(0, 6), meName: req.user.name, me: req.user.email,
+      indicazioni, lingua, stile, attuale: v.text(b.attuale, 'bozza', { max: 8000 }) || '', oggetto: v.text(b.oggetto, 'oggetto', { max: 250 }) || '' }, ai());
+    await spend(r.eur);
+    res.json({ text: r.text, eur: r.eur, ai: r.ai, model: r.model, tone: { n: tone.n, chips: tone.chips }, target });
   });
 
   // A e Cc: colleghi di Alma Space e contatti del CRM con l'email
