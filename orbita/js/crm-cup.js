@@ -15,6 +15,43 @@ const money = n => (!n ? '—' : n >= 1e9 ? `${(n / 1e9).toLocaleString('it-IT',
 const ROLE = { partner: ['partner', 'gr'], fornitore: ['fornitore', 'gr'], cliente: ['cliente', 'gr'], lead: ['lead', 'bl'], concorrente: ['concorrente', 'or'] };
 const roleOf = s => ['cliente', 'lead', 'partner', 'fornitore', 'concorrente'].find(r => s.roles?.includes(r)) || '';
 
+// «Segnala al radar»: un segnale «opera finanziata» con ente, costo e CUP (bu: nella BU scelta, se c'è)
+export async function sendToRadar(r, { soa = [], bu = null, btn = null, done = null } = {}) {
+  if (r.signal_id) { location.hash = '#/crm/radar'; return; }
+  if (btn) btn.disabled = true;
+  try {
+    const s = await post('/api/crm/radar/signals', { kind: 'opera_finanziata', stage: 'finanziata', ...(bu ? { bu } : {}), title: sentence(r.title).slice(0, 500), entity: ownerName(r.owner), amount: r.cost ? Math.round(r.cost) : null,
+      url: r.url, region: r.region, soa, summary: `Opera finanziata (CUP ${r.cup}), decisa nel ${r.year}. ${r.comune ? `Comune: ${r.comune}. ` : ''}Finanziamento: ${r.coverage || 'non indicato'}. Fonte: OpenCUP.` });
+    if (s?.id) { await post(`/api/crm/cup/${encodeURIComponent(r.cup)}/segnale`, { signal_id: s.id }); toast('Segnalata al radar: la trovi in Prima del bando, colonna «Finanziata»'); done?.(); }
+    else toast('Era già nel radar');
+  } catch (err) { toast(err.message); if (btn) btn.disabled = false; }
+}
+
+// La tabella delle opere (Mercato di Nuovi business e Concorrenza e gare → Opere finanziate)
+export function worksTable(rows, { canEdit = false, openCompany, signal }) {
+  return h('div.te-wrap', h('table.te-t.no-cards', h('thead', h('tr', h('th', 'Opera'), h('th', { style: { width: '240px' } }, 'Ente titolare'), h('th', { style: { width: '130px' } }, 'Costo · anno'),
+    h('th', { style: { width: '140px' } }, 'Finanziamento'), h('th', { style: { width: '190px' } }, 'Gara'), h('th', { style: { width: '220px' } }, ''))),
+  h('tbody', rows.map(r => {
+    const role = r.subject ? roleOf(r.subject) : '';
+    const w = r.award?.winners?.[0];
+    return h('tr',
+      h('td', h('b.te-title', { title: r.title }, sentence(r.title)), h('div', r.type_label ? h('span.te-cpv', r.type_label) : null),
+        h('small', [r.comune ? `${r.comune}${r.province ? ` (${r.province})` : ''}${r.places > 1 ? ` e altri ${r.places - 1} comuni` : ''}` : r.places > 1 ? `${r.places} comuni` : `tutta la regione (${r.region})`, `CUP ${r.cup}`].join(' · '))),
+      h('td', h('b', ownerName(r.owner)), h('small', r.subject ? h('span.te-pill', { class: ROLE[role]?.[1] || 'gr' }, ROLE[role]?.[0] || 'nel CRM') : h('span.te-pill.bl', 'non nel CRM'))),
+      h('td', h('b', money(r.cost)), h('small', r.year ? `decisa nel ${r.year}` : '')),
+      h('td', h('b', r.coverage || '—'), r.program ? h('small', r.program) : null),
+      h('td', r.award
+        ? [h('span.cu-gara.si', h('i'), w ? `aggiudicata a ${nice(w.name)}` : 'aggiudicata'), h('small', [r.award.awarded_on ? fmtDate(r.award.awarded_on, { year: true }) : '', r.award.discount ? `ribasso ${Number(r.award.discount).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%` : ''].filter(Boolean).join(' · '))]
+        : h('span.cu-gara.no', h('i'), 'ancora senza gara')),
+      h('td.te-act',
+        r.award && w?.cf ? h('button.nb-btn', { type: 'button', on: { click: () => openCompany?.({ cf: w.cf, name: w.name }) } }, 'Scheda impresa')
+          : r.signal_id ? h('a.cu-sent', { href: '#/crm/radar' }, ic('check', 13), 'Segnalata')
+            : canEdit && !r.award ? h('button.nb-btn.pri', { type: 'button', on: { click: e => signal(r, e.currentTarget) } }, ic('radar', 14), 'Segnala al radar') : null,
+        h('a.nb-btn', { href: r.url, target: '_blank', rel: 'noopener' }, 'OpenCUP')));
+  }))));
+}
+export { money as cupMoney, num as cupNum };
+
 export function cupSection({ id, cats, canEdit = false, openCompany }) {
   const el = h('section.te.cu', loading());
   const f = { view: 'senza', since: null, province: '', limit: 10 };
@@ -26,16 +63,7 @@ export function cupSection({ id, cats, canEdit = false, openCompany }) {
   }
   const setF = patch => { Object.assign(f, patch); load(); };
 
-  async function signal(r, d, btn) { // «Segnala al radar»: un segnale «opera finanziata» con ente, costo e CUP
-    if (r.signal_id) { location.hash = '#/crm/radar'; return; }
-    btn.disabled = true;
-    try {
-      const s = await post('/api/crm/radar/signals', { kind: 'opera_finanziata', title: sentence(r.title).slice(0, 500), entity: ownerName(r.owner), amount: r.cost ? Math.round(r.cost) : null,
-        url: r.url, region: r.region, soa: d.categories, summary: `Opera finanziata (CUP ${r.cup}), decisa nel ${r.year}. ${r.comune ? `Comune: ${r.comune}. ` : ''}Finanziamento: ${r.coverage || 'non indicato'}. Fonte: OpenCUP.` });
-      if (s?.id) { await post(`/api/crm/cup/${encodeURIComponent(r.cup)}/segnale`, { signal_id: s.id }); toast('Segnalata al radar: la trovi tra i segnali'); load(); }
-      else toast('Era già nel radar');
-    } catch (err) { toast(err.message); btn.disabled = false; }
-  }
+  const signal = (r, d, btn) => sendToRadar(r, { soa: d.categories, btn, done: load });
 
   function draw(d) {
     if (!d.source.updated_at) {
@@ -69,30 +97,8 @@ export function cupSection({ id, cats, canEdit = false, openCompany }) {
       d.provinces.length > 1 ? select('Provincia', f.province, [['', 'Provincia: tutte'], ...d.provinces.map(p => [p, `Provincia: ${p}`])], v => setF({ province: v, limit: 10 })) : null,
       h('span.te-src', h('span.te-dot'), `OpenCUP · aggiornata il ${fmtDate(d.source.updated_at.slice(0, 10))} · ${num(d.types.length)} tipi di lavoro`));
 
-    let table;
-    if (!d.rows.length) {
-      table = h('p.te-none', f.view === 'senza' ? `Nessuna opera finanziata ancora senza gara in ${where} per questi tipi di lavoro.` : 'Nessuna opera con questi filtri.');
-    } else {
-      table = h('div.te-wrap', h('table.te-t.no-cards', h('thead', h('tr', h('th', 'Opera'), h('th', { style: { width: '240px' } }, 'Ente titolare'), h('th', { style: { width: '130px' } }, 'Costo · anno'),
-        h('th', { style: { width: '140px' } }, 'Finanziamento'), h('th', { style: { width: '190px' } }, 'Gara'), h('th', { style: { width: '220px' } }, ''))),
-      h('tbody', d.rows.map(r => {
-        const role = r.subject ? roleOf(r.subject) : '';
-        const w = r.award?.winners?.[0];
-        return h('tr',
-          h('td', h('b.te-title', { title: r.title }, sentence(r.title)), h('div', r.type_label ? h('span.te-cpv', r.type_label) : null),
-            h('small', [r.comune ? `${r.comune}${r.province ? ` (${r.province})` : ''}${r.places > 1 ? ` e altri ${r.places - 1} comuni` : ''}` : r.places > 1 ? `${r.places} comuni` : `tutta la regione (${r.region})`, `CUP ${r.cup}`].join(' · '))),
-          h('td', h('b', ownerName(r.owner)), h('small', r.subject ? h('span.te-pill', { class: ROLE[role]?.[1] || 'gr' }, ROLE[role]?.[0] || 'nel CRM') : h('span.te-pill.bl', 'non nel CRM'))),
-          h('td', h('b', money(r.cost)), h('small', r.year ? `decisa nel ${r.year}` : '')),
-          h('td', h('b', r.coverage || '—'), r.program ? h('small', r.program) : null),
-          h('td', r.award
-            ? [h('span.cu-gara.si', h('i'), w ? `aggiudicata a ${nice(w.name)}` : 'aggiudicata'), h('small', [r.award.awarded_on ? fmtDate(r.award.awarded_on, { year: true }) : '', r.award.discount ? `ribasso ${Number(r.award.discount).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%` : ''].filter(Boolean).join(' · '))]
-            : h('span.cu-gara.no', h('i'), 'ancora senza gara')),
-          h('td.te-act',
-            r.award && w?.cf ? h('button.nb-btn', { type: 'button', on: { click: () => openCompany?.({ cf: w.cf, name: w.name }) } }, 'Scheda impresa')
-              : canEdit && !r.award ? h('button.nb-btn.pri', { type: 'button', on: { click: e => signal(r, d, e.currentTarget) } }, ic('radar', 14), r.signal_id ? 'Nel radar' : 'Segnala al radar') : null,
-            h('a.nb-btn', { href: r.url, target: '_blank', rel: 'noopener' }, 'OpenCUP')));
-      }))));
-    }
+    const table = d.rows.length ? worksTable(d.rows, { canEdit, openCompany, signal: (r, btn) => signal(r, d, btn) })
+      : h('p.te-none', f.view === 'senza' ? `Nessuna opera finanziata ancora senza gara in ${where} per questi tipi di lavoro.` : 'Nessuna opera con questi filtri.');
     const more = d.shown > d.rows.length ? h('button.te-more', { type: 'button', on: { click: () => setF({ limit: 100 }) } }, `Mostro le prime ${d.rows.length} per costo · `, h('b', `Vedi tutte le ${num(d.shown)}`)) : null;
     fill(el, h('div.te-card', head, bar, table, more));
   }

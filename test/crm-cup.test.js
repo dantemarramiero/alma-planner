@@ -59,7 +59,7 @@ const fakeCup = async url => {
   throw new Error(`fetch inatteso: ${url}`);
 };
 
-let server, base_, db, D, iniziativa;
+let server, base_, db, D, iniziativa, theApp;
 const ADMIN = 'direzione@almacis.it';
 async function api(cookie, method, path, body) {
   const res = await fetch(base_ + path, { method, headers: { cookie, 'X-Alma': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -69,7 +69,7 @@ async function api(cookie, method, path, body) {
 
 before(async () => {
   db = await createDb({});
-  const { app } = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, cupFetch: fakeCup });
+  const { app } = theApp = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, cupFetch: fakeCup });
   server = app.listen(0);
   await new Promise(r => server.once('listening', r));
   base_ = `http://127.0.0.1:${server.address().port}`;
@@ -180,4 +180,48 @@ test('download fermo: riprova, poi salva le aree lette e scrive quelle mancanti'
   assert.ok((await C.lastImport(db)).updated_at);
   const { rows } = await db.query('SELECT cup FROM crm_cup_works ORDER BY cup');
   assert.deepEqual(rows.map(r => r.cup), ['A11', 'B22']);
+});
+
+// ── v16: per BU e segnali automatici ──
+test('Concorrenza e gare → Opere finanziate: schede per BU e tabella con gli importi del profilo', async () => {
+  const { loadSettings } = require('../lib/crm-commerciale');
+  const st = await loadSettings(db);
+  const bu = Object.keys(st.profiles).find(k => (st.profiles[k].soa || []).includes('OG6'));
+  const p = st.profiles[bu];
+  const big = Math.max(Number(p.amount_min) || 0, 1000000) + 1000000;
+  await db.query(`INSERT INTO crm_cup_works (cup, title, year, cost, region, province, comune, owner, owner_cf, type_key, coverage) VALUES
+    ('W1', 'RIFACIMENTO RETE IDRICA', $1, $2, 'Abruzzo', 'TE', 'Teramo', 'COMUNE DI TERAMO', '00174750679', '02.15.118.999', 'Statale'),
+    ('W2', 'PICCOLO ALLACCIO', $1, 1000, 'Abruzzo', 'TE', 'Teramo', 'COMUNE DI TERAMO', '00174750679', '02.15.118.999', 'Statale')`, [Y, big]);
+  const c = await D('GET', '/api/crm/concorrenza/opere/bu');
+  assert.equal(c.status, 200);
+  const card = c.body.cards.find(x => x.bu === bu);
+  assert.ok(card.without >= 1);
+  const r = await D('GET', `/api/crm/concorrenza/opere?bu=${bu}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.bu, bu);
+  assert.ok(r.body.rows.some(x => x.cup === 'W1'));
+  if (p.amount_min) assert.ok(!r.body.rows.some(x => x.cup === 'W2'), 'sotto l\'importo minimo della BU');
+  assert.equal((await D('GET', '/api/crm/concorrenza/opere?bu=nessuna')).status, 404);
+});
+
+test('segnali automatici: opere nuove senza gara → «Finanziata» nella BU, una volta sola', async () => {
+  const { loadSettings } = require('../lib/crm-commerciale');
+  const base = await loadSettings(db);
+  const bu = Object.keys(base.profiles).find(k => (base.profiles[k].soa || []).includes('OG6'));
+  const settings = { ...base, radar: { ...base.radar, bu: { [bu]: { on: true } } }, prima_bando: { ...base.prima_bando, opere_cup: true, opere_max: 3 } };
+  const radar = theApp.app.locals.crmRadar;
+  assert.ok(radar?.addSignal);
+  const n = await C.cupSignals(db, { settings, radar });
+  assert.ok(n >= 1);
+  const { rows: [g] } = await db.query(`SELECT * FROM crm_signals WHERE source = 'opencup' AND external_id = 'W1'`);
+  assert.equal(g.stage, 'finanziata');
+  assert.equal(g.kind, 'opera_finanziata');
+  assert.equal(g.bu, bu);
+  const { rows: [w] } = await db.query(`SELECT signal_id FROM crm_cup_works WHERE cup = 'W1'`);
+  assert.equal(w.signal_id, g.id);
+  assert.equal(await C.cupSignals(db, { settings, radar }), 0);
+  const pb = await D('GET', `/api/crm/prima-del-bando?bu=${bu}`);
+  assert.ok(pb.body.stages.finanziata.some(x => x.source === 'opencup'));
+  // spento in Impostazioni: niente
+  assert.equal(await C.cupSignals(db, { settings: { ...settings, prima_bando: { ...settings.prima_bando, opere_cup: false } }, radar }), 0);
 });

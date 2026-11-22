@@ -146,7 +146,7 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     if (req.query.bu && !req.crm.admin && !c.myBus.includes(bus[0]) && c.myBus.length) throw new HttpError(403, 'Vedi le tue BU');
     const within = [6, 12].includes(Number(req.query.within)) ? Number(req.query.within) : null;
     const { rows } = await db.query(
-      `SELECT g.id, g.title, g.entity, g.subject_id, g.amount, g.bu, g.region, g.place, g.url, g.stage, g.expected_on, g.score, g.status, g.kind, g.summary, g.why, g.cig, g.created_at,
+      `SELECT g.id, g.title, g.entity, g.subject_id, g.amount, g.bu, g.region, g.place, g.url, g.stage, g.expected_on, g.score, g.status, g.kind, g.summary, g.why, g.cig, g.created_at, g.source,
               a.label AS bu_label, s.name AS subject_name
          FROM crm_signals g LEFT JOIN crm_asa a ON a.key = g.bu LEFT JOIN crm_subjects s ON s.id = g.subject_id
         WHERE g.stage <> '' AND g.bu = ANY($1::text[]) AND g.status IN ('nuovo', 'interessa') AND NOT g.to_gare
