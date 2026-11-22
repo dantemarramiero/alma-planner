@@ -11,7 +11,7 @@ import { cvModal } from './crm-v2.js';
 const qs = p => new URLSearchParams(Object.entries(p || {}).filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length))
   .map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : String(v)])).toString();
 const num = n => Number(n || 0).toLocaleString('it-IT');
-const SRC_ICON = { anac: 'building', ted: 'globe', opencup: 'calendar' };
+const SRC_ICON = { anac: 'building', soa: 'badge-check', ted: 'globe', opencup: 'calendar' };
 const STATUS = { ok: ['aggiornata', 'gr'], vecchia: ['da aggiornare', 'or'], vuota: ['ancora vuota', 'or'], in_arrivo: ['in arrivo', 'gy'] };
 const day = iso => (iso ? new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) : '');
 const periodText = p => {

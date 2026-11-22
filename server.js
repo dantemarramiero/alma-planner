@@ -42,6 +42,7 @@ const { registerCantieri, syncFromBoss } = require('./routes/cantieri');
 const { registerCrm } = require('./routes/crm');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmFonti } = require('./routes/crm-fonti');
+const { registerCrmSoa } = require('./routes/crm-soa');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
@@ -257,6 +258,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
+  registerCrmSoa(app, deps); // CRM: attestazioni SOA di ANAC (chi è qualificato in zona, scheda impresa)
   registerCrmProgetti(app, deps); // CRM: «Porta avanti» → progetto di Alma Space, «I miei progetti», rendiconto
   registerCrmCollegamenti(app, deps); // CRM: aziende e persone collegate a gare, opportunità e progetti, con il ruolo
   registerCrmPunti(app, deps); // CRM: punti di contatto trovati da soli (Collega · Chiedi un'introduzione · Non c'entra)

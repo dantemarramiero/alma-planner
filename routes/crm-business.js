@@ -881,7 +881,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
       }
       // ferma da 3 settimane: un avviso per periodo fermo (se l'attività riprende e poi si ferma di nuovo, riparte)
       const last = await lastActivity(i);
-      const quietSince = last && i.quiet_alerted_at ? dayOf(new Date(i.quiet_alerted_at).toISOString()) : null;
+      // giorno dell'ultimo avviso in ora italiana, come last e today (in UTC tra mezzanotte e l'una sembrava il giorno prima)
+      const quietSince = last && i.quiet_alerted_at ? new Date(i.quiet_alerted_at).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }) : null;
       if (last && last <= addDays(today, -21) && (!quietSince || quietSince < last)) {
         if (await send(people, 'nb_quiet', `«${i.name}» è ferma da 3 settimane: nessuna attività dal ${itDay(last)}. Fissa un passo o aggiorna lo stato.`, `/crm/business/${i.id}/analisi`)) out.quiet++;
         await db.query('UPDATE crm_initiatives SET quiet_alerted_at = now() WHERE id = $1', [i.id]);
