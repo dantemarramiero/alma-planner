@@ -229,7 +229,12 @@ test('Radar per tutti (19/11): tutte le BU anche per chi non ne è responsabile,
   const b = (await F('GET', '/api/crm/radar/board')).body; // facility@ non è responsabile di Edilizia ma la vede
   assert.ok(b.signals.some(g => g.bu === 'edilizia') && b.signals.some(g => g.bu !== 'edilizia'));
   assert.equal(b.signals.find(g => g.id === fin.id).column, 'finanziata');
-  assert.ok(b.signals.every(g => ['programmata', 'finanziata', 'approvato'].includes(g.column)));
+  assert.ok(b.signals.every(g => ['programmata', 'finanziata', 'approvato', 'arrivo'].includes(g.column)));
+  // v17: quarta colonna «Gara in arrivo» = determina (e gare già bandite, o bando atteso entro 60 giorni)
+  const arr = await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'arrivo' });
+  assert.deepEqual([arr.body.stage, arr.body.column], ['determina', 'arrivo']);
+  assert.equal((await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'approvato' })).body.column, 'approvato');
+  await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'finanziata' });
   assert.ok(b.signals.every(g => g.status !== 'scartato'));
   assert.ok((await F('GET', '/api/crm/radar/board?scartate=1')).body.signals.some(g => g.status === 'scartato'));
   assert.ok(b.signals.every(g => 'warm' in g && Array.isArray(g.warm_us)));

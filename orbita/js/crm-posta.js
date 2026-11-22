@@ -100,7 +100,9 @@ export async function postaPage(container) {
         h('button.pm-item', { type: 'button', class: st.sel === m.id ? 'on' : '', on: { click: () => open(m) } },
           h('span.pm-item-r', h('b', sentLike ? (m.to[0]?.name || m.to[0]?.address || '—') : (m.from.name || m.from.address)), h('small', when(m.date))),
           h('span.pm-item-s', m.subject),
-          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))));
+          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))),
+        // cestino sulla riga (Dante 22/11): elimina con un clic, senza aprire l'email
+        inTrash() ? null : h('button.pm-rowdel', { type: 'button', title: 'Elimina (va in «Posta eliminata» di Outlook)', 'aria-label': `Elimina «${m.subject}»`, on: { click: () => move([m.id], { del: true }) } }, ic('trash', 15)));
     }),
     st.next ? h('button.btn.btn-sm.pm-more', { type: 'button', on: { click: () => load(true) } }, 'Altre email') : null);
   }
@@ -149,14 +151,26 @@ export async function postaPage(container) {
     if (st.sel !== m.id) return;
     const place = e.project ? h('a.btn.pm-in', { href: `#/crm/progetto/${e.project.id}` }, ic('folder', 15), `Nel progetto ${e.project.name}`, ic('chevron-right', 14))
       : e.signal ? h('a.btn.pm-in', { href: `#/crm/lancio/s/${e.signal.id}` }, ic('radar', 15), 'Nel Radar · portala avanti', ic('chevron-right', 14)) : null;
+    st.cur = e;
+    const aiBox = h('div.pm-ai');
+    const long = e.conversation_count >= 3 || (e.body.match(/\S+/g) || []).length > 150;
+    st.act = {
+      riassumi: long ? () => summary(e, aiBox) : null,
+      rispondi: () => replyDraft(e, aiBox),
+      sposta: () => move([e.id]),
+      elimina: inTrash() ? null : () => move([e.id], { del: true }),
+    };
     fill(reader,
       h('div.pm-tools',
-        h('button.btn.btn-sm', { type: 'button', title: 'Sposta in una cartella di Outlook', on: { click: () => move([e.id]) } }, ic('folder', 14), 'Sposta'),
-        inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', title: 'Va in «Posta eliminata» di Outlook: si recupera', on: { click: () => move([e.id], { del: true }) } }, ic('trash', 14), 'Elimina')),
+        long ? h('button.btn.btn-sm.pm-aib', { type: 'button', title: 'Riassunto di tutta la conversazione (tasto S)', on: { click: st.act.riassumi } }, ic('sparkles', 14), 'Riassumi', h('kbd', 'S')) : null,
+        h('button.btn.btn-sm.pm-aib', { type: 'button', title: 'Bozza di risposta a tutti col tuo tono (tasto R)', on: { click: st.act.rispondi } }, ic('sparkles', 14), 'Bozza di risposta', h('kbd', 'R')),
+        h('button.btn.btn-sm', { type: 'button', title: 'Sposta in una cartella di Outlook (tasto V)', on: { click: () => move([e.id]) } }, ic('folder', 14), 'Sposta'),
+        inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', title: 'Va in «Posta eliminata» di Outlook: si recupera (tasto Canc)', on: { click: () => move([e.id], { del: true }) } }, ic('trash', 14), 'Elimina')),
       h('div.pm-rhead',
         h('div.pm-rtitle', h('h1', e.subject), h('span.pm-rmeta', `${e.from.name || ''} <${e.from.address}> · a ${e.to.map(x => x.name || x.address).join(', ')}${e.cc.length ? `, cc ${e.cc.map(x => x.name || x.address).join(', ')}` : ''}`), h('small.cv-muted', `${fmtDate(String(e.date).slice(0, 10), { year: true })} ${String(e.date).slice(11, 16)}${e.conversation_count > 1 ? ` · ${e.conversation_count} email nella conversazione` : ''}`)),
         place || h('button.btn.btn-primary.pm-create', { type: 'button', on: { click: () => openProposal(e.id) } }, ic('sparkles', 15), 'Crea progetto commerciale'),
         place ? null : h('button.btn', { type: 'button', on: { click: () => addToProject(e) } }, 'Aggiungi a un progetto')),
+      aiBox,
       fromMailBar(e, () => open({ id: e.id })),
       h('div.pm-body', e.body.trim()),
       e.attachments.length ? h('div.pm-atts', e.attachments.map(a => h('span.pm-att', ic('paperclip', 13), `${a.name} · ${(a.size / 1048576).toLocaleString('it-IT', { maximumFractionDigits: 1 })} MB`))) : null,
@@ -164,6 +178,91 @@ export async function postaPage(container) {
         h('div.pm-hint', h('span.pm-hint-k', 'Anche da qui'), h('span', h('b', 'Persone con cui mi scrivo'), ': nel menu di una riga, «Crea progetto dalle sue email».'), h('span', h('b', 'Scheda contatto o azienda'), ', tab Email: «Crea progetto» su una conversazione.')),
         h('div.pm-hint', h('span.pm-hint-k', 'Se è già in un progetto'), h('span', 'Al posto del pulsante arancione compare il progetto in cui sta, come nelle righe a sinistra.'))));
   }
+  // ── Riassunto e bozza col tuo tono (ALM2-61, tavola G) ──────────────────────────────────────────
+  const cents = eur => (eur > 0 ? `${(eur * 100).toLocaleString('it-IT', { maximumFractionDigits: eur * 100 < 0.1 ? 2 : 1 })} cent` : '');
+  const box = (cls, title, cost, ...body) => h(`section.pm-aip.${cls}`, h('div.pm-aip-h', h('span.pm-aip-k', title), cost ? h('small', cost) : null), ...body);
+  async function summary(e, aiBox) {
+    const old = aiBox.querySelector('.pm-sum');
+    if (old) { old.remove(); return; }
+    const wait = box('pm-sum', 'Riassunto di Alma', '', loading());
+    aiBox.prepend(wait);
+    let r;
+    try { r = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/riassunto`, {}); } catch (err) { wait.remove(); toast(err?.message || 'Riassunto non riuscito', 'err'); return; }
+    const tile = (k, v, dark) => (v ? h('div.pm-sum-t', { class: dark ? 'dark' : '' }, h('span', k), h('p', v)) : null);
+    wait.replaceWith(box('pm-sum', `Riassunto di Alma · ${r.emails === 1 ? '1 email' : `${r.emails} email`}, ${r.words.toLocaleString('it-IT')} parole`, cents(r.eur),
+      h('p.pm-sum-b', r.breve),
+      h('div.pm-sum-g', tile('Cosa chiedono', r.chiedono), tile('Cifre e date', r.cifre_date), tile('Tocca a te', r.tocca_a_te, true)),
+      h('button.cv-lnk.pm-aip-x', { type: 'button', on: { click: ev => ev.currentTarget.closest('.pm-sum').remove() } }, 'Chiudi')));
+  }
+  async function replyDraft(e, aiBox) {
+    let panel = aiBox.querySelector('.pm-draft');
+    if (panel) { panel.querySelector('textarea')?.focus(); return; }
+    panel = box('pm-draft', 'Bozza di risposta a tutti', '', loading());
+    aiBox.append(panel);
+    const ask = async (extra = {}) => {
+      const r = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/bozza`, extra);
+      return r;
+    };
+    let r;
+    try { r = await ask(); } catch (err) { panel.remove(); toast(err?.message || 'Bozza non riuscita', 'err'); return; }
+    let spent = r.eur;
+    const text = h('textarea.pm-draft-t', { rows: 9, 'aria-label': 'Testo della risposta' });
+    text.value = r.text;
+    const cost = h('small');
+    const busy = on => { panel.classList.toggle('busy', on); text.disabled = on; };
+    const redo = async extra => {
+      busy(true);
+      try { const x = await ask({ ...extra, attuale: text.value }); text.value = x.text; spent += x.eur; cost.textContent = cents(spent); } catch (err) { toast(err?.message || 'Bozza non riuscita', 'err'); }
+      busy(false);
+    };
+    const free = h('input.pm-draft-i', { placeholder: 'oppure scrivi cosa vuoi dire, es. «chiedi il computo in pdf»', 'aria-label': 'Cosa vuoi dire' });
+    free.addEventListener('keydown', ev => { if (ev.key === 'Enter' && free.value.trim()) { ev.preventDefault(); redo({ istruzione: free.value.trim() }); } });
+    const send = async draft => {
+      if (!text.value.trim()) return;
+      busy(true);
+      try {
+        const x = await post(`/api/crm/posta/${encodeURIComponent(e.id)}/rispondi`, { testo: text.value, bozza: draft });
+        panel.remove();
+        toast(draft ? 'Salvata tra le bozze di Outlook' : `Risposta inviata a ${r.to.length === 1 ? (r.to[0].name || r.to[0].address) : `${r.to.length} persone`}`);
+        if (draft && x.web_link) window.open(x.web_link, '_blank', 'noopener');
+      } catch (err) { busy(false); toast(err?.message || 'Risposta non partita', 'err', 8000); }
+    };
+    cost.textContent = cents(spent);
+    const fresh = box('pm-draft', `Bozza di risposta a tutti · col tuo tono con ${firstName(r.target?.name) || r.target?.address || ''}`, '',
+      h('div.pm-tone', h('span', r.tone.n ? `Dalle tue ultime ${r.tone.n} email a ${firstName(r.target?.name) || 'questa persona'}:` : 'Non le hai ancora scritto: tono cortese, col «lei».'), r.tone.chips.map(c => h('span.pm-chip', c))),
+      h('small.pm-to', `A: ${r.to.map(p => p.name || p.address).join(', ')}`),
+      text,
+      h('div.pm-redo', h('span', 'Rifalla:'), [['breve', 'più breve'], ['formale', 'più formale'], ['declina', 'declina con garbo']].map(([k, l]) => h('button.cv-pill.line', { type: 'button', on: { click: () => redo({ stile: k }) } }, l)), free),
+      h('div.pm-draft-f',
+        h('span', 'Non parte niente da solo: la mandi tu, oppure la trovi tra le Bozze di Outlook.'),
+        h('button.cv-lnk', { type: 'button', on: { click: () => panel.remove() } }, 'Chiudi'),
+        h('button.btn', { type: 'button', on: { click: () => send(true) } }, 'Salva tra le bozze di Outlook'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => send(false) } }, ic('send', 14), 'Invia a tutti')));
+    fresh.querySelector('.pm-aip-h').append(cost);
+    panel.replaceWith(fresh);
+    panel = fresh;
+    text.focus();
+  }
+
+  // Scorciatoie (Dante 22/11): S riassunto · R bozza · V sposta · Canc elimina · J/K email dopo/prima. Mai mentre si scrive.
+  const keys = ev => {
+    if (!container.isConnected) { document.removeEventListener('keydown', keys); return; }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
+    const t = ev.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (document.querySelector('#overlay-root > *')) return;
+    const k = ev.key.toLowerCase();
+    const at = st.list.findIndex(m => m.id === st.sel);
+    const run = fn => { if (fn) { ev.preventDefault(); fn(); } };
+    if (k === 's') run(st.act?.riassumi);
+    else if (k === 'r') run(st.act?.rispondi);
+    else if (k === 'v') run(st.act?.sposta);
+    else if (k === 'delete' || k === '#') run(st.act?.elimina);
+    else if (k === 'j') run(st.list[at + 1] ? () => open(st.list[at + 1]) : null);
+    else if (k === 'k') run(at > 0 ? () => open(st.list[at - 1]) : null);
+  };
+  document.addEventListener('keydown', keys);
+
   async function addToProject(e) {
     const { projects } = await get('/api/crm/progetti?vista=miei');
     const m = cvModal({ title: 'Aggiungi a un progetto', body: projects.length ? h('div.pm-pick', projects.map(p => h('button.pm-pick-i', { type: 'button', on: { click: async () => {

@@ -90,10 +90,12 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     res.json({ signals: rows, min, highlight: c.settings.scoring.highlight, bus: c.myBus, gare: c.gare, discardReasons: c.settings.rules.discard_reasons });
   });
   // ── Radar per tutti (19/11/2026, canvas «v9 · Radar»): tutte le opportunità di tutte le BU, a colonne ──────
-  // Colonne: Programmata (programmata o senza fase) · Finanziata · Progetto approvato (progetto, determina e gare
+  // Colonne (v17, 22/11): Programmata (programmata o senza fase) · Finanziata · Progetto approvato · Gara in arrivo (determina,
   // già bandite: l'ufficio gare le vede qui con «Porta su BOSS»). «Vinte da altri» e scartate solo a richiesta.
   // Ogni opportunità porta «chi ci conosce» (forza dei rapporti con l'ente, lib/crm-relazioni.js).
-  const columnOf = g => (g.to_gare || ['progetto', 'determina'].includes(g.stage) ? 'approvato' : g.stage === 'finanziata' ? 'finanziata' : 'programmata');
+  // v17 (22/11): quattro colonne. «Gara in arrivo» = determina o avviso, gare già bandite, o bando atteso entro 60 giorni
+  const soonDate = d => { if (!d) return false; const days = (new Date(String(d instanceof Date ? d.toISOString() : d).slice(0, 10)) - new Date(new Date().toISOString().slice(0, 10))) / 864e5; return days >= 0 && days <= 60; };
+  const columnOf = g => (g.to_gare || g.stage === 'determina' || soonDate(g.expected_on) ? 'arrivo' : g.stage === 'progetto' ? 'approvato' : g.stage === 'finanziata' ? 'finanziata' : 'programmata');
   app.get('/api/crm/radar/board', async (req, res) => {
     const c = await ctx(req);
     const states = ['nuovo', 'interessa', 'boss', ...(req.query.scartate ? ['scartato', 'gara_scartata'] : [])];
@@ -118,7 +120,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   // Spostare un'opportunità tra le colonne (trascinandola): Programmata → Finanziata → Progetto approvato
   app.post('/api/crm/radar/signals/:id/fase', async (req, res) => {
     const g = await signalById(req.params.id);
-    const stage = { programmata: 'programmata', finanziata: 'finanziata', approvato: 'progetto' }[req.body?.column] ?? (STAGES.includes(req.body?.stage) ? req.body.stage : null);
+    const stage = { programmata: 'programmata', finanziata: 'finanziata', approvato: 'progetto', arrivo: 'determina' }[req.body?.column] ?? (STAGES.includes(req.body?.stage) ? req.body.stage : null);
     if (stage === null) throw new HttpError(400, 'Fase non valida');
     await db.query('UPDATE crm_signals SET stage = $2 WHERE id = $1', [g.id, stage]);
     res.json({ id: g.id, stage, column: columnOf({ ...g, stage }) });
