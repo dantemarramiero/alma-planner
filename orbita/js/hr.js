@@ -43,7 +43,7 @@ const notHr = c => fill(c, head('Riservato al team HR'), h('div.card.empty', 'Qu
 
 export async function hrView(c, parts, params) {
   const page = parts[1] || 'percorso';
-  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia', 'preboarding-lista', 'recruitment', 'modelli'];
+  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'strategia', 'preboarding-lista', 'recruitment', 'modelli', 'matrice'];
   if (hrPages.includes(page) && !store.me.hr) return notHr(c);
   fill(c, loading());
   try {
@@ -60,8 +60,6 @@ export async function hrView(c, parts, params) {
       // Fase 2 (ALM2-52): organigramma in sola lettura e il resto in hr-org.js
       case 'organigramma': return (await import('./hr-org.js')).organigrammaView(c, params);
       case 'costo': return (await import('./hr-org.js')).costoView(c);
-      case 'scenari': return (await import('./hr-org.js')).scenariView(c, Number(parts[2]) || null);
-      case 'cambi': return (await import('./hr-org.js')).cambiView(c);
       case 'strategia': return (await import('./hr-org.js')).strategiaView(c);
       // Fase 3 (ALM2-53): recruitment in hr-rec.js (richieste: anche i responsabili; candidato: anche chi intervista o approva)
       case 'richieste': return parts[2] ? (await import('./hr-rec.js')).richiestaView(c, Number(parts[2])) : (await import('./hr-rec.js')).richiesteView(c, params);
@@ -75,6 +73,16 @@ export async function hrView(c, parts, params) {
       case 'fineprova': return (await import('./hr-onb.js')).provaView(c, Number(parts[2]));
       case 'formazione': return (await import('./hr-onb.js')).formazioneView(c, params);
       case 'modelli': return (await import('./hr-onb.js')).modelliView(c, params);
+      // Fase 5 (ALM2-59): performance e revisione retributiva in hr-perf.js
+      case 'valutazioni': return (await import('./hr-perf.js')).valutazioniView(c, params);
+      case 'valutazione': return (await import('./hr-perf.js')).schedaView(c, Number(parts[2]), params);
+      case 'semestre': return (await import('./hr-perf.js')).semestreView(c, Number(parts[2]), params);
+      case 'calibrazione': return (await import('./hr-perf.js')).calibrazioneView(c, params);
+      case 'matrice': return (await import('./hr-perf.js')).matriceView(c, params);
+      case 'revisione': return (await import('./hr-perf.js')).revisioneView(c, params);
+      case 'lettere': return (await import('./hr-perf.js')).lettereView(c, params);
+      case 'esito': return (await import('./hr-perf.js')).esitoView(c, params);
+      case 'ciclo': return (await import('./hr-perf.js')).cicloView(c, params);
       default: return await percorsoView(c);
     }
   } catch (err) {
@@ -128,7 +136,8 @@ async function percorsoView(c) {
           x.id === r.id ? h('small', 'sei qui') : d.next?.id === x.id ? h('small', 'prossimo passo') : null))))]));
   const sign = r.signed_at ? h('span.hr-chip.z-ok', `presa visione v${r.version} firmata il ${itDate(r.signed_at.slice(0, 10))}`)
     : h('button.btn.btn-primary.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/hr/mansionario/${r.id}/presa-visione`); toast('Presa visione firmata'); percorsoView(c); } } }, `Firma la presa visione (v${r.version})`);
-  fill(c, head('Il mio percorso', 'Il tuo ruolo, il tuo grade e cosa serve per il passo dopo. La RAL non è qui: è sul cedolino.'),
+  const esito = await (await import('./hr-perf.js')).esitoCard().catch(() => null);
+  fill(c, head('Il mio percorso', 'Il tuo ruolo, il tuo grade e cosa serve per il passo dopo. La RAL non è qui: è sul cedolino.'), esito,
     h('div.hr-grid2',
       h('div.card.hr-pad', h('div.hr-label', 'Il mio ruolo'), h('div.hr-big', r.title), h('div.muted', `Grade G${r.grade} · fascia ${k1(r.band.min)} – ${k1(r.band.mid)} – ${k1(r.band.max)} k€`),
         h('p', r.description), h('div.hr-row', h('a.btn.btn-sm', { href: `#/hr/mansionario?ruolo=${r.id}` }, 'Scheda del ruolo'), sign)),
@@ -137,7 +146,7 @@ async function percorsoView(c) {
         d.next.criteria ? h('ul.hr-check', d.next.criteria.split(/\n|(?<=\.)\s+(?=[A-ZÀ-Ý])/).map(x => x.trim()).filter(Boolean).map(x => h('li', h('span.hr-box', { 'aria-hidden': 'true' }), x)))
           : h('p', 'I criteri per il passaggio sono nella scheda del ruolo.'),
         h('p.small.muted', 'Oggi la spunta la mette il tuo responsabile nel colloquio; quando BOSS passerà i dati delle commesse (complessità chiuse in autonomia), i criteri misurabili si spunteranno da soli.')] : h('p.muted', 'Sei al vertice del tuo binario.'))),
-    h('div.card.hr-pad', h('div.hr-label', 'Le mie scadenze'), h('p.small.muted', 'Formazione sulla sicurezza, patentini e visite mediche compariranno qui quando BOSS li passerà ad Alma: oggi non arrivano.')),
+    h('div.card.hr-pad', h('div.hr-label', 'Le mie scadenze'), h('p.small.muted', "La formazione obbligatoria del tuo ruolo (attestati e scadenze) la tiene QHSE in Alma HR: se un corso ti manca o sta per scadere, ricevi l'avviso. Visite mediche e patentini arriveranno da BOSS.")),
     h('div.card.hr-pad', h('div.hr-label', 'Il mio binario'), ladder,
       h('p.muted.small', 'Si vedono il tuo binario e quello vicino: cambiare binario è una strada possibile, non solo salire.')));
 }
@@ -233,7 +242,7 @@ function editRole(r, families, done) {
 
 // ── Persone (team HR) ───────────────────────────────────────────────────────────────────────────────────────
 async function personeView(c, params) {
-  const d = await get('/api/hr/persone');
+  const [d, sy] = await Promise.all([get('/api/hr/persone'), get('/api/hr/sincronizzazione', { quiet: true }).catch(() => null)]);
   const q = h('input.input', { type: 'search', placeholder: 'Cerca…', value: params.get('q') || '' });
   const bu = await ambitoSelect(() => draw());
   const filt = h('select.select', [['', 'Tutti'], ['senza', 'Senza ruolo'], ['fuori', 'Fuori fascia'], ['esclusi', 'Fuori dalla griglia']].map(([k, l]) => h('option', { value: k, selected: params.get('f') === k }, l)));
@@ -281,10 +290,10 @@ async function personeView(c, params) {
       d.boss_api ? h('button.btn', { type: 'button', on: { click: async () => { const r = await post('/api/hr/boss/sync'); toast(r.ok ? `${r.n} persone da BOSS` : r.reason, r.ok ? 'ok' : 'err'); personeView(c, params); } } }, icon('refresh-cw', { size: 16 }), ' Aggiorna da BOSS') : null)),
     lockBar('Vista del team HR: la posizione in fascia non arriva a nessun altro.'),
     bulk,
-    h('div.hr-row.hr-filters', q, bu, filt, count, h('span.hr-chip', d.synced_at ? `ultimo aggiornamento ${fmtDateTime(d.synced_at)}` : 'mai caricato'),
+    h('div.hr-row.hr-filters', q, bu, filt, count, h('span.hr-chip', { title: 'Stato della sincronizzazione con BOSS' }, d.synced_at ? `ultimo aggiornamento ${fmtDateTime(d.synced_at)}${sy ? ` · ${sy.api ? 'API di BOSS, ogni notte' : 'export di BOSS'} · ${sy.persone} persone · ${sy.incarichi} incarichi` : ''}` : 'mai caricato'),
       senza ? h('a.hr-chip.z-warn', { href: '#/hr/ruoli' }, `${senza} senza ruolo → assegna`) : null),
     h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['', 'Persona', 'Incarico ⟳', 'BU ⟳', 'CCNL · livello ⟳', 'Contratto ⟳', 'Ruolo', 'Grade', 'Posizione in fascia'].map(x => h('th', x)))), body)),
-    h('p.small.muted', '⟳ = arriva da BOSS: oggi con l\'export mensile, poi via API ogni notte. Part-time riportati a tempo pieno per il confronto con la fascia.'));
+    h('p.small.muted', '⟳ = arriva da BOSS: oggi con l\'export mensile, poi via API ogni notte. Part-time riportati a tempo pieno per il confronto con la fascia. Se una sincronizzazione fallisce, Alma tiene la copia del giorno prima.'));
   draw();
 }
 
@@ -508,7 +517,7 @@ function panEdit(body, d, base, tab, c, params) {
         row('Persone che cambiano zona', '—', r.moved), row('Sotto il minimo', r.before.below, r.after.below), row('Sopra il massimo', r.before.above, r.after.above),
         row('Dentro la fascia', `${r.before.inPct}%`, `${r.after.inPct}%`), row('Costo di rientro / anno', r.before.cost, r.after.cost, eur), row('Sovrapposizione media', `${r.before.overlapAvg}%`, `${r.after.overlapAvg}%`)),
       h('div.hr-label', 'Quando applichi, si aggiorna'),
-      h('ul.hr-where', ['Salary grade per tutti', 'Persone e schede (posizione in fascia)', 'Mappatura e anomalie', 'Mansionario (fascia dei ruoli)', 'Il mio percorso', 'Recruitment (Fase 3): fascia negli annunci e controlli sulle offerte', 'Organigramma (Fase 2): costo dei vacanti', 'Revisione retributiva (Fase 5): budget e merito'].map(x => h('li', icon('check', { size: 14 }), x))));
+      h('ul.hr-where', ['Salary grade per tutti', 'Persone e schede (posizione in fascia)', 'Mappatura e anomalie', 'Mansionario (fascia dei ruoli)', 'Il mio percorso', 'Recruitment (Fase 3): fascia negli annunci e controlli sulle offerte', 'Organigramma (Fase 2): costo dei vacanti', 'Valutazione e revisione retributiva (Fase 5): pesi del voto, merito e budget'].map(x => h('li', icon('check', { size: 14 }), x))));
   }, 250); };
   let editor;
   if (tab === 'fasce') {
@@ -541,7 +550,10 @@ function panEdit(body, d, base, tab, c, params) {
         Object.keys(r.merit).map(row => h('tr', h('td', h('b', row)), r.merit[row].map((v, i) => h('td', numInput(v, x => { r.merit[row][i] = x; refresh(); }, 0.5)))))),
       h('div.hr-grid2', h('label.field', h('span', 'Promozione: RAL attuale + %'), numInput(r.promoPct, v => { r.promoPct = v; refresh(); }, 0.5)),
         h('label.field', h('span', 'Budget aumenti (% del monte salari)'), numInput(r.budgetPct, v => { r.budgetPct = v; refresh(); }, 0.1))),
-      h('p.small.muted', 'Promozione: il valore più alto tra il minimo del nuovo grade e la RAL attuale + questa %. La matrice e il budget servono alla revisione retributiva (Fase 5).'));
+      h('p.small.muted', 'Promozione: il valore più alto tra il minimo del nuovo grade e la RAL attuale + questa %. La matrice e il budget servono alla revisione retributiva (Fase 5).'),
+      h('div.hr-label', 'Pesi del voto finale: obiettivi e competenze del ruolo'),
+      (() => { r.pesi ||= { 1: 60, 2: 60, 3: 60, 4: 60, 5: 60, 6: 70, 7: 70, 8: 70 }; const rest = {}; return h('table.hr-t.hr-edit', h('tr', h('th', 'Grade'), h('th', 'Obiettivi %'), h('th', 'Competenze %')), [1, 2, 3, 4, 5, 6, 7, 8].map(g => { rest[g] = h('span', String(100 - Number(r.pesi[g] ?? 60))); return h('tr', h('td', h('b', `G${g}`)), h('td', numInput(r.pesi[g] ?? 60, v => { r.pesi[g] = Math.max(0, Math.min(100, Math.round(v))); rest[g].textContent = String(100 - r.pesi[g]); }, 5)), h('td', rest[g])); })); })(),
+      h('p.small.muted', 'Il voto finale della scheda annuale è la media pesata: obiettivi (da Alma Strategy) e competenze del ruolo (mansionario). Decisione di Dante: 60/40, dal G6 70/30, modificabile qui grade per grade.'));
   } else if (tab === 'variabile') {
     const r = state.rules;
     r.variabile ||= {}; r.variabileSu ||= {};

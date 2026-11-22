@@ -197,6 +197,29 @@ test('costi AI: per funzione e per persona, in euro, con i tetti che si salvano'
   assert.equal((await api(WORKER, 'PUT', '/api/impostazioni/costi', { monthly_eur: 1, daily_eur: 1 })).status, 403);
 });
 
+test('costi AI: quote per persona e amministratori senza limite (ALM2-62)', async () => {
+  const c = (await api(ADMIN, 'GET', '/api/impostazioni/costi')).body;
+  assert.equal(c.admins_unlimited, true);
+  assert.deepEqual(c.quotas, []);
+  const luca = c.users.find(u => u.name === 'Luca Bianchi');
+  assert.ok(luca);
+  assert.equal(c.users.find(u => u.admin)?.admin, true);
+  assert.equal((await api(WORKER, 'PUT', `/api/impostazioni/costi/persona/${luca.id}`, { quota: 'unlimited' })).status, 403);
+  assert.equal((await api(ADMIN, 'PUT', `/api/impostazioni/costi/persona/${luca.id}`, { quota: 'tanti' })).status, 400);
+  assert.equal((await api(ADMIN, 'PUT', `/api/impostazioni/costi/persona/${luca.id}`, { quota: '2,5' })).status, 200);
+  let c2 = (await api(ADMIN, 'GET', '/api/impostazioni/costi')).body;
+  assert.deepEqual(c2.quotas, [{ id: luca.id, name: 'Luca Bianchi', value: 2.5 }]);
+  assert.deepEqual(c2.people.find(p => p.id === luca.id).quota, { unlimited: false, eur: 2.5, source: 'persona' });
+  // salvare i tetti non cancella le quote per persona; si può togliere il «senza limite» agli amministratori
+  assert.equal((await api(ADMIN, 'PUT', '/api/impostazioni/costi', { monthly_eur: 200, daily_eur: 1, alert_pct: 80, admins_unlimited: false })).status, 200);
+  c2 = (await api(ADMIN, 'GET', '/api/impostazioni/costi')).body;
+  assert.equal(c2.admins_unlimited, false);
+  assert.equal(c2.quotas.length, 1);
+  assert.equal((await api(ADMIN, 'PUT', `/api/impostazioni/costi/persona/${luca.id}`, { quota: null })).status, 200);
+  assert.equal((await api(ADMIN, 'PUT', '/api/impostazioni/costi', { monthly_eur: 200, daily_eur: 1, alert_pct: 80, admins_unlimited: true })).status, 200);
+  assert.deepEqual((await api(ADMIN, 'GET', '/api/impostazioni/costi')).body.quotas, []);
+});
+
 test('integrazioni e CSV del registro', async () => {
   const i = (await api(ADMIN, 'GET', '/api/impostazioni/integrazioni')).body;
   assert.equal(i.microsoft.configured, false);

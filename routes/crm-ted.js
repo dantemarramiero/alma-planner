@@ -11,7 +11,13 @@ const { scopeOf } = require('../lib/crm-business-mercato');
 const T = require('../lib/crm-ted');
 
 function registerCrmTed(app, { db, tedFetch }) {
-  const sync = () => T.syncTed(db, tedFetch ? { fetchImpl: tedFetch } : {});
+  // dopo ogni caricamento: gli avvisi di preinformazione diventano segnali «Gara in arrivo» nel Radar (v17)
+  const sync = async () => {
+    const out = await T.syncTed(db, tedFetch ? { fetchImpl: tedFetch } : {});
+    try { await T.tedSignals(db, { settings: await loadSettings(db), radar: app.locals.crmRadar, log: m => console.log(`[ted] ${m}`) }); }
+    catch (err) { console.error('[ted] segnali:', err.message); }
+    return out;
+  };
 
   app.get('/api/crm/business/:id/mercato/ted', async (req, res) => {
     const id = Number(req.params.id);

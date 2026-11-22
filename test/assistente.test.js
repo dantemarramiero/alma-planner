@@ -189,7 +189,7 @@ test('quota: finita la quota del giorno Alma si ferma con un messaggio chiaro', 
   const r = await E('POST', '/api/alma/chat', { text: 'Quanti ticket ho?' });
   assert.equal(r.status, 429);
   assert.equal(r.body.code, 'daily_limit');
-  assert.match(r.body.error, /tua quota di Alma \(0,5 €|tua quota di Alma \(0.5 €/);
+  assert.match(r.body.error, /tua quota di Alma \(0,50 €\)/);
   const st = await E('GET', '/api/alma/status');
   assert.equal(st.body.limits.daily_eur, 0.5);
   // quota del mese
@@ -199,6 +199,46 @@ test('quota: finita la quota del giorno Alma si ferma con un messaggio chiaro', 
   assert.equal(m.body.code, 'month_limit');
   assert.equal((await E('PUT', '/api/alma/settings', { monthly_eur: 1000 })).status, 403); // solo amministratori
   assert.equal((await D('PUT', '/api/alma/settings', { monthly_eur: 1000, daily_eur: 100 })).status, 200);
+});
+
+test('budget (ALM2-62): anello del tasto, amministratori senza limite, quota per persona', async () => {
+  const day = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+  assert.equal((await D('PUT', '/api/alma/settings', { daily_eur: 2, monthly_eur: 1000 })).status, 200);
+  await db.query('DELETE FROM assistant_usage WHERE user_id = $1', [eId]);
+  await db.query('INSERT INTO assistant_usage (user_id, model, cost_usd, day) VALUES ($1, $2, $3, $4)', [eId, 'gpt-5', 0.6 / 0.92, day]);
+  const b = (await E('GET', '/api/alma/budget')).body;
+  assert.equal(b.unlimited, false);
+  assert.equal(b.daily_eur, 2);
+  assert.equal(b.used_today_eur, 0.6);
+  assert.equal(b.left_eur, 1.4);
+  assert.equal(b.days.length, 7);
+  assert.equal(b.days[6].day, day);
+  assert.equal(b.team_month_eur, undefined); // il totale dell'azienda solo agli amministratori
+  // amministratore: senza limite, ma vede il suo consumo e quello di tutti
+  const dId = (await D('GET', '/api/me')).body.id;
+  await db.query('INSERT INTO assistant_usage (user_id, model, cost_usd, day) VALUES ($1, $2, 5, $3)', [dId, 'gpt-5', day]);
+  const a = (await D('GET', '/api/alma/budget')).body;
+  assert.equal(a.unlimited, true);
+  assert.equal(a.source, 'amministratore');
+  assert.equal(a.left_eur, null);
+  assert.ok(a.used_today_eur >= 4.6);
+  assert.ok(a.team_month_eur >= a.month_eur);
+  // eccezione per persona: decisa dagli amministratori, vince sulla quota di tutti e su «amministratori senza limite»
+  const raw = (await D('GET', '/api/alma/settings')).body;
+  assert.equal(raw.raw, undefined);
+  const { saveSetting, getSetting } = require('../lib/settings');
+  const cur = await getSetting(db, 'alma.settings', {});
+  await saveSetting(db, 'alma.settings', { ...cur, user_daily: { [eId]: 'unlimited', [dId]: 0.5 } }, dId);
+  assert.equal((await E('GET', '/api/alma/budget')).body.unlimited, true);
+  const a2 = (await D('GET', '/api/alma/budget')).body;
+  assert.equal(a2.unlimited, false);
+  assert.equal(a2.source, 'persona');
+  assert.equal((await D('POST', '/api/alma/chat', { text: 'Quanti ticket ho?' })).body.code, 'daily_limit');
+  // cambiare le impostazioni di Alma non cancella le quote per persona
+  assert.equal((await D('PUT', '/api/alma/settings', { daily_eur: 100 })).status, 200);
+  assert.deepEqual((await getSetting(db, 'alma.settings', {})).user_daily, { [eId]: 'unlimited', [dId]: 0.5 });
+  await saveSetting(db, 'alma.settings', { ...(await getSetting(db, 'alma.settings', {})), user_daily: {} }, dId);
+  await db.query('DELETE FROM assistant_usage WHERE user_id = ANY($1::int[])', [[eId, dId]]);
 });
 
 test('conversazioni: le vede, rinomina e cancella solo chi le ha fatte', async () => {
