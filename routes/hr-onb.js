@@ -181,6 +181,8 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
         WHERE o.inizio > current_date - 365 AND ((t.fatto AND t.fatto_at::date > o.inizio + t.giorno) OR (NOT t.fatto AND o.inizio + t.giorno < current_date)) GROUP BY 1 ORDER BY 2 DESC LIMIT 5`);
       const { rows: esiti } = await db.query(`SELECT p.decisione, o.stato, (SELECT bool_or(h.attivo) FROM hr_people h WHERE h.key = o.person_key) AS attivo, o.inizio::text AS inizio
         FROM hr_onboardings o LEFT JOIN hr_probation p ON p.onb_id = o.id WHERE o.inizio > current_date - 365`);
+      const { rows: [anno] } = await db.query(`SELECT count(*)::int AS su, count(*) FILTER (WHERE (SELECT bool_or(h.attivo) FROM hr_people h WHERE h.key = o.person_key))::int AS attivi
+        FROM hr_onboardings o WHERE o.inizio BETWEEN current_date - 730 AND current_date - 365 AND o.stato <> 'annullato'`);
       const pulses = aperti.filter(o => o.pulse);
       const avgQ = k => (pulses.length ? Math.round(pulses.reduce((s, o) => s + o.pulse[k], 0) / pulses.length * 10) / 10 : null);
       extra = {
@@ -191,7 +193,7 @@ function registerHrOnb(app, { db, gov, notifier, auth }) {
           prove_senza: aperti.filter(o => o.fine_prova && O.daysBetween(todayIso(), o.fine_prova) <= 30 && !o.prova?.decisione).length },
         inceppa: late,
         esiti: { superata: esiti.filter(x => x.decisione === 'conferma').length, non_superata: esiti.filter(x => x.decisione === 'non_superata').length,
-          uscite: esiti.filter(x => !x.decisione && x.attivo === false).length },
+          uscite: esiti.filter(x => !x.decisione && x.attivo === false).length, anno: anno.su ? anno : null },
       };
     }
     res.json({ onboarding: out, is_hr: hr, ...extra });

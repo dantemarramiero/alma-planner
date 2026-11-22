@@ -63,7 +63,7 @@ export async function cruscottoView(c, params) {
     h('div.hr-grid2',
       h('div.card.hr-pad', h('div.hr-label', 'Dove si inceppa l\'inserimento (12 mesi)'), d.inceppa.length ? h('table.hr-t', h('tr', h('th', 'Compito'), h('th', 'In ritardo')), d.inceppa.map(x => h('tr', h('td', x.titolo), h('td', String(x.n))))) : h('p.small.muted', 'Nessun ritardo negli ultimi 12 mesi.')),
       h('div.card.hr-pad', h('div.hr-label', 'Come finisce (12 mesi)'), h('table.hr-t', h('tr', h('td', 'Prova superata'), h('td', String(d.esiti.superata))), h('tr', h('td', 'Non superata'), h('td', String(d.esiti.non_superata))),
-        h('tr', h('td', 'Uscite durante la prova'), h('td', String(d.esiti.uscite)))))),
+        h('tr', h('td', 'Uscite durante la prova'), h('td', String(d.esiti.uscite))), h('tr', h('td', 'Ancora qui dopo 12 mesi'), h('td', d.esiti.anno ? `${d.esiti.anno.attivi} di ${d.esiti.anno.su}` : 'ancora nessun ingresso di un anno fa'))))),
     d.onboarding.some(o => o.stato !== 'aperto') ? h('details.card.hr-pad', h('summary.hr-label', 'Inserimenti chiusi'), table(d.onboarding.filter(o => o.stato !== 'aperto'))) : null,
     howTo('Una riga per persona in inserimento; la barra è la quota di compiti del piano già fatti. Pulse = media delle 3 domande dell\'ultimo giro, da 1 a 5; giallo sotto 3. «Dove si inceppa» conta i compiti finiti in ritardo negli ultimi 12 mesi: dice cosa cambiare nei modelli.'));
 }
