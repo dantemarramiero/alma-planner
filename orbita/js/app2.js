@@ -546,6 +546,7 @@ export function esploraView(view) {
     h('nav.a2-card.a2-lines',
       store.me.energy ? line('#/energy/vicino', 'Alma Energy', 'zap') : null,
       store.me.crm ? line('#/crm/lead', 'CRM', 'contact') : null,
+      store.me.posta_voce ? line('#/posta-voce', 'Posta in macchina', 'car') : null,
       line('#/biglietto', 'Il mio biglietto', 'qr-code'),
       line('#/strategy/a3', 'I miei A3 e obiettivi', 'file-text'),
       line('#/it/strumenti', 'IT e software', 'monitor'),
@@ -602,6 +603,7 @@ export async function ioView(view) {
     h('nav.a2-card.a2-lines',
       line('#/esplora', 'Tutte le funzioni', 'grid-3x3'), // app 3.0: Esplora non è più nella barra in basso
       line(`#/u/${store.me.id}`, 'Il mio profilo', 'user'),
+      store.me.posta_voce ? line('#/posta-voce', 'Posta in macchina', 'car') : null,
       line('#/biglietto', 'Il mio biglietto (QR)', 'qr-code'),
       line('#/strategy/obiettivi', 'Il mio contributo', 'target'),
       line('#/notifiche/impostazioni', 'Le mie notifiche', 'bell'),

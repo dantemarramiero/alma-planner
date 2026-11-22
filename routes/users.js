@@ -7,7 +7,7 @@ const { checkOwnMedia } = require('../lib/media');
 // handle = parte dell'email prima della chiocciola, usata per le @menzioni.
 const USER_COLS = "u.id, u.email, u.name, u.job_title, split_part(u.email, '@', 1) AS handle, u.avatar_id, u.bio, u.last_login IS NOT NULL AS active";
 
-function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAccess, crmAccess, gov }) {
+function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAccess, crmAccess, gov, postaVoce }) {
   const getUser = async id => (await db.query(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [id])).rows[0];
 
   app.get('/api/me', async (req, res) => {
@@ -16,7 +16,8 @@ function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAc
       fleet_manager: fleet ? await fleet.isManager(req) : false,
       energy: energyAccess ? await energyAccess.canUse(req) : false,
       crm: crmAccess ? await crmAccess.canUse(req) : false,
-      hr: gov ? gov.roleOf(req.user.email).key === 'hr' : false });
+      hr: gov ? gov.roleOf(req.user.email).key === 'hr' : false,
+      posta_voce: postaVoce ? postaVoce.canUse(req) : false });
   });
 
   app.patch('/api/me', async (req, res) => {

@@ -94,7 +94,7 @@ export function agoraView(view, params) {
   const date = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
   const head = h('header.a3-head',
     h('div.a3-head-t', h('span.a3-eyebrow', `ALMA AGORÀ · ${date}`), h('h1.a3-hello', 'Ciao, ', h('strong', firstName(store.me)))),
-    h('div.a3-head-r', roundLink('#/biglietto', 'Il mio biglietto da visita', 'qr-code'), meBtn()));
+    h('div.a3-head-r', store.me.posta_voce ? roundLink('#/posta-voce', 'Posta in macchina', 'car') : null, roundLink('#/biglietto', 'Il mio biglietto da visita', 'qr-code'), meBtn()));
   const today = h('a.a3-oggi', { href: '#/compiti' }, h('span.a3-oggi-dot'), h('span.a3-oggi-t', '…'), h('span.a3-oggi-n'));
   const pills = h('nav.a3-pills.a3-sticky', { 'aria-label': 'Filtro' },
     AGORA_FILTERS.map(([k, l]) => h('a.a3-pill', { href: k ? `#/benvenuto?filtro=${k}` : '#/benvenuto', class: k === filter ? 'on' : '', 'aria-current': k === filter ? 'page' : null }, l)),

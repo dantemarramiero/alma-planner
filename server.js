@@ -48,6 +48,8 @@ const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
+const { registerPostaVoce } = require('./routes/posta-voce');
+const { createPostaVoceFake } = require('./lib/posta-voce-fake');
 const { registerCrmProgetti } = require('./routes/crm-progetti');
 const { registerCrmCollegamenti } = require('./routes/crm-collegamenti');
 const { registerCrmPunti } = require('./routes/crm-punti');
@@ -103,7 +105,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, postaVoceFake, postaVoceRealtime } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -234,6 +236,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   deps.alerts = createAlerts({ db, auth, notifier: deps.notifier, push: deps.push, ticketMail: createTicketMail({ db, auth, baseUrl: config.baseUrl }), baseUrl: config.baseUrl });
   deps.fleet = createFleet({ db, auth, baseUrl: config.baseUrl, notifier: deps.notifier, isAdmin, adminEmails: config.adminEmails }); // parco mezzi: disponibilità e promemoria
   live.register(app);
+  // Posta a voce in macchina (ALM2-57): solo per Dante; in locale e nei test con una casella finta
+  deps.postaVoce = registerPostaVoce(app, { ...deps, openaiKey: config.openaiKey, realtime: postaVoceRealtime, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? (postaVoceFake || createPostaVoceFake()) : null });
   registerUsers(app, deps);
   registerProjects(app, deps);
   registerAreas(app, deps);
