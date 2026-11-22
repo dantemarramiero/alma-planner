@@ -377,8 +377,8 @@ function refreshBadges() {
 }
 
 function drawMe() {
-  const me = document.getElementById('me');
-  clear(me).append(avatar(store.me, 30), h('div', { style: { minWidth: 0 } }, h('div.me-name', store.me.name), h('div.me-mail', store.me.email)));
+  const me = document.getElementById('me'); // in barra laterale non c'è più (profilo in alto, Dante 22/11)
+  if (me) clear(me).append(avatar(store.me, 30), h('div', { style: { minWidth: 0 } }, h('div.me-name', store.me.name), h('div.me-mail', store.me.email)));
   for (const a of document.querySelectorAll('[data-nav="me"]')) a.href = `#/u/${store.me.id}`;
 }
 
