@@ -3,15 +3,54 @@
 //   POST /api/crm/cup/:cup/segnale { signal_id }   ricorda il segnale del radar creato con «Segnala al radar»
 //   GET  /api/crm/cup/tipi                         tabella categorie SOA → tipi di lavoro CUP (Impostazioni)
 //   GET  /api/crm/cup/stato · POST /api/crm/cup/aggiorna (solo direzione)
-// Il caricamento si fa da solo il 3 di ogni mese alle 03:30 e la prima volta dopo l'avvio se non c'è niente.
+//   GET  /api/crm/concorrenza/opere?bu=&vista=&tutta=1&dal=&province=&limit=   Concorrenza e gare → Opere finanziate (v16)
+//   GET  /api/crm/concorrenza/opere/bu?dal=                                     una scheda per BU (v16)
+// Il caricamento si fa da solo il 3 di ogni mese alle 03:30 e la prima volta dopo l'avvio se non c'è niente; subito dopo
+// le opere nuove diventano segnali «Finanziata» nel radar di ogni BU (v16, Impostazioni → Prima del bando).
 const { HttpError } = require('../lib/http');
-const { loadSettings } = require('../lib/crm-commerciale');
+const { loadSettings, managerOf } = require('../lib/crm-commerciale');
 const { normCat } = require('../lib/crm-anac');
 const { scopeOf } = require('../lib/crm-business-mercato');
 const C = require('../lib/crm-cup');
 
 function registerCrmCup(app, { db, cupFetch }) {
-  const sync = () => C.syncCup(db, cupFetch ? { fetchImpl: cupFetch } : {});
+  const sync = async () => {
+    const out = await C.syncCup(db, cupFetch ? { fetchImpl: cupFetch } : {});
+    try { await C.cupSignals(db, { settings: await loadSettings(db), radar: app.locals.crmRadar, log: m => console.log(`[opencup] ${m}`) }); }
+    catch (err) { console.error('[opencup] segnali:', err.message); }
+    return out;
+  };
+
+  // BU che si vedono: la direzione tutte; un responsabile le sue (se non ne ha, tutte)
+  async function busFor(req, settings) {
+    const all = Object.keys(settings.profiles || {}).filter(k => C.buScope(settings, k).types.length);
+    if (req.crm.admin) return all;
+    const { rows: users } = await db.query('SELECT id, name, email FROM users');
+    const mine = all.filter(k => managerOf(settings.profiles[k], users)?.id === req.user.id);
+    return mine.length ? mine : all;
+  }
+  const yearsBack = () => { const y = new Date().getFullYear(); return Array.from({ length: C.YEARS + 1 }, (_, k) => y - C.YEARS + k); };
+  const sinceOf = q => { const y = new Date().getFullYear(); const n = Number(q); return n >= y - C.YEARS && n <= y ? n : y - 2; };
+
+  app.get('/api/crm/concorrenza/opere/bu', async (req, res) => {
+    const settings = await loadSettings(db);
+    const bus = await busFor(req, settings);
+    res.json({ cards: await C.buCards(db, settings, bus, { since: sinceOf(req.query.dal) }), source: { ...(await C.lastImport(db)), running: C.isRunning() } });
+  });
+
+  app.get('/api/crm/concorrenza/opere', async (req, res) => {
+    const settings = await loadSettings(db);
+    const bus = await busFor(req, settings);
+    const bu = req.query.bu && bus.includes(String(req.query.bu)) ? String(req.query.bu) : bus[0] || '';
+    if (req.query.bu && !bus.includes(String(req.query.bu))) throw new HttpError(Object.keys(settings.profiles || {}).includes(String(req.query.bu)) ? 403 : 404, 'BU non disponibile');
+    const s = C.buScope(settings, bu, { allItaly: req.query.tutta === '1' });
+    const since = sinceOf(req.query.dal);
+    const out = bu ? await C.works(db, { types: s.types, regions: s.regions, amountMin: s.amountMin, amountMax: s.amountMax, since,
+      view: ['senza', 'con', 'tutte'].includes(req.query.vista) ? req.query.vista : 'senza', province: String(req.query.province || '').replace(/[^A-Za-z]/g, '').slice(0, 4),
+      limit: Number(req.query.limit) || 25 }) : { types: [], kpi: { without: 0, with: 0, cost: 0, owners_in_crm: 0 }, rows: [], shown: 0, provinces: [] };
+    res.json({ ...out, bu, bus, since, years: yearsBack(), scope: { categories: s.cats, regions: s.regions, profile_regions: settings.profiles?.[bu]?.regions || [], all_italy: req.query.tutta === '1', amount_min: s.amountMin, amount_max: s.amountMax },
+      type_labels: s.types.map(t => C.labelOf(t)).filter(Boolean), source: { ...(await C.lastImport(db)), running: C.isRunning() }, admin: req.crm.admin });
+  });
 
   app.get('/api/crm/business/:id/mercato/opere', async (req, res) => {
     const id = Number(req.params.id);

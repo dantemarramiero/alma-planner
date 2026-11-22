@@ -8,13 +8,14 @@ import { bandBar, nice, crmCell } from './crm-concorrenza.js';
 import { openImpresaMercato } from './crm-impresa-mercato.js';
 import { regioniSection, partnerSection } from './crm-gare-regioni.js';
 import { sourceLine, basedOn } from './crm-fonti.js';
+import { opereSection } from './crm-gare-opere.js';
 
 const eur = n => (n === null || n === undefined || n === '' ? '—' : Number(n) >= 1e6 ? `${(Number(n) / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : Number(n) >= 1e4 ? `${Math.round(Number(n) / 1e3).toLocaleString('it-IT')} k€` : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 0 })} €`);
 const pct = n => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%`);
 const num = n => Number(n || 0).toLocaleString('it-IT');
 const day = d => (d ? fmtDate(String(d).slice(0, 10)) : '—');
 const month = d => (d ? new Date(`${String(d).slice(0, 10)}T12:00:00Z`).toLocaleDateString('it-IT', { month: 'short', year: 'numeric' }) : '');
-const SECTIONS = [['chi-vince', 'Chi vince', 'users'], ['regioni', 'Regioni', 'map-pin'], ['partner', 'Partner', 'handshake'], ['vinte-da-altri', 'Vinte da altri', 'package'], ['prima-del-bando', 'Prima del bando', 'hourglass']];
+const SECTIONS = [['chi-vince', 'Chi vince', 'users'], ['regioni', 'Regioni', 'map-pin'], ['partner', 'Partner', 'handshake'], ['vinte-da-altri', 'Vinte da altri', 'package'], ['prima-del-bando', 'Prima del bando', 'hourglass'], ['opere-finanziate', 'Opere finanziate', 'calendar']];
 const STAGES = [['programmata', 'Programmata', '#8A8A8A'], ['finanziata', 'Finanziata', '#FF8A26'], ['progetto', 'Progetto approvato', '#1B7A45'], ['determina', 'Determina o avviso', '#B42318']];
 
 let gState = null;
@@ -25,11 +26,13 @@ export async function gareHub(box, data, section, { openSignal } = {}) {
   const again = (s = sec) => gareHub(box, data, s, { openSignal });
   const go = s => { history.replaceState(null, '', `#/crm/concorrenza/${s}`); again(s); };
   // Regioni e Partner (canvas v12): sezioni con i loro dati e la loro testata
-  if (sec === 'regioni' || sec === 'partner') {
+  if (sec === 'regioni' || sec === 'partner' || sec === 'opere-finanziate') {
     const buLabel = x => data.asa.find(a => a.key === x)?.label || x;
     const tabs = h('div.cg-tabs', { role: 'tablist' }, SECTIONS.map(([key, l, i]) => h('button.cg-tab', { type: 'button', role: 'tab', 'aria-selected': String(key === sec), class: key === sec ? 'on' : '', on: { click: () => go(key) } },
-      ic(i, 14), h('b', l), h('span', { regioni: 'dove conviene', partner: 'da contattare' }[key] || ''))));
+      ic(i, 14), h('b', l), h('span', { regioni: 'dove conviene', partner: 'da contattare', 'opere-finanziate': 'prima del bando' }[key] || ''))));
     const opts = { st, buLabel, tabs, go, again: () => again(sec) };
+    // Opere finanziate (canvas v16): da OpenCUP, per BU
+    if (sec === 'opere-finanziate') return opereSection(box, opts);
     return sec === 'regioni' ? regioniSection(box, opts) : partnerSection(box, opts);
   }
   const qs = new URLSearchParams({ months: st.months, ...(st.bu !== null ? { bu: st.bu } : {}), ...(st.regions ? { regions: 'tutte' } : {}), ...(st.amount ? { amount: 'tutte' } : {}) });
@@ -41,7 +44,7 @@ export async function gareHub(box, data, section, { openSignal } = {}) {
   const openCo = w => openImpresaMercato(w.cf ? { cf: w.cf } : { name: w.name }, { cats: sc.categories, regions: st.regions ? [] : sc.regions, months: st.months, onChange: () => again() })
     .catch(err => toast(err.message || 'Scheda non disponibile', 'error'));
   const preTotal = STAGES.reduce((n, [s]) => n + (pb.stages[s] || []).length, 0);
-  const counts = { regioni: 'dove conviene', partner: 'da contattare', 'chi-vince': `${num(r.winners.length)} imprese`, 'vinte-da-altri': `${pb.vinte_altri.length} dove entrare`, 'prima-del-bando': `${preTotal} opere` };
+  const counts = { regioni: 'dove conviene', partner: 'da contattare', 'opere-finanziate': 'prima del bando', 'chi-vince': `${num(r.winners.length)} imprese`, 'vinte-da-altri': `${pb.vinte_altri.length} dove entrare`, 'prima-del-bando': `${preTotal} opere` };
 
   // ── testata: numeri dei dati ANAC e «Cerca un'impresa» ──
   const search = h('input', { type: 'search', placeholder: 'Cerca un\'impresa per nome o P.IVA: vedi tutte le gare che ha vinto', 'aria-label': 'Cerca un\'impresa' });
@@ -144,7 +147,7 @@ function primaBando(pb, buLabel, open) {
     h('div.cg-stages', STAGES.map(([s, l, c]) => h('div.cg-stage', h('span', h('i', { style: { background: c } }), l), h('b', String((pb.stages[s] || []).length))))),
     all.map(g => h('div.cg-op', { role: 'button', tabIndex: 0, on: { click: () => open(g), keydown: e => { if (e.key === 'Enter') open(g); } } },
       h('i', { style: { background: STAGES.find(([s]) => s === g._s)[2] } }),
-      h('div.cv-grow', h('b', g.title), h('small', dots([g.subject_name || g.entity, STAGES.find(([s]) => s === g._s)[1], g.bu ? buLabel(g.bu) : '', g.level === 'forte' || g.level === 'media' ? 'ci conoscono' : '']))),
+      h('div.cv-grow', h('b', g.title), g.source === 'opencup' ? h('span.cu-auto', ic('calendar', 11), 'OpenCUP · automatico') : null, h('small', dots([g.subject_name || g.entity, STAGES.find(([s]) => s === g._s)[1], g.bu ? buLabel(g.bu) : '', g.level === 'forte' || g.level === 'media' ? 'ci conoscono' : '']))),
       h('div.cg-op-r', h('b', eur(g.amount)), h('small', g.expected_on ? `bando atteso ${month(g.expected_on)}` : 'data da capire')))),
     h('p.pv-empty', 'Le stesse opere delle colonne del Radar, viste dal lato gare.'));
 }
