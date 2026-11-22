@@ -1,0 +1,22 @@
+/* «Opere finanziate» da OpenCUP (ALM2-49, canvas CRM v14 · V14-OpenCUP). Parte da crm-ted.css (classi te-*). */
+.te.cu .te-h { background: radial-gradient(600px 240px at 0% 0%, rgba(27,122,69,.32), transparent 62%), var(--ap-graphite, #2C2C2C); }
+.te.cu .te-eb { color: #9FDDB7; }
+.te.cu .te-empty-i { background: #E7F5EC; color: #1B7A45; }
+.te.cu .te-k { grid-template-columns: repeat(3, 172px); }
+.te.cu .te-n b { font-size: 30px; line-height: 34px; white-space: nowrap; }
+.cu-sel { position: relative; display: inline-flex; align-items: center; }
+.cu-sel select { appearance: none; height: 40px; padding: 0 34px 0 16px; border-radius: var(--radius-pill); border: 1px solid var(--rule); background: var(--card); font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; }
+.cu-sel .ico, .cu-sel svg { position: absolute; right: 12px; pointer-events: none; color: var(--muted); }
+.cu-sel .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cu-gara { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; }
+.cu-gara i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.cu-gara.no { color: #B85A10; }
+.cu-gara.si { color: #1B7A45; }
+@media (max-width: 1100px) { .te.cu .te-k { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .te.cu .te-n b { font-size: 22px; line-height: 26px; white-space: normal; }
+  /* sul telefono: l'opera a tutta larghezza, poi ente e costo, finanziamento e gara, poi i pulsanti */
+  .te.cu .te-t tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; }
+  .te.cu .te-t td:first-child { grid-row: auto; grid-column: 1 / -1; }
+  .te.cu .te-act { grid-column: 1 / -1; }
+}
