@@ -198,7 +198,7 @@ test('pre-boarding: compiti con le scadenze, pagina del nuovo assunto, arrivo da
   q = (await api(HRP, 'GET', `/api/hr/preboarding/${preId}`)).body;
   assert.equal(q.preboarding.stato, 'arrivato');
   const { rows: [onb] } = await db.query("SELECT inizio::text AS inizio, fine_prova::text AS fine, prova_fonte FROM hr_onboardings WHERE email = $1 AND stato = 'aperto'", [MARCO]);
-  assert.ok(onb, 'Fase 4: parte l'inserimento');
+  assert.ok(onb, "Fase 4: parte l'inserimento");
   assert.equal(onb.inizio, '2026-12-15');
   assert.equal(onb.prova_fonte, 'offerta');
   assert.equal((await fetch(`${base}/benvenuto/${token}`)).status, 404, 'il link non serve più');
