@@ -122,8 +122,53 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     }
     const conv = m.conversation_id ? await conversation(t, m.conversation_id).catch(() => [m]) : [m];
     const where = await placesOf([m.conversation_id], conv.map(x => x.internet_message_id));
-    res.json({ ...m, attachments, conversation_count: conv.length, ...(where.byConv(m.conversation_id) || conv.map(x => where.byImid(x.internet_message_id)).find(Boolean) || {}) });
+    const place = where.byConv(m.conversation_id) || conv.map(x => where.byImid(x.internet_message_id)).find(Boolean) || {};
+    res.json({ ...m, attachments, conversation_count: conv.length, ...place, crm: await fromMail(conv, req.user.email, place) });
   });
+
+  // «Dalla email» (ALM2-58, tavola F): persone, azienda e opportunità dell'email, e cosa c'è già nel CRM.
+  // Solo regole (firma, dominio, testo): niente AI finché non si apre «Aggiungi opportunità».
+  async function fromMail(conv, myEmail, place) {
+    const internal = await internalFn();
+    const seen = new Map();
+    const rank = { 'ha scritto': 3, destinatario: 2, 'in copia': 1 };
+    const add = (pp, role) => {
+      if (!pp.address || pp.address === String(myEmail || '').toLowerCase() || S.isAuto(pp.address) || internal(pp.address)) return;
+      const cur = seen.get(pp.address);
+      if (!cur) seen.set(pp.address, { email: pp.address, name: pp.name, role });
+      else { if (rank[role] > rank[cur.role]) cur.role = role; if (!cur.name && pp.name) cur.name = pp.name; }
+    };
+    for (const x of conv) { add(x.from, 'ha scritto'); x.to.forEach(y => add(y, 'destinatario')); x.cc.forEach(y => add(y, 'in copia')); }
+    const list = [...seen.values()];
+    const { rows: known } = list.length ? await db.query(
+      `SELECT c.id, lower(c.email) AS email, trim(concat_ws(' ', c.title, c.first_name, c.last_name)) AS name,
+              (SELECT json_build_object('id', s.id, 'name', s.name, 'job', l.job) FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id
+                WHERE l.contact_id = c.id AND l.date_to IS NULL ORDER BY l.is_primary DESC, l.id LIMIT 1) AS subject
+         FROM crm_contacts c WHERE lower(c.email) = ANY($1::text[])`, [list.map(p => p.email)]) : { rows: [] };
+    const byDomain = await S.subjectsByDomain(db, list.map(p => S.domainOf(p.email)));
+    const people = list.map(p => {
+      const c = known.find(k => k.email === p.email);
+      const last = conv.slice().reverse().find(x => x.from.address === p.email);
+      const sig = last ? S.fromSignature(last.body, { name: p.name, email: p.email }) : {};
+      return c ? { ...p, kind: 'crm', contact_id: c.id, name: c.name, job: c.subject?.job || sig.job || '', subject: c.subject?.name || '' }
+        : { ...p, kind: 'nuova', name: [sig.first_name, sig.last_name].filter(Boolean).join(' ') || p.name || p.email, job: sig.job || '', company_hint: (sig.company || '').replace(/\s*·.*$/, ''), city: sig.city || '' };
+    }).sort((a, b) => rank[b.role] - rank[a.role]);
+    // azienda: dal dominio di chi ha scritto (nel CRM) o dalla firma (nuova)
+    const lead = people.find(p => p.role === 'ha scritto') || people[0];
+    let company = null;
+    if (lead) {
+      const c = S.companyOf(lead.email, byDomain);
+      if (c.kind === 'crm') company = { kind: 'crm', subject_id: c.subject_id, name: c.name, domain: c.domain };
+      else if (c.kind === 'nuova') company = { kind: 'nuova', name: (lead.company_hint || c.name).slice(0, 200), domain: c.domain, city: lead.city || '' };
+      else company = { kind: 'personale', domain: c.domain };
+    }
+    // opportunità: già nel Radar o in un progetto, altrimenti quella che si legge dal testo
+    const asaList = (await db.query('SELECT key, label FROM crm_asa ORDER BY sort, label')).rows;
+    const guess = P.heuristicExtract(conv, { internal, asaList: [] });
+    const opportunity = place.project ? { project: place.project } : place.signal ? { signal: place.signal }
+      : { title: guess.title, importo: guess.importo, scadenza: guess.scadenza, tipo: guess.tipo };
+    return { people, company, opportunity, asa: asaList };
+  }
 
   // ── legami nel CRM (tavola B a destra, tavola D «Legami nel CRM») ──────────────────────────────────
   async function legami({ subjectIds = [], emails = [], themes = [], excludeProject = null, excludeSignal = null, me = null }) {
