@@ -18,17 +18,53 @@ const handleOf = u => String(u?.email || '').split('@')[0];
 
 // ═══ Posta (tavola A) ═════════════════════════════════════════════════════════════════════════════
 export async function postaPage(container) {
-  const st = { folder: 'arrivo', q: '', list: [], next: null, sel: null };
+  // folder: 'arrivo' | 'inviate' | id di una cartella di Outlook (ALM2-60); picked = email spuntate nella lista
+  const st = { folder: 'arrivo', q: '', list: [], next: null, sel: null, picked: new Set(), folders: null };
   const listBox = h('div.pm-items', loading());
   const reader = h('article.pm-reader', emptyState('mail', 'Scegli un\'email a sinistra.'));
   const search = h('input.pm-search', { type: 'search', placeholder: 'Cerca nella posta', 'aria-label': 'Cerca nella posta' });
   const folders = h('div.pm-folders');
-  const drawFolders = () => fill(folders, [['arrivo', 'In arrivo'], ['inviate', 'Inviate']].map(([k, l]) => h('button.cv-pill.big', { type: 'button', class: st.folder === k ? 'dark' : 'line', 'aria-pressed': String(st.folder === k), on: { click: () => { st.folder = k; drawFolders(); load(); } } }, l)));
+  const bulk = h('div.pm-bulk', { hidden: true });
+  const other = () => (st.folder !== 'arrivo' && st.folder !== 'inviate' ? (st.folders || []).find(f => f.id === st.folder) : null);
+  // id Outlook della cartella aperta, per non proporla come destinazione
+  const here = () => (st.folder === "arrivo" || st.folder === "inviate" ? (st.folders || []).find(f => f.well_known === (st.folder === "arrivo" ? "inbox" : "sentitems"))?.id : st.folder);
+  const inTrash = () => other()?.well_known === 'deleteditems';
+  const go = k => { st.folder = k; st.sel = null; st.picked.clear(); drawFolders(); load(); };
+  const drawFolders = () => fill(folders,
+    [['arrivo', 'In arrivo'], ['inviate', 'Inviate']].map(([k, l]) => h('button.cv-pill.big', { type: 'button', class: st.folder === k ? 'dark' : 'line', 'aria-pressed': String(st.folder === k), on: { click: () => go(k) } }, l)),
+    h('button.cv-pill.big.pm-fold', { type: 'button', class: other() ? 'dark' : 'line', 'aria-haspopup': 'dialog', on: { click: async () => { const f = await pickFolder('Apri una cartella di Outlook'); if (f) go(f.id); } } }, ic('folder', 14), h('span', other() ? other().name : 'Cartelle'), ic('chevron-down', 13)));
   drawFolders();
   fill(container, h('div.pm',
-    h('section.pm-list', h('div.pm-list-h', h('strong', 'Posta'), folders, h('div.pm-search-w', ic('search', 15), search)), listBox),
+    h('section.pm-list', h('div.pm-list-h', h('strong', 'Posta'), folders, h('div.pm-search-w', ic('search', 15), search)), bulk, listBox),
     reader));
-  search.addEventListener('input', debounce(() => { st.q = search.value.trim(); load(); }, 300));
+  search.addEventListener('input', debounce(() => { st.q = search.value.trim(); st.picked.clear(); load(); }, 300));
+
+  async function loadFolders() {
+    if (!st.folders) st.folders = (await get('/api/crm/posta/cartelle')).folders;
+    return st.folders;
+  }
+  // Scelta della cartella: albero delle cartelle di Outlook, con ricerca
+  async function pickFolder(title, { exclude } = {}) {
+    let list;
+    try { list = await loadFolders(); } catch (err) { toast(err?.message || 'Cartelle di Outlook non lette', 'err'); return null; }
+    return new Promise(resolve => {
+      let done = false;
+      const q = h('input.input', { type: 'search', placeholder: 'Cerca una cartella', 'aria-label': 'Cerca una cartella' });
+      const box = h('div.pm-tree');
+      const WK = { inbox: 'inbox', sentitems: 'send', archive: 'archive', deleteditems: 'trash', junkemail: 'x' };
+      const draw = () => {
+        const s = q.value.trim().toLowerCase();
+        const ex = typeof exclude === "function" ? exclude() : exclude;
+        const rows = list.filter(f => f.id !== ex && (!s || f.name.toLowerCase().includes(s)));
+        fill(box, rows.length ? rows.map(f => h('button.pm-tree-i', { type: 'button', style: s ? '' : `padding-left:${12 + f.depth * 22}px`, on: { click: () => { done = true; m.close(); resolve(f); } } },
+          ic(WK[f.well_known] || 'folder', 15), h('span', f.name), f.total ? h('small', String(f.total)) : null)) : emptyState('folder', 'Nessuna cartella con questo nome.'));
+      };
+      q.addEventListener('input', draw);
+      const m = cvModal({ title, body: h('div.pm-treebox', q, box), onClose: () => { if (!done) resolve(null); } });
+      draw();
+      setTimeout(() => q.focus(), 50);
+    });
+  }
 
   async function load(more = false) {
     if (!more) fill(listBox, loading());
@@ -41,24 +77,82 @@ export async function postaPage(container) {
     st.list = more ? [...st.list, ...r.messages] : r.messages;
     st.next = r.next;
     drawList();
-    if (!more && st.list[0] && !st.sel) open(st.list[0]);
+    if (!more && !st.sel) { if (st.list[0]) open(st.list[0]); else fill(reader, emptyState('mail', 'Nessuna email in questa cartella.')); }
+  }
+  function drawBulk() {
+    const n = st.picked.size;
+    bulk.hidden = !n;
+    if (!n) return fill(bulk);
+    const ids = [...st.picked];
+    fill(bulk, h('b', n === 1 ? '1 email scelta' : `${n} email scelte`),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => move(ids) } }, ic('folder', 14), 'Sposta'),
+      inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', on: { click: () => move(ids, { del: true }) } }, ic('trash', 14), 'Elimina'),
+      h('button.cv-lnk', { type: 'button', on: { click: () => { st.picked.clear(); drawList(); } } }, 'Deseleziona'));
   }
   function drawList() {
+    drawBulk();
     if (!st.list.length) return fill(listBox, emptyState('mail', st.q ? `Nessuna email per «${st.q}».` : 'Nessuna email.'));
-    fill(listBox, st.list.map(m => h('button.pm-item', { type: 'button', class: st.sel === m.id ? 'on' : '', on: { click: () => open(m) } },
-      h('span.pm-item-r', h('b', st.folder === 'inviate' ? (m.to[0]?.name || m.to[0]?.address || '—') : (m.from.name || m.from.address)), h('small', when(m.date))),
-      h('span.pm-item-s', m.subject),
-      h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70)))),
+    const sentLike = st.folder === 'inviate' || other()?.well_known === 'sentitems';
+    fill(listBox, st.list.map(m => {
+      const on = st.picked.has(m.id);
+      return h('div.pm-row', { class: on ? 'picked' : '' },
+        h('button.pm-chk', { type: 'button', role: 'checkbox', 'aria-checked': String(on), 'aria-label': `Scegli «${m.subject}»`, on: { click: () => { if (on) st.picked.delete(m.id); else st.picked.add(m.id); drawList(); } } }, ic(on ? 'square-check' : 'square', 17)),
+        h('button.pm-item', { type: 'button', class: st.sel === m.id ? 'on' : '', on: { click: () => open(m) } },
+          h('span.pm-item-r', h('b', sentLike ? (m.to[0]?.name || m.to[0]?.address || '—') : (m.from.name || m.from.address)), h('small', when(m.date))),
+          h('span.pm-item-s', m.subject),
+          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))));
+    }),
     st.next ? h('button.btn.btn-sm.pm-more', { type: 'button', on: { click: () => load(true) } }, 'Altre email') : null);
   }
+
+  // Sposta in una cartella di Outlook o elimina (va in «Posta eliminata», si recupera): toglie dalla lista, apre la
+  // successiva e offre «Annulla», che riporta le email nella cartella da cui venivano.
+  async function move(ids, { del = false } = {}) {
+    const dest = del ? null : await pickFolder(ids.length === 1 ? 'Sposta l\'email in' : `Sposta ${ids.length} email in`, { exclude: here });
+    if (!del && !dest) return;
+    const back = new Map(ids.map(id => [id, st.list.find(m => m.id === id)?.folder_id]).filter(([, f]) => f));
+    let r;
+    try { r = await post('/api/crm/posta/sposta', del ? { ids, elimina: true } : { ids, cartella: dest.id }); } catch (err) {
+      toast(err?.message || 'Email non spostate', 'err', 9000);
+      return;
+    }
+    const gone = new Set(r.moved.map(x => x.old_id));
+    const at = st.list.findIndex(m => gone.has(m.id));
+    st.list = st.list.filter(m => !gone.has(m.id));
+    for (const id of gone) st.picked.delete(id);
+    st.folders = null; // i numeri delle cartelle cambiano
+    if (gone.has(st.sel)) {
+      st.sel = null;
+      const nx = st.list[Math.min(at, st.list.length - 1)];
+      if (nx) open(nx); else fill(reader, emptyState('mail', 'Nessuna email in questa cartella.'));
+    }
+    drawList();
+    const n = r.moved.length;
+    const label = del ? (n === 1 ? 'Email eliminata' : `${n} email eliminate`) : `${n === 1 ? 'Email spostata' : `${n} email spostate`} in «${dest.name}»`;
+    const undo = async () => {
+      const groups = new Map();
+      for (const x of r.moved) { const f = back.get(x.old_id); if (f) groups.set(f, [...(groups.get(f) || []), x.id]); }
+      try {
+        for (const [f, list] of groups) await post('/api/crm/posta/sposta', { ids: list, cartella: f });
+        st.folders = null; st.sel = null; toast('Fatto: le email sono tornate dov\'erano'); load();
+      } catch (err) { toast(err?.message || 'Non sono riuscito a riportarle indietro', 'err'); }
+    };
+    if (n) toast(h('span.pm-toast', label, back.size ? h('button.pm-undo', { type: 'button', on: { click: ev => { ev.currentTarget.closest('.toast')?.remove(); undo(); } } }, 'Annulla') : null), 'ok', 8000);
+    if (r.failed.length) toast(`${r.failed.length} email non spostate: ${r.failed[0].error}`, 'err', 8000);
+  }
+
   async function open(m) {
     st.sel = m.id;
     drawList();
     fill(reader, loading());
     const e = await get(`/api/crm/posta/${encodeURIComponent(m.id)}`);
+    if (st.sel !== m.id) return;
     const place = e.project ? h('a.btn.pm-in', { href: `#/crm/progetto/${e.project.id}` }, ic('folder', 15), `Nel progetto ${e.project.name}`, ic('chevron-right', 14))
       : e.signal ? h('a.btn.pm-in', { href: `#/crm/lancio/s/${e.signal.id}` }, ic('radar', 15), 'Nel Radar · portala avanti', ic('chevron-right', 14)) : null;
     fill(reader,
+      h('div.pm-tools',
+        h('button.btn.btn-sm', { type: 'button', title: 'Sposta in una cartella di Outlook', on: { click: () => move([e.id]) } }, ic('folder', 14), 'Sposta'),
+        inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', title: 'Va in «Posta eliminata» di Outlook: si recupera', on: { click: () => move([e.id], { del: true }) } }, ic('trash', 14), 'Elimina')),
       h('div.pm-rhead',
         h('div.pm-rtitle', h('h1', e.subject), h('span.pm-rmeta', `${e.from.name || ''} <${e.from.address}> · a ${e.to.map(x => x.name || x.address).join(', ')}${e.cc.length ? `, cc ${e.cc.map(x => x.name || x.address).join(', ')}` : ''}`), h('small.cv-muted', `${fmtDate(String(e.date).slice(0, 10), { year: true })} ${String(e.date).slice(11, 16)}${e.conversation_count > 1 ? ` · ${e.conversation_count} email nella conversazione` : ''}`)),
         place || h('button.btn.btn-primary.pm-create', { type: 'button', on: { click: () => openProposal(e.id) } }, ic('sparkles', 15), 'Crea progetto commerciale'),

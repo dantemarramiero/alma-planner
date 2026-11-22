@@ -208,3 +208,36 @@ test('Dalla email (ALM2-58): persone, azienda e opportunità con lo stato nel CR
   assert.equal(dc.people.find(p => p.email === 'l.rossi@studiotecnicorossi.it').kind, 'crm');
   assert.equal(dc.company.kind, 'crm');
 });
+
+test('ALM2-60: cartelle di Outlook, sposta, elimina e annulla', async () => {
+  const { body: f } = await D('GET', '/api/crm/posta/cartelle');
+  const names = f.folders.map(x => x.name);
+  assert.ok(names.includes('Clienti') && names.includes('Posta eliminata'));
+  assert.ok(!names.includes('Bozze'), 'le bozze non servono nella Posta');
+  assert.equal(f.folders.find(x => x.name === 'Clienti').depth, 1);
+  const clienti = f.folders.find(x => x.name === 'Clienti');
+  const { body: inbox } = await D('GET', '/api/crm/posta?cartella=arrivo');
+  const [a, b] = inbox.messages;
+  assert.ok(a.folder_id);
+  // sposta in Clienti
+  let r = await D('POST', '/api/crm/posta/sposta', { ids: [a.id], cartella: clienti.id });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.moved.length, 1);
+  let { body: cl } = await D('GET', `/api/crm/posta?cartella=${encodeURIComponent(clienti.id)}`);
+  assert.deepEqual(cl.messages.map(m => m.id), [a.id]);
+  // elimina: va in Posta eliminata
+  r = await D('POST', '/api/crm/posta/sposta', { ids: [b.id], elimina: true });
+  assert.equal(r.status, 200);
+  const del = f.folders.find(x => x.well_known === 'deleteditems');
+  const { body: bin } = await D('GET', `/api/crm/posta?cartella=${del.id}`);
+  assert.ok(bin.messages.some(m => m.id === b.id));
+  const { body: inbox2 } = await D('GET', '/api/crm/posta?cartella=arrivo');
+  assert.ok(!inbox2.messages.some(m => m.id === a.id || m.id === b.id));
+  // annulla: tornano nella cartella di prima
+  for (const m of [a, b]) await D('POST', '/api/crm/posta/sposta', { ids: [m.id], cartella: m.folder_id });
+  const { body: inbox3 } = await D('GET', '/api/crm/posta?cartella=arrivo');
+  assert.ok(inbox3.messages.some(m => m.id === a.id) && inbox3.messages.some(m => m.id === b.id));
+  // input non valido
+  assert.equal((await D('POST', '/api/crm/posta/sposta', { ids: [] })).status, 400);
+  assert.equal((await D('POST', '/api/crm/posta/sposta', { ids: [a.id], cartella: '../x?y' })).status, 400);
+});
