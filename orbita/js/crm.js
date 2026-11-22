@@ -138,7 +138,7 @@ export async function crmView(container, parts = []) {
   if (parts[1] === 'lancio' && ['s', 'i'].includes(parts[2]) && Number(parts[3])) return launchRoom(container, parts[2], Number(parts[3]));
   if (parts[1] === 'progetti') return mieiProgetti(container);
   if (parts[1] === 'calendario') return calendarioPage(container); // il proprio Outlook coi colori del CRM (ALM2-65)
-  if (parts[1] === 'posta') return postaPage(container); // la propria casella: da un'email nasce un progetto (ALM2-55)
+  if (parts[1] === 'posta') return postaPage(container, parts[2]); // la propria casella: da un'email nasce un progetto (ALM2-55); /approvare = Da approvare (ALM2-67)
   if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && parts[2] === 'scrivo') { const body = h('div.cv'); fill(container, body); return scrivoTab(body); } // persone con cui mi scrivo (canvas v10, ALM2-46)

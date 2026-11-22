@@ -27,7 +27,8 @@ export async function profileView(view, id) {
         own
           ? [h('button.btn', { type: 'button', on: { click: () => editProfile(() => profileView(view, id)) } }, 'Modifica profilo'),
             h('a.btn', { href: '#/biglietto' }, lucide('qr-code', { size: 16 }), 'Il mio biglietto'),
-            h('a.btn', { href: '#/firma' }, lucide('pencil', { size: 16 }), 'La mia firma')]
+            h('a.btn', { href: '#/firma' }, lucide('pencil', { size: 16 }), 'La mia firma'),
+            h('a.btn', { href: '#/posta-mia' }, lucide('lock', { size: 16 }), 'La mia posta nel CRM')]
           : [messageButton(p), store.me.is_admin ? h('button.btn.btn-ghost.btn-sm', { type: 'button', title: 'Compleanno e data di assunzione (per la pagina di benvenuto)', on: { click: () => editDates(p) } }, lucide('cake', { size: 16 }), 'Date') : null]),
       h('div.profile-stats', stat(p.post_count, p.post_count === 1 ? 'post' : 'post'), stat(p.likes_received, 'mi piace ricevuti'), stat(p.open_tickets, 'ticket aperti')),
       h('div.profile-handle', `@${p.handle}`, p.job_title ? h('span', ` · ${p.job_title}`) : null),

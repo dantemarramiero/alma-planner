@@ -606,6 +606,7 @@ export async function ioView(view) {
       store.me.posta_voce ? line('#/posta-voce', 'Posta in macchina', 'car') : null,
       line('#/biglietto', 'Il mio biglietto (QR)', 'qr-code'),
       line('#/firma', 'La mia firma nelle email', 'pencil'),
+      line('#/posta-mia', 'La mia posta nel CRM', 'lock'),
       line('#/strategy/obiettivi', 'Il mio contributo', 'target'),
       line('#/notifiche/impostazioni', 'Le mie notifiche', 'bell'),
       store.me.is_admin ? line('#/impostazioni', 'Impostazioni di Alma Space', 'settings') : null,
