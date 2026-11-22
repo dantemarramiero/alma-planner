@@ -1,8 +1,8 @@
 // Alma HR, Fase 2 (ALM2-52; canvas «Alma HR», pagina «Fase 2 · organigramma»). Regola di Dante: organigramma e persone
 // sono solo da vedere, il data entry si fa su BOSS («Modifica su BOSS ↗»). Pagine:
 //   #/hr/organigramma (tutti): albero, per area, matrice livello × area, scheda dell'incarico
-//   #/hr/costo · #/hr/scenari[/:id] · #/hr/cambi · #/hr/strategia (solo team HR)
-import { h, fill, toast, modal, confirmDialog, promptDialog, loading, fmtDateTime, debounce } from './ui.js';
+//   #/hr/costo · #/hr/strategia (solo team HR)
+import { h, fill, toast, modal, confirmDialog, loading, fmtDateTime, debounce } from './ui.js';
 import { get, post, patch } from './api.js';
 import { icon } from './icons.js';
 import { ambitoSelect, ambQs } from './hr.js';
@@ -169,98 +169,6 @@ export async function costoView(c) {
       h('tbody', d.aree.map(a => h('tr', h('td', h('b', a.nome)), h('td', a.persone), h('td', keur(a.monte)), h('td', keur(a.costo)), h('td', a.vacanti_rif ? `+${keur(a.vacanti_rif)}` : '—'),
         h('td', { style: { minWidth: '220px' } }, h('span.hr-cbar', { style: { width: `${a.monte / max * 100}%` } }), a.vacanti_rif ? h('span.hr-cbar.v', { style: { width: `${a.vacanti_rif / max * 100}%` } }) : null)))))),
     howTo('La barra piena è il monte RAL dell\'area rispetto alla più costosa; la parte a righe è quanto si aggiungerebbe coprendo i vacanti al riferimento della loro fascia. Il costo azienda è una stima: RAL per il coefficiente del pannello (contributi, TFR, INAIL).'));
-}
-
-// ── Scenari (solo HR) ───────────────────────────────────────────────────────────────────────────────────────
-export async function scenariView(c, id) {
-  if (id) return scenarioView(c, id);
-  const d = await get('/api/hr/scenari');
-  const nuovo = async () => { const nome = await promptDialog('Nuovo scenario', { label: 'Nome (es. «Riorganizzazione Reti 2027»)', ok: 'Crea' }); if (nome) { const r = await post('/api/hr/scenari', { nome }); location.hash = `#/hr/scenari/${r.id}`; } };
-  const ST = { aperto: ['aperto', 'z-ok'], realizzato: ['realizzato su BOSS', ''], archiviato: ['archiviato', ''] };
-  fill(c, head('Scenari', 'Simulazioni di riorganizzazione: partono da una copia dell\'organigramma di oggi e non toccano mai BOSS né l\'organigramma vero.',
-    h('button.btn.btn-primary', { type: 'button', on: { click: nuovo } }, icon('plus', { size: 16 }), ' Nuovo scenario')),
-    h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['Scenario', 'Stato', 'Passi', 'Autore', 'Aggiornato'].map(x => h('th', x)))),
-      h('tbody', d.scenari.length ? d.scenari.map(s => h('tr', { on: { click: () => { location.hash = `#/hr/scenari/${s.id}`; } } }, h('td', h('b', s.nome)), h('td', h('span.hr-chip', { class: ST[s.stato][1] }, ST[s.stato][0])), h('td', s.passi), h('td', s.autore || '—'), h('td.small', fmtDateTime(s.updated_at))))
-        : h('tr', h('td.empty', { colSpan: 5 }, 'Ancora nessuno scenario'))))));
-}
-async function scenarioView(c, id) {
-  let s = await get(`/api/hr/scenari/${id}`);
-  const save = async changes => { try { s = await patch(`/api/hr/scenari/${id}`, { changes }); draw(); } catch { /* il messaggio lo mostra api */ } };
-  const opts = (list, sel, empty) => [h('option', { value: '' }, empty), ...list.map(x => h('option', { value: x.id, selected: String(sel) === String(x.id) }, x.label))];
-  const incOpts = () => s.incarichi.map(i => ({ id: i.id, label: `${i.nome}${i.persona ? ` · ${i.persona.nome}` : ' · vacante'}` }));
-  const roleOpts = () => s.roles.map(r => ({ id: r.id, label: `${r.title} · G${r.grade}` }));
-  const fld = (l, el) => h('label.field', h('span', l), el);
-  const dialog = tipo => {
-    const nome = h('input.input', { placeholder: 'Nome del nuovo incarico' });
-    const inc = h('select.select', opts(incOpts(), '', 'Scegli l\'incarico…'));
-    const sopra = h('select.select', opts(incOpts(), '', 'Nessuno (vertice)'));
-    const role = h('select.select', opts(roleOpts(), '', 'Nessun ruolo'));
-    const areaSel = h('select.select', opts(s.aree.map(a => ({ id: a.id, label: a.nome })), '', 'Senza area'));
-    const T = { nuovo: ['Incarico nuovo nello scenario', [fld('Nome', nome), fld('Riporta a', sopra), fld('Ruolo del mansionario', role), fld('Area', areaSel)]],
-      riporto: ['Cambia riporto', [fld('Incarico', inc), fld('Riporta a', sopra)]], ruolo: ['Cambia ruolo del mansionario', [fld('Incarico', inc), fld('Ruolo', role)]], disattiva: ['Togli un incarico', [fld('Incarico', inc)]] };
-    const m = modal({ title: T[tipo][0], body: h('div.hr-form', T[tipo][1], h('p.small.muted', 'Solo nello scenario: l\'organigramma vero non cambia.')),
-      actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-        const val = el => (el.value === '' ? null : /^\d+$/.test(el.value) ? Number(el.value) : el.value);
-        const ch = tipo === 'nuovo' ? { tipo, tmp: `n${Date.now() % 100000}`, nome: nome.value.trim(), riporta_a_id: val(sopra), role_id: val(role), area_id: val(areaSel) }
-          : tipo === 'riporto' ? { tipo, incarico_id: val(inc), riporta_a_id: val(sopra) } : tipo === 'ruolo' ? { tipo, incarico_id: val(inc), role_id: val(role) } : { tipo, incarico_id: val(inc) };
-        if ((tipo === 'nuovo' && !ch.nome) || (tipo !== 'nuovo' && ch.incarico_id == null)) return toast('Completa i campi', 'err');
-        m.close(); await save([...s.changes, ch]);
-      } } }, 'Aggiungi')] });
-  };
-  const box = h('div');
-  const desc = ch => {
-    const n = idx => s.incarichi.find(i => String(i.id) === String(idx))?.nome || s.changes.find(x => x.tmp === idx)?.nome || 'incarico';
-    return ch.tipo === 'nuovo' ? `Nuovo incarico «${ch.nome}»` : ch.tipo === 'riporto' ? `«${n(ch.incarico_id)}» riporta a «${ch.riporta_a_id != null ? n(ch.riporta_a_id) : 'nessuno'}»`
-      : ch.tipo === 'ruolo' ? `Ruolo di «${n(ch.incarico_id)}»: ${s.roles.find(r => r.id === ch.role_id)?.title || 'nessuno'}` : `Tolto «${n(ch.incarico_id)}» (nello scenario)`;
-  };
-  function draw() {
-    const o = s.oggi; const sc = s.scenario;
-    const row = (l, a, b, fmt = x => x) => h('tr', h('td', l), h('td', fmt(a)), h('td', h('b', fmt(b))));
-    fill(box,
-      h('div.hr-alert.info', icon('info', { size: 14 }), h('span', 'Questo è uno scenario: non cambia l\'organigramma vero e non scrive su BOSS. Si segna «realizzato» quando le modifiche sono state fatte su BOSS.')),
-      h('div.hr-row.hr-filters', h('button.btn', { type: 'button', on: { click: () => dialog('nuovo') } }, '+ Incarico'), h('button.btn', { type: 'button', on: { click: () => dialog('riporto') } }, 'Cambia riporto'),
-        h('button.btn', { type: 'button', on: { click: () => dialog('ruolo') } }, 'Cambia ruolo'), h('button.btn', { type: 'button', on: { click: () => dialog('disattiva') } }, 'Togli incarico')),
-      h('div.hr-grid32',
-        h('div.card.hr-pad', h('div.hr-label', `Modifiche nello scenario (${s.changes.length})`),
-          s.changes.length ? h('ol.hr-steps', s.changes.map((ch, n) => h('li', h('span', desc(ch)), h('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Togli questa modifica', on: { click: () => save(s.changes.filter((_, j) => j !== n)) } }, '×'))))
-            : h('p.small.muted', 'Ancora nessuna modifica: usa i pulsanti qui sopra.'),
-          h('div.hr-label', 'Incarichi cambiati o nuovi'),
-          h('div.hr-row', s.incarichi.filter(i => i.cambiato).map(i => h('span.hr-chip', { class: i.nuovo ? 'z-hi' : 'z-info' }, `${i.nome}${i.role ? ` · G${i.role.grade}` : ''}`)))),
-        h('div',
-          h('div.card.hr-pad', h('div.hr-label', 'Oggi → scenario'), h('table.hr-t', h('tr', h('th', ''), h('th', 'Oggi'), h('th', 'Scenario')),
-            row('Incarichi', o.incarichi, sc.incarichi), row('Vacanti da coprire', o.vacanti, sc.vacanti), row('Senza ruolo', o.senza_ruolo, sc.senza_ruolo),
-            row('Monte RAL + vacanti al rif.', o.costo, sc.costo, keur), row('Span medio', k1(o.span), k1(sc.span))),
-            h('p.small', `Costo azienda stimato: ${sc.costo_azienda_delta >= 0 ? '+' : ''}${keur(sc.costo_azienda_delta)} · persone toccate: ${s.persone_toccate}`)),
-          h('div.card.hr-pad', h('div.hr-label', `Da fare su BOSS (${s.steps.length})`),
-            s.steps.length ? h('ol.small', s.steps.map(x => h('li', x))) : h('p.small.muted', 'Niente da fare su BOSS (i cambi di ruolo si fanno in Alma HR).'),
-            h('div.hr-row', h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await navigator.clipboard.writeText(s.steps.map((x, n) => `${n + 1}. ${x}`).join('\n')); toast('Elenco copiato'); } } }, 'Copia l\'elenco'))))));
-  }
-  const stato = h('select.select', [['aperto', 'Aperto'], ['realizzato', 'Realizzato su BOSS'], ['archiviato', 'Archiviato']].map(([k, l]) => h('option', { value: k, selected: s.stato === k }, l)));
-  stato.addEventListener('change', async () => { s = await patch(`/api/hr/scenari/${id}`, { stato: stato.value }); toast('Stato salvato'); });
-  fill(c, h('a.hr-back', { href: '#/hr/scenari' }, '‹ Scenari'), head(s.nome, 'Simulazione · non tocca BOSS né l\'organigramma vero', h('div.hr-row', h('span.hr-chip.z-info', 'simulazione'), stato)), lockBar('Solo team HR.'), box);
-  draw();
-}
-
-// ── Cambi da BOSS (solo HR) ─────────────────────────────────────────────────────────────────────────────────
-const TIPO = { incarico_nuovo: 'Nuovo incarico', incarico_disattivato: 'Incarico disattivato', riporto: 'Riporto cambiato', ricoperto: 'Nuova persona sull\'incarico', vacante: 'Incarico vacante', persona_entrata: 'Persona entrata', persona_uscita: 'Persona uscita', ral: 'Nuova RAL', livello: 'Nuovo livello CCNL' };
-export async function cambiView(c) {
-  const d = await get('/api/hr/eventi');
-  const done = async e => { await post(`/api/hr/eventi/${e.id}/fatto`); cambiView(c); };
-  const link = e => (e.tipo === 'vacante' && e.incarico_id ? `#/hr/richieste?nuova=${e.incarico_id}` : e.tipo === 'incarico_nuovo' ? '#/hr/ruoli' : e.tipo === 'persona_entrata' && e.person_key ? `#/hr/persona/${encodeURIComponent(e.person_key)}` : null);
-  fill(c, head('Cambi da BOSS', 'Ogni notte Alma confronta la copia di BOSS con quella del giorno prima. I cambi che chiedono una scelta in Alma diventano avvisi.'),
-    h('div.hr-grid32',
-      h('div.card.hr-scroll', h('table.list.hr-nohover', h('thead', h('tr', ['Quando', 'Cambio', 'Su', 'Cosa serve in Alma'].map(x => h('th', x)))),
-        h('tbody', d.eventi.length ? d.eventi.map(e => h('tr', h('td.small', fmtDateTime(e.at)), h('td', TIPO[e.tipo] || e.tipo), h('td', e.oggetto),
-          h('td', e.azione ? (e.fatto ? h('span.hr-chip.z-ok', 'fatto') : h('span.hr-chip.z-warn', e.azione)) : h('span.hr-chip.z-ok', 'niente: si aggiorna da solo'))))
-          : h('tr', h('td.empty', { colSpan: 4 }, 'Ancora nessun cambio registrato'))))),
-      h('div',
-        h('div.card.hr-pad', h('div.hr-label', `Avvisi al team HR (${d.avvisi.length})`),
-          d.avvisi.length ? d.avvisi.map(e => h('div.hr-li', h('div', h('b', TIPO[e.tipo] || e.tipo), h('div.small', e.oggetto), h('div.small.muted', e.azione)),
-            h('div.hr-row', link(e) ? h('a.btn.btn-sm', { href: link(e) }, e.tipo === 'vacante' ? 'Apri richiesta' : 'Vai') : null, h('button.btn.btn-sm', { type: 'button', on: { click: () => done(e) } }, 'Fatto')))) : h('p.small.muted', 'Nessun avviso aperto.')),
-        h('div.card.hr-pad', h('div.hr-label', 'Stato della sincronizzazione'),
-          h('table.hr-t', h('tr', h('td', 'Ultima'), h('td', d.sync.at ? fmtDateTime(d.sync.at) : 'mai')), h('tr', h('td', 'Fonte'), h('td', d.sync.api ? 'API di BOSS, ogni notte' : 'export mensile di BOSS (l\'API non è ancora collegata)')),
-            h('tr', h('td', 'Persone · incarichi'), h('td', `${d.sync.persone} · ${d.sync.incarichi}`)), h('tr', h('td', 'Incarichi senza ruolo'), h('td', d.sync.senza_ruolo))),
-          h('p.small.muted', 'Se una sincronizzazione fallisce, Alma tiene la copia del giorno prima.')))));
 }
 
 // ── Ruoli di Alma Strategy → mansionario (solo HR) ──────────────────────────────────────────────────────────

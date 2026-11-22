@@ -552,7 +552,7 @@ async function appendHrPrivacy(body) {
     ['Organigramma con ruolo e grade', Y(), Y(), Y(), Y()],
     ['Chi ha quale ruolo e grade', Y(), Y(), T('sé'), N()],
     ['RAL, storico, posizione in fascia', Y(), N(), N(), N()],
-    ['Mappatura, costo, scenari, registro', Y(), N(), N(), N()],
+    ['Mappatura, costo, registro', Y(), N(), N(), N()],
     ['Modifica mansionario, griglia e pannello', Y(), N(), N(), N()],
   ];
   body.append(h('section.cv-card', { style: { marginTop: '16px' } },
