@@ -5,7 +5,7 @@
 //   #/hr/preboarding[/:id]    Y  dal «sì» al primo giorno (la persona si crea su BOSS)
 //   #/hr/recruitment          Z  numeri con l'ambito (solo team HR)
 import { h, fill, toast, modal, confirmDialog, fmtDateTime } from './ui.js';
-import { get, post, put, patch } from './api.js';
+import { get, post, put, patch, del } from './api.js';
 import { icon } from './icons.js';
 import { ambitoSelect, ambQs } from './hr.js';
 
@@ -339,7 +339,8 @@ export async function candidatoView(c, id) {
         hr || d.accesso === 'approvatore' ? offertaBox(d, id, reload) : d.offerta ? h('div.card.hr-pad', h('div.hr-label', 'Offerta'), h('p.small', `${d.offerta.stato} · ${d.offerta.zona}`), h('p.small.muted', 'La cifra la vedono il team HR e chi la deve approvare.')) : null),
       h('div',
         hr ? h('div.card.hr-pad', h('div.hr-label', 'Contatti e consenso'), h('table.hr-t', h('tr', h('td', 'Email'), h('td', p.email || '—')), h('tr', h('td', 'Telefono'), h('td', p.telefono || '—')),
-          h('tr', h('td', 'Conservare il CV'), h('td', p.conserva ? `sì${p.conservare_fino ? `, fino al ${itDate(p.conservare_fino)}` : ''}` : 'no: si cancella 30 giorni dopo la chiusura della selezione')))) : null,
+          h('tr', h('td', 'Conservare il CV'), h('td', p.conserva ? `sì${p.conservare_fino ? `, fino al ${itDate(p.conservare_fino)}` : ''}` : 'no: si cancella 30 giorni dopo la chiusura della selezione'))),
+          a.stage !== 'accettata' ? h('button.btn.btn-sm', { type: 'button', style: { marginTop: '8px' }, on: { click: async () => { if (!(await confirmDialog("Cancellare subito tutti i dati e i file del candidato, su sua richiesta? Non si può annullare.", { ok: 'Cancella', danger: true }))) return; const r = await del(`/api/hr/candidature/${id}/candidato`); toast('Dati del candidato cancellati'); location.hash = `#/hr/richieste/${r.req_id}`; } } }, 'Cancella i dati su richiesta') : null) : null,
         d.files.length ? h('div.card.hr-pad', h('div.hr-label', 'Documenti'), d.files.map(f => h('div.hr-li', h('a', { href: `/api/hr/file/${f.id}`, target: '_blank', rel: 'noopener' }, icon('file-text', { size: 14 }), ` ${f.nome}`), h('span.small.muted', f.tipo)))) : null,
         d.colloqui.length ? h('div.card.hr-pad', h('div.hr-label', 'Colloqui'), d.colloqui.map(x => h('div.hr-li', h('div', h('b.small', x.tipo === 'hr' ? 'Colloquio HR' : 'Colloquio tecnico'), h('div.small.muted', `${x.name || x.interviewer_email}${x.quando ? ` · ${fmtDateTime(x.quando)}` : ''}`)),
           x.join_url ? h('a.btn.btn-sm', { href: x.join_url, target: '_blank', rel: 'noopener' }, 'Teams ↗') : null))) : null,

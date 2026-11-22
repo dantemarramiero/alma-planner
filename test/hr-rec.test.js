@@ -200,6 +200,24 @@ test('pre-boarding: compiti con le scadenze, pagina del nuovo assunto, arrivo da
   assert.equal((await fetch(`${base}/benvenuto/${token}`)).status, 404, 'il link non serve più');
 });
 
+test('la fascia pubblica segue la griglia in vigore; cancellazione su richiesta del candidato', async () => {
+  const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Altra · Capo zona', tipo: 'sostituzione', role_id: (await db.query("SELECT id FROM pm_roles WHERE hr_name = 'Capo zona reti'")).rows[0].id });
+  await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/invia`);
+  await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/decidi`, { decisione: 'ok' });
+  await api(DIR, 'POST', `/api/hr/richieste/${r.body.id}/decidi`, { decisione: 'ok' });
+  await api(HRP, 'PUT', `/api/hr/richieste/${r.body.id}/annuncio`, { testo: { crescita: 'Capo zona senior dopo 2 anni.' } });
+  const slug = (await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/annuncio/pubblica`, {})).body.url.split('/').pop();
+  await db.query('UPDATE hr_postings SET ral_min = 1, ral_max = 2 WHERE slug = $1', [slug]); // una fascia vecchia salvata
+  const html = await (await fetch(`${base}/lavora-con-noi/${slug}`)).text();
+  assert.doesNotMatch(html, /RAL 1 – 2/, 'la pagina legge la griglia in vigore, non la cifra salvata');
+  const c = await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/candidati`, { nome: 'Chiede', cognome: 'Cancellazione', email: 'chiede@example.com' });
+  assert.equal((await api(LUCA, 'DELETE', `/api/hr/candidature/${c.body.app_id}/candidato`)).status, 403);
+  assert.equal((await api(HRP, 'DELETE', `/api/hr/candidature/${c.body.app_id}/candidato`)).status, 200);
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM hr_candidates WHERE email = 'chiede@example.com'")).rows[0].n, 0);
+  assert.equal((await api(HRP, 'DELETE', `/api/hr/candidature/${appId}/candidato`)).status, 400, 'l\'assunto non si cancella');
+  await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/chiudi`);
+});
+
 test('sollecito: un passo fermo da 2 giorni lavorativi riceve il promemoria', async () => {
   const r = await api(HRP, 'POST', '/api/hr/richieste', { posizione: 'Ferma', tipo: 'sostituzione' });
   await api(HRP, 'POST', `/api/hr/richieste/${r.body.id}/invia`);

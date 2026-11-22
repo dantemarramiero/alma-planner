@@ -388,15 +388,21 @@ button{background:var(--o);color:#fff;border:0;border-radius:12px;padding:12px 2
   app.get('/benvenuto.js', (_req, res) => res.type('application/javascript').set('Cache-Control', 'no-cache').send(PUB_JS.benvenuto));
   app.get('/lavora-con-noi', async (_req, res) => {
     noStore(res);
-    const { rows } = await db.query(`SELECT p.slug, p.titolo, p.ral_min, p.ral_max, r.sede, r.contratto FROM hr_postings p JOIN hr_requisitions r ON r.id = p.req_id
+    const { rows: raw } = await db.query(`SELECT p.slug, p.titolo, p.ral_min, p.ral_max, r.sede, r.contratto, r.role_id FROM hr_postings p JOIN hr_requisitions r ON r.id = p.req_id
       WHERE p.pubblicato AND r.stato = 'approvata' ORDER BY p.published_at DESC`);
+    const rows = await Promise.all(raw.map(liveBand));
     res.type('html').send(shell('Lavora con noi · Almacis', `<h1>Lavora con noi</h1><p class="mut">Le posizioni aperte in Almacis. Ogni annuncio dice la fascia di retribuzione.</p>
 <div class="list">${rows.length ? rows.map(p => `<a href="/lavora-con-noi/${esc(p.slug)}"><div class="card"><b style="color:var(--ink)">${esc(p.titolo)}</b><div class="mut">${esc(p.sede || 'Almacis')} · RAL ${p.ral_min?.toLocaleString('it-IT')} – ${p.ral_max?.toLocaleString('it-IT')} €</div></div></a>`).join('') : '<div class="card">Al momento non ci sono posizioni aperte.</div>'}</div>`));
   });
+  async function liveBand(p) {
+    if (!p.role_id) return p;
+    const { band } = await roleAndBand(p.role_id);
+    return band ? { ...p, ral_min: Math.round(band.min * 1000), ral_max: Math.round(band.max * 1000) } : p;
+  }
   async function postingBySlug(slug) {
     const { rows: [p] } = await db.query(`SELECT p.*, r.sede, r.contratto, r.da_quando, r.stato, r.id AS req_id, r.role_id FROM hr_postings p JOIN hr_requisitions r ON r.id = p.req_id
       WHERE p.slug = $1 AND p.pubblicato AND r.stato = 'approvata'`, [String(slug)]);
-    return p || null;
+    return p ? liveBand(p) : null;
   }
   app.get('/lavora-con-noi/:slug', async (req, res) => {
     noStore(res);
@@ -504,6 +510,15 @@ ${t.scopo ? `<h2>Il ruolo</h2>${para(t.scopo)}` : ''}${t.cosa ? `<h2>Cosa farai<
     await db.query(`UPDATE hr_applications SET stage = $1, motivo_scarto = $2, passi = CASE WHEN $1 = ANY(passi) THEN passi ELSE array_append(passi, $1) END, updated_at = now() WHERE id = $3`, [stage, motivo, a.id]);
     await addEvent(a.id, req.user.id, stage === 'scartata' ? `scartato: ${motivo}` : `passa a «${R.STAGES.find(s => s[0] === stage)[1]}»`);
     res.json({ ok: true, risposta: stage === 'scartata' ? `Gentile ${a.nome},\n\ngrazie per l'interesse verso Almacis e per il tempo dedicato alla selezione per «${a.posizione}». Abbiamo scelto di proseguire con altri profili${a.conserva ? ', ma conserveremo il tuo CV per ricontattarti se si aprirà una posizione adatta' : ''}.\n\nUn cordiale saluto,\nUfficio Risorse Umane · Almacis` : null });
+  });
+
+  app.delete('/api/hr/candidature/:id/candidato', async (req, res) => {
+    hrOnly(req);
+    const a = await appRow(v.int(req.params.id, 'id', { min: 1 }));
+    if (a.stage === 'accettata') throw new HttpError(400, "La persona è stata assunta: i suoi dati restano per l'assunzione");
+    await db.query('DELETE FROM hr_candidates WHERE id = $1', [a.candidate_id]);
+    await hrLog(req, 'candidato cancellato su richiesta', { after: { candidatura: a.id } });
+    res.json({ ok: true, req_id: a.req_id });
   });
 
   app.post('/api/hr/candidature/:id/match', async (req, res) => {
