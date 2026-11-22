@@ -1,6 +1,7 @@
 /* Calendario del CRM (ALM2-65, tavola I): pagina CRM → Calendario, pannello dell'incontro, sotto-tab nelle schede. */
-.kc { display: grid; grid-template-columns: 230px minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
-@media (max-width: 1280px) { .kc { grid-template-columns: 210px minmax(0, 1fr); } .kc-panel { grid-column: 1 / -1; } }
+.kc { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; align-items: start; }
+.kc.with-panel { grid-template-columns: 230px minmax(0, 1fr) 380px; }
+@media (max-width: 1280px) { .kc.with-panel { grid-template-columns: 210px minmax(0, 1fr); } .kc.with-panel .kc-panel { grid-column: 1 / -1; position: static; max-height: none; } }
 @media (max-width: 760px) { .kc { grid-template-columns: 1fr; } }
 .kc-side, .kc-main, .kc-panel { background: var(--cv-card); border: 1px solid var(--cv-line); border-radius: 18px; }
 .kc-side { padding: 14px; display: grid; gap: 16px; position: sticky; top: 12px; }
@@ -96,3 +97,33 @@ html[data-theme="dark"] .fc .k-oth, html[data-theme="dark"] .fc .k-int, html[dat
 .kc .fc .fc-toolbar-title, .kc-scheda .fc .fc-toolbar-title { font-size: 17px; font-weight: 500; color: var(--cv-ink); }
 .kc .fc .fc-toolbar, .kc-scheda .fc .fc-toolbar { flex-wrap: wrap; gap: 8px; }
 .kc .fc .fc-button, .kc-scheda .fc .fc-button { border-radius: 10px; font-size: 12.5px; padding: 4px 10px; }
+
+/* layout rifatto (Dante 23/11: «guarda che brutto»): affiancati, una riga sui brevi, niente testo fuori dai riquadri */
+.kc-panel[hidden] { display: none; }
+.kc .fc .fc-timegrid-slot, .kc-scheda .fc .fc-timegrid-slot { height: 30px; }
+.kc .fc .fc-timegrid-slot-label-cushion, .kc-scheda .fc .fc-timegrid-slot-label-cushion { font-size: 11px; color: var(--cv-muted); }
+.kc .fc .fc-col-header-cell-cushion, .kc-scheda .fc .fc-col-header-cell-cushion { font-size: 11.5px; font-weight: 500; letter-spacing: .04em; color: var(--cv-muted); text-transform: uppercase; padding: 8px 4px; }
+.fc .fc-timegrid-event.kc-ev { margin: 0 1px 1px; box-shadow: none; }
+.fc .kc-ev .fc-event-main { overflow: hidden; padding: 0; height: 100%; }
+.fc .kc-ev.k-nonotes { box-shadow: inset 0 0 0 1.5px #D9534F; }
+.k-in { height: 100%; box-sizing: border-box; padding: 3px 6px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; line-height: 1.25; font-size: 12px; }
+.k-in b { font-weight: 500; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+.k-in.k-one { flex-direction: row; align-items: center; white-space: nowrap; padding: 1px 6px; }
+.k-in.k-one b { display: block; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
+.k-in.k-one .k-t { flex: none; margin-right: 4px; }
+.k-t { font-size: 10.5px; opacity: .75; font-variant-numeric: tabular-nums; }
+.k-in small { font-size: 11px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc .k-inv { background: #FFFBF6; border: 1px dashed var(--cv-orange); border-left: 3px solid #F5B77F; }
+.fc .fc-daygrid-event.kc-ev { padding: 1px 4px; }
+.fc .fc-daygrid-event.kc-ev .k-in { padding: 1px 2px; flex-direction: row; gap: 4px; white-space: nowrap; }
+.fc .fc-daygrid-event.kc-ev .k-in b { display: block; overflow: hidden; text-overflow: ellipsis; }
+.fc .fc-list-event.kc-ev td { background: transparent; }
+.fc .fc-timegrid-more-link { font-size: 11px; border-radius: 8px; background: var(--cv-head); color: var(--cv-text); }
+.kc-dark button { display: block; }
+.kc-dark b { color: var(--cv-orange); font-weight: 600; margin-right: 2px; }
+/* pannello dell'incontro come cassetto sopra il calendario: il calendario non si stringe */
+.kc.with-panel { grid-template-columns: 230px minmax(0, 1fr); }
+.kc .kc-panel { position: fixed; right: 24px; top: 84px; bottom: 24px; width: min(420px, calc(100vw - 48px)); max-height: none; z-index: 40; box-shadow: 0 18px 48px rgba(0,0,0,.18); }
+@media (max-width: 1280px) { .kc.with-panel .kc-panel { grid-column: auto; position: fixed; } }
+@media (max-width: 760px) { .kc .kc-panel { right: 8px; left: 8px; top: 64px; bottom: 80px; width: auto; } }
+.k-in b { word-break: normal; overflow-wrap: anywhere; hyphens: auto; }

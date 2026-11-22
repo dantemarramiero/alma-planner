@@ -50,6 +50,8 @@ function makeCalendar(el, { scheda = '', kinds = null, colleagues = () => [], on
     headerToolbar: mobile ? { left: 'prev,next', center: 'title', right: 'today' } : { left: 'prev,next today', center: 'title', right: compact ? 'timeGridWeek,dayGridMonth' : 'timeGridDay,timeGridWeek,dayGridMonth,listWeek' },
     buttonText: { today: 'Oggi', day: 'Giorno', week: 'Settimana', month: 'Mese', list: 'Agenda' },
     slotMinTime: '07:30:00', slotMaxTime: '20:00:00', weekends: false, allDaySlot: true,
+    // incontri allo stesso orario uno accanto all'altro (non sovrapposti), righe da mezz'ora leggibili
+    slotEventOverlap: false, eventMinHeight: 22, slotDuration: '00:30:00', expandRows: false, eventMaxStack: 3,
     selectable: Boolean(onSelect), selectMirror: true, editable: true, eventStartEditable: true, eventDurationEditable: true,
     events: async (info, ok, ko) => {
       try {
@@ -63,7 +65,9 @@ function makeCalendar(el, { scheda = '', kinds = null, colleagues = () => [], on
         const show = e => (scheda ? true : (kinds ? kinds.has(e.kind) : true));
         ok([
           ...r.events.filter(show).map(e => ({
-            id: e.id, title: e.title, start: e.start, end: e.end, allDay: e.all_day, editable: e.organizer && e.kind !== 'scad',
+            // un evento di 8 ore o più (es. «Shooting al casale» 8–23) va nella riga «Tutto il giorno», non copre la colonna
+            ...(!e.all_day && (Date.parse(e.end) - Date.parse(e.start)) >= 8 * 36e5 ? { allDay: true, start: e.start.slice(0, 10), end: addDays(e.end.slice(0, 10), e.end.slice(11) > '00:00:00' ? 1 : 0), long: true } : { allDay: e.all_day, start: e.start, end: e.end }),
+            id: e.id, title: e.title, editable: e.organizer && e.kind !== 'scad' && !(Date.parse(e.end) - Date.parse(e.start) >= 8 * 36e5),
             classNames: ['kc-ev', scheda ? (e.here ? 'k-here' : 'k-other') : `k-${e.kind}`, e.missing_notes ? 'k-nonotes' : ''].filter(Boolean),
             extendedProps: { ev: e },
           })),
@@ -76,12 +80,24 @@ function makeCalendar(el, { scheda = '', kinds = null, colleagues = () => [], on
       if (arg.event.display === 'background') return { html: `<span class="k-busy-l">${arg.event.title}</span>` };
       const e = arg.event.extendedProps.ev;
       if (!e) return undefined;
+      // quanto spazio c'è: fino a 45' una riga sola (ora · titolo), da 75' anche luogo/Teams/persone del CRM
+      const mins = arg.event.allDay ? 0 : (arg.event.end - arg.event.start) / 60000;
+      const timed = arg.view.type.startsWith('timeGrid') && !arg.event.allDay;
       const sub = [e.location, e.online ? 'Teams' : '', e.crm_people?.slice(0, 2).join(', ')].filter(Boolean).join(' · ');
+      const start = hhmm(e.start);
       const node = document.createElement('div');
-      node.className = 'k-in';
-      node.innerHTML = `${arg.timeText ? `<span class="k-t">${arg.timeText}</span>` : ''}<b></b>${sub && arg.view.type !== 'dayGridMonth' ? '<small></small>' : ''}`;
-      node.querySelector('b').textContent = `${e.kind === 'inv' ? 'Invito · ' : ''}${e.title}`;
-      if (node.querySelector('small')) node.querySelector('small').textContent = sub;
+      node.className = `k-in${timed && mins <= 45 ? ' k-one' : ''}`;
+      const b = document.createElement('b');
+      b.textContent = e.title;
+      if (timed && mins <= 45) {
+        const t = document.createElement('span'); t.className = 'k-t'; t.textContent = `${start} `;
+        node.append(t, b);
+      } else {
+        if (timed) { const t = document.createElement('span'); t.className = 'k-t'; t.textContent = arg.timeText; node.append(t); }
+        node.append(b);
+        if (timed && mins >= 75 && sub) { const s = document.createElement('small'); s.textContent = sub; node.append(s); }
+      }
+      node.title = `${e.kind === 'inv' ? 'Invito da confermare · ' : ''}${e.title}${e.all_day ? '' : ` · ${hhmm(e.start)}–${hhmm(e.end)}`}${sub ? ` · ${sub}` : ''}`;
       return { domNodes: [node] };
     },
     eventClick: info => { info.jsEvent.preventDefault(); const { ev, deadline } = info.event.extendedProps; if (deadline) location.hash = `#/crm/lancio/s/${deadline.signal_id}`; else if (ev) onEvent?.(ev); },
@@ -105,7 +121,7 @@ export async function calendarioPage(container) {
   const kinds = loadKinds();
   const st = { colleagues: [], sel: null, last: null };
   const calEl = h('div.kc-cal');
-  const panel = h('aside.kc-panel', emptyState('calendar', 'Scegli un incontro: qui vedi chi c\'è, cosa sa il CRM e cosa fare.'));
+  const panel = h('aside.kc-panel', { hidden: true }); // compare solo quando si apre un incontro: il calendario ha tutta la larghezza
   const fix = h('div.kc-fix');
   const counts = {};
   const filters = h('div.kc-filters', KINDS.map(([k, l]) => {
@@ -128,14 +144,15 @@ export async function calendarioPage(container) {
   colInput.addEventListener('blur', () => setTimeout(() => { colList.hidden = true; }, 150));
   drawCols();
 
-  fill(container, h('div.kc',
+  const wrap = h('div.kc',
     h('aside.kc-side',
-      h('button.btn.btn-primary.kc-new', { type: 'button', on: { click: () => newMeeting({ onDone: () => cal.refetchEvents() }) } }, ic('plus', 15), 'Nuovo incontro', h('kbd', 'N')),
+      h('button.btn.btn-primary.kc-new', { type: 'button', title: 'Nuovo incontro (tasto N)', on: { click: () => newMeeting({ onDone: () => cal.refetchEvents() }) } }, ic('plus', 15), 'Nuovo incontro'),
       h('div.kc-sec', h('span.kc-k', 'Mostra'), filters),
       h('div.kc-sec', h('span.kc-k', 'Colleghi · libero/occupato'), colBox),
       fix),
     h('section.kc-main', calEl),
-    panel));
+    panel);
+  fill(container, wrap);
 
   const cal = makeCalendar(calEl, {
     kinds, colleagues: () => st.colleagues,
@@ -146,12 +163,26 @@ export async function calendarioPage(container) {
       for (const [k] of KINDS) counts[k].textContent = String((k === 'scad' ? r.deadlines : r.events.filter(e => e.kind === k)).length || '');
       const noNotes = r.events.filter(e => e.missing_notes);
       const inv = r.events.filter(e => e.kind === 'inv');
+      // compatto: due righe coi numeri; il primo senza note si apre, gli inviti portano all'agenda con solo gli inviti
       fill(fix, noNotes.length || inv.length ? h('div.kc-dark', h('span.kc-k', 'Da sistemare'),
-        noNotes.map(e => h('button', { type: 'button', on: { click: () => openPanel(e.id) } }, `Senza note · ${e.title}`)),
-        inv.map(e => h('button', { type: 'button', on: { click: () => openPanel(e.id) } }, `Da confermare · ${e.title}`))) : null);
+        noNotes.length ? h('button', { type: 'button', on: { click: () => openPanel(noNotes[0].id) } }, h('b', String(noNotes.length)), noNotes.length === 1 ? ` incontro senza note · ${noNotes[0].title}` : ' incontri finiti senza note ›') : null,
+        inv.length ? h('button', { type: 'button', on: { click: () => onlyInvites() } }, h('b', String(inv.length)), inv.length === 1 ? ' invito da confermare ›' : ' inviti da confermare ›') : null) : null);
     },
   });
-  function openPanel(eid) { meetingPanel(panel, eid, { onChange: () => cal.refetchEvents() }); }
+  function openPanel(eid) {
+    panel.hidden = false;
+    wrap.classList.add('with-panel');
+    meetingPanel(panel, eid, { onChange: () => cal.refetchEvents(), onClose: closePanel });
+    setTimeout(() => cal.updateSize(), 0);
+  }
+  function closePanel() { panel.hidden = true; wrap.classList.remove('with-panel'); setTimeout(() => cal.updateSize(), 0); }
+  function onlyInvites() {
+    kinds.clear(); kinds.add('inv');
+    filters.querySelectorAll('input').forEach((cb, i) => { cb.checked = KINDS[i][0] === 'inv'; });
+    cal.changeView('listWeek');
+    cal.refetchEvents();
+    toast('Solo gli inviti da confermare: rimetti gli altri dai filtri «Mostra»');
+  }
 
   const keys = ev => {
     if (!container.isConnected) { document.removeEventListener('keydown', keys); return; }
@@ -159,6 +190,7 @@ export async function calendarioPage(container) {
     const t = ev.target;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     if (document.querySelector('#overlay-root > *')) return;
+    if (ev.key === 'Escape' && !panel.hidden) { ev.preventDefault(); closePanel(); return; }
     const act = { n: () => newMeeting({ onDone: () => cal.refetchEvents() }), t: () => cal.today(), g: () => cal.changeView('timeGridDay'), s: () => cal.changeView('timeGridWeek'), m: () => cal.changeView('dayGridMonth'), a: () => cal.changeView('listWeek') }[ev.key.toLowerCase()];
     if (act) { ev.preventDefault(); act(); }
   };
