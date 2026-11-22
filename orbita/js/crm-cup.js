@@ -9,6 +9,7 @@ import { icon } from './icons.js';
 const ic = (n, s = 16) => icon(n, { size: s });
 const num = n => Number(n || 0).toLocaleString('it-IT');
 const nice = s => String(s || '').toLowerCase().replace(/(^|[\s'.(-])([a-zà-ù])/g, (m, a, b) => a + b.toUpperCase()).replace(/\b(Srl|Spa|Snc|Sas|Scarl|Scrl)\b/g, x => x[0] + x.slice(1));
+const ownerName = s => nice(String(s || '').replace(/\s+-\s+[^-]{1,40}-\s*$/, '')); // «COMUNE DI VASTO - CH -» → «Comune Di Vasto»
 const sentence = s => { const t = String(s || '').trim().toLowerCase(); return t ? t[0].toUpperCase() + t.slice(1) : ''; };
 const money = n => (!n ? '—' : n >= 1e9 ? `${(n / 1e9).toLocaleString('it-IT', { maximumFractionDigits: 1 })} mld €` : n >= 1e6 ? `${(n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : `${Math.round(n / 1000).toLocaleString('it-IT')} mila €`);
 const ROLE = { partner: ['partner', 'gr'], fornitore: ['fornitore', 'gr'], cliente: ['cliente', 'gr'], lead: ['lead', 'bl'], concorrente: ['concorrente', 'or'] };
@@ -29,7 +30,7 @@ export function cupSection({ id, cats, canEdit = false, openCompany }) {
     if (r.signal_id) { location.hash = '#/crm/radar'; return; }
     btn.disabled = true;
     try {
-      const s = await post('/api/crm/radar/signals', { kind: 'opera_finanziata', title: sentence(r.title).slice(0, 500), entity: nice(r.owner), amount: r.cost ? Math.round(r.cost) : null,
+      const s = await post('/api/crm/radar/signals', { kind: 'opera_finanziata', title: sentence(r.title).slice(0, 500), entity: ownerName(r.owner), amount: r.cost ? Math.round(r.cost) : null,
         url: r.url, region: r.region, soa: d.categories, summary: `Opera finanziata (CUP ${r.cup}), decisa nel ${r.year}. ${r.comune ? `Comune: ${r.comune}. ` : ''}Finanziamento: ${r.coverage || 'non indicato'}. Fonte: OpenCUP.` });
       if (s?.id) { await post(`/api/crm/cup/${encodeURIComponent(r.cup)}/segnale`, { signal_id: s.id }); toast('Segnalata al radar: la trovi tra i segnali'); load(); }
       else toast('Era già nel radar');
@@ -79,8 +80,8 @@ export function cupSection({ id, cats, canEdit = false, openCompany }) {
         const w = r.award?.winners?.[0];
         return h('tr',
           h('td', h('b.te-title', { title: r.title }, sentence(r.title)), h('div', r.type_label ? h('span.te-cpv', r.type_label) : null),
-            h('small', [r.comune, r.province ? `(${r.province})` : '', r.places > 1 ? `e altri ${r.places - 1} comuni` : '', `CUP ${r.cup}`].filter(Boolean).join(' · ').replace(' · (', ' ('))),
-          h('td', h('b', nice(r.owner)), h('small', r.subject ? h('span.te-pill', { class: ROLE[role]?.[1] || 'gr' }, ROLE[role]?.[0] || 'nel CRM') : h('span.te-pill.bl', 'non nel CRM'))),
+            h('small', [r.comune ? `${r.comune}${r.province ? ` (${r.province})` : ''}${r.places > 1 ? ` e altri ${r.places - 1} comuni` : ''}` : r.places > 1 ? `${r.places} comuni` : `tutta la regione (${r.region})`, `CUP ${r.cup}`].join(' · '))),
+          h('td', h('b', ownerName(r.owner)), h('small', r.subject ? h('span.te-pill', { class: ROLE[role]?.[1] || 'gr' }, ROLE[role]?.[0] || 'nel CRM') : h('span.te-pill.bl', 'non nel CRM'))),
           h('td', h('b', money(r.cost)), h('small', r.year ? `decisa nel ${r.year}` : '')),
           h('td', h('b', r.coverage || '—'), r.program ? h('small', r.program) : null),
           h('td', r.award

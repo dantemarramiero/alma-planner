@@ -16,9 +16,9 @@ const Y = new Date().getFullYear();
 const row = o => COLS.map(c => `"${String(o[c] ?? '').replace(/"/g, '""')}"`).join(';');
 const base = { STATO_PROGETTO: 'ATTIVO', CODICE_NATURA_INTERVENTO: '03', NATURA_INTERVENTO: LP, REGIONE: 'ABRUZZO', SIGLA_PROVINCIA: 'PE', STRUMENTO_PROGRAMMAZIONE: 'ALTRO', COPERTURA_FINANZIARIA: 'STATALE', DATA_GENERAZIONE_CUP: '12-MAR-2024' };
 const ROWS = [
-  { ...base, CUP: 'A11', ANNO_DECISIONE: Y - 1, COSTO_PROGETTO: '2000000', COMUNE: 'PESCARA', SOGGETTO_TITOLARE: 'COMUNE DI PESCARA', PIVA_CODFISCALE_SOG_TITOLARE: '00124600685',
+  { ...base, CUP: 'A11', ANNO_DECISIONE: Y - 1, COSTO_PROGETTO: '2000000', COMUNE: 'PESCARA', SOGGETTO_TITOLARE: 'COMUNE DI PESCARA - PE -', PIVA_CODFISCALE_SOG_TITOLARE: '00124600685',
     CODICE_SETTORE_INTERVENTO: '03', CODICE_SOTTOSETTORE_INTERVENTO: '16', CODICE_CATEGORIA_INTERVENTO: '065', CATEGORIA_INTERVENTO: 'IMPIANTI DI TRASMISSIONE', DESCRIZIONE_INTERVENTO: 'NUOVA CABINA PRIMARIA E LINEE MT' },
-  { ...base, CUP: 'A11', ANNO_DECISIONE: Y - 1, COSTO_PROGETTO: '2000000', COMUNE: 'MONTESILVANO', SOGGETTO_TITOLARE: 'COMUNE DI PESCARA', PIVA_CODFISCALE_SOG_TITOLARE: '00124600685',
+  { ...base, CUP: 'A11', ANNO_DECISIONE: Y - 1, COSTO_PROGETTO: '2000000', COMUNE: 'MONTESILVANO', SOGGETTO_TITOLARE: 'COMUNE DI PESCARA - PE -', PIVA_CODFISCALE_SOG_TITOLARE: '00124600685',
     CODICE_SETTORE_INTERVENTO: '03', CODICE_SOTTOSETTORE_INTERVENTO: '16', CODICE_CATEGORIA_INTERVENTO: '065', CATEGORIA_INTERVENTO: 'IMPIANTI DI TRASMISSIONE', DESCRIZIONE_INTERVENTO: 'NUOVA CABINA PRIMARIA E LINEE MT' },
   { ...base, CUP: 'B22', ANNO_DECISIONE: Y - 2, COSTO_PROGETTO: '500000', COMUNE: 'CHIETI', SIGLA_PROVINCIA: 'CH', SOGGETTO_TITOLARE: 'REGIONE ABRUZZO', PIVA_CODFISCALE_SOG_TITOLARE: '80003170661',
     CODICE_SETTORE_INTERVENTO: '05', CODICE_SOTTOSETTORE_INTERVENTO: '99', CODICE_CATEGORIA_INTERVENTO: '193', CATEGORIA_INTERVENTO: 'ILLUMINAZIONE PUBBLICA', DESCRIZIONE_INTERVENTO: 'RIFACIMENTO ILLUMINAZIONE PUBBLICA', COPERTURA_FINANZIARIA: 'COMUNITARIA' },
@@ -104,11 +104,12 @@ test('caricamento: solo l\'area Sud, lavori pubblici attivi recenti dei tipi e d
   const out = await C.syncCup(db, { fetchImpl: fakeCup, settings: { concorrenza: {}, profiles: {} }, log: () => {} });
   assert.equal(out.rows, 2);
   assert.ok(!asked.some(u => /centro|isole|nord/.test(u)));
-  const { rows } = await db.query('SELECT cup, places, region, comune, owner_cf, created_on FROM crm_cup_works ORDER BY cup');
+  const { rows } = await db.query('SELECT cup, places, region, comune, owner, owner_cf, created_on FROM crm_cup_works ORDER BY cup');
   assert.deepEqual(rows.map(r => r.cup), ['A11', 'B22']);
   assert.equal(rows[0].places, 2);
   assert.equal(rows[0].region, 'Abruzzo');
   assert.equal(rows[0].comune, 'Pescara');
+  assert.equal(rows[0].owner, 'COMUNE DI PESCARA');
 });
 
 test('senza gara / con gara (da ANAC con il CUP), enti nel CRM', async () => {
