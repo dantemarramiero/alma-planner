@@ -242,3 +242,21 @@
 
 .hr-fila { border: 1.5px solid #FFD9B5; background: var(--orange-soft); margin-bottom: var(--ap-space-4); }
 .hr-fila .hr-t { background: transparent; }
+
+/* ── Fase 5 · performance (tavole AH–AO) ── */
+.hr-bignum { font-size: 40px; font-weight: var(--ap-fw-medium); color: var(--ink); line-height: 1.1; margin: 4px 0 6px; }
+.hr-score10 button.mgr.f { background: var(--ink); border-color: var(--ink); }
+.hr-dist { display: flex; align-items: flex-end; gap: 10px; height: 170px; padding: 18px 4px 0; border-bottom: 1px solid var(--rule); }
+.hr-dist-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; gap: 4px; }
+.hr-dist-bar { width: 100%; background: var(--orange); border-radius: 6px 6px 0 0; position: relative; }
+.hr-dist-bar span { position: absolute; top: -18px; left: 0; right: 0; text-align: center; font-size: var(--ap-fs-xs); color: var(--mid); }
+.hr-dist-ref { position: absolute; left: 6%; right: 6%; border-top: 1.5px dashed var(--blue); margin-bottom: 20px; }
+.hr-mx { display: grid; grid-template-columns: 70px repeat(3, minmax(0, 1fr)); gap: 8px; }
+.hr-mx-h { font-size: var(--ap-fs-xs); color: var(--muted); display: flex; align-items: center; justify-content: center; text-align: center; }
+.hr-mx-c { border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px; min-height: 72px; text-align: left; background: var(--card); cursor: pointer; font: inherit; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.hr-mx-c b { font-size: 17px; color: var(--ink); }
+.hr-mx-c.hot { background: var(--green-soft); border-color: #9FD0B0; } .hr-mx-c.mid { background: #FFF8F1; } .hr-mx-c.zero { background: var(--ap-grey-50, #F6F6F4); color: var(--muted); }
+.hr-mx-c:disabled { cursor: default; }
+.hr-t .hr-score10 { gap: 1px; }
+.hr-t .hr-score10 button { width: 18px; height: 22px; font-size: 9.5px; border-radius: 4px; }
+.hr-t td:first-child { min-width: 160px; }

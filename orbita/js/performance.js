@@ -68,20 +68,14 @@ async function schedaPage(container, userId) {
   };
   const skillsBox = h('div.pm-skills-wrap');
   function drawSkills() {
-    const avg = key => { const vals = d.soft_skills.map(s => review[key][s]).filter(Boolean); return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1).replace('.', ',') : '—'; };
-    const actions = [];
-    if (mine && review.status === 'self') actions.push(h('button.btn.btn-primary', { type: 'button', on: { click: async () => { if (await confirmDialog('Inviare l’autovalutazione al responsabile? Dopo non si modifica più.', { ok: 'Invia' })) { await patch(`/api/pm/reviews/${userId}`, { status: 'manager' }); reload(); } } } }, 'Invia l’autovalutazione'));
-    if ((rights.manager || rights.admin) && review.status === 'manager') actions.push(h('button.btn.btn-primary', { type: 'button', on: { click: async () => { await patch(`/api/pm/reviews/${userId}`, { status: 'closed' }); reload(); } } }, 'Chiudi la valutazione'));
-    if (rights.admin && review.status !== 'self') actions.push(h('button.btn', { type: 'button', on: { click: async () => { await patch(`/api/pm/reviews/${userId}`, { status: review.status === 'closed' ? 'manager' : 'self' }); reload(); } } }, 'Riapri'));
+    // Fase 5 di Alma HR (ALM2-59): la valutazione annuale è nella scheda di Alma HR, sulla scala 1–10 (obiettivi di
+    // questa pagina + competenze del ruolo); i voti già dati qui su 1–5 lì si vedono ×2. I trimestri non ci sono più.
     fill(skillsBox,
       h('section.hk-card',
-        h('div.pm-skillhead', h('h2.pm-h', 'Hard skills del ruolo'), h('span', 'Autovalutazione'), h('span', 'Responsabile'), h('span', 'Gap')),
-        role?.hard_skills?.length ? role.hard_skills.map(s => scoreRow(s)) : h('p.muted', 'Le hard skills arrivano con il ruolo confermato nel mansionario.')),
-      h('section.hk-card',
-        h('div.pm-skillhead', h('h2.pm-h', 'Soft skills · da 1 a 5'), h('span', 'Autovalutazione'), h('span', 'Responsabile'), h('span', 'Gap')),
-        d.soft_skills.map(s => scoreRow(s)),
-        h('div.pm-avg', h('span', 'Media soft skills'), h('span', 'autovalutazione ', h('b', avg('self_scores')), ' · responsabile ', h('b', avg('manager_scores')))),
-        actions.length ? h('div.row.pm-actions', actions) : null));
+        h('h2.pm-h', 'Valutazione annuale'),
+        h('p', `Dal ciclo ${d.year} la valutazione è in Alma HR, sulla scala 1–10: gli obiettivi di questa pagina e le competenze del ruolo, con l'autovalutazione e il voto del responsabile.`),
+        h('p.muted.small', "I voti già dati qui sulla scala 1–5 si vedono convertiti (×2). A metà anno c'è un solo check, a luglio."),
+        h('div.row.pm-actions', h('a.btn.btn-primary', { href: `#/hr/valutazione/${userId}` }, 'Apri la scheda annuale'), h('a.btn', { href: `#/hr/semestre/${userId}` }, 'Check di luglio'))));
   }
 
   // ── modifiche della scheda: la persona le prepara (bozza su questo computer) e le invia al responsabile ──
@@ -217,7 +211,7 @@ async function schedaPage(container, userId) {
               editing.has('hard')
                 ? h('textarea.hk-in.pm-edit', { rows: 5, placeholder: 'Una per riga', on: { change: e => setDraft('hard_skills', e.target.value.split('\n').map(x => x.trim()).filter(Boolean)) } }, (valOf('hard_skills') || []).join('\n'))
                 : h('div.pm-chips', (valOf('hard_skills') || []).map(x => h('span.pm-chip', x))),
-              h('span.muted.small', 'I voti delle hard skills sono nel riquadro a destra.')),
+              h('span.muted.small', 'La valutazione annuale è in Alma HR (scala 1–10).')),
             canEdit ? h('p.muted.small', `Ogni riquadro ha «Modifica». Quello che cambi resta segnato «da inviare» finché non lo invii ${toApprover}.`) : null,
           ] : h('section.hk-card', h('h2.pm-h', 'Nessun ruolo assegnato'), h('p.muted', 'L’amministratore assegna il ruolo dalla dashboard del team o dal mansionario.'))),
         h('div.pm-col', skillsBox)));
@@ -312,7 +306,7 @@ async function obiettiviPage(container, userId) {
   draw();
 }
 
-// ═══ Obiettivi di team con revisione trimestrale ═══════════════════════════════════════════════════
+// ═══ Obiettivi di team (le revisioni trimestrali sono state tolte: check di luglio in Alma HR) ═══════════════════════════════════════════════════
 // Amministratori: tutte le persone; responsabili: i loro collaboratori. Ogni trimestre il responsabile rivede con la
 // persona i suoi obiettivi (valore del trimestre, raggiungimento, commento, azioni) e chiude la revisione.
 const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
@@ -407,27 +401,23 @@ async function teamPage(container) {
       return h('span.pm-qcell', { class: `${qColor(s.v)} ${s.closed ? '' : 'open'}`, title: s.closed ? 'revisione chiusa' : s.live ? 'in corso, dai valori di oggi' : 'revisione non chiusa' }, s.v === null ? '—' : `${s.v}%`);
     };
     const selP = d.people.find(p => p.id === sel) || d.people[0];
+    // Fase 5 di Alma HR: le revisioni trimestrali non ci sono più (Dante 22/11). Qui l'avanzamento di oggi degli
+    // obiettivi; il check di metà anno e la valutazione si aprono in Alma HR.
+    const today = d.people.map(p => scoreOf(p, curQ).v).filter(x => x !== null);
+    void selP; void closedN; void down;
     fill(body,
-      h('div.hk-stats.pm-tiles', stat(`Raggiungimento medio · ${QUARTERS[q]}`, scores.length ? `${Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)}%` : '—'),
-        stat(`Revisioni chiuse · ${QUARTERS[q]}`, `${closedN} su ${d.people.length}`), stat('Scadenza della revisione', DEADLINES[q]),
-        stat('In calo rispetto al trimestre prima', String(down), down ? 'ko' : '')),
-      h('div.pm-qgrid',
-        h('section.hk-card',
-          h('div.pm-qhead', h('span', 'Team e persone'), QUARTERS.map(l => h('span.c', l)), h('span', `Revisione ${QUARTERS[q]}`), d.admin ? h('span') : null),
-          Object.entries(byTeam).map(([t, list]) => [
-            h('button.pm-qteam', { type: 'button', class: team === t ? 'on' : '', on: { click: () => { team = team === t ? null : t; draw(); } } }, h('span', t),
-              QUARTERS.map((_, i) => { if (i > curQ) return h('span.c.muted', '—'); const vs = list.map(p => scoreOf(p, i).v).filter(x => x !== null); const v = vs.length ? Math.round(vs.reduce((a, b) => a + b, 0) / vs.length) : null; return h('span.c', { class: qColor(v) }, v === null ? '—' : `${v}%`); }),
-              h('span'), d.admin ? h('span') : null),
-            (team && team !== t ? [] : list).map(p => {
-              const rv = reviewOf(p, q), st = rv?.status === 'closed' ? ['Chiusa', 'ok'] : rv ? ['In bozza', 'warn'] : ['Da fare', 'muted'];
-              return h('div.pm-qperson', { class: sel === p.id ? 'on' : '' },
-                h('button.pm-qname', { type: 'button', on: { click: () => { sel = p.id; draw(); } } }, avatar(userById(p.id) || p, 26), h('span', h('strong', p.name), h('small', p.role || 'senza ruolo'))),
-                QUARTERS.map((_, i) => h('span.c', cell(p, i))),
-                h('span', h('span.hk-status', { class: st[1] }, st[0])),
-                d.admin ? h('button.hk-icon', { type: 'button', title: 'Ruolo, responsabile e team', 'aria-label': 'Modifica ruolo e responsabile', on: { click: () => assign(p) } }, icon('pencil', { size: 14 })) : null);
-            })]),
-          h('p.muted.small', { style: { marginTop: '10px' } }, 'Verde ≥ 90%, giallo 70–89%, rosso sotto il 70%. Tratteggiato = revisione non ancora chiusa (nel trimestre in corso i valori sono quelli di oggi).')),
-        selP ? reviewPanel(selP) : null));
+      h('div.hk-stats.pm-tiles', stat('Raggiungimento medio oggi', today.length ? `${Math.round(today.reduce((a, b) => a + b, 0) / today.length)}%` : '—'), stat('Persone', String(d.people.length)),
+        stat('Check di metà anno', 'uno solo, a luglio'), stat('Valutazione', 'fine anno, in Alma HR')),
+      h('section.hk-card',
+        h('div.pm-qhead', h('span', 'Team e persone'), h('span.c', 'Oggi'), h('span', 'In Alma HR'), d.admin ? h('span') : null),
+        Object.entries(byTeam).map(([t, list]) => [
+          h('button.pm-qteam', { type: 'button', class: team === t ? 'on' : '', on: { click: () => { team = team === t ? null : t; draw(); } } }, h('span', t), h('span.c'), h('span'), d.admin ? h('span') : null),
+          (team && team !== t ? [] : list).map(p => h('div.pm-qperson',
+            h('span.pm-qname', avatar(userById(p.id) || p, 26), h('span', h('strong', p.name), h('small', p.role || 'senza ruolo'))),
+            h('span.c', cell(p, curQ)),
+            h('span.row', h('a.btn.btn-sm', { href: `#/hr/semestre/${p.id}` }, 'Check di luglio'), h('a.btn.btn-sm', { href: `#/hr/valutazione/${p.id}` }, 'Valutazione')),
+            d.admin ? h('button.hk-icon', { type: 'button', title: 'Ruolo, responsabile e team', 'aria-label': 'Modifica ruolo e responsabile', on: { click: () => assign(p) } }, icon('pencil', { size: 14 })) : null))]),
+        h('p.muted.small', { style: { marginTop: '10px' } }, "Verde ≥ 90%, giallo 70–89%, rosso sotto il 70%: raggiungimento di oggi degli obiettivi. Le revisioni trimestrali non ci sono più: c'è un solo check, a luglio.")));
   }
   draw();
 }

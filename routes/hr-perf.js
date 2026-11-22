@@ -88,7 +88,7 @@ function registerHrPerf(app, { db, gov, notifier, auth }) {
       db.query('SELECT user_id, count(*) FILTER (WHERE approved)::int AS ok FROM pm_objectives WHERE year = $1 AND user_id = ANY($2) GROUP BY 1', [year, ids]),
       db.query("SELECT user_id FROM hr_midyear WHERE year = $1 AND status = 'closed' AND user_id = ANY($2)", [year, ids]),
       db.query('SELECT user_id, status, calib_at FROM pm_reviews WHERE year = $1 AND user_id = ANY($2)', [year, ids]),
-      db.query('SELECT user_id, proposed_by FROM hr_pay_reviews WHERE year = $1 AND user_id = ANY($2)', [year, ids]),
+      db.query("SELECT r.user_id, (r.proposed_by IS NOT NULL OR COALESCE(a.stato, 'aperta') <> 'aperta') AS proposed_by FROM hr_pay_reviews r LEFT JOIN hr_pay_areas a ON a.year = r.year AND a.area_id = r.area_id WHERE r.year = $1 AND r.user_id = ANY($2)", [year, ids]),
     ]);
     const okObj = new Set(obj.filter(x => x.ok > 0).map(x => x.user_id));
     const okMid = new Set(mid.map(x => x.user_id));
