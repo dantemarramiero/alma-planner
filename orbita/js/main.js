@@ -38,6 +38,7 @@ import { almaView, setupAlma } from './alma.js';
 import { openFeedback, feedbackView } from './feedback.js';
 import { postaVocePage } from './posta-voce.js';
 import { firmaView } from './firma.js';
+import { postaMiaView } from './posta-mia.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -339,6 +340,9 @@ async function route() {
       break;
     case 'firma': // La mia firma nelle email (ALM2-64)
       await firmaView(view);
+      break;
+    case 'posta-mia': // La mia posta nel CRM: condivisione e risposte nuove (ALM2-67)
+      await postaMiaView(view);
       break;
     case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10; sul telefono la versione dell'app 3.0)
       if (isMobile() && !params.get('modifica')) cleanup = (await mioBiglietto(view)) || null;

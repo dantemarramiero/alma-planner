@@ -106,7 +106,7 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
     const offer = deadline || addDays(today, 60);
     const entity = g.subject_name || g.entity || 'il cliente';
     const base = {
-      kind, source: { type: 'signal', id: g.id, email: true }, name: g.title, entity, subject_id: g.subject_id, bu: g.bu, bu_label: g.bu_label || '',
+      kind, source: { type: 'signal', id: g.id, email: true, mail_owner_id: th?.owner_id || null, mail_mode: th?.new_mode || 'approva' }, name: g.title, entity, subject_id: g.subject_id, bu: g.bu, bu_label: g.bu_label || '',
       stage: g.stage, deadline, expected_on: null, amount: value || null, score: g.score, score_parts: {}, why: g.why || '',
       warm: '', warm_paths: paths.slice(0, 3).map(p => ({ us: p.us?.name || '', contact: p.contact, job: p.job || '', level: p.level })),
       url: '', soa: [], cig: '', region: g.region || '', place: g.place || '', concept: c,

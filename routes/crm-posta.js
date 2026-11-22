@@ -38,7 +38,7 @@ const FOLDER_ID = /^[A-Za-z0-9_\-=+\/.]{1,500}$/;
 const HIDDEN_FOLDERS = new Set(['drafts', 'outbox', 'conversationhistory', 'syncissues', 'scheduled']);
 const EMAIL_RE = /^[^\s"@]+@[^\s"@]+\.[^\s"@]+$/;
 
-function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
+function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFake }) {
   const aiKey = () => process.env.OPENAI_API_KEY || '';
   const ai = () => ({ key: aiKey(), fetchImpl: radarFetch || fetch });
   const g = (t, method, path, opts) => (mailFake ? mailFake.graph(t, method, path, opts) : graph(t, method, path, opts));
@@ -98,6 +98,33 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     };
   }
 
+  // ── privacy della posta (ALM2-67, tavole J–M) ─────────────────────────────────────────────────────
+  // Le email di una persona le vede l'azienda solo dopo il suo sì: quelle che aspettano stanno in crm_mail_suggestions
+  // (kind 'risposta' = della conversazione collegata, 'suggerita' = altra conversazione) e le vede e decide solo owner_id.
+  const MODES = ['approva', 'auto'];
+  async function prefsOf(uid) {
+    const { rows: [r] } = await db.query('SELECT share_people, new_mode FROM user_mail_prefs WHERE user_id = $1', [uid]);
+    return { share_people: Boolean(r?.share_people), new_mode: r?.new_mode || 'approva' };
+  }
+  // mette un'email della casella del proprietario fra quelle da approvare (o già scartata, status 'scartata');
+  // niente se è già nel progetto o se c'è già (un «Non c'entra» resta tale)
+  async function queue(projectId, ownerId, m, kind, why, status = 'nuova') {
+    const { rowCount } = await db.query(
+      `INSERT INTO crm_mail_suggestions (project_id, owner_id, internet_message_id, outlook_id, subject, from_name, from_address, sent_at, preview, why, kind, status, decided_at)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text, CASE WHEN $12::text = 'nuova' THEN NULL ELSE now() END
+        WHERE NOT EXISTS (SELECT 1 FROM project_emails WHERE project_id = $1 AND internet_message_id = $3)
+       ON CONFLICT (project_id, internet_message_id) DO NOTHING`,
+      [projectId, ownerId, m.internet_message_id, m.id, String(m.subject || '').slice(0, 500), m.from?.name || '', m.from?.address || '', m.date || null, String(m.preview || '').slice(0, 300), why, kind, status]);
+    return rowCount;
+  }
+  // campanella (e tab Avvisi sul telefono) al proprietario quando entrano email nuove da approvare
+  async function notifyPending(ownerId, projectId, n, actorId = null) {
+    if (!n || !notifier) return;
+    const { rows: [p] } = await db.query('SELECT name FROM projects WHERE id = $1', [projectId]);
+    await notifier.notify({ userIds: [ownerId], actorId, kind: 'crm', body: `${n === 1 ? 'Un\'email' : `${n} email`} della tua casella su «${p?.name || 'un progetto'}» ${n === 1 ? 'aspetta' : 'aspettano'} il tuo sì prima di entrare nel progetto`, link: '/crm/posta/approvare' })
+      .catch(err => console.warn('[posta] avviso non mandato', err.message));
+  }
+
   // ── Posta (tavola A) ─────────────────────────────────────────────────────────────────────────────
   app.get('/api/crm/posta', async (req, res) => {
     const c = String(req.query.cartella || '');
@@ -124,7 +151,57 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       messages: items.map(m => ({ id: m.id, conversation_id: m.conversation_id, subject: m.subject, from: m.from, to: m.to, date: m.date, preview: m.preview,
         has_attachments: m.has_attachments, folder_id: m.folder_id, in_page: per.get(m.conversation_id) || 1, ...(where.byConv(m.conversation_id) || where.byImid(m.internet_message_id) || {}) })),
       next: data['@odata.nextLink'] || null,
+      pending: (await db.query("SELECT count(*)::int AS n FROM crm_mail_suggestions s JOIN projects p ON p.id = s.project_id WHERE s.owner_id = $1 AND s.status = 'nuova' AND p.status <> 'archived'", [req.user.id])).rows[0].n,
     });
+  });
+
+  // ── Da approvare (tavola J): le email della mia casella che aspettano il mio sì, per progetto ─────────
+  app.get('/api/crm/posta/da-approvare', async (req, res) => {
+    const me = req.user.id;
+    const { rows } = await db.query(
+      `SELECT s.id, s.project_id, p.name AS project_name, s.kind, s.subject, s.from_name, s.from_address, s.sent_at, s.preview, s.why
+         FROM crm_mail_suggestions s JOIN projects p ON p.id = s.project_id
+        WHERE s.owner_id = $1 AND s.status = 'nuova' AND p.status <> 'archived'
+        ORDER BY p.name, s.sent_at DESC NULLS LAST`, [me]);
+    const ids = [...new Set(rows.map(r => r.project_id))];
+    const [{ rows: team }, { rows: modes }] = ids.length ? await Promise.all([
+      db.query(`SELECT m.project_id, u.name FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ANY($1::int[])
+                UNION SELECT p.id, u.name FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id = ANY($1::int[])`, [ids]),
+      db.query('SELECT project_id, new_mode FROM crm_mail_threads WHERE project_id = ANY($1::int[]) AND owner_id = $2', [ids, me]),
+    ]) : [{ rows: [] }, { rows: [] }];
+    res.json({
+      projects: ids.map(id => ({
+        id, name: rows.find(r => r.project_id === id).project_name,
+        team: [...new Set(team.filter(t => t.project_id === id).map(t => t.name.split(' ')[0]))],
+        new_mode: modes.find(m => m.project_id === id)?.new_mode || null,
+        emails: rows.filter(r => r.project_id === id).map(({ project_id, project_name, ...r }) => r),
+      })),
+      total: rows.length,
+    });
+  });
+
+  // ── La mia posta nel CRM (tavola L): scelte personali ed email che ho fatto entrare nei progetti ─────
+  const myEmails = uid => db.query(
+    `SELECT e.id, e.project_id, p.name AS project_name, e.subject, e.from_name, e.from_address, e.sent_at
+       FROM project_emails e JOIN projects p ON p.id = e.project_id
+      WHERE e.assigned_by = $1 AND p.crm_kind <> '' AND p.status <> 'archived' ORDER BY e.sent_at DESC NULLS LAST LIMIT 300`, [uid]);
+  app.get('/api/posta/preferenze', async (req, res) => {
+    const [prefs, { rows }] = await Promise.all([prefsOf(req.user.id), myEmails(req.user.id)]);
+    res.json({ ...prefs, emails: rows, projects: new Set(rows.map(r => r.project_id)).size });
+  });
+  app.put('/api/posta/preferenze', async (req, res) => {
+    const b = req.body || {};
+    const before = await prefsOf(req.user.id);
+    const next = {
+      share_people: b.share_people === undefined ? before.share_people : Boolean(b.share_people),
+      new_mode: b.new_mode === undefined ? before.new_mode : v.oneOf(b.new_mode, 'risposte nuove', MODES),
+    };
+    await db.query(`INSERT INTO user_mail_prefs (user_id, share_people, new_mode) VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id) DO UPDATE SET share_people = EXCLUDED.share_people, new_mode = EXCLUDED.new_mode, updated_at = now()`,
+    [req.user.id, next.share_people, next.new_mode]);
+    req.auditDetail = { label: 'Ha cambiato le scelte sulla sua posta nel CRM', target: 'La mia posta nel CRM',
+      before: { condivide_con_chi_scrive: before.share_people, risposte_nuove: before.new_mode }, after: { condivide_con_chi_scrive: next.share_people, risposte_nuove: next.new_mode } };
+    res.json(next);
   });
 
   // Cartelle di Outlook (ALM2-60): quelle di primo livello e le sottocartelle, fino a 3 livelli, per aprirle e spostarci le email.
@@ -411,8 +488,11 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     const ext = [...new Set(emails.map(e => String(e).toLowerCase()))].slice(0, 20);
     const know = [];
     if (ext.length) {
+      // ALM2-67: i colleghi compaiono solo se hanno acceso «Mostra ai colleghi con chi scrivo»; per sé sempre
       const { rows } = await db.query(`SELECT u.id, u.name, p.email, p.name AS who, p.received + p.sent AS n FROM crm_mail_people p JOIN users u ON u.id = p.user_id
-                                        WHERE p.email = ANY($1::text[]) AND (p.received + p.sent) >= 3 ORDER BY n DESC LIMIT 6`, [ext]);
+                                        LEFT JOIN user_mail_prefs mp ON mp.user_id = p.user_id
+                                        WHERE p.email = ANY($1::text[]) AND (p.received + p.sent) >= 3 AND (p.user_id = $2 OR mp.share_people)
+                                        ORDER BY n DESC LIMIT 6`, [ext, Number(me) || 0]);
       for (const r of rows) know.push(`${r.name}${r.id === me ? ' (tu)' : ''} scrive con ${r.who || r.email} (${r.n} email)`);
     }
     if (ids.length) {
@@ -513,6 +593,7 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       conversation_id: first.conversation_id, message_id: first.id, subject: P.baseSubject(first.subject),
       messages: msgs.map(m => ({ id: m.id, date: m.date, from: m.from, subject: m.subject })), attachments: atts,
       fields, asa: asas.map(a => ({ key: a.key, label: a.label })), company, company_options: options, people, extra: extra.slice(0, 5), insights,
+      new_mode: (await prefsOf(uid)).new_mode, // ALM2-67: scelta già pronta per le risposte nuove
     });
   });
 
@@ -532,6 +613,8 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       prossimo_passo: v.text(f.prossimo_passo, 'prossimo passo', { max: 300 }) || '', tipo, committente: v.text(f.committente, 'committente', { max: 200 }) || '',
       temi: (Array.isArray(f.temi) ? f.temi : []).map(x => String(x).toLowerCase().slice(0, 40)).filter(Boolean).slice(0, 6),
       extra_ids: (Array.isArray(b.extra_ids) ? b.extra_ids : []).map(x => String(x).slice(0, 500)).slice(0, 10),
+      // ALM2-67: email della conversazione che il proprietario ha tolto (non entrano, nemmeno dopo)
+      skip_ids: (Array.isArray(b.skip_ids) ? b.skip_ids : []).map(x => String(x).slice(0, 500)).slice(0, 50),
       link_signal_ids: (Array.isArray(b.link_signal_ids) ? b.link_signal_ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 5),
       from_email: true,
     };
@@ -539,6 +622,7 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     const deadline = /^\d{4}-\d{2}-\d{2}$/.test(String(f.scadenza || '')) ? f.scadenza : null;
     const people = (Array.isArray(b.people) ? b.people : []).slice(0, 40).filter(p => p && p.on !== false && EMAIL_RE.test(String(p.email || '')));
     const myAsa = (req.crm?.asas || []).find(k => asas.includes(k)) || asas[0];
+    const newMode = MODES.includes(b.new_mode) ? b.new_mode : (await prefsOf(uid)).new_mode;
     const out = await db.tx(async q => {
       const { rows: [dup] } = await q.query('SELECT signal_id, project_id FROM crm_mail_threads WHERE conversation_id = $1 LIMIT 1', [convId]);
       if (dup) throw new HttpError(409, dup.project_id ? 'Questa conversazione è già in un progetto' : 'Questa conversazione è già nel Radar');
@@ -587,8 +671,8 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
         [`${convId}`.slice(0, 500), bu, title, concept.cosa, concept.prossimo_passo ? `Prossimo passo: ${concept.prossimo_passo}` : '', subjectName || concept.per_chi || '', subjectId, amount, concept.dove, deadline, uid, JSON.stringify(concept)]);
       if (subjectId) await q.query("INSERT INTO crm_signal_links (signal_id, subject_id, role, linked_by) VALUES ($1, $2, 'cliente', $3) ON CONFLICT DO NOTHING", [sg.id, subjectId, uid]);
       for (const c of contactIds) await q.query('INSERT INTO crm_signal_links (signal_id, contact_id, role, linked_by) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [sg.id, c.id, c.job, uid]);
-      await q.query(`INSERT INTO crm_mail_threads (signal_id, owner_id, conversation_id, subject, colleague_ids, themes) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [sg.id, uid, convId, title.slice(0, 300), [...new Set(colleagues)], concept.temi]);
+      await q.query(`INSERT INTO crm_mail_threads (signal_id, owner_id, conversation_id, subject, colleague_ids, themes, new_mode) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [sg.id, uid, convId, title.slice(0, 300), [...new Set(colleagues)], concept.temi, newMode]);
       return { signal_id: sg.id, subject_id: subjectId, contacts: contactIds.length };
     });
     res.status(201).json(out);
@@ -638,19 +722,33 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       let added = 0, suggested = 0;
       const internal = await internalFn();
       const newPeople = [];
+      const waiting = new Map(); // proprietario → email nuove da approvare (per l'avviso)
       for (const th of threads) {
+        let pendingNew = 0;
         if (!force && th.checked_at && Date.now() - new Date(th.checked_at).getTime() < STALE) continue;
         let t;
         try { t = await token(th.owner_id); } catch { continue; }
         try {
           const msgs = await conversation(t, th.conversation_id);
-          for (const m of msgs) if (await copyToProject(t, projectId, m.id, th.owner_id, { auto: true })) added++;
-          // persone nuove che scrivono nella conversazione e non sono nel CRM
-          const addrs = [...new Set(msgs.flatMap(m => [m.from, ...m.to, ...m.cc]).map(x => x.address).filter(a => a && !internal(a) && !S.isAuto(a)))];
+          // ALM2-67: entrano da sole solo se il proprietario l'ha scelto; altrimenti aspettano il suo sì in «Da approvare».
+          // Quelle a cui ha detto «Non c'entra» (o tolte alla creazione) non tornano mai.
+          const { rows: declined } = await db.query("SELECT internet_message_id FROM crm_mail_suggestions WHERE project_id = $1 AND status = 'scartata'", [projectId]);
+          const no = new Set(declined.map(r => r.internet_message_id));
+          for (const m of msgs) {
+            if (no.has(m.internet_message_id)) continue;
+            if (th.new_mode === 'auto') { if (await copyToProject(t, projectId, m.id, th.owner_id, { auto: true })) added++; }
+            else pendingNew += await queue(projectId, th.owner_id, m, 'risposta', 'risposta nella conversazione collegata');
+          }
+          // persone nuove che scrivono nella conversazione e non sono nel CRM: solo dalle email già entrate (ALM2-67),
+          // così chi non è il proprietario non vede indirizzi di email non approvate
+          const { rows: inProj } = await db.query('SELECT internet_message_id FROM project_emails WHERE project_id = $1', [projectId]);
+          const inSet = new Set(inProj.map(r => r.internet_message_id));
+          const seenMsgs = msgs.filter(m => inSet.has(m.internet_message_id));
+          const addrs = [...new Set(seenMsgs.flatMap(m => [m.from, ...m.to, ...m.cc]).map(x => x.address).filter(a => a && !internal(a) && !S.isAuto(a)))];
           if (addrs.length) {
             const { rows: known } = await db.query('SELECT lower(email) AS email FROM crm_contacts WHERE lower(email) = ANY($1::text[])', [addrs]);
             for (const a of addrs) if (!known.some(k => k.email === a)) {
-              const m = msgs.slice().reverse().find(x => x.from.address === a) || msgs.find(x => [...x.to, ...x.cc].some(y => y.address === a));
+              const m = seenMsgs.slice().reverse().find(x => x.from.address === a) || seenMsgs.find(x => [...x.to, ...x.cc].some(y => y.address === a));
               newPeople.push({ email: a, name: [m?.from, ...(m?.to || []), ...(m?.cc || [])].find(y => y?.address === a)?.name || '' });
             }
           }
@@ -663,24 +761,24 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
               if (m.conversation_id === th.conversation_id) continue;
               const hits = P.talksAbout(m, th.themes);
               if (!hits) continue;
-              const { rowCount } = await db.query(`INSERT INTO crm_mail_suggestions (project_id, owner_id, internet_message_id, outlook_id, subject, from_name, from_address, sent_at, preview, why)
-                                                   SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 WHERE NOT EXISTS (SELECT 1 FROM project_emails WHERE project_id = $1 AND internet_message_id = $3)
-                                                   ON CONFLICT (project_id, internet_message_id) DO NOTHING`,
-              [projectId, th.owner_id, m.internet_message_id, m.id, m.subject.slice(0, 500), m.from.name || '', m.from.address, m.date, m.preview, `è un'altra conversazione ma parla di ${hits.slice(0, 2).join(', ')}`]);
-              suggested += rowCount;
+              const n = await queue(projectId, th.owner_id, m, 'suggerita', `è un'altra conversazione ma parla di ${hits.slice(0, 2).join(', ')}`);
+              suggested += n; pendingNew += n;
             }
           }
           await db.query('UPDATE crm_mail_threads SET checked_at = now() WHERE id = $1', [th.id]);
         } catch (err) {
           console.warn(`[posta] progetto ${projectId}: email non lette (${err.message})`);
         }
+        if (pendingNew) waiting.set(th.owner_id, (waiting.get(th.owner_id) || 0) + pendingNew);
       }
+      for (const [owner, n] of waiting) await notifyPending(owner, projectId, n);
+      const pending = [...waiting.values()].reduce((a, b) => a + b, 0);
       const { rows: [p] } = await db.query('SELECT crm_deal FROM projects WHERE id = $1', [projectId]);
       const deal = p?.crm_deal || {};
       const ignored = new Set(deal.people_ignored || []);
       const fresh = newPeople.filter(x => !ignored.has(x.email));
       if (added || force || !deal.updated_at || JSON.stringify(fresh) !== JSON.stringify(deal.new_people || [])) await refreshDeal(projectId, { newPeople: fresh });
-      return { added, suggested };
+      return { added, suggested, pending };
     })().finally(() => syncing.delete(projectId));
     syncing.set(projectId, job);
     return job;
@@ -737,7 +835,7 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
   app.get('/api/crm/progetti/:id/trattativa', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });
     let p = await project(req, id);
-    const { rows: threads } = await db.query('SELECT conversation_id, owner_id, subject, checked_at FROM crm_mail_threads WHERE project_id = $1', [id]);
+    const { rows: threads } = await db.query('SELECT conversation_id, owner_id, subject, checked_at, new_mode FROM crm_mail_threads WHERE project_id = $1', [id]);
     if (threads.length && (req.query.aggiorna === '1' || threads.some(t => !t.checked_at || Date.now() - new Date(t.checked_at).getTime() > STALE))) {
       await Promise.race([syncProject(id), new Promise(r => setTimeout(r, 15000))]).catch(() => {});
       p = await project(req, id);
@@ -746,12 +844,16 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
     const [{ rows: emails }, { rows: meetings }, { rows: sug }, { rows: [sig] }, { rows: tk }, { rows: links }] = await Promise.all([
       db.query('SELECT from_name, from_address, sent_at, subject, auto_added, assigned_at FROM project_emails WHERE project_id = $1', [id]),
       db.query("SELECT to_char(start_at, 'YYYY-MM-DD\"T\"HH24:MI:SS') AS start_at FROM project_meetings WHERE project_id = $1", [id]).catch(() => ({ rows: [] })),
-      db.query("SELECT id, subject, from_name, from_address, sent_at, why FROM crm_mail_suggestions WHERE project_id = $1 AND status = 'nuova' ORDER BY sent_at DESC LIMIT 5", [id]),
+      // ALM2-67: le email in attesa le vede con oggetto e mittente solo il proprietario della casella
+      db.query("SELECT id, kind, subject, from_name, from_address, sent_at, why FROM crm_mail_suggestions WHERE project_id = $1 AND status = 'nuova' AND owner_id = $2 ORDER BY sent_at DESC LIMIT 10", [id, req.user.id]),
       db.query('SELECT id, deadline, concept, subject_id FROM crm_signals WHERE project_id = $1', [id]),
       db.query('SELECT COALESCE(SUM(hours_actual), 0) AS h FROM tickets WHERE project_id = $1', [id]),
       db.query('SELECT subject_id FROM crm_project_links WHERE project_id = $1 AND subject_id IS NOT NULL', [id]),
     ]);
     const deal = p.crm_deal || {};
+    const { rows: waiting } = await db.query(`SELECT u.name, count(*)::int AS n FROM crm_mail_suggestions s JOIN users u ON u.id = s.owner_id
+                                               WHERE s.project_id = $1 AND s.status = 'nuova' AND s.owner_id <> $2 GROUP BY u.name ORDER BY u.name`, [id, req.user.id]);
+    const mine = threads.find(t => t.owner_id === req.user.id);
     const deadline = iso(sig?.deadline);
     const today = P.romeDay();
     const days = deadline ? Math.round((Date.parse(`${deadline}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 864e5) : null;
@@ -767,6 +869,7 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       summary: deal.summary || '', next_move: deal.next_move && !deal.next_move.done_at ? deal.next_move : null,
       commitments: (deal.commitments || []).map((c, i) => ({ ...c, i })), stakeholders: deal.stakeholders || [], client: deal.client || null,
       new_people: deal.new_people || [], suggestions: sug, linked_signals: linkedSignals,
+      waiting, my_new_mode: mine ? mine.new_mode : null,
       insights: [...linkedSignals.map(s => ({ kind: 'radar', title: 'Radar', text: `«${s.title}» collegata, ora «in corso».`, link: '#/crm/radar', link_label: 'Apri il Radar' })), ...insights.filter(x => !(x.kind === 'radar' && linkedSignals.some(s => s.id === x.signal_id)))],
       updated_at: deal.updated_at || null,
     });
@@ -870,17 +973,47 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
   app.post('/api/crm/progetti/:id/suggerite/:sid', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });
     const sid = v.int(req.params.sid, 'email', { min: 1 });
-    await project(req, id, { write: true });
+    await project(req, id);
     const action = v.oneOf(req.body?.azione, 'azione', ['aggiungi', 'scarta']);
-    const { rows: [s] } = await db.query('SELECT * FROM crm_mail_suggestions WHERE id = $1 AND project_id = $2', [sid, id]);
-    if (!s) throw new HttpError(404, 'Email suggerita non trovata');
-    if (action === 'aggiungi') {
-      const t = await token(s.owner_id);
-      await copyToProject(t, id, s.outlook_id, req.user.id);
-    }
-    await db.query('UPDATE crm_mail_suggestions SET status = $2, decided_by = $3 WHERE id = $1', [sid, action === 'aggiungi' ? 'aggiunta' : 'scartata', req.user.id]);
-    if (action === 'aggiungi') refreshDeal(id).catch(() => {});
+    const { rows: [s] } = await db.query("SELECT * FROM crm_mail_suggestions WHERE id = $1 AND project_id = $2 AND status = 'nuova'", [sid, id]);
+    // ALM2-67: è un'email della casella di qualcuno: decide solo lui (non la squadra, la direzione o gli amministratori),
+    // e a chi non è il proprietario non si dice nemmeno che c'è
+    if (!s || s.owner_id !== req.user.id) throw new HttpError(s ? 403 : 404, s ? "È un'email della casella di un collega: la fa entrare solo lui" : 'Email da approvare non trovata');
+    await decide(req, id, [s], action);
     res.json({ ok: true });
+  });
+
+  // «Entrano tutte»: tutte le email della mia casella in attesa su questo progetto
+  app.post('/api/crm/progetti/:id/suggerite', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await project(req, id);
+    const action = v.oneOf(req.body?.azione, 'azione', ['aggiungi', 'scarta']);
+    const { rows } = await db.query("SELECT * FROM crm_mail_suggestions WHERE project_id = $1 AND owner_id = $2 AND status = 'nuova'", [id, req.user.id]);
+    await decide(req, id, rows, action);
+    res.json({ ok: true, n: rows.length });
+  });
+
+  async function decide(req, id, rows, action) {
+    if (!rows.length) return;
+    if (action === 'aggiungi') {
+      const t = await token(req.user.id);
+      for (const s of rows) await copyToProject(t, id, s.outlook_id, req.user.id);
+    }
+    await db.query('UPDATE crm_mail_suggestions SET status = $2, decided_by = $3, decided_at = now() WHERE id = ANY($1::int[])', [rows.map(s => s.id), action === 'aggiungi' ? 'aggiunta' : 'scartata', req.user.id]);
+    req.auditDetail = { label: action === 'aggiungi' ? `Ha fatto entrare ${rows.length === 1 ? "un'email" : `${rows.length} email`} della sua casella in un progetto` : `Ha lasciato fuori ${rows.length === 1 ? "un'email" : `${rows.length} email`} della sua casella`,
+      target: `progetto #${id}`, before: null, after: { email: rows.map(s => s.subject).slice(0, 10) } };
+    if (action === 'aggiungi') refreshDeal(id).catch(() => {});
+  }
+
+  // Risposte nuove della mia conversazione su questo progetto: «approva» (le approvo io) o «auto» (entrano da sole)
+  app.put('/api/crm/progetti/:id/posta/modo', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await project(req, id);
+    const mode = v.oneOf(req.body?.modo, 'risposte nuove', MODES);
+    const { rowCount } = await db.query('UPDATE crm_mail_threads SET new_mode = $3 WHERE project_id = $1 AND owner_id = $2', [id, req.user.id, mode]);
+    if (!rowCount) throw new HttpError(403, "Su questo progetto non c'è una conversazione della tua casella");
+    req.auditDetail = { label: 'Ha cambiato come entrano le risposte nuove', target: `progetto #${id}`, before: null, after: { risposte_nuove: mode === 'auto' ? 'entrano da sole' : 'le approva lui' } };
+    res.json({ ok: true, new_mode: mode });
   });
 
   // Committente nuovo trovato nelle email: «Aggiungila al CRM» (lead collegato al progetto) o «Più tardi»
@@ -952,19 +1085,32 @@ function registerCrmPosta(app, { db, auth, alerts, radarFetch, mailFake }) {
       [linked, `In corso nel progetto #${projectId}`, userId]);
     }
     await db.query('UPDATE projects SET crm_deal = $2 WHERE id = $1', [projectId, JSON.stringify({ concept, linked_signals: linked })]);
-    let copied = 0, error = '';
+    let copied = 0, pending = 0, error = '';
     try {
+      // ALM2-67: le email sono della casella del proprietario. Se lancia lui entrano quelle che ha scelto nella proposta;
+      // se lancia un collega (dal Radar) aspettano tutte il sì del proprietario in «Da approvare».
+      const own = userId === th.owner_id;
       const t = await token(th.owner_id);
       const msgs = await conversation(t, th.conversation_id);
-      for (const m of msgs) if (await copyToProject(t, projectId, m.id, userId)) copied++;
-      for (const mid of concept.extra_ids || []) if (await copyToProject(t, projectId, mid, userId).catch(() => false)) copied++;
+      const skip = new Set(concept.skip_ids || []);
+      for (const m of msgs) {
+        if (skip.has(m.id)) { await queue(projectId, th.owner_id, m, 'risposta', 'tolta da te alla creazione', 'scartata'); continue; }
+        if (own) { if (await copyToProject(t, projectId, m.id, th.owner_id)) copied++; }
+        else pending += await queue(projectId, th.owner_id, m, 'risposta', 'della conversazione da cui è nato il progetto');
+      }
+      for (const mid of concept.extra_ids || []) {
+        if (own) { if (await copyToProject(t, projectId, mid, th.owner_id).catch(() => false)) copied++; continue; }
+        const m = await mail(t, 'GET', `/me/messages/${encodeURIComponent(mid)}?$select=${SELECT}`).then(P.normMsg).catch(() => null);
+        if (m) pending += await queue(projectId, th.owner_id, m, 'suggerita', "l'avevi scelta nella proposta del progetto");
+      }
       await db.query('UPDATE crm_mail_threads SET checked_at = now() WHERE id = $1', [th.id]);
+      if (pending) await notifyPending(th.owner_id, projectId, pending, userId);
     } catch (err) { error = err.message; console.warn(`[posta] email non copiate nel progetto ${projectId}: ${err.message}`); }
     refreshDeal(projectId).catch(err => console.warn('[posta] stato della trattativa non calcolato', err.message));
-    return { copied, error };
+    return { copied, pending, error };
   }
   async function threadOfSignal(signalId) {
-    const { rows: [th] } = await db.query('SELECT owner_id, colleague_ids, subject FROM crm_mail_threads WHERE signal_id = $1', [signalId]);
+    const { rows: [th] } = await db.query('SELECT owner_id, colleague_ids, subject, new_mode FROM crm_mail_threads WHERE signal_id = $1', [signalId]);
     return th || null;
   }
 

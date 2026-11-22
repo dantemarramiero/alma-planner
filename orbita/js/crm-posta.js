@@ -4,7 +4,7 @@
 // - dealHero / dealOverview (tavola D): la scheda del progetto nato da una email: in breve, a chi tocca, termometro,
 //   prossima mossa, cronologia unica con le note, impegni presi nelle email, chi conta, legami nel CRM.
 import { h, fill, toast, loading, fmtDate, timeAgo, today, addDays, initials, debounce } from './ui.js';
-import { get, post } from './api.js';
+import { get, post, put } from './api.js';
 import { store } from './store.js';
 import { ic, pill, cvModal, emptyState } from './crm-v2.js';
 import { withMentions } from './social.js';
@@ -17,26 +17,31 @@ const userName = id => store.users.find(u => u.id === id)?.name || '';
 const handleOf = u => String(u?.email || '').split('@')[0];
 
 // ═══ Posta (tavola A) ═════════════════════════════════════════════════════════════════════════════
-export async function postaPage(container) {
-  // folder: 'arrivo' | 'inviate' | id di una cartella di Outlook (ALM2-60); picked = email spuntate nella lista
-  const st = { folder: 'arrivo', q: '', list: [], next: null, sel: null, picked: new Set(), folders: null };
+export async function postaPage(container, start) {
+  // folder: 'arrivo' | 'inviate' | 'approvare' (ALM2-67) | id di una cartella di Outlook (ALM2-60); picked = email spuntate
+  const st = { folder: start === 'approvare' ? 'approvare' : 'arrivo', q: '', list: [], next: null, sel: null, picked: new Set(), folders: null, pending: 0 };
   const listBox = h('div.pm-items', loading());
   const reader = h('article.pm-reader', emptyState('mail', 'Scegli un\'email a sinistra.'));
   const search = h('input.pm-search', { type: 'search', placeholder: 'Cerca nella posta', 'aria-label': 'Cerca nella posta' });
   const folders = h('div.pm-folders');
   const bulk = h('div.pm-bulk', { hidden: true });
-  const other = () => (st.folder !== 'arrivo' && st.folder !== 'inviate' ? (st.folders || []).find(f => f.id === st.folder) : null);
+  const other = () => (!['arrivo', 'inviate', 'approvare'].includes(st.folder) ? (st.folders || []).find(f => f.id === st.folder) : null);
   // id Outlook della cartella aperta, per non proporla come destinazione
   const here = () => (st.folder === "arrivo" || st.folder === "inviate" ? (st.folders || []).find(f => f.well_known === (st.folder === "arrivo" ? "inbox" : "sentitems"))?.id : st.folder);
   const inTrash = () => other()?.well_known === 'deleteditems';
   const go = k => { st.folder = k; st.sel = null; st.picked.clear(); drawFolders(); load(); };
   const drawFolders = () => fill(folders,
     [['arrivo', 'In arrivo'], ['inviate', 'Inviate']].map(([k, l]) => h('button.cv-pill.big', { type: 'button', class: st.folder === k ? 'dark' : 'line', 'aria-pressed': String(st.folder === k), on: { click: () => go(k) } }, l)),
-    h('button.cv-pill.big.pm-fold', { type: 'button', class: other() ? 'dark' : 'line', 'aria-haspopup': 'dialog', on: { click: async () => { const f = await pickFolder('Apri una cartella di Outlook'); if (f) go(f.id); } } }, ic('folder', 14), h('span', other() ? other().name : 'Cartelle'), ic('chevron-down', 13)));
+    h('button.cv-pill.big.pm-fold', { type: 'button', class: other() ? 'dark' : 'line', 'aria-haspopup': 'dialog', on: { click: async () => { const f = await pickFolder('Apri una cartella di Outlook'); if (f) go(f.id); } } }, ic('folder', 14), h('span', other() ? other().name : 'Cartelle'), ic('chevron-down', 13)),
+    // ALM2-67: le email della mia casella che aspettano il mio sì per entrare in un progetto (tavola J)
+    h('button.cv-pill.big.pm-appr-pill', { type: 'button', class: st.folder === 'approvare' ? 'dark' : 'line', 'aria-pressed': String(st.folder === 'approvare'), on: { click: () => go('approvare') } },
+      'Da approvare', st.pending ? h('span.pm-badge', String(st.pending)) : null));
   drawFolders();
-  fill(container, h('div.pm',
-    h('section.pm-list', h('div.pm-list-h', h('strong', 'Posta'), folders, h('div.pm-search-w', ic('search', 15), search)), bulk, listBox),
-    reader));
+  const searchW = h('div.pm-search-w', ic('search', 15), search);
+  const root = h('div.pm',
+    h('section.pm-list', h('div.pm-list-h', h('strong', 'Posta'), folders, searchW), bulk, listBox),
+    reader);
+  fill(container, root);
   search.addEventListener('input', debounce(() => { st.q = search.value.trim(); st.picked.clear(); load(); }, 300));
 
   async function loadFolders() {
@@ -67,6 +72,10 @@ export async function postaPage(container) {
   }
 
   async function load(more = false) {
+    const appr = st.folder === 'approvare';
+    root.classList.toggle('pm-wide', appr);
+    reader.hidden = appr; searchW.hidden = appr;
+    if (appr) return loadApprovals();
     if (!more) fill(listBox, loading());
     const qs = new URLSearchParams({ cartella: st.folder, ...(st.q ? { q: st.q } : {}), ...(more && st.next ? { next: st.next } : {}) });
     let r;
@@ -76,9 +85,40 @@ export async function postaPage(container) {
     }
     st.list = more ? [...st.list, ...r.messages] : r.messages;
     st.next = r.next;
+    if (!more && (r.pending || 0) !== st.pending) { st.pending = r.pending || 0; drawFolders(); }
     drawList();
     if (!more && !st.sel) { if (st.list[0]) open(st.list[0]); else fill(reader, emptyState('mail', 'Nessuna email in questa cartella.')); }
   }
+  // ── Da approvare (ALM2-67, tavola J) ─────────────────────────────────────────────────────────────────
+  async function loadApprovals() {
+    bulk.hidden = true;
+    fill(listBox, loading());
+    let r;
+    try { r = await get('/api/crm/posta/da-approvare'); } catch { fill(listBox, emptyState('mail', 'Non riesco a leggere le email da approvare.')); return; }
+    if (r.total !== st.pending) { st.pending = r.total; drawFolders(); }
+    const decide = async (url, body, msg) => { await post(url, body); toast(msg); loadApprovals(); };
+    const KIND = { risposta: ['risposta nella conversazione', 'bl'], suggerita: ['suggerita da Alma', 'or'] };
+    fill(listBox, h('div.pm-appr',
+      h('div.pm-appr-h', h('span.pv-kicker', 'Posta › Da approvare'), h('h2', 'Email che aspettano il tuo sì')),
+      h('section.pm-appr-lock', h('span.pm-appr-ic', ic('lock', 18)),
+        h('span', 'Queste email sono nella ', h('b', 'tua'), ' casella. Le vedi solo tu: finché non dici sì, i colleghi del progetto vedono soltanto quante sono, senza oggetto né mittente. Nemmeno la direzione e gli amministratori possono farle entrare al posto tuo.')),
+      r.projects.length ? r.projects.map(p => h('section.pm-appr-card',
+        h('div.pm-appr-ph', h('h3', h('a', { href: `#/crm/progetto/${p.id}` }, p.name)), p.team.length ? h('small.cv-muted', `squadra: ${p.team.join(', ')}`) : null,
+          p.emails.length > 1 ? h('button.btn.btn-sm', { type: 'button', on: { click: () => decide(`/api/crm/progetti/${p.id}/suggerite`, { azione: 'aggiungi' }, `${p.emails.length} email entrate nel progetto`) } }, `Entrano tutte (${p.emails.length})`) : null),
+        p.emails.map(e => h('div.pm-appr-row',
+          pill(KIND[e.kind][0], KIND[e.kind][1]),
+          h('div.pm-appr-t',
+            h('div.pm-appr-who', h('b', e.from_name || e.from_address), h('small', when(e.sent_at))),
+            h('span.pm-appr-s', e.subject),
+            h('small.cv-muted', e.kind === 'suggerita' ? `È un'altra conversazione, ma ${String(e.why).replace(/^è un'altra conversazione ma /, '')}.` : (e.preview || e.why))),
+          h('div.pm-appr-a',
+            h('button.btn.btn-sm', { type: 'button', on: { click: () => decide(`/api/crm/progetti/${p.id}/suggerite/${e.id}`, { azione: 'scarta' }, 'Resta solo nella tua casella') } }, 'Non c\'entra'),
+            h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => decide(`/api/crm/progetti/${p.id}/suggerite/${e.id}`, { azione: 'aggiungi' }, 'Email entrata nel progetto') } }, 'Entra nel progetto')))),
+        p.new_mode ? h('div.pm-appr-mode', h('span', 'Le risposte nuove di questa conversazione:'), modeSelect(p.id, p.new_mode)) : null))
+        : emptyState('check', 'Niente da approvare: quando una tua email può entrare in un progetto, la trovi qui.'),
+      h('small.cv-muted.pm-appr-f', '«Non c\'entra» la toglie dalla lista per sempre e resta solo nella tua casella. Ogni sì e ogni no finiscono nel Registro di Impostazioni. Sul telefono l\'avviso arriva nella tab Avvisi.')));
+  }
+
   function drawBulk() {
     const n = st.picked.size;
     bulk.hidden = !n;
@@ -539,6 +579,8 @@ export async function openProposal(messageId, from = {}) {
   const people = r.people.map(p => ({ ...p }));
   const extra = new Set();
   const radar = new Set();
+  const skip = new Set(); // ALM2-67: email della conversazione che non entrano
+  let newMode = r.new_mode || 'approva';
   let company = r.company?.kind === 'crm' ? { subject_id: r.company.subject_id } : r.company?.kind === 'nuova' ? { new: { name: r.company.name, domain: r.company.domain } } : null;
   const inp = (k, label, attrs = {}) => { const i = h('input.input', { value: f[k] ?? '', 'aria-label': label, ...attrs, on: { input: e => { f[k] = attrs.type === 'number' ? Number(e.target.value) || null : e.target.value; } } }); return i; };
   const tile = (k, label, tone = '') => h('label.pp-tile', { class: tone }, h('span', label), h('textarea', { rows: 2, 'aria-label': label, on: { input: e => { f[k] = e.target.value; } } }, f[k] || ''));
@@ -571,7 +613,12 @@ export async function openProposal(messageId, from = {}) {
     h('div.pp-f', h('span', 'Email che entrano nel progetto'),
       h('div.pp-mails',
         h('span', h('b', `${r.messages.length} ${r.messages.length === 1 ? 'email' : 'email'}`), ` della conversazione${r.messages.length > 1 ? `, dal ${fmtDate(String(r.messages[0].date).slice(0, 10))} a oggi` : ''}${r.attachments.length ? `, con ${r.attachments.length} ${r.attachments.length === 1 ? 'allegato' : 'allegati'} (${r.attachments.join(', ')})` : ''}`),
-        h('span.cv-muted', 'Le risposte nuove a questa conversazione si aggiungeranno da sole.'),
+        // ALM2-67 (tavola L): sono email della tua casella, scegli una per una quali entrano
+        r.messages.map(x => h('label.pp-extra', h('input', { type: 'checkbox', checked: true, on: { change: e => { if (e.target.checked) skip.delete(x.id); else skip.add(x.id); } } }),
+          h('span', `${x.from.name || x.from.address} · ${fmtDate(String(x.date).slice(0, 10))} · ${x.subject}`))),
+        h('fieldset.pp-mode', h('legend', 'E le risposte che arriveranno in questa conversazione?'),
+          [['approva', 'Le approvo io una per una', 'vanno in Posta › Da approvare, i colleghi vedono solo quante sono'], ['auto', 'Entrano da sole', 'ogni 30 minuti; le puoi togliere dopo']].map(([k, l, d]) =>
+            h('label.pp-mode-o', h('input', { type: 'radio', name: 'pp-mode', value: k, checked: newMode === k, on: { change: () => { newMode = k; } } }), h('span', h('b', l), ` · ${d}`)))),
         r.extra.map(x => h('label.pp-extra', h('input', { type: 'checkbox', on: { change: e => { if (e.target.checked) extra.add(x.id); else extra.delete(x.id); } } }),
           h('span', `Anche «${x.subject}» di ${x.from.name || x.from.address} (${fmtDate(String(x.date).slice(0, 10))}): ${x.why}`))))));
   const right = h('aside.pp-r',
@@ -588,7 +635,7 @@ export async function openProposal(messageId, from = {}) {
     if (!String(f.title || '').trim()) return toast('Scrivi il titolo del progetto', 'err');
     btns.forEach(b => { b.disabled = true; });
     try {
-      const out = await post('/api/crm/posta/crea', { conversation_id: r.conversation_id, message_id: r.message_id, fields: f, company, people, extra_ids: [...extra], link_signal_ids: [...radar] });
+      const out = await post('/api/crm/posta/crea', { conversation_id: r.conversation_id, message_id: r.message_id, fields: f, company, people, extra_ids: [...extra], link_signal_ids: [...radar], skip_ids: [...skip], new_mode: newMode });
       m.close();
       if (mode === 'radar') { toast('Salvata nel Radar: la porti avanti quando vuoi'); location.hash = '#/crm/radar'; } else location.hash = `#/crm/lancio/s/${out.signal_id}`;
     } catch { btns.forEach(b => { b.disabled = false; }); }
@@ -604,6 +651,14 @@ export async function proposalFromPerson(email) {
   if (!m) return toast('Non trovo email di questa persona nella tua casella', 'err');
   if (m.project) { location.hash = `#/crm/progetto/${m.project.id}`; return; }
   return openProposal(m.id);
+}
+
+// Risposte nuove di una mia conversazione: «le approvo io» o «entrano da sole» (ALM2-67)
+export function modeSelect(projectId, mode, done) {
+  return h('select.select.pm-mode', { 'aria-label': 'Come entrano le risposte nuove', on: { change: async e => {
+    try { await put(`/api/crm/progetti/${projectId}/posta/modo`, { modo: e.target.value }); toast(e.target.value === 'auto' ? 'Le risposte nuove entreranno da sole' : 'Le risposte nuove aspetteranno il tuo sì'); done?.(); }
+    catch { e.target.value = mode; }
+  } } }, h('option', { value: 'approva', selected: mode !== 'auto' }, 'le approvo io una per una'), h('option', { value: 'auto', selected: mode === 'auto' }, 'entrano da sole'));
 }
 
 // ═══ Scheda del progetto nato da una email (tavola D) ═════════════════════════════════════════════
@@ -789,10 +844,16 @@ export async function dealOverview(box, { id, p, info, deal, member, reload, tea
     deal.new_people.map(x => h('div.dl-cm', h('span.dl-grow', h('b', x.name || x.email), h('small.cv-muted', ` · ${x.email}`)),
       h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/progetti/${id}/persone-nuove`, { email: x.email, azione: 'ignora' }); reload(); } } }, 'Non serve'),
       h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/crm/progetti/${id}/persone-nuove`, { email: x.email, azione: 'aggiungi' }); toast('Aggiunta al CRM e collegata al progetto'); reload(); } } }, 'Aggiungi al CRM')))));
-  if (deal.suggestions.length && member) extraCards.push(h('section.pv-card.dl-card.dl-sug', h('h3', `Alma suggerisce ${deal.suggestions.length} ${deal.suggestions.length === 1 ? 'email' : 'email'}`),
-    deal.suggestions.map(sg => h('div.dl-cm', h('span.dl-grow', h('b', sg.from_name || sg.from_address), `, ${fmtDate(String(sg.sent_at).slice(0, 10))}, «${sg.subject}»: ${sg.why}.`),
+  // ALM2-67 (tavola K): le email della mia casella in attesa le vedo e decido solo io; di quelle dei colleghi solo quante sono
+  if (deal.suggestions.length) extraCards.push(h('section.pv-card.dl-card.dl-sug', h('h3', `${deal.suggestions.length} ${deal.suggestions.length === 1 ? 'email aspetta' : 'email aspettano'} il tuo sì`),
+    h('small.cv-muted', 'Sono nella tua casella: le vedi solo tu finché non le fai entrare.'),
+    deal.suggestions.map(sg => h('div.dl-cm', h('span.dl-grow', h('b', sg.from_name || sg.from_address), `, ${fmtDate(String(sg.sent_at).slice(0, 10))}, «${sg.subject}»${sg.kind === 'suggerita' ? `: ${sg.why}` : ' · risposta nella conversazione'}.`),
       h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/progetti/${id}/suggerite/${sg.id}`, { azione: 'scarta' }); reload(); } } }, 'Non c\'entra'),
-      h('button.btn.btn-sm.btn-dark', { type: 'button', on: { click: async () => { await post(`/api/crm/progetti/${id}/suggerite/${sg.id}`, { azione: 'aggiungi' }); toast('Email aggiunta al progetto'); reload(); } } }, 'Aggiungi')))));
+      h('button.btn.btn-sm.btn-dark', { type: 'button', on: { click: async () => { await post(`/api/crm/progetti/${id}/suggerite/${sg.id}`, { azione: 'aggiungi' }); toast('Email entrata nel progetto'); reload(); } } }, 'Entra nel progetto'))),
+    h('a.dl-sug-all', { href: '#/crm/posta/approvare' }, 'Tutte le email da approvare ›')));
+  for (const w of deal.waiting || []) extraCards.push(h('section.pv-card.dl-card.dl-wait', h('span.dl-wait-i', ic('lock', 16)),
+    h('span', `${w.n} ${w.n === 1 ? 'email' : 'email'} nella casella di ${w.name} ${w.n === 1 ? 'aspetta' : 'aspettano'} il suo sì`)));
+  if (deal.my_new_mode) extraCards.push(h('div.dl-mode', h('span', 'Le risposte nuove della tua conversazione:'), modeSelect(id, deal.my_new_mode, reload)));
   const legami = h('section.dl-legami', h('h3', 'Legami nel CRM'),
     deal.insights.length ? deal.insights.map(x => h('div.dl-lg', { class: x.kind === 'attenzione' ? 'warn' : '' }, h('b', `${x.title}: `), x.text, x.link ? [' ', h('a', { href: x.link }, `${x.link_label || 'Apri'} ›`)] : null)) : h('span.dl-lg', 'Niente di collegato per ora.'),
     deal.client ? h('div.dl-client', h('span', `Novità: nelle email compare il committente, «${deal.client.name}».${deal.client.subject_id ? ' È nel CRM ma non è collegato.' : ' Non è nel CRM.'}`),

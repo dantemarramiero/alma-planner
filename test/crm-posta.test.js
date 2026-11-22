@@ -8,7 +8,7 @@ const { createDb } = require('../lib/db');
 const { createPostaFake } = require('../lib/crm-posta-fake');
 const P = require('../lib/crm-posta');
 
-let server, base, db, D, fake;
+let server, base, db, D, M, fake;
 const ADMIN = 'direzione@almacis.it';
 
 async function login(email) {
@@ -29,8 +29,8 @@ before(async () => {
   server.keepAliveTimeout = 60000;
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  await login('marco.bianchi@almacis.it'); // il collega in copia esiste in Alma Space
-  D = (method, path, body) => api(null, method, path, body);
+  const marco = await login('marco.bianchi@almacis.it'); // il collega in copia esiste in Alma Space
+  M = (method, path, body) => api(marco, method, path, body); // ALM2-67: un collega che non è il proprietario della casella
   const cookie = await login(ADMIN);
   D = (method, path, body) => api(cookie, method, path, body);
 });
@@ -134,18 +134,51 @@ test('Trattativa: tocca a noi, impegni, cronologia', async () => {
   assert.equal(c2.body.items[0].type, 'note');
 });
 
-test('Email nuove: entrano da sole, il committente compare, persona nuova', async () => {
+test('ALM2-67: le risposte nuove aspettano il sì del proprietario; il collega vede solo quante sono', async () => {
   fake.arrive();
   const s = await D('POST', `/api/crm/progetti/${projectId}/posta/aggiorna`, {});
   assert.equal(s.status, 200);
-  assert.equal(s.body.added, 2);
+  assert.equal(s.body.added, 0, 'di partenza le risposte nuove non entrano da sole');
+  assert.equal(s.body.pending, 2);
+  // il collega in squadra (e chiunque non sia il proprietario) non vede oggetto né mittente, solo quante sono
+  const mr = await M('GET', `/api/crm/progetti/${projectId}/trattativa`);
+  assert.equal(mr.status, 200);
+  assert.deepEqual(mr.body.suggestions, []);
+  assert.equal(mr.body.waiting[0].n, 2);
+  assert.equal(mr.body.my_new_mode, null);
+  assert.equal(mr.body.emails, 3, 'il progetto ha ancora solo le 3 email entrate al lancio');
+  assert.ok(!JSON.stringify(mr.body.new_people).includes('adriatica'), 'niente indirizzi presi da email non approvate');
+  const own = await D('GET', '/api/crm/posta/da-approvare');
+  assert.equal(own.body.total, 2);
+  const pe = own.body.projects.find(p => p.id === projectId);
+  assert.equal(pe.new_mode, 'approva');
+  assert.ok(pe.emails.every(e => e.kind === 'risposta'));
+  // il collega non può farle entrare né scartarle: 403 anche con l'id giusto
+  assert.equal((await M('POST', `/api/crm/progetti/${projectId}/suggerite/${pe.emails[0].id}`, { azione: 'aggiungi' })).status, 403);
+  assert.equal((await M('POST', `/api/crm/progetti/${projectId}/suggerite`, { azione: 'aggiungi' })).body.n, 0);
+  assert.equal((await M('GET', '/api/crm/posta/da-approvare')).body.total, 0);
+  assert.equal((await M('PUT', `/api/crm/progetti/${projectId}/posta/modo`, { modo: 'auto' })).status, 403);
+  // l'avviso è arrivato al proprietario
+  const { rows: bell } = await db.query("SELECT body, link FROM notifications WHERE link = '/crm/posta/approvare' AND user_id = (SELECT id FROM users WHERE email = $1)", [ADMIN]);
+  assert.match(bell[0].body, /2 email della tua casella/);
+  // il proprietario dice sì a tutte
+  const ok = await D('POST', `/api/crm/progetti/${projectId}/suggerite`, { azione: 'aggiungi' });
+  assert.equal(ok.body.n, 2);
+  assert.equal((await D('GET', '/api/crm/posta/da-approvare')).body.total, 0);
+  // la scelta «entrano da sole» la cambia solo il proprietario
+  assert.equal((await D('PUT', `/api/crm/progetti/${projectId}/posta/modo`, { modo: 'auto' })).body.new_mode, 'auto');
+  assert.equal((await D('GET', `/api/crm/progetti/${projectId}/trattativa`)).body.my_new_mode, 'auto');
+});
+
+test('Email nuove entrate con il sì: il committente compare, persona nuova', async () => {
   const r = await D('GET', `/api/crm/progetti/${projectId}/trattativa`);
   assert.equal(r.body.emails, 5);
   assert.ok(r.body.commitments.some(c => c.who === 'fissato' && /giovedì 27/.test(c.text)));
   assert.equal(r.body.next_move.kind, 'incontro');
   assert.match(r.body.client?.name || '', /^Adriatica Data/);
   const items = (await D('GET', `/api/crm/progetti/${projectId}/cronologia`)).body.items.filter(i => i.type === 'email');
-  assert.equal(items.filter(i => i.auto).length, 2, 'le due risposte nuove sono «entrate da sole»');
+  assert.equal(items.length, 5);
+  assert.equal(items.filter(i => i.auto).length, 0, 'sono entrate con il sì del proprietario, non da sole');
   // impegno → compito
   const i = r.body.commitments.find(c => c.who === 'noi').i;
   const t = await D('POST', `/api/crm/progetti/${projectId}/impegni/${i}`, { azione: 'compito' });
@@ -169,6 +202,9 @@ test('Email suggerite e risposta nella conversazione', async () => {
   const r = await D('GET', `/api/crm/progetti/${projectId}/trattativa`);
   const s = r.body.suggestions.find(x => x.subject === 'Contratto quadro manutenzioni');
   assert.ok(s);
+  assert.equal(s.kind, 'suggerita');
+  assert.ok(!JSON.stringify((await M('GET', `/api/crm/progetti/${projectId}/trattativa`)).body).includes('Contratto quadro'), 'il collega non vede l\'oggetto');
+  assert.equal((await M('POST', `/api/crm/progetti/${projectId}/suggerite/${s.id}`, { azione: 'scarta' })).status, 403);
   assert.equal((await D('POST', `/api/crm/progetti/${projectId}/suggerite/${s.id}`, { azione: 'scarta' })).status, 200);
   assert.ok(!(await D('GET', `/api/crm/progetti/${projectId}/trattativa`)).body.suggestions.some(x => x.id === s.id));
   const draft = await D('POST', `/api/crm/progetti/${projectId}/risposta/bozza`, {});
@@ -354,4 +390,47 @@ test('ALM2-64: firma Almacis, A/Cc, allegati e inoltra', async () => {
   r = await D('DELETE', '/api/firma');
   assert.equal(r.body.saved, false);
   assert.equal(r.body.enabled, true);
+});
+
+test('ALM2-67: «chi di noi conosce» mostra un collega solo se ha acceso la condivisione', async () => {
+  await db.query(`INSERT INTO crm_mail_people (user_id, email, name, received, sent) VALUES ((SELECT id FROM users WHERE email = 'marco.bianchi@almacis.it'), 'l.rossi@studiotecnicorossi.it', 'Luca Rossi', 9, 5)
+                  ON CONFLICT (user_id, email) DO UPDATE SET received = 9, sent = 5`);
+  const text = async () => JSON.stringify((await D('GET', `/api/crm/progetti/${projectId}/trattativa`)).body.insights);
+  assert.ok(!/Marco Bianchi scrive con/.test(await text()), 'spenta di partenza');
+  const p0 = await M('GET', '/api/posta/preferenze');
+  assert.deepEqual([p0.body.share_people, p0.body.new_mode], [false, 'approva']);
+  assert.equal((await M('PUT', '/api/posta/preferenze', { share_people: true })).body.share_people, true);
+  assert.match(await text(), /Marco Bianchi scrive con Luca Rossi \(14 email\)/);
+  assert.equal((await M('PUT', '/api/posta/preferenze', { new_mode: 'boh' })).status, 400);
+  await M('PUT', '/api/posta/preferenze', { share_people: false });
+  assert.ok(!/Marco Bianchi scrive con/.test(await text()));
+  // le mie email nei progetti, con «Togli dal progetto»
+  const mine = await D('GET', '/api/posta/preferenze');
+  assert.ok(mine.body.emails.length >= 5);
+  assert.equal(mine.body.projects, 1);
+});
+
+test('ALM2-67: se lancia un collega, le email aspettano il sì del proprietario; quelle tolte alla creazione non entrano mai', async () => {
+  const pr = await D('POST', '/api/crm/posta/proposta', { message_id: 'm-pc-1' });
+  assert.equal(pr.status, 200, JSON.stringify(pr.body));
+  assert.equal(pr.body.new_mode, 'approva');
+  const skip = pr.body.messages.length > 1 ? [pr.body.messages[0].id] : [];
+  const cr = await D('POST', '/api/crm/posta/crea', { conversation_id: pr.body.conversation_id, message_id: pr.body.message_id, fields: pr.body.fields, people: [], skip_ids: skip, new_mode: 'approva' });
+  assert.equal(cr.status, 201, JSON.stringify(cr.body));
+  const lp = await M('GET', `/api/crm/lancio/proposta?signal=${cr.body.signal_id}`);
+  assert.equal(lp.status, 200, JSON.stringify(lp.body));
+  assert.ok(lp.body.source.mail_owner_id);
+  const out = await M('POST', '/api/crm/lancio', { signal_id: cr.body.signal_id, owner_id: lp.body.owner_id, member_ids: lp.body.team.filter(t => t.on).map(t => t.user_id), phases: lp.body.phases, goal: lp.body.goal, name: lp.body.name });
+  assert.equal(out.status, 201, JSON.stringify(out.body));
+  assert.equal(out.body.mail.copied, 0, 'niente entra con la casella di un altro');
+  assert.equal(out.body.mail.pending, pr.body.messages.length - skip.length);
+  const pid = out.body.project_id;
+  assert.equal((await M('GET', `/api/projects/${pid}/emails`)).body.length, 0);
+  const da = (await D('GET', '/api/crm/posta/da-approvare')).body.projects.find(p => p.id === pid);
+  assert.equal(da.emails.length, pr.body.messages.length - skip.length);
+  // la sincronizzazione non riporta quella tolta alla creazione
+  await D('POST', `/api/crm/progetti/${pid}/posta/aggiorna`, {});
+  assert.equal((await D('GET', '/api/crm/posta/da-approvare')).body.projects.find(p => p.id === pid).emails.length, pr.body.messages.length - skip.length);
+  const list = await D('GET', '/api/crm/posta');
+  assert.ok(list.body.pending >= 1);
 });
