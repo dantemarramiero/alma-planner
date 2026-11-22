@@ -8,14 +8,15 @@ import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, 
 import { probabilityBox, pathsBox, firstMoveBox, registraEsito } from './crm-esiti.js';
 import { garaBox } from './crm-concorrenza.js';
 import { linksBox, touchBox, touchBadges } from './crm-progetti.js';
+import { regionPicker } from './crm-regioni-pick.js';
 const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
 const KINDS = { investimento: 'Investimento privato', permesso: 'Permesso o piano attuativo', opera_finanziata: 'Opera pubblica finanziata', scadenza: 'Contratto in scadenza',
-  nuovo_gestore: 'Nuovo gestore o proprietà', cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara già bandita' };
+  nuovo_gestore: 'Nuovo gestore o proprietà', cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara già bandita', preinformazione: 'Gara annunciata (preinformazione)' };
 const KIND_SHORT = { investimento: 'Investimento', permesso: 'Permesso', opera_finanziata: 'Opera finanziata', scadenza: 'Contratto in scadenza', nuovo_gestore: 'Nuovo gestore',
-  cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara' };
+  cliente: 'Notizia su un cliente', notizia: 'Notizia', indiscrezione: 'Indiscrezione', gara: 'Gara', preinformazione: 'Gara annunciata' };
 const PARTS = [['fit', 'Coerenza'], ['concreteness', 'Concretezza'], ['timing', 'Tempi'], ['relationship', 'Rapporto'], ['value', 'Valore']];
 const OUTCOMES = { opportunita: 'Opportunità in BOSS', rimandato: 'Rimandato', perso: 'Perso' };
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
@@ -138,6 +139,17 @@ export async function openSignal(id, onDone, data, list = []) {
   drawKnown(false);
 }
 // riga di un segnale: anello, titolo su 2 righe, un rigo di dettagli con il perché in pillola, Scarta · Interessa
+// data della gara nelle righe: scadenza vicina in arancio, date passate in rosso (Dante 22/11)
+function dateFlag(sig) {
+  if (sig.deadline) {
+    const d = daysTo(sig.deadline);
+    if (d < 0) return [h('i', '·'), pill(`scaduta il ${day(sig.deadline)}`, 'rd')];
+    if (d <= 15) return [h('i', '·'), pill(d === 0 ? 'scade oggi' : `scade tra ${d} giorni`, 'or')];
+    return [h('i', '·'), `scade ${day(sig.deadline)}`];
+  }
+  if (sig.expected_on && daysTo(sig.expected_on) < 0) return [h('i', '·'), pill(`bando atteso il ${day(sig.expected_on)}: da verificare`, 'rd')];
+  return null;
+}
 export function signalRow(sig, { highlight = 70, reasons, onChange, data, list = [], weak = null }) {
   const bu = data?.asa?.find(a => a.key === sig.bu)?.label || sig.bu_label;
   return h('div.cv-sig',
@@ -145,7 +157,7 @@ export function signalRow(sig, { highlight = 70, reasons, onChange, data, list =
     h('button.cv-sig-main', { type: 'button', on: { click: () => openSignal(sig.id, onChange, data, list) } },
       h('div.cv-sig-t.cv-clamp', sig.title),
       h('div.cv-sig-m', [sig.subject_name || sig.entity, sig.amount ? eur(sig.amount) : null, KIND_SHORT[sig.kind]].filter(Boolean).flatMap((x, i) => (i ? [h('i', '·'), x] : [x])),
-        weak ? [h('i', '·'), weak] : bu ? [h('i', '·'), pill(bu, 'line')] : null)),
+        weak ? [h('i', '·'), weak] : bu ? [h('i', '·'), pill(bu, 'line')] : null, dateFlag(sig))),
     sig.status === 'nuovo' && !sig.to_gare ? h('div.cv-acts',
       h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => discardDialog({ ...sig, to_gare: false }, reasons, onChange) } }, 'Scarta'),
       h('button.btn.btn-sm', { type: 'button', on: { click: () => interessa(sig, onChange) } }, ic('check', 14), weak ? 'Interessa lo stesso' : 'Interessa')) : null);
@@ -431,59 +443,95 @@ export async function belowTab(box, data) {
     }) : emptyState('radar', r.bus.length ? 'Nessun segnale sotto soglia: il radar non ha scartato niente.' : 'Non sei responsabile di nessuna BU.')));
 }
 
-// «Radar» per tutti (canvas «v9 · Radar», approvato da Dante il 19/11), uguale all'artboard: in alto la sala di controllo
-// scura (numeri, filtri preferiti, mappa per provincia), sotto i filtri e le tre colonne Programmata · Finanziata · Progetto approvato.
-const COLS = [['programmata', 'Programmata', 'calendar'], ['finanziata', 'Finanziata', 'coins'], ['approvato', 'Progetto approvato', 'check']];
+// «Radar» (canvas v17, approvato da Dante il 22/11/2026): tutto quello che deve ancora uscire, da tutte le fonti.
+// In alto la strada verso la gara (Programmata → Finanziata → Progetto approvato → Gara in arrivo) e la mappa d'Italia;
+// sotto BU, regioni e gli altri filtri, le fonti come pillole, la lavagna a quattro colonne con l'etichetta della fonte
+// su ogni scheda e a destra «Questa settimana». Da qui anche «Opere finanziate» (OpenCUP, per BU) e «Le fonti del Radar».
+const COLS = [['programmata', 'Programmata', 'calendar', '#8A8A8A'], ['finanziata', 'Finanziata', 'coins', '#FF8A26'], ['approvato', 'Progetto approvato', 'check', '#1B7A45'], ['arrivo', 'Gara in arrivo', 'flag', '#E5484D']];
 const WARM = [['', 'Chi conosciamo: tutti'], ['forte', 'Ci conoscono: forte'], ['media', 'Ci conoscono: forte o media'], ['qualcuno', 'Ci conosce qualcuno'], ['nessuno', 'Non ci conosce nessuno']];
 const SHOW = [['', 'Mostra: in corsa'], ['altri', 'Anche vinte da altri'], ['scartate', 'Anche scartate'], ['tutte', 'Tutte']];
 const AMOUNTS = [['', 'Importo: tutti'], ['100000', 'Importo: da 100 mila €'], ['1000000', 'Importo: da 1 M€'], ['5000000', 'Importo: da 5 M€']];
 const WARM_RANK = { forte: 3, media: 2, debole: 1, '': 0 };
-const FILTER_KEYS = ['q', 'bu', 'kind', 'region', 'prov', 'min', 'warm', 'altri', 'scartate'];
-const emptyFilters = () => ({ q: '', bu: '', kind: '', region: '', prov: '', min: '', warm: '', altri: false, scartate: false });
+const FILTER_KEYS = ['q', 'bu', 'kind', 'regions', 'min', 'warm', 'altri', 'scartate', 'col', 'src'];
+const emptyFilters = () => ({ q: '', bu: '', kind: '', regions: [], min: '', warm: '', altri: false, scartate: false, col: '', src: '' });
+// i filtri salvati prima del 22/11 avevano una regione sola («region») e la provincia d'Abruzzo («prov»)
+const upgradeFilters = x => { const f = { ...emptyFilters(), ...x }; if (!Array.isArray(f.regions)) f.regions = []; if (x?.region && !f.regions.length) f.regions = [x.region]; delete f.region; delete f.prov; return f; };
 const PER_COL = 12;
-// mappa dell'Abruzzo: provincia dal luogo o dall'ente (capoluoghi e comuni principali)
-const PROVS = [['Pescara', 40, 52], ['Chieti', 62, 68], ['Teramo', 46, 24], ["L'Aquila", 22, 56]];
-const COMUNI = {
-  Pescara: ['pescara', 'montesilvano', 'spoltore', 'città sant\'angelo', 'citta sant\'angelo', 'penne', 'loreto aprutino', 'manoppello', 'popoli', 'scafa', 'cepagatti', 'pianella', 'collecorvino'],
-  Chieti: ['chieti', 'lanciano', 'vasto', 'ortona', 'francavilla', 'san salvo', 'guardiagrele', 'atessa', 'san giovanni teatino', 'casalbordino', 'fossacesia', 'rocca san giovanni', 'paglieta', 'val di sangro', 'casoli', 'tollo', 'miglianico', 'torino di sangro'],
-  Teramo: ['teramo', 'giulianova', 'roseto', 'pineto', 'silvi', 'alba adriatica', 'martinsicuro', 'atri', 'mosciano', 'tortoreto', 'nereto', 'sant\'egidio alla vibrata', 'castellalto', 'montorio al vomano'],
-  "L'Aquila": ['l\'aquila', 'laquila', 'avezzano', 'sulmona', 'celano', 'pratola peligna', 'tagliacozzo', 'castel di sangro', 'pescina', 'carsoli', 'trasacco', 'roccaraso'],
-};
-const provOf = g => {
-  const t = `${g.place || ''} ${g.entity || ''} ${g.title || ''}`.toLowerCase();
-  for (const [p, list] of Object.entries(COMUNI)) if (list.some(c => new RegExp(`(^|[^a-zà-ù])${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-zà-ù]|$)`).test(t))) return p;
-  return '';
-};
+// fonti del Radar: chiave del segnale (source) → [nome, cosa porta, classe dell'etichetta]
+const SRC = { stampa: ['Radar AI', 'stampa e siti degli enti', 'ai'], opencup: ['OpenCUP', 'opere finanziate', 'cup'], ted: ['TED · preinformazione', 'gare annunciate', 'ted'], infordat: ['Infordat', 'bandi già usciti', 'inf'],
+  manuale: ['A mano', 'segnalate da noi', 'man'], anac: ['Vinte da altri', 'ANAC', 'anac'] };
+const srcOf = g => (['manual', 'mano', 'manuale', ''].includes(g.source || '') ? 'manuale' : SRC[g.source] ? g.source : 'manuale');
+// fonti nuove, in arrivo una alla volta (canvas v17 · Le fonti del Radar)
+const SOON = [['triennali', 'Programmi triennali'], ['via', 'Valutazioni ambientali'], ['gestori', 'Piani dei gestori'], ['bollettini', 'Bollettini regionali']];
+const SRC_INFO = [
+  ['stampa', 'Radar AI', 'Stampa nazionale e locale, siti degli enti: programmi, delibere, determine (anche il secondo giro «Prima del bando»)', 'tutte', 'ogni notte'],
+  ['opencup', 'OpenCUP', 'Opere pubbliche finanziate con il CUP, nei tipi di lavoro e nelle zone di ogni BU', 'finanziata', 'ogni mese'],
+  ['infordat', 'Infordat', 'Bandi già usciti: vanno all\'ufficio gare', 'gara', 'a ogni export'],
+  ['manuale', 'A mano', 'Segnalate da noi con «Segnala» o da altre pagine', 'tutte', '—'],
+  ['ted', 'TED · preinformazione', 'Gare grandi annunciate dagli enti nei mesi prima del bando', 'gara in arrivo', 'ogni notte'],
+  ['triennali', 'Programmi triennali', 'Le opere che ogni ente farà nei prossimi 3 anni, con importo e anno', 'programmata', 'ogni mese'],
+  ['via', 'Valutazioni ambientali', 'Grandi impianti e reti in valutazione al Ministero dell\'Ambiente', 'programmata → approvato', 'ogni settimana'],
+  ['gestori', 'Piani dei gestori', 'Piani di sviluppo di Terna, gestori idrici, RFI e ANAS', 'programmata', 'ogni anno'],
+  ['bollettini', 'Bollettini regionali', 'Finanziamenti e graduatorie per i comuni', 'finanziata', 'ogni settimana'],
+];
+// mappa d'Italia a tessere (colonna, riga, sigla)
+const TILES = { 'Valle d\'Aosta': [0, 0, 'VdA'], Piemonte: [1, 0, 'Pie'], Lombardia: [2, 0, 'Lom'], 'Trentino-Alto Adige': [3, 0, 'TAA'], Veneto: [4, 0, 'Ven'], 'Friuli-Venezia Giulia': [5, 0, 'FVG'],
+  Liguria: [1, 1, 'Lig'], 'Emilia-Romagna': [3, 1, 'EmR'], Toscana: [2, 2, 'Tos'], Umbria: [3, 2, 'Umb'], Marche: [4, 2, 'Mar'], Lazio: [3, 3, 'Laz'], Abruzzo: [4, 3, 'Abr'],
+  Molise: [5, 3, 'Mol'], Campania: [4, 4, 'Cam'], Puglia: [5, 4, 'Pug'], Basilicata: [5, 5, 'Bas'], Calabria: [5, 6, 'Cal'], Sicilia: [4, 7, 'Sic'], Sardegna: [1, 5, 'Sar'] };
 const TINTS = ['#5A6B7A', '#7A5A6B', '#6B7A5A', '#C25E0E', '#4B6B8A', '#5A7A6B', '#7A6B5A', '#6B5A7A'];
 const tintOf = s => TINTS[[...String(s || '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % TINTS.length];
 const entInitials = s => String(s || '?').split(/\s+/).filter(x => x.length > 2 && !/^(del|della|dei|delle|degli|di|spa|srl)$/i.test(x)).map(x => x[0]).join('').slice(0, 2).toUpperCase() || '?';
-const PROGRESS = { '': 15, programmata: 20, finanziata: 50, progetto: 80, determina: 85 };
+const PROGRESS = { '': 15, programmata: 20, finanziata: 50, progetto: 75, determina: 90 };
 const isNew = g => Date.now() - new Date(g.created_at).getTime() < 24 * 36e5;
 const scoreDial = v => {
   const n = Math.max(0, Math.min(100, Number(v) || 0));
   return h('span.rk-dial', { class: n >= 70 ? 'hi' : n >= 50 ? 'mid' : '', style: { '--p': String(n) }, title: 'Punteggio di Alma: quanto conviene (0–100)', role: 'img', 'aria-label': `Punteggio ${n} su 100` }, h('span', String(n)));
 };
-// sagoma statica dell'Abruzzo (testo fisso, nessun dato dell'utente)
-const MAP_SVG = '<svg width="100%" height="150" viewBox="0 0 276 160" preserveAspectRatio="none" aria-hidden="true"><path d="M30 120 L60 40 L120 18 L190 30 L250 70 L236 130 L160 148 L80 146 Z" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)" stroke-width="1.5"/><path d="M120 18 L130 90 L80 146 M130 90 L236 130 M130 90 L190 30" stroke="rgba(255,255,255,.15)" fill="none"/></svg>';
-const mapShape = () => { const d = h('div.rk-map-shape'); d.innerHTML = MAP_SVG; return d; };
+const MON = ['GEN', 'FEB', 'MAR', 'APR', 'MAG', 'GIU', 'LUG', 'AGO', 'SET', 'OTT', 'NOV', 'DIC'];
+const whenOf = g => g.deadline || g.expected_on || null;
 let radarState = null;
-export async function radarTab(box, data) {
+
+// «Le fonti del Radar»: cosa porta ogni fonte, in che fase, ogni quanto, quante opportunità e quanti progetti
+function sourcesDialog(signals) {
+  const by = k => signals.filter(g => srcOf(g) === k);
+  const body = h('div.rk-src-tab', h('table',
+    h('thead', h('tr', h('th', 'Fonte'), h('th', 'Fase'), h('th', 'Ogni'), h('th', 'Portate'), h('th', 'Progetti'))),
+    h('tbody', SRC_INFO.map(([k, name, what, phase, every]) => {
+      const live = SRC[k] || k === 'manuale';
+      const list = live ? by(k) : [];
+      return h('tr', { class: live ? '' : 'soon' },
+        h('td', h('span.rk-src', { class: SRC[k]?.[2] || 'soon' }, name), h('small', what)),
+        h('td', phase), h('td', every),
+        live ? [h('td', h('b', String(list.length))), h('td', String(list.filter(g => g.project_id).length))] : h('td', { colSpan: 2 }, pill('in arrivo')));
+    }))),
+    h('p.cv-hint', 'Le fonti grigie arrivano una alla volta, ognuna dopo aver verificato che i dati ci sono e sono completi. I bandi già usciti restano all\'ufficio gare in «Gare».'));
+  cvModal({ title: 'Le fonti del Radar', body, drawer: true });
+}
+
+export async function radarTab(box, data, sub = '') {
   fill(box, loading());
-  const st = radarState || (radarState = { view: 'kanban', f: null, more: {} });
+  const st = radarState || (radarState = { view: 'kanban', f: null, more: {}, opere: null });
+  const again = (s = sub) => radarTab(box, data, s);
+  const asaName = k => data.asa.find(a => a.key === k)?.label || k || 'Senza BU';
+  // sotto-vista «Opere finanziate» (OpenCUP per BU, canvas v16 spostata qui con la v17)
+  const subTabs = h('div.rk-sub', { role: 'tablist' },
+    [['', 'Lavagna', 'radar'], ['opere', 'Opere finanziate · OpenCUP', 'calendar']].map(([k, l, i]) => h('a.rk-subt', { href: `#/crm/radar${k ? `/${k}` : ''}`, role: 'tab', 'aria-selected': String(k === sub), class: k === sub ? 'on' : '' }, ic(i, 13), l)));
+  if (sub === 'opere') {
+    const { opereSection } = await import('./crm-gare-opere.js');
+    return opereSection(box, { st, buLabel: asaName, tabs: subTabs, again: () => again('opere') });
+  }
   const load = () => get(`/api/crm/radar/board?${st.f?.altri ? 'altri=1&' : ''}${st.f?.scartate ? 'scartate=1' : ''}`);
   let r = await load();
-  if (!st.f) { const def = (r.filtri || []).find(x => x.predefinito); st.f = { ...emptyFilters(), ...(def ? def.filtri : {}) }; if (st.f.altri || st.f.scartate) r = await load(); }
-  r.signals.forEach(g => { g.prov = provOf(g); });
-  const again = () => radarTab(box, data);
-  const asaName = k => data.asa.find(a => a.key === k)?.label || k || 'Senza BU';
+  if (!st.f) { const def = (r.filtri || []).find(x => x.predefinito); st.f = upgradeFilters(def ? def.filtri : {}); if (st.f.altri || st.f.scartate) r = await load(); }
   const f = st.f;
   const passes = (g, skip = '') => {
     const q = f.q.trim().toLowerCase();
     if (q && !`${g.title} ${g.entity || ''} ${g.subject_name || ''} ${g.place || ''}`.toLowerCase().includes(q)) return false;
     if (f.bu && g.bu !== f.bu) return false;
     if (f.kind && g.kind !== f.kind) return false;
-    if (f.region && (g.region || '') !== f.region) return false;
-    if (skip !== 'prov' && f.prov && g.prov !== f.prov) return false;
+    if (skip !== 'region' && f.regions.length && !f.regions.includes(g.region || '')) return false;
+    if (skip !== 'col' && f.col && g.column !== f.col) return false;
+    if (skip !== 'src' && f.src && srcOf(g) !== f.src) return false;
     if (f.min && !(g.amount >= Number(f.min))) return false;
     if (f.warm === 'forte' && g.warm !== 'forte') return false;
     if (f.warm === 'media' && WARM_RANK[g.warm] < 2) return false;
@@ -494,7 +542,6 @@ export async function radarTab(box, data) {
   const opts = (list, all) => [['', all], ...list];
   const bus = [...new Set(r.signals.map(g => g.bu).filter(Boolean))].sort((a, b) => asaName(a).localeCompare(asaName(b), 'it')).map(b => [b, `BU: ${asaName(b)}`]);
   const kinds = [...new Set(r.signals.map(g => g.kind).filter(Boolean))].map(k => [k, `Tipo: ${KIND_SHORT[k] || k}`]);
-  const regions = [...new Set(r.signals.map(g => g.region).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it')).map(x => [x, `Zona: ${x}`]);
   const sel = (key, list, label, cls = '') => {
     const s = select(list, f[key], { 'aria-label': label, class: [f[key] ? 'on' : '', cls].join(' ') });
     s.addEventListener('change', () => { f[key] = s.value; s.classList.toggle('on', Boolean(s.value)); st.more = {}; draw(); });
@@ -508,18 +555,21 @@ export async function radarTab(box, data) {
     s.addEventListener('change', () => { f.altri = ['altri', 'tutte'].includes(s.value); f.scartate = ['scartate', 'tutte'].includes(s.value); again(); });
     return s;
   };
-  const stats = h('div.rk-stats');
+  const timeline = h('div.rk-tl');
   const favs = h('div.rk-favs');
-  const map = h('div.rk-map');
+  const map = h('div.rk-it');
+  const regionBox = h('span');
+  const sources = h('div.rk-srcs');
   const body = h('div');
-  const viewChips = choiceChips([['kanban', 'Kanban'], ['elenco', 'Elenco']], st.view, { label: 'Vista', onChange: k => { st.view = k; draw(); } });
+  const side = h('aside.rk-side');
+  const viewChips = choiceChips([['kanban', 'Lavagna'], ['elenco', 'Elenco']], st.view, { label: 'Vista', onChange: k => { st.view = k; draw(); } });
 
   const saveFavs = async list => { const out = await api('PUT', '/api/crm/radar/filtri', { filtri: list }); r.filtri = out.filtri; drawFavs(); };
-  const same = a => FILTER_KEYS.every(k => String(a[k] ?? '') === String(f[k] ?? ''));
+  const same = a => FILTER_KEYS.every(k => JSON.stringify(a[k] ?? '') === JSON.stringify(f[k] ?? ''));
   const drawFavs = () => fill(favs,
     h('span.rk-favs-l', 'I miei filtri'),
-    (r.filtri || []).map((x, i) => h('span.rk-fav', { class: same({ ...emptyFilters(), ...x.filtri }) ? 'on' : '' },
-      h('button', { type: 'button', title: 'Applica', on: { click: () => { st.f = { ...emptyFilters(), ...x.filtri }; st.more = {}; again(); } } }, x.predefinito ? ic('star', 12) : null, x.nome),
+    (r.filtri || []).map((x, i) => h('span.rk-fav', { class: same(upgradeFilters(x.filtri)) ? 'on' : '' },
+      h('button', { type: 'button', title: 'Applica', on: { click: () => { st.f = upgradeFilters(x.filtri); st.more = {}; again(); } } }, x.predefinito ? ic('star', 12) : null, x.nome),
       h('button.rk-fav-star', { type: 'button', class: x.predefinito ? 'on' : '', title: x.predefinito ? 'Il radar si apre già così: tocca per toglierlo' : 'Apri il radar con questo filtro', 'aria-label': 'Predefinito',
         on: { click: () => saveFavs(r.filtri.map((y, j) => ({ ...y, predefinito: j === i ? !y.predefinito : false }))) } }, ic('pin', 12)),
       h('button.rk-fav-x', { type: 'button', title: 'Togli', 'aria-label': `Togli ${x.nome}`, on: { click: () => saveFavs(r.filtri.filter((_, j) => j !== i)) } }, ic('x', 12)))),
@@ -527,20 +577,47 @@ export async function radarTab(box, data) {
       const nome = await promptDialog('Salva questi filtri', { label: 'Nome del filtro', ok: 'Salva' });
       if (nome && nome.trim()) { await saveFavs([...(r.filtri || []), { nome: nome.trim(), filtri: { ...f }, predefinito: false }]); toast('Filtro salvato'); }
     } } }, '+ Salva questi filtri'),
-    FILTER_KEYS.some(k => f[k] && k !== 'altri') ? h('button.rk-fav-add', { type: 'button', on: { click: () => { st.f = emptyFilters(); st.more = {}; again(); } } }, 'Togli i filtri') : null);
+    FILTER_KEYS.some(k => (Array.isArray(f[k]) ? f[k].length : f[k]) && k !== 'altri') ? h('button.rk-fav-add', { type: 'button', on: { click: () => { st.f = emptyFilters(); st.more = {}; again(); } } }, 'Togli i filtri') : null);
 
+  // la strada verso la gara: quante opportunità e quanto valgono per fase (clic = solo quella fase)
+  const drawTimeline = () => {
+    const base = r.signals.filter(g => passes(g, 'col'));
+    fill(timeline, COLS.map(([k, label, , color]) => {
+      const list = base.filter(g => g.column === k);
+      const sum = list.reduce((s, g) => s + (g.amount || 0), 0);
+      return h('button.rk-st', { type: 'button', class: f.col === k ? 'sel' : '', 'aria-pressed': String(f.col === k), title: f.col === k ? 'Togli il filtro' : `Solo «${label}»`,
+        on: { click: () => { f.col = f.col === k ? '' : k; st.more = {}; draw(); } } },
+        h('span.rk-st-dot', { style: { background: color } }), h('b', String(list.length)), h('span.rk-st-l', label), h('small', sum ? eur(sum) : '—'));
+    }));
+  };
+  // mappa d'Italia a tessere: più arancio = più opportunità; clic = regione sì/no
   const drawMap = () => {
-    const base = r.signals.filter(g => passes(g, 'prov'));
-    const counts = Object.fromEntries(PROVS.map(([p]) => [p, base.filter(g => g.prov === p).length]));
+    const base = r.signals.filter(g => passes(g, 'region'));
+    const counts = {};
+    for (const g of base) if (g.region) counts[g.region] = (counts[g.region] || 0) + 1;
     const max = Math.max(1, ...Object.values(counts));
-    const other = base.filter(g => !g.prov).length;
-    fill(map, h('span.rk-k', 'Dove sono · Abruzzo'),
-      h('div.rk-map-box',
-        mapShape(),
-        PROVS.map(([p, x, y]) => h('button.rk-pin', { type: 'button', class: f.prov === p ? 'on' : counts[p] ? '' : 'zero', style: { left: `${x}%`, top: `${y}%` }, title: f.prov === p ? 'Togli il filtro' : `Solo ${p}`,
-          on: { click: () => { f.prov = f.prov === p ? '' : p; st.more = {}; draw(); } } },
-          h('span', { style: { width: `${18 + Math.round(26 * counts[p] / max)}px`, height: `${18 + Math.round(26 * counts[p] / max)}px` } }, String(counts[p])), h('small', p)))),
-      other ? h('span.rk-map-other', `${other} fuori Abruzzo o senza luogo`) : null);
+    const other = base.filter(g => !g.region || !TILES[g.region]).length;
+    fill(map, h('span.rk-k', 'Dove sono · Italia'),
+      h('div.rk-it-grid', Object.entries(TILES).map(([name, [c, row, s]]) => {
+        const n = counts[name] || 0;
+        const lvl = !n ? '' : n / max > 0.66 ? 'h3' : n / max > 0.33 ? 'h2' : 'h1';
+        return h('button.rk-tile', { type: 'button', class: [lvl, f.regions.includes(name) ? 'sel' : ''].join(' '), style: { gridColumn: String(c + 1), gridRow: String(row + 1) },
+          title: `${name}: ${n} ${n === 1 ? 'opportunità' : 'opportunità'}${f.regions.includes(name) ? ' · tocca per toglierla' : ''}`,
+          on: { click: () => { f.regions = f.regions.includes(name) ? f.regions.filter(x => x !== name) : [...f.regions, name]; st.more = {}; draw(); } } }, s);
+      })),
+      h('small.rk-it-note', other ? `${other} senza regione o fuori Italia` : 'Più arancio = più opportunità'));
+    const regCounts = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([region, n]) => ({ region, n }));
+    fill(regionBox, regionPicker({ counts: regCounts, selected: f.regions, unit: 'opportunità', none: 'Regioni: tutte', onChange: v => { f.regions = v || []; st.more = {}; draw(); } }));
+  };
+  // le fonti come pillole: quante opportunità porta ognuna; le nuove in grigio «in arrivo»
+  const drawSources = () => {
+    const base = r.signals.filter(g => passes(g, 'src'));
+    const keys = Object.keys(SRC).filter(k => k !== 'anac' || f.altri);
+    fill(sources,
+      h('button.rk-sc', { type: 'button', class: !f.src ? 'on' : '', on: { click: () => { f.src = ''; draw(); } } }, 'Tutte le fonti', h('em', String(base.length))),
+      keys.map(k => { const n = base.filter(g => srcOf(g) === k).length; return h('button.rk-sc', { type: 'button', class: [f.src === k ? 'on' : '', n ? 'rk-live' : 'rk-zero'].join(' '), on: { click: () => { f.src = f.src === k ? '' : k; draw(); } } }, h('i'), SRC[k][0], h('em', String(n))); }),
+      SOON.map(([, l]) => h('span.rk-sc.soon', { title: 'Fonte nuova: arriva con le prossime fasi' }, h('i'), l, h('em', 'in arrivo'))),
+      h('button.rk-sc.info', { type: 'button', on: { click: () => sourcesDialog(r.signals) } }, ic('info', 13), 'Le fonti del Radar'));
   };
 
   const warmEl = g => g.warm
@@ -548,46 +625,53 @@ export async function radarTab(box, data) {
       h('span.rk-avs', (g.warm_us.length ? g.warm_us : ['?']).slice(0, 3).map(n => h('span.rk-av', initials(n)))))
     : h('span.rk-warm.none', 'nessuno ci conosce');
   const due = g => {
-    if (g.deadline) { const d = daysTo(g.deadline); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 40 ? 'soon' : '' }, ic('clock', 11), d < 0 ? `scaduta ${day(g.deadline)}` : d <= 40 ? `gara entro ${d} giorni` : `scade ${day(g.deadline)}`); }
-    if (g.expected_on) return h('span.rk-due', ic('clock', 11), `bando atteso ${day(g.expected_on)}`);
+    // date passate sempre in rosso (Dante 22/11): «scaduta il …» o «data passata, da verificare»
+    if (g.deadline) { const d = daysTo(g.deadline); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 40 ? 'soon' : '' }, ic(d < 0 ? 'alert-triangle' : 'clock', 11), d < 0 ? `scaduta il ${day(g.deadline)}` : d === 0 ? 'scade oggi' : d <= 40 ? `gara entro ${d} giorni` : `scade ${day(g.deadline)}`); }
+    if (g.expected_on) { const d = daysTo(g.expected_on); return h('span.rk-due', { class: d < 0 ? 'past' : d <= 60 ? 'soon' : '' }, ic(d < 0 ? 'alert-triangle' : 'clock', 11), d < 0 ? `bando atteso il ${day(g.expected_on)}: data passata, da verificare` : `bando atteso ${day(g.expected_on)}`); }
     return g.stage === 'determina' ? h('span.rk-due', ic('clock', 11), 'determina a contrarre') : null;
   };
+  const srcTag = g => { const k = srcOf(g); return h('span.rk-src', { class: SRC[k]?.[2] || 'man' }, SRC[k]?.[0] || 'A mano'); };
   const cardEl = (g, list) => {
     const off = g.status === 'scartato' || g.status === 'gara_scartata';
     const ent = g.subject_name || g.entity || '—';
     return h('article.rk-card', { tabIndex: 0, draggable: 'true', 'data-id': String(g.id), class: [off ? 'off' : '', isNew(g) && !off ? 'hot' : ''].join(' '),
       on: { dragstart: e => { e.dataTransfer.setData('text/plain', String(g.id)); e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('drag'); }, dragend: e => e.currentTarget.classList.remove('drag'),
         click: e => { if (!e.target.closest('button, a')) openSignal(g.id, again, data, list); }, keydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) openSignal(g.id, again, data, list); } } },
+      h('div.rk-card-src', srcTag(g), isNew(g) && !off ? h('span.rk-hot', { title: 'Arrivata nelle ultime 24 ore' }, 'nuova') : null),
       h('div.rk-card-top', h('span.rk-ent-ic', { style: { background: tintOf(ent) }, 'aria-hidden': 'true' }, entInitials(ent)),
-        h('div.rk-card-tt', h('h4', g.title), h('div.rk-ent', isNew(g) && !off ? h('span.rk-hot', { title: 'Arrivata nelle ultime 24 ore' }, 'nuova') : null, ent)), scoreDial(g.score)),
-      h('div.rk-meta', { 'data-sid': g.subject_id || '' }, h('b.rk-val', g.amount ? eur(g.amount) : '—'), h('span.rk-bu', g.bu_label || asaName(g.bu)), h('span.cv-grow'), due(g)),
-      h('div.rk-prog', { title: 'Avanzamento verso la gara' }, h('span', { style: { width: `${g.to_gare ? 90 : PROGRESS[g.stage] ?? 15}%` } })),
+        h('div.rk-card-tt', h('h4', g.title), h('div.rk-ent', ent)), scoreDial(g.score)),
+      h('div.rk-meta', { 'data-sid': g.subject_id || '' }, h('b.rk-val', g.amount ? eur(g.amount) : '—'), h('span.rk-bu', g.bu_label || asaName(g.bu)), g.region ? h('span.rk-bu', g.region) : null, h('span.cv-grow'), due(g)),
+      h('div.rk-prog', { title: 'Avanzamento verso la gara' }, h('span', { style: { width: `${g.to_gare ? 95 : PROGRESS[g.stage] ?? 15}%` } })),
       h('div.rk-card-ft', warmEl(g), h('span.cv-grow'),
         g.project_id ? h('a.rk-run', { href: `#/crm/progetto/${g.project_id}`, title: 'Apri il progetto' }, `● in corso${g.project_owner ? ` · ${g.project_owner.split(' ')[0]}` : ''}`)
           : g.status === 'boss' ? h('span.rk-run', `● su BOSS${g.decided_by_name ? ` · ${g.decided_by_name.split(' ')[0]}` : ''}`)
           : off ? h('span.rk-run.off', 'scartata')
           : h('a.rk-go', { href: `#/crm/lancio/s/${g.id}` }, 'Porta avanti')));
   };
+  // «Questa settimana»: gare attese nei prossimi 60 giorni, nuove di stanotte, grandi dove nessuno ci conosce
+  const drawSide = shown => {
+    const soon = shown.filter(g => { const w = whenOf(g); if (!w) return false; const d = daysTo(w); return d >= 0 && d <= 60; }).sort((a, b) => String(whenOf(a)).localeCompare(String(whenOf(b)))).slice(0, 5);
+    const fresh = shown.filter(isNew);
+    const bySrc = Object.entries(fresh.reduce((m, g) => { const k = SRC[srcOf(g)]?.[0] || 'A mano'; m[k] = (m[k] || 0) + 1; return m; }, {}));
+    const cold = shown.filter(g => !g.warm && g.amount >= 1e6 && !g.project_id).sort((a, b) => (b.amount || 0) - (a.amount || 0)).slice(0, 3);
+    const row = (g, left) => h('button.rk-li', { type: 'button', on: { click: () => openSignal(g.id, again, data, shown) } }, left, h('span.rk-li-t', h('b', g.title), h('small', dots([g.subject_name || g.entity, g.amount ? eur(g.amount) : '']))), srcTag(g));
+    fill(side,
+      h('section.rk-box', h('h4', 'Gare attese nei prossimi 60 giorni'),
+        soon.length ? soon.map(g => { const w = new Date(`${String(whenOf(g)).slice(0, 10)}T12:00:00`); return row(g, h('span.rk-date', h('small', MON[w.getMonth()]), h('b', String(w.getDate())))); })
+          : h('p.rk-box-none', 'Nessuna gara attesa nei prossimi 60 giorni con questi filtri.')),
+      h('section.rk-box', h('h4', `Arrivate stanotte · ${fresh.length}`),
+        h('p.rk-box-none', fresh.length ? bySrc.map(([k, n]) => `${n} da ${k}`).join(', ') : 'Niente di nuovo nelle ultime 24 ore.')),
+      h('section.rk-box', h('h4', 'Grandi, ma nessuno ci conosce'),
+        cold.length ? cold.map(g => row(g, h('span.rk-date.cold', '?'))) : h('p.rk-box-none', 'Sulle opportunità sopra 1 M€ abbiamo già una strada.')));
+  };
 
   function draw() {
     const shown = r.signals.filter(g => passes(g));
-    const total = shown.reduce((s, g) => s + (g.amount || 0), 0);
-    const weighted = shown.reduce((s, g) => s + (g.amount || 0) * (g.score || 0) / 100, 0);
-    const fresh = shown.filter(isNew);
-    const warmN = shown.filter(g => WARM_RANK[g.warm] >= 2).length;
-    const nBu = new Set(shown.map(g => g.bu).filter(Boolean)).size;
-    fill(stats, [
-      ['Opportunità', String(shown.length), nBu > 1 ? `in ${nBu} BU` : nBu ? `in ${asaName(shown[0].bu)}` : '—', ''],
-      ['Valore', total ? eur(total) : '—', weighted ? `pesato ${eur(Math.round(weighted))}` : 'senza importo', ''],
-      ['Nuove stanotte', fresh.length ? `+${fresh.length}` : '0', fresh.length ? `${fresh.filter(g => g.amount >= 1e6).length} sopra 1 M€` : 'nessuna nelle ultime 24 ore', 'or'],
-      ['Ci conoscono', String(warmN), 'strada calda forte o media', 'gr'],
-    ].map(([k, v, s, tone]) => h(k === 'Ci conoscono' ? 'button.rk-stat' : 'div.rk-stat', { class: tone, type: k === 'Ci conoscono' ? 'button' : undefined, title: k === 'Ci conoscono' ? 'Mostra solo queste' : undefined,
-      on: k === 'Ci conoscono' ? { click: () => { f.warm = f.warm === 'media' ? '' : 'media'; again(); } } : undefined },
-      h('span.rk-k', k), h('b', v), h('small', s))));
-    drawFavs(); drawMap();
+    drawFavs(); drawTimeline(); drawMap(); drawSources(); drawSide(shown);
     if (!shown.length) { fill(body, h('section.cv-card', emptyState('radar', r.signals.length ? 'Nessuna opportunità con questi filtri.' : 'Il radar non ha ancora trovato opportunità.'))); return; }
     if (st.view === 'elenco') { fill(body, h('section.cv-card', shown.map(g => signalRow(g, { highlight: r.highlight, reasons: r.discardReasons, onChange: again, data, list: shown })))); return; }
-    fill(body, h('div.rk-board', COLS.map(([k, label, i]) => {
+    const cols = f.col ? COLS.filter(([k]) => k === f.col) : COLS;
+    fill(body, h('div.rk-board', { style: { gridTemplateColumns: `repeat(${cols.length}, minmax(0, 1fr))` } }, cols.map(([k, label, i, color]) => {
       const list = shown.filter(g => g.column === k);
       const sum = list.reduce((s, g) => s + (g.amount || 0), 0);
       const limit = st.more[k] ? list.length : PER_COL;
@@ -599,7 +683,7 @@ export async function radarTab(box, data) {
         Object.assign(g, { stage: out.stage, column: out.column }); draw(); toast(`Spostata in «${label}»`);
       };
       return h('section.rk-col', { class: k, on: { dragover: e => { e.preventDefault(); e.currentTarget.classList.add('over'); }, dragleave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('over'); }, drop } },
-        h('header.rk-col-h', h('span.rk-col-ic', ic(i, 13)), h('b.cv-grow', label), h('span.rk-col-n', `${list.length} · `, h('b', sum ? eur(sum) : '—'))),
+        h('header.rk-col-h', h('span.rk-col-dot', { style: { background: color } }), h('b.cv-grow', label), h('span.rk-col-n', `${list.length} · `, h('b', sum ? eur(sum) : '—'))),
         list.length ? list.slice(0, limit).map(g => cardEl(g, shown)) : h('p.rk-col-empty', 'Niente in questa fase.'),
         list.length > limit ? h('button.rk-more', { type: 'button', on: { click: () => { st.more[k] = true; draw(); } } }, `Mostra le altre ${list.length - limit}`) : null);
     })));
@@ -609,20 +693,24 @@ export async function radarTab(box, data) {
   const newest = r.signals.reduce((m, g) => (g.created_at > m ? g.created_at : m), '');
   const upd = newest ? new Date(newest).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
   fill(box,
-    h('section.rk-hero',
+    subTabs,
+    h('section.rk-hero.v17',
       h('div.rk-hero-l',
         h('div.rk-hero-top',
-          h('div.cv-grow', h('div.rk-eyebrow', ic('radar', 12), `Radar${upd ? ` · ultima novità ${upd}` : ''}`), h('h1.rk-h1', 'Tutte le opportunità')),
+          h('div.cv-grow', h('div.rk-eyebrow', ic('radar', 12), `Radar${upd ? ` · ultima novità ${upd}` : ''} · ${Object.keys(SRC).length - 1} fonti attive`),
+            h('h1.rk-h1', 'Le gare ', h('b', 'prima che escano')),
+            h('p.rk-lede', 'Opere programmate, finanziate e approvate nelle categorie e nelle zone delle BU, da tutte le fonti. Più sono a destra, più la gara è vicina.')),
           h('div.rk-hero-act',
             h('a.rk-ghost', { href: '#/crm/sottosoglia' }, 'Sotto soglia'),
             data.gare ? h('a.rk-ghost', { href: '#/crm/gare' }, ic('gavel', 13), 'Gare') : null,
             h('button.rk-ghost', { type: 'button', on: { click: () => newSignalDialog(data, again) } }, ic('plus', 13), 'Segnala'))),
-        stats, favs),
+        timeline, favs),
       map),
     h('section.rk-bar',
-      h('span.rk-search', ic('search', 14), search), sel('bu', opts(bus, 'BU: tutte'), 'BU'), regions.length > 1 ? sel('region', opts(regions, 'Zona: tutte'), 'Zona') : null,
+      h('span.rk-search', ic('search', 14), search), sel('bu', opts(bus, 'BU: tutte'), 'BU'), regionBox,
       sel('min', AMOUNTS, 'Importo'), sel('kind', opts(kinds, 'Tipo: tutti'), 'Tipo'), sel('warm', WARM, 'Chi conosciamo', 'warm'),
       h('div.rk-bar-r', showSel(), viewChips.el)),
-    body);
+    sources,
+    h('div.rk-main', body, side));
   draw();
 }

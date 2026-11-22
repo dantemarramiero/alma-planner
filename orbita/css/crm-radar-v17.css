@@ -1,0 +1,77 @@
+/* Radar v17 (canvas «v17 · Il nuovo Radar», approvato da Dante il 22/11/2026): strada verso la gara, mappa d'Italia,
+   fonti come pillole, quattro colonne con l'etichetta della fonte, «Questa settimana». Parte da crm-v2.css (rk-*). */
+.rk-sub { display: flex; width: fit-content; gap: 4px; padding: 4px; border-radius: 999px; background: var(--cv-soft); margin-bottom: 14px; }
+.rk-subt { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 16px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--cv-text-2); text-decoration: none; }
+.rk-subt.on { background: var(--cv-card); color: var(--cv-ink); box-shadow: 0 1px 3px rgba(28,24,20,.08); }
+.rk-hero.v17 { grid-template-columns: minmax(0, 1fr) 300px; }
+.rk-hero.v17 .rk-h1 { font-weight: 300; }
+.rk-hero.v17 .rk-h1 b { font-weight: 700; }
+.rk-lede { margin: 4px 0 0; font-size: 13px; line-height: 19px; color: rgba(255,255,255,.7); max-width: 640px; }
+/* la strada verso la gara */
+.rk-tl { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.rk-tl::before { content: ''; position: absolute; left: 22px; right: 22px; top: 22px; height: 2px; background: linear-gradient(90deg, #8A8A8A, #FF8A26, #1B7A45, #E5484D); }
+.rk-st { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 118px; padding: 40px 14px 12px; border-radius: 16px; text-align: left;
+  font: inherit; color: #fff; cursor: pointer; background: #383838; border: 1px solid rgba(255,255,255,.12); transition: border-color 120ms; }
+.rk-st:hover { border-color: rgba(255,255,255,.35); }
+.rk-st.sel { border-color: #fff; box-shadow: 0 0 0 1px #fff; }
+.rk-st-dot { position: absolute; top: 13px; left: 13px; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #383838; box-sizing: border-box; }
+.rk-st b { font-size: 28px; line-height: 32px; font-weight: 300; }
+.rk-st-l { font-size: 13px; line-height: 17px; font-weight: 500; }
+.rk-st small { font-size: 11.5px; line-height: 16px; color: rgba(255,255,255,.6); }
+/* mappa d'Italia a tessere */
+.rk-it { display: grid; gap: 8px; align-content: start; padding: 12px; border-radius: 16px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); }
+.rk-it .rk-k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.6); }
+.rk-it-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 30px; gap: 4px; }
+.rk-tile { border: 0; border-radius: 7px; font: inherit; font-size: 10.5px; font-weight: 600; color: rgba(255,255,255,.75); background: rgba(255,255,255,.08); cursor: pointer; }
+.rk-tile.h1 { background: rgba(255,138,38,.35); color: #fff; } .rk-tile.h2 { background: rgba(255,138,38,.62); color: #fff; } .rk-tile.h3 { background: #FF8A26; color: #fff; }
+.rk-tile.sel { box-shadow: 0 0 0 2px #fff; }
+.rk-tile:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.rk-it-note { font-size: 11px; color: rgba(255,255,255,.5); }
+/* fonti come pillole */
+.rk-srcs { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }
+.rk-sc { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--cv-line); background: var(--cv-card); font: inherit; font-size: 12.5px; color: var(--cv-ink); cursor: pointer; }
+.rk-sc i { width: 8px; height: 8px; border-radius: 50%; background: #1B7A45; }
+.rk-sc.rk-zero i { background: var(--cv-check); }
+.rk-sc em { font-style: normal; font-size: 11px; font-weight: 700; background: var(--cv-soft); color: var(--cv-text-2); border-radius: 999px; padding: 0 6px; }
+.rk-sc.on { border-color: var(--cv-ink); box-shadow: 0 0 0 1px var(--cv-ink); }
+.rk-sc.soon { cursor: default; color: var(--cv-faint); }
+.rk-sc.soon i { background: var(--cv-check); }
+.rk-sc.info { color: var(--cv-or-ink); border-style: dashed; }
+/* etichetta della fonte */
+.rk-src { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.rk-src.ai { background: #F3EEFF; color: #6E3FD1; } .rk-src.cup { background: #E7F5EC; color: #1B7A45; } .rk-src.inf { background: #E9F1FB; color: #0057B8; } .rk-src.ted { background: #E6EEFA; color: #1D4E9E; }
+.rk-src.man { background: var(--cv-soft); color: var(--cv-text-2); } .rk-src.anac { background: #FFF1E5; color: #B85A10; } .rk-src.soon { background: var(--cv-soft); color: var(--cv-faint); }
+.rk-card-src { display: flex; align-items: center; gap: 6px; }
+/* lavagna + colonna destra */
+.rk-main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.rk-main .rk-board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rk-col-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.rk-side { display: grid; gap: 12px; }
+.rk-box { background: var(--cv-card); border: 1px solid var(--cv-line); border-radius: 18px; padding: 14px 16px; display: grid; gap: 10px; }
+.rk-box h4 { margin: 0; font-size: 14px; font-weight: 500; color: var(--cv-ink); }
+.rk-box-none { margin: 0; font-size: 12.5px; line-height: 18px; color: var(--cv-muted); }
+.rk-li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; border: 0; background: none; font: inherit; padding: 4px 0; cursor: pointer; }
+.rk-li-t { min-width: 0; display: grid; }
+.rk-li-t b { font-size: 12.5px; font-weight: 500; color: var(--cv-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-li-t small { font-size: 11.5px; color: var(--cv-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-date { width: 40px; height: 40px; border-radius: 12px; background: var(--cv-or-t); color: var(--cv-or-ink); display: grid; place-items: center; align-content: center; line-height: 13px; }
+.rk-date small { font-size: 9.5px; font-weight: 700; letter-spacing: .04em; }
+.rk-date b { font-size: 14px; }
+.rk-date.cold { background: var(--cv-soft); color: var(--cv-text-2); font-weight: 700; }
+/* «Le fonti del Radar» */
+.rk-src-tab table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.rk-src-tab th { text-align: left; font-size: 11px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--cv-faint); padding: 8px 10px; border-bottom: 1px solid var(--cv-line); }
+.rk-src-tab td { padding: 10px; border-bottom: 1px solid var(--cv-line-2); vertical-align: top; }
+.rk-src-tab td small { display: block; margin-top: 4px; font-size: 12px; line-height: 17px; color: var(--cv-muted); }
+.rk-src-tab tr.soon td { color: var(--cv-faint); }
+@media (max-width: 1280px) { .rk-main { grid-template-columns: 1fr; } .rk-side { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .rk-main .rk-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rk-hero.v17 { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .rk-tl { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rk-tl::before { display: none; }
+  .rk-main .rk-board { grid-template-columns: 1fr; } .rk-side { grid-template-columns: 1fr; }
+}
+/* schermi fino a 1600 px: «Questa settimana» sopra la lavagna (tre riquadri affiancati), le colonne a tutta larghezza */
+@media (max-width: 1600px) { .rk-main { grid-template-columns: 1fr; } .rk-side { order: -1; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; } }
+.rk-main .rk-meta { flex-wrap: wrap; row-gap: 4px; }
+.rk-main .rk-meta .rk-due { flex-basis: 100%; }
+.rk-main .rk-card-tt h4 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }

@@ -67,6 +67,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   // view: mine (le mie BU, sopra soglia) · sotto (le mie BU, sotto soglia) · gare (ufficio gare) · bu (una BU, direzione)
   app.get('/api/crm/radar/signals', async (req, res) => {
     const c = await ctx(req);
+    await expireSignals(c.settings); // scadute tolte da sole anche da «Gare» e «Sotto soglia»
     const view = String(req.query.view || 'mine');
     const min = c.settings.scoring.min;
     const params = [];
@@ -90,12 +91,25 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     res.json({ signals: rows, min, highlight: c.settings.scoring.highlight, bus: c.myBus, gare: c.gare, discardReasons: c.settings.rules.discard_reasons });
   });
   // ── Radar per tutti (19/11/2026, canvas «v9 · Radar»): tutte le opportunità di tutte le BU, a colonne ──────
-  // Colonne: Programmata (programmata o senza fase) · Finanziata · Progetto approvato (progetto, determina e gare
+  // Colonne (v17, 22/11): Programmata (programmata o senza fase) · Finanziata · Progetto approvato · Gara in arrivo (determina,
   // già bandite: l'ufficio gare le vede qui con «Porta su BOSS»). «Vinte da altri» e scartate solo a richiesta.
   // Ogni opportunità porta «chi ci conosce» (forza dei rapporti con l'ente, lib/crm-relazioni.js).
-  const columnOf = g => (g.to_gare || ['progetto', 'determina'].includes(g.stage) ? 'approvato' : g.stage === 'finanziata' ? 'finanziata' : 'programmata');
+  // v17 (22/11): quattro colonne. «Gara in arrivo» = determina o avviso, gare già bandite, o bando atteso entro 60 giorni
+  const soonDate = d => { if (!d) return false; const days = (new Date(String(d instanceof Date ? d.toISOString() : d).slice(0, 10)) - new Date(new Date().toISOString().slice(0, 10))) / 864e5; return days >= 0 && days <= 60; };
+  const columnOf = g => (g.to_gare || g.stage === 'determina' || soonDate(g.expected_on) ? 'arrivo' : g.stage === 'progetto' ? 'approvato' : g.stage === 'finanziata' ? 'finanziata' : 'programmata');
+  // Opportunità scadute tolte da sole (Dante 22/11): ancora da valutare, con la gara scaduta o il bando atteso da più di
+  // 3 mesi → tra le scartate con il motivo «scaduta» (si ritrovano con «Mostra: anche scartate»). Interessa, BOSS e
+  // progetti non si toccano. Spento in Impostazioni → Prima del bando.
+  async function expireSignals(settings) {
+    if (settings.prima_bando?.scadute === false) return 0;
+    const r = await db.query(`UPDATE crm_signals SET status = 'scartato', discard_reason = 'scaduta', decided_at = now()
+      WHERE status = 'nuovo' AND ((deadline IS NOT NULL AND deadline < CURRENT_DATE)
+        OR (deadline IS NULL AND expected_on IS NOT NULL AND expected_on < CURRENT_DATE - interval '3 months'))`);
+    return r.rowCount || 0;
+  }
   app.get('/api/crm/radar/board', async (req, res) => {
     const c = await ctx(req);
+    await expireSignals(c.settings);
     const states = ['nuovo', 'interessa', 'boss', ...(req.query.scartate ? ['scartato', 'gara_scartata'] : [])];
     const { rows } = await db.query(`${SELECT} WHERE g.status = ANY($1::text[]) ${req.query.altri ? '' : "AND g.stage <> 'vinta_altri'"}
       ORDER BY g.score DESC, g.created_at DESC LIMIT 600`, [states]);
@@ -118,7 +132,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   // Spostare un'opportunità tra le colonne (trascinandola): Programmata → Finanziata → Progetto approvato
   app.post('/api/crm/radar/signals/:id/fase', async (req, res) => {
     const g = await signalById(req.params.id);
-    const stage = { programmata: 'programmata', finanziata: 'finanziata', approvato: 'progetto' }[req.body?.column] ?? (STAGES.includes(req.body?.stage) ? req.body.stage : null);
+    const stage = { programmata: 'programmata', finanziata: 'finanziata', approvato: 'progetto', arrivo: 'determina' }[req.body?.column] ?? (STAGES.includes(req.body?.stage) ? req.body.stage : null);
     if (stage === null) throw new HttpError(400, 'Fase non valida');
     await db.query('UPDATE crm_signals SET stage = $2 WHERE id = $1', [g.id, stage]);
     res.json({ id: g.id, stage, column: columnOf({ ...g, stage }) });
@@ -439,6 +453,8 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     if (admins.length) await notifier.notify({ userIds: admins.map(a => a.id), actorId: null, kind: 'crm', body: `${label} ha finito il budget del radar (${quota} €): aumenta la quota o lascia così. Fino ad allora riceve solo i segnali dai dati pubblici.`, link: '/crm/impostazioni/radar' });
   }
   async function runRadar({ bus = null, fetchImpl = radarFetch || fetch, apiKey = process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '') } = {}) {
+    // ogni notte, prima del giro: via le scadute (anche se nessuno apre il Radar, non restano in «La mia settimana»)
+    try { await expireSignals(await loadSettings(db)); } catch (err) { console.error('[radar] scadute:', err.message); }
     if (!apiKey) return { skipped: 'Manca OPENAI_API_KEY su Railway' };
     const { searchBu } = require('../lib/crm-radar-ai');
     const settings = await loadSettings(db);

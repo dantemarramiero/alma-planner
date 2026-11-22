@@ -229,7 +229,12 @@ test('Radar per tutti (19/11): tutte le BU anche per chi non ne è responsabile,
   const b = (await F('GET', '/api/crm/radar/board')).body; // facility@ non è responsabile di Edilizia ma la vede
   assert.ok(b.signals.some(g => g.bu === 'edilizia') && b.signals.some(g => g.bu !== 'edilizia'));
   assert.equal(b.signals.find(g => g.id === fin.id).column, 'finanziata');
-  assert.ok(b.signals.every(g => ['programmata', 'finanziata', 'approvato'].includes(g.column)));
+  assert.ok(b.signals.every(g => ['programmata', 'finanziata', 'approvato', 'arrivo'].includes(g.column)));
+  // v17: quarta colonna «Gara in arrivo» = determina (e gare già bandite, o bando atteso entro 60 giorni)
+  const arr = await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'arrivo' });
+  assert.deepEqual([arr.body.stage, arr.body.column], ['determina', 'arrivo']);
+  assert.equal((await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'approvato' })).body.column, 'approvato');
+  await F('POST', `/api/crm/radar/signals/${fin.id}/fase`, { column: 'finanziata' });
   assert.ok(b.signals.every(g => g.status !== 'scartato'));
   assert.ok((await F('GET', '/api/crm/radar/board?scartate=1')).body.signals.some(g => g.status === 'scartato'));
   assert.ok(b.signals.every(g => 'warm' in g && Array.isArray(g.warm_us)));
@@ -239,4 +244,18 @@ test('Radar per tutti (19/11): tutte le BU anche per chi non ne è responsabile,
   assert.deepEqual(saved.body.filtri.map(x => [x.nome, x.predefinito]), [['Abruzzo grandi', true], ['Tutte', false]]);
   assert.equal((await F('GET', '/api/crm/radar/board')).body.filtri[0].filtri.region, 'Abruzzo');
   assert.deepEqual((await E('GET', '/api/crm/radar/board')).body.filtri, []); // sono di ognuno
+});
+
+test('scadute tolte da sole (Dante 22/11): gara scaduta o bando atteso da più di 3 mesi → scartata «scaduta»; interessa resta', async () => {
+  const past = new Date(Date.now() - 5 * 864e5).toISOString().slice(0, 10);
+  const longAgo = new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10);
+  const a = (await E('POST', '/api/crm/radar/signals', { title: 'Gara scaduta di prova', entity: 'Comune di Prova', bu: 'edilizia', kind: 'notizia', deadline: past })).body;
+  const b = (await E('POST', '/api/crm/radar/signals', { title: 'Bando atteso tempo fa', entity: 'Comune di Prova', bu: 'edilizia', kind: 'notizia', expected_on: longAgo, stage: 'progetto' })).body;
+  const c = (await E('POST', '/api/crm/radar/signals', { title: 'Scaduta ma interessa', entity: 'Comune di Prova', bu: 'edilizia', kind: 'notizia', deadline: past })).body;
+  await db.query(`UPDATE crm_signals SET status = 'interessa' WHERE id = $1`, [c.id]);
+  const board = (await F('GET', '/api/crm/radar/board')).body;
+  assert.ok(!board.signals.some(g => [a.id, b.id].includes(g.id)));
+  const { rows } = await db.query('SELECT id, status, discard_reason FROM crm_signals WHERE id = ANY($1::int[]) ORDER BY id', [[a.id, b.id, c.id]]);
+  assert.deepEqual(rows.map(r => [r.status, r.discard_reason]), [['scartato', 'scaduta'], ['scartato', 'scaduta'], ['interessa', '']]);
+  assert.ok((await F('GET', '/api/crm/radar/board?scartate=1')).body.signals.some(g => g.id === a.id));
 });

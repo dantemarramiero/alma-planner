@@ -19,7 +19,7 @@ const NOTICES = [
   { 'publication-number': '103-2026', 'notice-type': 'can-standard', 'notice-title': { ita: ['Italia – Linee elettriche – MANUTENZIONE CABINE MT/BT'] }, 'buyer-name': { ita: ['REGIONE MARCHE'] },
     'publication-date': `${inDays(-60)}+01:00`, 'place-of-performance': ['ITI32'], 'classification-cpv': ['45232200'], 'total-value': 7000000,
     'winner-name': { ita: ['ROSSI IMPIANTI SRL', 'BIANCHI SPA'] }, 'winner-identifier': ['IT01234567890', '09876543210'], 'received-submissions-type-val': ['4', '0', '4'] },
-  { 'publication-number': '104-2026', 'notice-type': 'pin-only', 'notice-title': { ita: ['preavviso'] }, 'classification-cpv': ['45231400'] },
+  { 'publication-number': '104-2026', 'notice-type': 'veat', 'notice-title': { ita: ['avviso di trasparenza'] }, 'classification-cpv': ['45231400'] },
 ];
 const calls = [];
 const fakeTed = async (url, opts) => {
@@ -28,7 +28,7 @@ const fakeTed = async (url, opts) => {
   return new Response(JSON.stringify({ notices: body.iterationNextToken ? [] : NOTICES, totalNoticeCount: NOTICES.length, iterationNextToken: body.iterationNextToken ? null : 'tok' }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 
-let server, base, db, D, iniziativa;
+let server, base, db, D, iniziativa, theApp;
 const ADMIN = 'direzione@almacis.it';
 async function api(cookie, method, path, body) {
   const res = await fetch(base + path, { method, headers: { cookie, 'X-Alma': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -38,7 +38,7 @@ async function api(cookie, method, path, body) {
 
 before(async () => {
   db = await createDb({});
-  const { app } = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, tedFetch: fakeTed });
+  const { app } = theApp = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, tedFetch: fakeTed });
   server = app.listen(0);
   await new Promise(r => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -145,4 +145,33 @@ test('Impostazioni: codici CPV in più per TED', async () => {
   assert.deepEqual(map.body.extra, { OG10: ['45317000'] });
   assert.ok(map.body.map.OG10.includes('45317000'));
   assert.equal((await D('PUT', '/api/crm/commerciale/concorrenza', { value: { ...conc, ted_cpv: { XX1: ['45317000'] } } })).status, 400);
+});
+
+// ── v17: avvisi di preinformazione → Radar «Gara in arrivo» ──
+test('preinformazione: letta con la data prevista, poi segnale «Gara in arrivo» nella BU, una volta sola', async () => {
+  const pin = T.toRow({ 'publication-number': '900-2026', 'notice-type': 'pin-only', 'notice-title': { ita: 'Italia – Impianti elettrici – ACCORDO QUADRO IMPIANTI ELETTRICI SCUOLE' },
+    'buyer-name': { ita: ['COMUNE DI CHIETI'] }, 'publication-date': `${inDays(-3)}+01:00`, 'place-of-performance': ['ITF14'], 'classification-cpv': ['45310000'],
+    'total-value': 2500000, 'BT-127-notice': [`${inDays(40)}+01:00`] });
+  assert.equal(pin.kind, 'preinfo');
+  assert.equal(pin.future_on, inDays(40));
+  assert.deepEqual(pin.regions, ['Abruzzo']);
+  await T.save(db, [pin]);
+  const { loadSettings } = require('../lib/crm-commerciale');
+  const base = await loadSettings(db);
+  const bu = Object.keys(base.profiles).find(k => T.codesFor((base.profiles[k].soa || []), base).some(c => '45310000'.startsWith(T.prefix(c))));
+  assert.ok(bu, 'una BU con impianti elettrici');
+  const settings = { ...base, radar: { ...base.radar, bu: { [bu]: { on: true } } } };
+  const radar = theApp.app.locals.crmRadar;
+  assert.equal(await T.tedSignals(db, { settings, radar }), 1);
+  const { rows: [g] } = await db.query(`SELECT * FROM crm_signals WHERE source = 'ted' AND external_id = '900-2026'`);
+  assert.equal(g.stage, 'determina');
+  assert.equal(g.kind, 'preinformazione');
+  assert.equal(String(g.expected_on instanceof Date ? g.expected_on.toISOString() : g.expected_on).slice(0, 10), inDays(40));
+  assert.equal(await T.tedSignals(db, { settings, radar }), 0);
+  const board = await D('GET', '/api/crm/radar/board');
+  assert.equal(board.body.signals.find(x => x.id === g.id).column, 'arrivo');
+  // le esistenti sezioni TED (bandi ed esiti) non contano la preinformazione
+  const r = await D('GET', `/api/crm/business/${iniziativa}/mercato/ted?vista=bandi`);
+  assert.ok(!r.body.rows.some(x => x.pub === '900-2026'));
+  assert.equal(await T.tedSignals(db, { settings: { ...settings, prima_bando: { ...settings.prima_bando, ted_pin: false } }, radar }), 0);
 });
