@@ -19,48 +19,47 @@ const STATUS = { connect: 'Mi collego…', ascolto: 'Ti ascolto', penso: 'Un att
 
 export async function postaVocePage(view) {
   if (!store.me.posta_voce) { fill(view, h('div.card.empty', h('p', 'Pagina non trovata.'))); return null; }
-  const root = h('div.pv', { role: 'region', 'aria-label': 'Posta in macchina' });
+  const root = h('div.pvc', { role: 'region', 'aria-label': 'Posta in macchina' });
   fill(view, root);
-  document.body.classList.add('pv-open');
+  document.body.classList.add('pvc-open');
   let call = null;
-  const cleanup = () => { call?.hangUp(true); document.body.classList.remove('pv-open'); };
+  const cleanup = () => { call?.hangUp(true); document.body.classList.remove('pvc-open'); };
 
   // ── 1 · Avvio ──
   async function startScreen() {
-    fill(root, h('div.pv-col', h('p.pv-muted', 'Cerco le email…')));
+    fill(root, h('div.pvc-col', h('p.pvc-muted', 'Cerco le email…')));
     let q;
-    try { q = await get(`${API}/coda`); } catch (e) { fill(root, h('div.pv-col', back(), h('p.pv-muted', e.message))); return; }
+    try { q = await get(`${API}/coda`); } catch (e) { fill(root, h('div.pvc-col', back(), h('p.pvc-muted', e.message))); return; }
     const list = q.email || [];
-    fill(root, h('div.pv-col',
-      h('div.pv-top', back(), h('span.pv-eyebrow', 'Solo per te')),
-      h('div.pv-hello', h('h1', 'Posta ', h('b', 'in macchina')),
+    fill(root, h('div.pvc-col',
+      h('div.pvc-top', back(), h('span.pvc-eyebrow', 'Solo per te')),
+      h('div.pvc-hello', h('h1', 'Posta ', h('b', 'in macchina')),
         h('p', list.length ? `${list.length} ${list.length === 1 ? 'email' : 'email'} da persone, non lette, dalla più recente.` : 'Nessuna email da persone da leggere.')),
-      h('div.pv-list', list.slice(0, 3).map(e => h('div.pv-row', h('span.pv-av', initials(e.da)),
-        h('div.pv-row-t', h('strong', e.da), h('small', e.oggetto)), h('span.pv-time', when(e.quando)))),
-      list.length > 3 || q.tolte ? h('p.pv-muted', [list.length > 3 ? `e altre ${list.length - 3}` : '', q.tolte ? `tolte ${q.tolte} newsletter, avvisi automatici e già risposte` : ''].filter(Boolean).join(' · ')) : null),
-      h('div.pv-grow'),
-      list.length ? h('div.pv-start',
-        h('button.pv-mic', { type: 'button', 'aria-label': 'Inizia il giro della posta', disabled: q.voce ? null : true, on: { click: () => { call = startCall(list.length); } } }, ic('mic', 52)),
-        h('strong', 'Inizia'),
-        h('small.pv-muted', q.voce ? 'Un tocco e poi parli: lo schermo resta acceso finché non dici «stop».' : 'La voce non è attiva: manca la chiave OpenAI sul server.'))
-        : h('a.pv-btn', { href: '#/benvenuto' }, 'Chiudi')));
+      h('div.pvc-list', list.slice(0, 3).map(e => h('div.pvc-row', h('span.pvc-av', initials(e.da)),
+        h('div.pvc-row-t', h('strong', e.da), h('small', e.oggetto)), h('span.pvc-time', when(e.quando)))),
+      list.length > 3 || q.tolte ? h('p.pvc-muted', [list.length > 3 ? `e altre ${list.length - 3}` : '', q.tolte ? `tolte ${q.tolte} newsletter, avvisi automatici e già risposte` : ''].filter(Boolean).join(' · ')) : null),
+      h('div.pvc-grow'),
+      h('div.pvc-start',
+        h('button.pvc-mic', { type: 'button', 'aria-label': list.length ? 'Inizia il giro della posta' : 'Detta un\'email nuova', disabled: q.voce ? null : true, on: { click: () => { call = startCall(list.length); } } }, ic('mic', 52)),
+        h('strong', list.length ? 'Inizia' : 'Scrivi un\'email'),
+        h('small.pvc-muted', q.voce ? (list.length ? 'Un tocco e poi parli. Puoi anche dire «scrivi a …» per un\'email nuova. Lo schermo resta acceso finché non dici «stop».' : 'Un tocco e poi di\' «scrivi a …» con quello che vuoi dire.') : 'La voce non è attiva: manca la chiave OpenAI sul server.'))));
   }
-  const back = () => h('a.pv-ib', { href: '#/benvenuto', 'aria-label': 'Indietro' }, ic('chevron-left'));
+  const back = () => h('a.pvc-ib', { href: '#/benvenuto', 'aria-label': 'Indietro' }, ic('chevron-left'));
 
   // ── 4 · Fine del giro ──
   function endScreen(r, msg) {
     const done = (r && r.inviate) || [], skipped = (r && r.saltate) || [];
-    fill(root, h('div.pv-col',
-      h('div.pv-hello', h('h1', 'Giro ', h('b', 'finito')),
+    fill(root, h('div.pvc-col',
+      h('div.pvc-hello', h('h1', 'Giro ', h('b', 'finito')),
         h('p', msg || `${done.length} ${done.length === 1 ? 'risposta inviata' : 'risposte inviate'}${skipped.length ? ` · ${skipped.length} ${skipped.length === 1 ? 'saltata, resta non letta' : 'saltate, restano non lette'}` : ''}.`)),
-      h('div.pv-list',
-        done.map(e => h('div.pv-row', h('span.pv-ok', ic('check', 22)), h('div.pv-row-t', h('strong', e.da), h('small', e.succo || e.oggetto)))),
-        skipped.map(e => h('a.pv-row', { href: e.web_link || '#', target: '_blank', rel: 'noopener' }, h('span.pv-skip', ic('skip-forward', 22)), h('div.pv-row-t', h('strong', e.da), h('small', `Saltata: ${e.oggetto}`))))),
-      done.length ? h('p.pv-muted', 'Le risposte sono in Posta inviata di Outlook.') : null,
-      h('div.pv-grow'),
-      h('div.pv-grid2',
-        h('button.pv-btn', { type: 'button', on: { click: () => startScreen() } }, 'Ricomincia'),
-        h('a.pv-btn', { href: '#/benvenuto' }, 'Chiudi'))));
+      h('div.pvc-list',
+        done.map(e => h('div.pvc-row', h('span.pvc-ok', ic('check', 22)), h('div.pvc-row-t', h('strong', e.da), h('small', e.succo || e.oggetto)))),
+        skipped.map(e => h('a.pvc-row', { href: e.web_link || '#', target: '_blank', rel: 'noopener' }, h('span.pvc-skip', ic('skip-forward', 22)), h('div.pvc-row-t', h('strong', e.da), h('small', `Saltata: ${e.oggetto}`))))),
+      done.length ? h('p.pvc-muted', 'Le risposte sono in Posta inviata di Outlook.') : null,
+      h('div.pvc-grow'),
+      h('div.pvc-grid2',
+        h('button.pvc-btn', { type: 'button', on: { click: () => startScreen() } }, 'Ricomincia'),
+        h('a.pvc-btn', { href: '#/benvenuto' }, 'Chiudi'))));
   }
 
   // ── 2 e 3 · La chiamata ──
@@ -68,35 +67,48 @@ export async function postaVocePage(view) {
     const st = { mode: 'connect', pc: null, dc: null, mic: null, audio: null, wake: null, email: null, draft: null, sub: '', handled: new Set(), closed: false, total, endT: null, closing: false };
     const els = {};
     function frame() {
-      els.count = h('span.pv-count');
-      els.dots = h('div.pv-dots', { 'aria-hidden': 'true' });
-      els.card = h('div.pv-email');
-      els.draft = h('div.pv-draft', { hidden: true });
-      els.status = h('strong.pv-status');
-      els.sub = h('span.pv-sub', { 'aria-live': 'polite' });
-      els.orb = h('div.pv-orb', h('span', ic('mic', 38)));
-      els.btns = h('div.pv-grid3');
-      fill(root, h('div.pv-col',
-        h('div.pv-top', els.count, els.dots),
+      els.count = h('span.pvc-count');
+      els.dots = h('div.pvc-dots', { 'aria-hidden': 'true' });
+      els.card = h('div.pvc-email');
+      els.draft = h('div.pvc-draft', { hidden: true });
+      els.status = h('strong.pvc-status');
+      els.sub = h('span.pvc-sub', { 'aria-live': 'polite' });
+      els.orb = h('div.pvc-orb', h('span', ic('mic', 38)));
+      els.btns = h('div.pvc-grid3');
+      fill(root, h('div.pvc-col',
+        h('div.pvc-top', els.count, els.dots),
         els.card, els.draft,
-        h('div.pv-mid', els.orb, els.status, els.sub),
+        h('div.pvc-mid', els.orb, els.status, els.sub),
         els.btns));
     }
-    const btn = (label, name, fn, primary) => h(`button.pv-act${primary ? '.pv-primary' : ''}`, { type: 'button', on: { click: fn } }, ic(name), label);
+    const btn = (label, name, fn, primary) => h(`button.pvc-act${primary ? '.pvc-primary' : ''}`, { type: 'button', on: { click: fn } }, ic(name), label);
     function render() {
       const e = st.email;
       els.count.textContent = e && e.numero ? `Email ${e.numero} di ${e.totale}` : st.total ? `${st.total} email` : '';
       fill(els.dots, Array.from({ length: Math.min(e?.totale || st.total || 0, 12) }, (_, i) => h('span', { class: e && i < e.numero ? 'on' : '' })));
-      fill(els.card, e && e.da ? [h('span.pv-eyebrow', 'Da'), h('h1.pv-from', e.da), h('span.pv-meta', [e.azienda, e.quando ? when(e.quando) : ''].filter(Boolean).join(' · ')),
-        st.draft ? null : h('div.pv-ask', h('span.pv-eyebrow.mut', 'Cosa chiede'), h('p', e.chiede))] : []);
-      els.draft.hidden = !st.draft;
-      if (st.draft) fill(els.draft, h('span.pv-eyebrow', st.draft.tutti ? 'Risposta a tutti' : 'Risposta'), h('p.pv-succo', `Rispondo: ${st.draft.succo}. `, h('b', 'Mando?')), h('div.pv-text', st.draft.testo));
+      fill(els.card, e && e.da ? [h('span.pvc-eyebrow', 'Da'), h('h1.pvc-from', e.da), h('span.pvc-meta', [e.azienda, e.quando ? when(e.quando) : ''].filter(Boolean).join(' · ')),
+        st.draft ? null : h('div.pvc-ask', h('span.pvc-eyebrow.mut', 'Cosa chiede'), h('p', e.chiede))] : []);
+      const d = st.draft;
+      if (d && d.nuova) fill(els.card, h('span.pvc-eyebrow', st.email && st.email.da ? `Email nuova · poi torno a ${st.email.da}` : 'Email nuova'));
+      else if (d) fill(els.card, h('span.pvc-eyebrow', `Risposta a ${e && e.da ? e.da : ''}${e && e.oggetto ? ` · Re: ${e.oggetto}` : ''}`));
+      else if (!e || !e.da) fill(els.card, st.finite ? [h('h1.pvc-from', 'Finite'), h('span.pvc-meta', 'Puoi dettare un\'email nuova («scrivi a …») o dire «stop».')] : []);
+      els.draft.hidden = !d;
+      if (d) {
+        const who = (label, list) => (list && list.length ? h('div.pvc-who', h('span', label), h('strong', list.join(', '))) : null);
+        fill(els.draft,
+          h('div.pvc-whos', who('A', d.a), who('Cc', d.copia), d.nuova && d.oggetto ? who('Oggetto', [d.oggetto]) : null),
+          h('div.pvc-text', h('span.pvc-eyebrow', icon('volume-2', { size: 14 }), st.mode === 'parla' ? ' Alma te la sta leggendo' : ' Il testo che parte'), h('p', d.testo)),
+          h('p.pvc-mando', 'Mando?'));
+      }
       root.dataset.mode = st.mode;
       els.status.textContent = STATUS[st.mode] || '';
-      els.sub.textContent = st.sub ? `«${st.sub}»` : st.draft ? 'Di\' «manda», «cambia …» o «salta»' : '';
-      fill(els.btns, st.draft
-        ? [btn('Cambia', 'pencil', change), btn('Salta', 'skip-forward', skip), btn('Manda', 'send', sendNow, true)]
-        : [btn('Leggila', 'align-left', readAll), btn('Salta', 'skip-forward', skip), btn('Stop', 'square', () => stop())]);
+      els.sub.textContent = st.sub ? `«${st.sub}»` : d ? 'Di\' «manda», «cambia …», «metti in copia …»' : '';
+      fill(els.btns, d
+        ? [btn('Cambia', 'pencil', change), d.nuova ? btn('Lascia', 'x', leave) : btn('Salta', 'skip-forward', skip), btn('Manda', 'send', sendNow, true)]
+        : st.email && st.email.da
+          ? [btn('Leggila', 'align-left', readAll), btn('Salta', 'skip-forward', skip), btn('Stop', 'square', () => stop())]
+          : [btn('Stop', 'square', () => stop())]);
+      els.btns.className = d || (st.email && st.email.da) ? 'pvc-grid3' : 'pvc-grid1';
     }
     function show(mode, sub) {
       st.mode = mode;
@@ -108,9 +120,9 @@ export async function postaVocePage(view) {
     const tell = text => { send({ type: 'response.cancel' }); send({ type: 'output_audio_buffer.clear' }); send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }); send({ type: 'response.create' }); };
     function apply(out, stato) {
       if (stato) st.draft = stato.bozza;
-      const e = out && (out.prossima || (out.da ? out : null));
-      if (e && e.da) { st.email = e; st.draft = null; }
-      if (out && (out.finite || (out.prossima && out.prossima.finite))) { st.email = null; st.draft = null; st.closing = true; }
+      const e = out && (out.prossima || out.torna_a || (out.da ? out : null));
+      if (e && e.da) { st.email = e; st.finite = false; if (!stato) st.draft = null; }
+      if (e && e.finite) { st.email = null; st.finite = true; } // finite le email: si può ancora scrivere a qualcuno, si chiude con «stop»
       render();
     }
     async function runTools(calls) {
@@ -164,12 +176,20 @@ export async function postaVocePage(view) {
     }
     // tocchi
     async function skip() {
-      try { const r = await post(`${API}/salta`, {}); apply({ prossima: r.prossima }, r.stato); tell(`[Dallo schermo] Ho saltato l'email. ${r.prossima.finite ? 'Non ce ne sono altre: dimmi quante risposte sono partite e chiama chiudi.' : `Prossima: ${JSON.stringify(r.prossima)}. Presentala come al punto 2.`}`); } catch (e) { st.sub = e.message; render(); }
+      try { const r = await post(`${API}/salta`, {}); apply({ prossima: r.prossima }, r.stato); tell(`[Dallo schermo] Ho saltato l'email. ${r.prossima.finite ? 'Non ce ne sono altre: di\' «Finite. Vuoi scrivere a qualcuno?» e aspetta.' : `Prossima: ${JSON.stringify(r.prossima)}. Presentala come al punto 2.`}`); } catch (e) { st.sub = e.message; render(); }
     }
     async function sendNow() {
-      try { const r = await post(`${API}/invia`, {}); apply({ prossima: r.prossima }, r.stato); tell(`[Dallo schermo] Ho toccato Manda: la risposta è partita. ${r.prossima.finite ? 'Non ce ne sono altre: dimmi quante risposte sono partite e chiama chiudi.' : `Di' «Inviata.» e presenta la prossima: ${JSON.stringify(r.prossima)}.`}`); } catch (e) { st.sub = e.message; render(); }
+      try {
+        const r = await post(`${API}/invia`, {});
+        const e = r.prossima || r.torna_a;
+        apply(r, r.stato);
+        tell(`[Dallo schermo] Ho toccato Manda: l'email è partita. ${e.finite ? 'Non ci sono altre email: di\' «Inviata. Finite. Vuoi scrivere a qualcuno?» e aspetta.' : r.torna_a ? `Di' «Inviata. Torniamo a ${e.da}.» e basta.` : `Di' «Inviata.» e presenta la prossima: ${JSON.stringify(e)}.`}`);
+      } catch (e) { st.sub = e.message; render(); }
     }
-    const change = () => tell('[Dallo schermo] Voglio cambiare la risposta: chiedimi solo «Cosa cambio?».');
+    async function leave() {
+      try { const r = await post(`${API}/lascia`, {}); apply(r, r.stato); tell('[Dallo schermo] Ho lasciato stare la bozza: non mandarla. Di\' solo «Lasciata.»'); } catch (e) { st.sub = e.message; render(); }
+    }
+    const change = () => tell('[Dallo schermo] Voglio cambiare l\'email: chiedimi solo «Cosa cambio?».');
     const readAll = () => tell('[Dallo schermo] Leggimela tutta.');
     async function stop() {
       if (st.closed) return;
