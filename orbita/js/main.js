@@ -36,6 +36,7 @@ import { fotoPage, diarioPage, cantieriPage } from './cantieri.js';
 import { isMobile } from './ui.js';
 import { almaView, setupAlma } from './alma.js';
 import { openFeedback, feedbackView } from './feedback.js';
+import { postaVocePage } from './posta-voce.js';
 
 const view = document.getElementById('view');
 let cleanup = null;
@@ -309,6 +310,9 @@ async function route() {
       else if (parts[1] === 'persona') location.replace(`#/crm/contatti/${Number(parts[2]) || ''}`); // link del telefono aperto dal computer
       else if (parts[1] === 'scansiona') location.replace('#/crm/contatti/biglietti');
       else await crmView(view, parts);
+      break;
+    case 'posta-voce': // Posta in macchina (ALM2-57): solo Dante, a voce con Alma
+      cleanup = (await postaVocePage(view)) || null;
       break;
     case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10; sul telefono la versione dell'app 3.0)
       if (isMobile() && !params.get('modifica')) cleanup = (await mioBiglietto(view)) || null;
