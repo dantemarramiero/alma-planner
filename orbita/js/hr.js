@@ -43,7 +43,7 @@ const notHr = c => fill(c, head('Riservato al team HR'), h('div.card.empty', 'Qu
 
 export async function hrView(c, parts, params) {
   const page = parts[1] || 'percorso';
-  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'scenari', 'cambi', 'strategia', 'preboarding-lista', 'recruitment', 'modelli'];
+  const hrPages = ['persone', 'persona', 'ruoli', 'mappatura', 'pannello', 'insieme', 'registro', 'costo', 'strategia', 'preboarding-lista', 'recruitment', 'modelli'];
   if (hrPages.includes(page) && !store.me.hr) return notHr(c);
   fill(c, loading());
   try {
@@ -60,8 +60,6 @@ export async function hrView(c, parts, params) {
       // Fase 2 (ALM2-52): organigramma in sola lettura e il resto in hr-org.js
       case 'organigramma': return (await import('./hr-org.js')).organigrammaView(c, params);
       case 'costo': return (await import('./hr-org.js')).costoView(c);
-      case 'scenari': return (await import('./hr-org.js')).scenariView(c, Number(parts[2]) || null);
-      case 'cambi': return (await import('./hr-org.js')).cambiView(c);
       case 'strategia': return (await import('./hr-org.js')).strategiaView(c);
       // Fase 3 (ALM2-53): recruitment in hr-rec.js (richieste: anche i responsabili; candidato: anche chi intervista o approva)
       case 'richieste': return parts[2] ? (await import('./hr-rec.js')).richiestaView(c, Number(parts[2])) : (await import('./hr-rec.js')).richiesteView(c, params);
@@ -233,7 +231,7 @@ function editRole(r, families, done) {
 
 // ── Persone (team HR) ───────────────────────────────────────────────────────────────────────────────────────
 async function personeView(c, params) {
-  const d = await get('/api/hr/persone');
+  const [d, sy] = await Promise.all([get('/api/hr/persone'), get('/api/hr/sincronizzazione', { quiet: true }).catch(() => null)]);
   const q = h('input.input', { type: 'search', placeholder: 'Cerca…', value: params.get('q') || '' });
   const bu = await ambitoSelect(() => draw());
   const filt = h('select.select', [['', 'Tutti'], ['senza', 'Senza ruolo'], ['fuori', 'Fuori fascia'], ['esclusi', 'Fuori dalla griglia']].map(([k, l]) => h('option', { value: k, selected: params.get('f') === k }, l)));
@@ -281,10 +279,10 @@ async function personeView(c, params) {
       d.boss_api ? h('button.btn', { type: 'button', on: { click: async () => { const r = await post('/api/hr/boss/sync'); toast(r.ok ? `${r.n} persone da BOSS` : r.reason, r.ok ? 'ok' : 'err'); personeView(c, params); } } }, icon('refresh-cw', { size: 16 }), ' Aggiorna da BOSS') : null)),
     lockBar('Vista del team HR: la posizione in fascia non arriva a nessun altro.'),
     bulk,
-    h('div.hr-row.hr-filters', q, bu, filt, count, h('span.hr-chip', d.synced_at ? `ultimo aggiornamento ${fmtDateTime(d.synced_at)}` : 'mai caricato'),
+    h('div.hr-row.hr-filters', q, bu, filt, count, h('span.hr-chip', { title: 'Stato della sincronizzazione con BOSS' }, d.synced_at ? `ultimo aggiornamento ${fmtDateTime(d.synced_at)}${sy ? ` · ${sy.api ? 'API di BOSS, ogni notte' : 'export di BOSS'} · ${sy.persone} persone · ${sy.incarichi} incarichi` : ''}` : 'mai caricato'),
       senza ? h('a.hr-chip.z-warn', { href: '#/hr/ruoli' }, `${senza} senza ruolo → assegna`) : null),
     h('div.card.hr-scroll', h('table.list', h('thead', h('tr', ['', 'Persona', 'Incarico ⟳', 'BU ⟳', 'CCNL · livello ⟳', 'Contratto ⟳', 'Ruolo', 'Grade', 'Posizione in fascia'].map(x => h('th', x)))), body)),
-    h('p.small.muted', '⟳ = arriva da BOSS: oggi con l\'export mensile, poi via API ogni notte. Part-time riportati a tempo pieno per il confronto con la fascia.'));
+    h('p.small.muted', '⟳ = arriva da BOSS: oggi con l\'export mensile, poi via API ogni notte. Part-time riportati a tempo pieno per il confronto con la fascia. Se una sincronizzazione fallisce, Alma tiene la copia del giorno prima.'));
   draw();
 }
 

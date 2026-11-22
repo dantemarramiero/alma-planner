@@ -3,8 +3,7 @@
 //   GET  /api/hr/organigramma              tutti (salvo privacy «Persone: Niente»): incarichi con ruolo e grade, aree, livelli, numeri
 //                                          per area; il team HR riceve anche RAL e costo
 //   GET  /api/hr/costo                     solo HR: monte RAL, costo azienda, vacanti al riferimento, per area
-//   GET/POST /api/hr/scenari · GET/PATCH /api/hr/scenari/:id   solo HR: simulazioni che non toccano l'organigramma vero
-//   GET  /api/hr/eventi · POST /api/hr/eventi/:id/fatto        solo HR: cambi arrivati da BOSS e avvisi
+//   GET  /api/hr/sincronizzazione                          solo HR: stato della sincronizzazione con BOSS
 //   GET  /api/hr/strategy-ruoli · POST /api/hr/strategy-ruoli/collega   solo HR: un solo mansionario con Alma Strategy
 const { HttpError, v } = require('../lib/http');
 const H = require('../lib/hr');
@@ -229,77 +228,15 @@ function registerHrOrg(app, { db, gov }) {
       .set('Content-Disposition', 'attachment; filename="costo-organigramma-riservato.xlsx"').send(writeXlsx({ Costo: rows }));
   });
 
-  // ── scenari ──
-  const scen = async id => { const { rows: [s] } = await db.query('SELECT id, nome, changes, stato, created_at, updated_at FROM hr_scenarios WHERE id = $1', [id]); if (!s) throw new HttpError(404, 'Scenario non trovato'); return s; };
-  async function evaluate(s) {
-    const d = await orgData(db, { withPay: true });
-    const gradeOf = id => d.roles.find(r => r.id === id)?.grade || null;
-    const res = O.applyScenario(d.incarichi, s.changes);
-    const costOf = list => list.reduce((t, i) => {
-      if (i.persona) return t + (i.ral || 0);
-      const g = gradeOf(i.role_id);
-      const b = g ? H.bandOf(d.grid.bands, g) : null;
-      return t + (b ? b.mid * 1000 : 0);
-    }, 0);
-    const changedPeople = res.incarichi.filter(i => i.cambiato && i.persona).length;
-    const sc = { ...O.orgStats(res.incarichi, gradeOf), costo: costOf(res.incarichi) };
-    const oggi = { ...O.orgStats(d.incarichi, gradeOf), costo: costOf(d.incarichi) };
-    return {
-      ...s, oggi, scenario: { ...sc, costo_azienda_delta: Math.round((sc.costo - oggi.costo) * d.coeff) }, persone_toccate: changedPeople, errors: res.errors,
-      steps: O.bossSteps(d.incarichi, s.changes),
-      incarichi: res.incarichi.map(i => ({ id: i.id, nome: i.nome, area_id: i.area_id, riporta_a_id: i.riporta_a_id, persona: i.persona ? { nome: i.persona.nome } : null,
-        role: i.role_id ? { id: i.role_id, title: H.roleTitle(d.roles.find(r => r.id === i.role_id) || {}), grade: gradeOf(i.role_id) } : null, cambiato: Boolean(i.cambiato), nuovo: Boolean(i.nuovo) })),
-      aree: d.aree, roles: d.roles.map(r => ({ id: r.id, title: H.roleTitle(r), grade: r.grade })),
-    };
-  }
-  app.get('/api/hr/scenari', async (req, res) => {
+  // ── stato della sincronizzazione con BOSS (nella pagina Persone). I cambi della notte restano nel registro
+  // hr_events in sottofondo: gli avvisi ormai stanno dove si agisce (richieste, onboarding, ruoli sugli incarichi).
+  app.get('/api/hr/sincronizzazione', async (req, res) => {
     hrOnly(req);
-    const { rows } = await db.query(`SELECT s.id, s.nome, s.stato, jsonb_array_length(s.changes) AS passi, s.updated_at, u.name AS autore FROM hr_scenarios s LEFT JOIN users u ON u.id = s.created_by ORDER BY s.stato, s.updated_at DESC`);
-    res.json({ scenari: rows });
-  });
-  app.post('/api/hr/scenari', async (req, res) => {
-    hrOnly(req);
-    const nome = v.text(req.body.nome, 'nome', { max: 120, required: true });
-    const { rows: [s] } = await db.query('INSERT INTO hr_scenarios (nome, created_by) VALUES ($1, $2) RETURNING id', [nome, req.user.id]);
-    await log(req, 'nuovo scenario', { after: { id: s.id, nome } });
-    res.json({ id: s.id });
-  });
-  app.get('/api/hr/scenari/:id', async (req, res) => { hrOnly(req); res.json(await evaluate(await scen(v.int(req.params.id, 'id', { min: 1 })))); });
-  app.patch('/api/hr/scenari/:id', async (req, res) => {
-    hrOnly(req);
-    const s = await scen(v.int(req.params.id, 'id', { min: 1 }));
-    const nome = v.text(req.body.nome, 'nome', { max: 120 });
-    const stato = v.oneOf(req.body.stato, 'stato', ['aperto', 'realizzato', 'archiviato']);
-    let changes;
-    if (req.body.changes !== undefined) {
-      if (!Array.isArray(req.body.changes) || req.body.changes.length > 200) throw new HttpError(400, 'Modifiche non valide');
-      changes = req.body.changes.map(c => ({
-        tipo: v.oneOf(c.tipo, 'tipo', ['nuovo', 'riporto', 'ruolo', 'disattiva']), tmp: c.tmp ? String(c.tmp).slice(0, 20) : undefined, nome: c.nome ? String(c.nome).slice(0, 160) : undefined,
-        incarico_id: c.incarico_id ?? undefined, riporta_a_id: c.riporta_a_id ?? null, role_id: c.role_id ?? null, area_id: c.area_id ?? null,
-      }));
-      const d = await orgData(db);
-      const r = O.applyScenario(d.incarichi, changes);
-      if (r.errors.length) throw new HttpError(400, r.errors[0]);
-    }
-    await db.query('UPDATE hr_scenarios SET nome = COALESCE($1, nome), stato = COALESCE($2, stato), changes = COALESCE($3, changes), updated_at = now() WHERE id = $4',
-      [nome || null, stato || null, changes ? JSON.stringify(changes) : null, s.id]);
-    res.json(await evaluate(await scen(s.id)));
-  });
-
-  // ── cambi da BOSS ──
-  app.get('/api/hr/eventi', async (req, res) => {
-    hrOnly(req);
-    const { rows } = await db.query(`SELECT e.id, e.at, e.tipo, e.oggetto, e.incarico_id, e.person_key, e.azione, e.fatto FROM hr_events e WHERE e.at > now() - interval '60 days' ORDER BY e.at DESC, e.id DESC LIMIT 300`);
     const [{ rows: [s] }, { rows: [inc] }] = await Promise.all([
-      db.query('SELECT max(synced_at) AS at, bool_or(source = \'boss\') AS boss, count(*) FILTER (WHERE attivo)::int AS persone FROM hr_people'),
+      db.query("SELECT max(synced_at) AS at, bool_or(source = 'boss') AS boss, count(*) FILTER (WHERE attivo)::int AS persone FROM hr_people"),
       db.query('SELECT count(*)::int AS n, count(*) FILTER (WHERE r.role_id IS NULL)::int AS senza_ruolo FROM org_incarichi i LEFT JOIN hr_incarico_roles r ON r.incarico_id = i.id WHERE i.attivo'),
     ]);
-    res.json({ eventi: rows, avvisi: rows.filter(e => e.azione && !e.fatto), sync: { at: s.at, boss: Boolean(s.boss), api: Boolean(process.env.BOSS_PERSONALE_URL), persone: s.persone, incarichi: inc.n, senza_ruolo: inc.senza_ruolo } });
-  });
-  app.post('/api/hr/eventi/:id/fatto', async (req, res) => {
-    hrOnly(req);
-    await db.query('UPDATE hr_events SET fatto = true WHERE id = $1', [v.int(req.params.id, 'id', { min: 1 })]);
-    res.json({ ok: true });
+    res.json({ at: s.at, boss: Boolean(s.boss), api: Boolean(process.env.BOSS_PERSONALE_URL), persone: s.persone, incarichi: inc.n, senza_ruolo: inc.senza_ruolo });
   });
 
   // ── collegamento con Alma Strategy ──

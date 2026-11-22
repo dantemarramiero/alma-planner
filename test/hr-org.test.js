@@ -1,5 +1,5 @@
 // Alma HR, Fase 2 (ALM2-52): organigramma in sola lettura (anche in Impostazioni), ruolo e grade per tutti, costo solo HR,
-// scenari che non toccano l'organigramma vero, passi da fare su BOSS, sincronizzazione da BOSS con gli eventi,
+// sincronizzazione da BOSS con i cambi nel registro e lo stato per la pagina Persone,
 // un solo mansionario con Alma Strategy (collegamento dei ruoli, ruolo dall'incarico, responsabile dal riporto).
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -56,15 +56,7 @@ before(async () => {
 });
 after(async () => { server?.close(); await db?.close(); });
 
-test('logica pura: scenario, cicli, passi per BOSS, eventi, proposta di ruolo', () => {
-  const inc = [{ id: 1, nome: 'A', riporta_a_id: null, persona: { nome: 'x' } }, { id: 2, nome: 'B', riporta_a_id: 1, persona: null }];
-  const r = O.applyScenario(inc, [{ tipo: 'nuovo', tmp: 'n1', nome: 'C', riporta_a_id: 1 }, { tipo: 'riporto', incarico_id: 2, riporta_a_id: 'n1' }]);
-  assert.equal(r.incarichi.length, 3);
-  assert.equal(r.incarichi.find(i => i.id === 2).riporta_a_id, 'n1');
-  assert.equal(inc[1].riporta_a_id, 1, 'l\'organigramma vero non cambia');
-  assert.match(O.applyScenario(inc, [{ tipo: 'riporto', incarico_id: 1, riporta_a_id: 2 }]).errors[0], /sé stesso/);
-  assert.deepEqual(O.bossSteps(inc, [{ tipo: 'nuovo', tmp: 'n1', nome: 'C', riporta_a_id: 1 }, { tipo: 'riporto', incarico_id: 2, riporta_a_id: 'n1' }, { tipo: 'ruolo', incarico_id: 2, role_id: 5 }]),
-    ['Crea l\'incarico «C» sotto «A» (vacante)', 'Sposta «B» sotto «C»']);
+test('logica pura: cambi tra due notti, proposta di ruolo', () => {
   const ev = O.diffOrg({ incarichi: [{ boss_id: 'a', nome: 'A', riporta_a: null, ricoperto_da: 'x' }], persone: [{ key: 'k1', nome: 'Mario', cognome: 'R', ral: 30000 }] },
     { incarichi: [{ boss_id: 'a', nome: 'A', riporta_a: null, ricoperto_da: null }, { boss_id: 'b', nome: 'B' }], persone: [{ key: 'k1', nome: 'Mario', cognome: 'R', ral: 31000 }, { key: 'k2', nome: 'Eva', cognome: 'N' }] });
   assert.deepEqual(ev.map(e => e.tipo).sort(), ['incarico_nuovo', 'persona_entrata', 'ral', 'vacante']);
@@ -101,14 +93,13 @@ test('sincronizzazione da BOSS: incarichi, aree, livelli, link, eventi', async (
   // seconda notte: nuovo incarico, Anna lascia la Toscana, nuova persona
   await syncPeopleFromBoss(db, { url: 'http://boss', token: 't', fetchImpl: fakeBoss({ ...bossData({ persone: [{ id: 'p3', nome: 'Eva', cognome: 'Neri', email: 'eva.neri@almacis.it' }] }),
     incarichi: [...bossData().incarichi.map(i => (i.id === 'i2' ? { ...i, ricopertoDaPersonaleId: null } : i)), { id: 'i4', nome: 'Capo zona Lazio', businessUnitId: 'bu1', riportaAIncaricoId: 'i1', ricopertoDaPersonaleId: 'p3' }] }) });
-  const ev = (await api(HRP, 'GET', '/api/hr/eventi')).body;
-  const tipi = ev.eventi.map(e => e.tipo);
-  for (const t of ['incarico_nuovo', 'vacante', 'persona_entrata']) assert.ok(tipi.includes(t), t);
-  assert.ok(ev.avvisi.some(e => e.tipo === 'incarico_nuovo' && e.oggetto === 'Capo zona Lazio'));
-  const one = ev.avvisi[0];
-  await api(HRP, 'POST', `/api/hr/eventi/${one.id}/fatto`);
-  assert.ok(!(await api(HRP, 'GET', '/api/hr/eventi')).body.avvisi.some(e => e.id === one.id));
-  assert.equal((await api(LUCA, 'GET', '/api/hr/eventi')).status, 403);
+  // i cambi della notte restano nel registro in sottofondo; la pagina «Cambi da BOSS» non c'è più (Dante 22/11)
+  const { rows: evs } = await db.query('SELECT tipo, oggetto, azione FROM hr_events');
+  for (const t of ['incarico_nuovo', 'vacante', 'persona_entrata']) assert.ok(evs.some(e => e.tipo === t), t);
+  assert.equal((await api(HRP, 'GET', '/api/hr/eventi')).status, 404);
+  const sy = (await api(HRP, 'GET', '/api/hr/sincronizzazione')).body;
+  assert.ok(sy.at && sy.persone >= 3 && sy.incarichi >= 4, 'lo stato della sincronizzazione per la pagina Persone');
+  assert.equal((await api(LUCA, 'GET', '/api/hr/sincronizzazione')).status, 403);
 });
 
 test('ruolo dall\'incarico e responsabile dal riporto anche in Alma Strategy', async () => {
@@ -129,7 +120,7 @@ test('ruolo dall\'incarico e responsabile dal riporto anche in Alma Strategy', a
   assert.ok(org.aree_stats.find(a => a.nome === 'Reti BP/MP').incarichi >= 4);
 });
 
-test('costo solo HR; scenari che non toccano l\'organigramma vero', async () => {
+test('costo solo HR', async () => {
   assert.equal((await api(LUCA, 'GET', '/api/hr/costo')).status, 403);
   const c = (await api(HRP, 'GET', '/api/hr/costo')).body;
   const reti = c.aree.find(a => a.nome === 'Reti BP/MP');
@@ -137,26 +128,7 @@ test('costo solo HR; scenari che non toccano l\'organigramma vero', async () => 
   assert.equal(reti.costo, Math.round(66000 * 1.38));
   const org = (await api(HRP, 'GET', '/api/hr/organigramma')).body;
   assert.ok(org.incarichi.find(i => i.nome === 'Resp. Area Metano MP').ral);
-  const before2 = org.incarichi.length;
-  const metano = org.incarichi.find(i => i.nome === 'Resp. Area Metano MP');
-  const puglia = org.incarichi.find(i => i.nome === 'Capo zona Puglia');
-  const { body: { id } } = await api(HRP, 'POST', '/api/hr/scenari', { nome: 'Riorganizzazione Reti 2027' });
-  const roles = (await api(HRP, 'GET', '/api/hr/incarichi')).body.roles;
-  const bu = roles.find(r => r.title === 'Responsabile di BU').id;
-  const s = (await api(HRP, 'PATCH', `/api/hr/scenari/${id}`, { changes: [
-    { tipo: 'nuovo', tmp: 'n1', nome: 'Direttore Reti', role_id: bu },
-    { tipo: 'riporto', incarico_id: metano.id, riporta_a_id: 'n1' },
-    { tipo: 'disattiva', incarico_id: puglia.id },
-  ] })).body;
-  assert.equal(s.scenario.incarichi, before2);
-  assert.ok(s.scenario.costo > s.oggi.costo - 1, 'il vacante nuovo costa il riferimento di G7');
-  assert.deepEqual(s.steps, ['Crea l\'incarico «Direttore Reti» (vacante)', 'Sposta «Resp. Area Metano MP» sotto «Direttore Reti»', 'Disattiva l\'incarico «Capo zona Puglia»']);
-  const bad = await api(HRP, 'PATCH', `/api/hr/scenari/${id}`, { changes: [{ tipo: 'riporto', incarico_id: metano.id, riporta_a_id: org.incarichi.find(i => i.nome === 'Capo zona Toscana').id }] });
-  assert.equal(bad.status, 400);
-  const after2 = (await api(HRP, 'GET', '/api/hr/organigramma')).body;
-  assert.equal(after2.incarichi.length, before2);
-  assert.equal(after2.incarichi.find(i => i.id === metano.id).riporta_a_id, metano.riporta_a_id, 'l\'organigramma vero è rimasto com\'era');
-  assert.equal((await api(LUCA, 'GET', '/api/hr/scenari')).status, 403);
+  assert.equal((await api(HRP, 'GET', '/api/hr/scenari')).status, 404, 'gli scenari non ci sono più (Dante 22/11)');
 });
 
 test('i ruoli di Alma Strategy si collegano al mansionario e poi spariscono', async () => {
