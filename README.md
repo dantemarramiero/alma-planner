@@ -62,3 +62,15 @@ Il segreto client scade (massimo 24 mesi): segnarsi la data e rinnovarlo prima.
 ## Deploy
 
 Railway, progetto `alma-planner`: servizio `alma-planner` + servizio `Postgres`. Il deploy **non è automatico**: un merge in `main` non pubblica nulla. Si pubblica a mano con `railway up` (Railway CLI), da un checkout aggiornato di `main` e seguendo la coda dei deploy. Le migrazioni partono da sole all'avvio. Controllo di salute: `/healthz`.
+
+**Come pubblicare senza rischi**
+
+```bash
+git checkout main && git pull
+railway status                       # il servizio deve essere alma-planner
+railway up --service alma-planner    # sempre con il nome del servizio
+```
+
+- `railway up` carica la cartella locale nel servizio scelto: se il servizio è `Postgres`, il database viene sostituito dall'app e il sito va giù (successo il 23/11/2026). Per questo si scrive sempre `--service alma-planner`.
+- Mai lanciare `railway up` da una cartella collegata al servizio `Postgres`. Nel menu dei servizi `Postgres` è il primo della lista.
+- Se è già successo: dalle Impostazioni del servizio `Postgres` la sorgente torna all'immagine, ma «Redeploy» e «Deploy» continuano a riavviare il codice caricato. Si risolve caricando una cartella con un solo `Dockerfile` (`FROM ghcr.io/railwayapp-templates/postgres-ssl:18`) con `railway up --service Postgres-K5O-`: i dati del volume restano. Non cancellare mai il volume e non cambiare la versione `:18`.
