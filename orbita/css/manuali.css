@@ -134,5 +134,5 @@
 }
 
 /* «Come si usa» nella barra in alto (pagine senza testata) */
-.tb-crumb .mn-help-tb { margin-left: 10px; height: 30px; padding: 0 10px; font-size: 13px; flex: none; }
+.topbar .mn-help-tb { height: 40px; flex: none; }
 @media (max-width: 760px) { .mn-print-btn { display: none; } }

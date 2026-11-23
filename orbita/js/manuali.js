@@ -202,7 +202,7 @@ export function manualFor(cat, hash) {
 }
 
 export function helpButton(hash = location.hash) {
-  return h('button.btn.mn-help', { type: 'button', on: { click: () => openHelp(hash) } }, ic('book-open', 15), h('span', 'Come si usa'));
+  return h('button.btn.mn-help', { type: 'button', 'data-hash': hash.split('?')[0], on: { click: () => openHelp(hash) } }, ic('book-open', 15), h('span', 'Come si usa'));
 }
 
 export async function openHelp(hash = location.hash) {
@@ -231,7 +231,7 @@ export function attachHelp(container) {
   const hash = location.hash;
   const place = () => {
     if (location.hash.split('?')[0] !== hash.split('?')[0]) { helpObserver?.disconnect(); return; }
-    if (container.querySelector('.mn-help') || document.querySelector('#tb-crumb .mn-help')) return;
+    if (container.querySelector('.mn-help') || document.querySelector('.topbar .mn-help')) return;
     const right = container.querySelector('.cv-top-r, .cv-head-acts'); // testata v2 e schede di azienda e contatto
     if (right) { right.prepend(helpButton(hash)); return; }
     // testate proprie (Lead, Contatti, Radar, Progetti, Concorrenza…): la riga del titolo, accanto ai suoi pulsanti
@@ -243,14 +243,18 @@ export function attachHelp(container) {
       else row.append(h('div.mn-help-wrap', helpButton(hash)));
       return;
     }
-    // pagine senza testata (Calendario…): nella barra in alto, dopo «Alma CRM › …» (setCrumb lo toglie cambiando pagina)
-    const crumb = document.getElementById('tb-crumb');
-    if (crumb) { const b = helpButton(hash); b.classList.add('btn-sm', 'mn-help-tb'); crumb.append(b); }
+    // pagine senza testata (Posta, Calendario, Nuovi business vuoto…): nella barra in alto, accanto a «+ Nuovo»,
+    // dove si vede sempre (nel percorso a sinistra si tagliava sugli schermi stretti); cambiando pagina si toglie
+    const tbNew = document.querySelector('.topbar .tb-new');
+    if (tbNew) { const b = helpButton(hash); b.classList.add('mn-help-tb'); tbNew.before(b); }
   };
+  document.querySelectorAll('.topbar .mn-help').forEach(b => b.remove());
   place();
   let queued = false;
   helpObserver = new MutationObserver(() => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; place(); }); });
   helpObserver.observe(container, { childList: true, subtree: true });
-  const crumb = document.getElementById('tb-crumb');
-  if (crumb) helpObserver.observe(crumb, { childList: true });
 }
+// lasciando la pagina, il pulsante nella barra in alto se ne va con lei
+window.addEventListener('hashchange', () => {
+  document.querySelectorAll('.topbar .mn-help').forEach(b => { if (location.hash.split('?')[0] !== b.dataset.hash) b.remove(); });
+});
