@@ -72,7 +72,7 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     if (!req.crm.admin) throw new HttpError(403, 'Solo la direzione');
     const settings = await loadSettings(db);
     if (isRunning()) return res.json({ running: true });
-    syncAnac(db, settings, { fetchImpl: anacFetch || fetch }).then(() => vinteAltri()).catch(err => console.warn('[anac]', err.message));
+    syncAnac(db, settings, { fetchImpl: anacFetch || fetch }).then(() => vinteAltri()).then(() => require('../lib/crm-progettisti').syncProgettisti(db, settings, { fetchImpl: anacFetch || fetch })).catch(err => console.warn('[anac]', err.message));
     res.json({ running: true });
   });
 
@@ -134,6 +134,75 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     res.status(201).json({ subject_id: s.id, step_id: st.id, created: s.created, due_date: due });
   });
   const c0 = x => String(x).replace(/_/g, ' ').slice(0, 40);
+
+  // ── Progettisti (ALM2-70, tavola O) ──────────────────────────────────────────────────────────
+  const P = require('../lib/crm-progettisti');
+  const allRegions = c => [...new Set(Object.values(c.settings.profiles).flatMap(p => p.regions || []))];
+  app.get('/api/crm/progettisti', async (req, res) => {
+    const c = await ctx(req);
+    const def = [...new Set(c.myBus.flatMap(b => c.settings.profiles[b]?.regions || []))];
+    const zone = def.length ? def : allRegions(c);
+    const regions = regionsParam(req.query.regions) ?? zone;
+    const type = P.TYPE_KEYS.includes(req.query.type) ? req.query.type : '';
+    const [o, { rows: [st] }, { rows: imp }] = await Promise.all([
+      P.overview(db, { months: monthsOf(c, req.query.months), regions, type, sa: String(req.query.sa || '').slice(0, 20), q: String(req.query.q || '').slice(0, 80),
+        sort: ['incarichi', 'valore', 'enti'].includes(req.query.sort) ? req.query.sort : 'incarichi' }),
+      db.query('SELECT count(*)::int AS n, count(*) FILTER (WHERE cup <> \'\')::int AS con_cup FROM crm_anac_design'),
+      db.query("SELECT max(at) AS at FROM crm_anac_design_imports WHERE error = ''"),
+    ]);
+    res.json({ ...o, regions, zone, data: { incarichi: st.n, con_cup: st.con_cup, at: imp[0]?.at || null, running: P.isRunning() || isRunning() }, admin: req.crm.admin });
+  });
+  app.get('/api/crm/progettisti/scheda/:key', async (req, res) => {
+    const c = await ctx(req);
+    const d = await P.scheda(db, String(req.params.key).slice(0, 220), { months: monthsOf(c, req.query.months) });
+    if (!d) throw new HttpError(404, 'Nessun incarico di progettazione per questo progettista');
+    res.json(d);
+  });
+  // «I suoi progettisti» nella scheda dell'ente (azienda del CRM con P.IVA o codice fiscale)
+  app.get('/api/crm/progettisti/ente/:id', async (req, res) => {
+    const { rows: [s] } = await db.query('SELECT vat, tax_code FROM crm_subjects WHERE id = $1', [v.int(req.params.id, 'Azienda', { min: 1 })]);
+    if (!s) throw new HttpError(404, 'Azienda non trovata');
+    const cfs = [s.vat, s.tax_code].map(x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^IT(?=\d{11}$)/, '')).filter(Boolean);
+    res.json(await P.perEnte(db, cfs, { n: 5 }));
+  });
+  // «Chi l'ha progettata» per un segnale del Radar o una gara: CUP del segnale o della gara ANAC; poi l'ente
+  app.get('/api/crm/progettisti/gara', async (req, res) => {
+    const id = v.int(req.query.signal_id, 'Segnale', { min: 1 });
+    const { rows: [g] } = await db.query('SELECT g.cup, g.cig, s.vat, s.tax_code FROM crm_signals g LEFT JOIN crm_subjects s ON s.id = g.subject_id WHERE g.id = $1', [id]);
+    if (!g) throw new HttpError(404, 'Segnale non trovato');
+    const aw = g.cig ? await awardByCig(db, g.cig) : null;
+    const cup = g.cup || aw?.cup || '';
+    const pick = async (sql) => (await db.query(sql, [id]).catch(() => ({ rows: [] }))).rows[0]?.cf || '';
+    const sa = aw?.sa_cf || await pick('SELECT sa_cf AS cf FROM crm_prog_interventi WHERE signal_id = $1 LIMIT 1') || await pick('SELECT owner_cf AS cf FROM crm_cup_works WHERE signal_id = $1 LIMIT 1')
+      || String(g.vat || g.tax_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^IT(?=\d{11}$)/, '');
+    res.json(await P.perGara(db, { cup, sa }));
+  });
+  // progettista di ANAC → CRM col tipo «Progettista» (studio o professionista: P.IVA o codice fiscale)
+  app.post('/api/crm/progettisti/crm', async (req, res) => {
+    const name = v.text(req.body.name, 'Progettista', { max: 200, required: true });
+    const cf = String(req.body.cf || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    const found = [{ cf, name }];
+    await P.linkCrm(db, found);
+    if (found[0].subject) {
+      const s = found[0].subject;
+      if (!s.roles.includes('progettista')) await db.query("UPDATE crm_subjects SET roles = array_append(roles, 'progettista') WHERE id = $1", [s.id]);
+      return res.json({ id: s.id, name: s.name, created: false });
+    }
+    const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, vat, tax_code, roles, asa, owner_id, origin, created_by) VALUES ($1, $2, $3, '{progettista}', '{}', $4, 'ANAC', $4) RETURNING id, name`,
+      [name, /^\d{11}$/.test(cf) ? cf : '', /^[A-Z0-9]{16}$/.test(cf) ? cf : '', req.user.id]);
+    res.status(201).json({ id: s.id, name: s.name, created: true });
+  });
+  // «Chiedi a … di presentarci»: un passo sulla scheda del progettista per il collega che lo conosce, entro una settimana
+  app.post('/api/crm/progettisti/presentaci', async (req, res) => {
+    const sid = v.int(req.body.subject_id, 'Azienda', { min: 1 });
+    const uid = v.int(req.body.user_id, 'Collega', { min: 1 });
+    const { rows: [s] } = await db.query('SELECT name FROM crm_subjects WHERE id = $1', [sid]);
+    if (!s) throw new HttpError(404, 'Azienda non trovata');
+    const due = new Date(Date.now() + 7 * 864e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const { rows: [st] } = await db.query(`INSERT INTO crm_steps (subject_id, title, channel, due_date, owner_id, created_by) VALUES ($1, $2, 'incontro', $3, $4, $5) RETURNING id`,
+      [sid, `Presentaci a ${s.name} (progettista): ce lo chiede ${req.user.name || 'un collega'}`.slice(0, 300), due, uid, req.user.id]);
+    res.status(201).json({ step_id: st.id, due_date: due });
+  });
 
   // ── Prima del bando ─────────────────────────────────────────────────────────────────────────
   // «Cerca un'impresa» (v11 · Concorrenza e gare): per nome o P.IVA tra chi ha vinto gare ANAC, anche se non è nel CRM
@@ -228,9 +297,20 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
         await syncAnac(db, settings, { fetchImpl: anacFetch || fetch });
         lastDay = todayRome(); // solo se ANAC ha risposto: se no si riprova ogni 15 minuti fino alle 6 (21/11)
         await vinteAltri();
+        await require('../lib/crm-progettisti').syncProgettisti(db, settings, { fetchImpl: anacFetch || fetch }).catch(err => console.warn('[progettisti]', err.message)); // ALM2-70
       } catch (err) { console.warn('[anac]', err.message); }
     }, 15 * 60000);
     t.unref?.();
+    // Progettisti (ALM2-70): la prima volta non si aspetta la notte; 3 minuti dopo l'avvio se la tabella è vuota
+    const first = setTimeout(async () => {
+      try {
+        const { rows: [x] } = await db.query("SELECT (SELECT count(*) FROM crm_anac_design_imports WHERE error = '')::int AS n");
+        if (x.n || isRunning()) return;
+        const settings = await loadSettings(db);
+        if (settings.concorrenza.on) await P.syncProgettisti(db, settings, { fetchImpl: anacFetch || fetch });
+      } catch (err) { console.warn('[progettisti]', err.message); }
+    }, 3 * 60000);
+    first.unref?.();
   }
   return { vinteAltri };
 }
