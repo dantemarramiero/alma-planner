@@ -110,7 +110,7 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   // ── panoramica: ultimi aggiornamenti (email, incontri, note) ────────────────────────────────
   app.get('/api/crm/:target/:id/timeline', async (req, res) => {
     const { t, id } = await target(req);
-    const [emails, meetings, notes] = await Promise.all([listEmails(t, id, req.user.id, 15), listMeetings(t, id, 15), listNotes(t, id, 15)]);
+    const [emails, meetings, notes] = await Promise.all([listEmails(t, id, req.user.id, 15), listMeetings(t, id, req.user, 15), listNotes(t, id, req.user, 15)]);
     const items = [
       ...emails.map(e => ({ type: 'email', id: e.id, date: e.sent_at, title: e.subject, meta: e.from_name || e.from_address, via: e.via, attachments: e.attachment_count })),
       ...meetings.map(m => ({ type: 'meeting', id: m.id, date: m.start_at, end: m.end_at, title: m.subject, meta: m.location, via: m.via, auto: m.auto, notes: m.note_count, missing: m.missing_notes })),
@@ -242,21 +242,25 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   });
 
   // ── incontri ───────────────────────────────────────────────────────────────────────────
-  async function listMeetings(t, id, limit = 500) {
+  // Come per le email: gli incontri arrivati alla scheda dell'azienda «tramite» un contatto li vede solo chi c'era
+  // (è nel suo calendario: organizzatore o invitato) o chi li ha collegati; sulla scheda del contatto restano per tutti.
+  async function listMeetings(t, id, viewer, limit = 500) {
     const { rows } = await db.query(
       `SELECT DISTINCT ON (m.id) ${MEETING_COLS}, L.auto, L.id AS link_id,
               L.contact_id IS NOT NULL AND ${t === 'subjects' ? 'true' : 'false'} AS indirect, ${VIA} AS via,
               (SELECT COUNT(*)::int FROM crm_notes n WHERE n.meeting_id = m.id AND n.deleted_at IS NULL) AS note_count
          FROM crm_meeting_links L JOIN crm_meetings m ON m.id = L.meeting_id
         WHERE NOT L.removed AND ${linkCond(t, '$1', 'm.start_at::date')}
-        ORDER BY m.id, (L.contact_id IS NULL) DESC`, [id]);
+          ${t === 'subjects' ? `AND (L.subject_id IS NOT NULL OR m.linked_by = $2 OR L.linked_by = $2 OR lower(m.organizer_address) = $3
+            OR EXISTS (SELECT 1 FROM jsonb_array_elements(m.attendees) a WHERE lower(a->>'address') = $3))` : ''}
+        ORDER BY m.id, (L.contact_id IS NULL) DESC`, t === 'subjects' ? [id, viewer.id, String(viewer.email || '').toLowerCase()] : [id]);
     const now = nowRome();
     return rows.map(r => ({ ...r, via: r.indirect ? r.via : null, missing_notes: Boolean(r.end_at && r.end_at <= now && !r.note_count) }))
       .sort((a, b) => String(b.start_at).localeCompare(String(a.start_at))).slice(0, limit);
   }
   app.get('/api/crm/:target/:id/meetings', async (req, res) => {
     const { t, id } = await target(req);
-    res.json(await listMeetings(t, id));
+    res.json(await listMeetings(t, id, req.user));
   });
 
   // il proprio calendario per la settimana dell'A3: con gli incontri già collegati a questa scheda
@@ -274,7 +278,7 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
       if (err.status === 403) throw new HttpError(403, 'Per leggere il calendario serve il permesso di Microsoft sul calendario');
       throw err;
     }
-    const linked = new Map((await listMeetings(t, id)).map(m => [`${m.ical_uid}|${m.start_at}`, m]));
+    const linked = new Map((await listMeetings(t, id, req.user)).map(m => [`${m.ical_uid}|${m.start_at}`, m]));
     res.json(list.filter(e => !isAlma(e) && !e.isCancelled).map(e => {
       const m = linked.get(`${e.iCalUId}|${local(e.start?.dateTime)}`);
       return { id: e.id, subject: e.subject || '(senza titolo)', start: local(e.start?.dateTime), end: local(e.end?.dateTime), all_day: Boolean(e.isAllDay),
@@ -354,12 +358,12 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
 
   // ── note ───────────────────────────────────────────────────────────────────────────────
   // di un'azienda: le sue, quelle dei contatti che ci lavoravano a quella data e quelle degli incontri che si vedono qui
-  async function listNotes(t, id, limit = 1000) {
+  async function listNotes(t, id, viewer, limit = 1000) {
     const own = t === 'subjects'
       ? `(n.subject_id = $1 OR n.contact_id IN (SELECT cl.contact_id FROM crm_contact_links cl WHERE cl.subject_id = $1
             AND (cl.date_from IS NULL OR cl.date_from <= n.note_date) AND (cl.date_to IS NULL OR cl.date_to >= n.note_date)))`
       : 'n.contact_id = $1';
-    const meetingIds = (await listMeetings(t, id)).map(m => m.id);
+    const meetingIds = (await listMeetings(t, id, viewer)).map(m => m.id);
     const { rows } = await db.query(
       `${NOTE_SELECT.replace('SELECT n.id,', `SELECT CASE WHEN n.contact_id IS NOT NULL AND ${t === 'subjects' ? 'true' : 'false'}
              THEN (SELECT trim(concat_ws(' ', c.title, c.first_name, c.last_name)) FROM crm_contacts c WHERE c.id = n.contact_id) END AS via, n.id,`)}
@@ -383,7 +387,7 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   }
   app.get('/api/crm/:target/:id/notes', async (req, res) => {
     const { t, id } = await target(req);
-    res.json(await listNotes(t, id));
+    res.json(await listNotes(t, id, req.user));
   });
   app.post('/api/crm/:target/:id/notes', async (req, res) => {
     const { id, col } = await target(req, { write: true });

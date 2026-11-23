@@ -193,6 +193,10 @@ test('incontri di Outlook collegati da soli: per email del contatto, per dominio
   assert.deepEqual((await E('GET', `/api/crm/subjects/${adr.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
   // chi non vede l'azienda non vede l'incontro
   assert.equal((await G('GET', `/api/crm/meetings/${pres.id}`)).status, 200); // tutti vedono tutto
+  // «tramite» un contatto: sull'azienda lo vede chi c'era (organizzatore o invitato), non un collega estraneo
+  assert.deepEqual((await G('GET', `/api/crm/subjects/${adr.id}/meetings`)).body, []);
+  assert.deepEqual((await G('GET', `/api/crm/contacts/${rossi.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
+  assert.equal((await G('GET', `/api/crm/subjects/${adr.id}/timeline`)).body.items.some(i => i.type === 'meeting'), false);
 });
 
 test('incontro finito senza note: «!» e avviso subito a chi c\'era, una volta sola; sparisce con la prima nota', async () => {
@@ -220,8 +224,12 @@ test('incontro finito senza note: «!» e avviso subito a chi c\'era, una volta 
 test('email collegate a un contatto ricadono sull\'azienda; progetti collegati', async () => {
   const { body: { subjects: [adr] } } = await E('GET', '/api/crm/subjects?q=adriatica');
   const { body: { contacts: [rossi] } } = await E('GET', '/api/crm/contacts?q=rossi');
-  const { rows: [e] } = await db.query("INSERT INTO crm_emails (internet_message_id, subject, from_address, sent_at) VALUES ('<m1@x>', 'Richiesta di offerta', 'l.rossi@adriatica.example', '2026-11-10T09:00:00Z') RETURNING id");
+  const { rows: [owner] } = await db.query("SELECT id FROM users WHERE email = 'edile@almacis.it'");
+  const { rows: [e] } = await db.query("INSERT INTO crm_emails (internet_message_id, subject, from_address, sent_at, assigned_by) VALUES ('<m1@x>', 'Richiesta di offerta', 'l.rossi@adriatica.example', '2026-11-10T09:00:00Z', $1) RETURNING id", [owner.id]);
   await db.query('INSERT INTO crm_email_links (email_id, contact_id) VALUES ($1, $2)', [e.id, rossi.id]);
+  // «tramite» un contatto: sull'azienda la vede solo chi l'ha portata nel CRM; sulla scheda del contatto la vedono tutti
+  assert.deepEqual((await G('GET', `/api/crm/subjects/${adr.id}/emails`)).body, []);
+  assert.equal((await G('GET', `/api/crm/contacts/${rossi.id}/emails`)).body[0].subject, 'Richiesta di offerta');
   const { body: emails } = await E('GET', `/api/crm/subjects/${adr.id}/emails`);
   assert.equal(emails[0].subject, 'Richiesta di offerta');
   assert.match(emails[0].via, /Luca Rossi/);
