@@ -23,6 +23,7 @@ import { personeView } from './persone.js';
 import { fleetView } from './fleet.js';
 import { energyView } from './energy.js';
 import { crmView } from './crm.js';
+import { attachHelp } from './manuali.js';
 import { strategyView } from './strategy.js';
 import { ideasView } from './ideas.js';
 import { welcomeView } from './welcome.js';
@@ -335,6 +336,7 @@ async function route() {
       else if (parts[1] === 'persona') location.replace(`#/crm/contatti/${Number(parts[2]) || ''}`); // link del telefono aperto dal computer
       else if (parts[1] === 'scansiona') location.replace('#/crm/contatti/biglietti');
       else await crmView(view, parts);
+      attachHelp(view); // «Come si usa»: il manuale della pagina (ALM2-72)
       break;
     case 'posta-voce': // Posta in macchina (ALM2-57): solo Dante, a voce con Alma
       cleanup = (await postaVocePage(view)) || null;
@@ -432,7 +434,7 @@ async function start() {
   for (const el of document.querySelectorAll('.nav-hr-dir')) el.hidden = !['hr', 'direzione', 'cfo'].includes(store.me.ruolo_hr); // revisione: HR, Direzione, CFO
   for (const el of document.querySelectorAll('.nav-hr-dirhr')) el.hidden = !['hr', 'direzione'].includes(store.me.ruolo_hr); // avanzamento del ciclo: HR e Direzione
   for (const el of document.querySelectorAll('.nav-onb-team')) el.hidden = store.me.hr || !store.me.onb_team; // responsabili e buddy con qualcuno in inserimento
-  document.getElementById('nav-settings').hidden = !(store.me.is_admin || store.me.privacy?.costi_ai === 'all'); // Impostazioni uniche
+  document.getElementById('nav-settings').hidden = false; // Impostazioni uniche: tutti (chi non è amministratore vede i Manuali d'uso, ALM2-72)
   if (!store.me.is_admin) get('/api/pm/flags', { quiet: true }).then(f => { document.getElementById('nav-pm-team').hidden = !(f?.manager || f?.hr); }).catch(() => {});
   refreshBadges();
 

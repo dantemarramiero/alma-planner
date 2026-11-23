@@ -610,6 +610,7 @@ export async function ioView(view) {
       line('#/strategy/obiettivi', 'Il mio contributo', 'target'),
       line('#/notifiche/impostazioni', 'Le mie notifiche', 'bell'),
       store.me.is_admin ? line('#/impostazioni', 'Impostazioni di Alma Space', 'settings') : null,
+      line('#/impostazioni/manuali', 'Manuali d\'uso', 'book-open'),
       line('#/notifiche/impostazioni', 'Il mio telefono', 'phone', h('span', { class: `a2-st ${pushCls === 'ok' ? 'green' : pushCls === 'ko' ? 'red' : 'grey'}` }, pushLabel)),
       themeBtn),
     // feedback su Alma Space (ALM2-56): la finestra e «I miei feedback»

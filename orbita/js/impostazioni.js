@@ -7,6 +7,7 @@ import { get, post, put, patch, del, qs } from './api.js';
 import { store } from './store.js';
 import { ic, pill, av, pageTop, title, card, emptyState, seg, cvModal, link, toggle } from './crm-v2.js';
 import { renderOrganigramma } from './org-incarichi.js';
+import { renderManuali } from './manuali.js';
 
 const SECTIONS = [
   ['panoramica', 'Panoramica', 'tutto in un colpo d\'occhio', 'layout-dashboard'],
@@ -17,6 +18,7 @@ const SECTIONS = [
   ['registro', 'Registro accessi e azioni', 'chi ha fatto cosa', 'clock'],
   ['integrazioni', 'Integrazioni', 'servizi collegati', 'plug'],
   ['moduli', 'Moduli', 'impostazioni di un solo modulo', 'grid'],
+  ['manuali', 'Manuali d\'uso', 'come si usa, passo per passo', 'book-open'], // per tutti (ALM2-72)
 ];
 const eur = n => `€ ${Number(n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // «2 g fa», «ora»: per le frasi che iniziano con «Aggiornato», «Ultimo accesso»…
@@ -31,21 +33,19 @@ const select = (options, value, attrs = {}) => h('select.input', attrs, options.
 export async function renderImpostazioni(view, parts = []) {
   const admin = Boolean(store.me?.is_admin);
   const costsOnly = !admin && store.me?.privacy?.costi_ai === 'all';
-  if (!admin && !costsOnly) {
-    fill(view, h('div.cv', pageTop({ eyebrow: 'Impostazioni', heading: title('', 'Impostazioni') }),
-      emptyState('key-round', 'Le impostazioni di Alma Space le gestiscono gli amministratori.')));
-    return;
-  }
-  let section = SECTIONS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
-  if (costsOnly) section = 'costi';
+  // chi non è amministratore vede i Manuali d'uso (e Costi AI se ha «Costi AI: Tutto»)
+  const visible = SECTIONS.filter(([k]) => admin || k === 'manuali' || (costsOnly && k === 'costi'));
+  const section = visible.some(([k]) => k === parts[1]) ? parts[1] : admin ? 'panoramica' : 'manuali';
   const go = k => { location.hash = `#/impostazioni/${k}`; };
   const nav = h('nav.cv-snav', { 'aria-label': 'Sezioni delle impostazioni' },
-    SECTIONS.filter(([k]) => admin || k === 'costi').map(([k, l, s2, i]) => h('button', {
+    visible.map(([k, l, s2, i]) => h('button', {
       type: 'button', class: k === section ? 'on' : '', 'aria-current': k === section ? 'page' : undefined, on: { click: () => go(k) },
     }, ic(i, 17), h('span', h('span', l), h('span.s2', s2)))));
   const body = h('div.cv-sbody', loading());
-  fill(view, h('div.cv.imp', h('div.cv-settings', nav, body)));
-  const draw = { panoramica, organigramma, utenti, costi, privacy, registro, integrazioni, moduli }[section];
+  // un manuale aperto usa tutta la larghezza (tavola «Un manuale aperto»): niente menu delle sezioni
+  const wide = visible.length < 2 || (section === 'manuali' && parts[2]);
+  fill(view, h('div.cv.imp', wide ? body : h('div.cv-settings', nav, body)));
+  const draw = { panoramica, organigramma, utenti, costi, privacy, registro, integrazioni, moduli, manuali: (b, o) => renderManuali(b, o.parts) }[section];
   try {
     await draw(body, { go, parts });
   } catch (err) {
@@ -76,7 +76,8 @@ async function panoramica(body, { go }) {
         p.refused_today ? `${p.refused_today} ${p.refused_today === 1 ? 'accesso rifiutato' : 'accessi rifiutati'} oggi` : 'Nessun accesso rifiutato oggi', p.refused_today ? 'rd' : ''),
       tile('integrazioni', 'plug', 'Integrazioni', 'I servizi collegati ad Alma Space. Oggi Microsoft 365: accesso, OneDrive, Outlook, Teams.',
         p.microsoft ? 'Microsoft 365 collegato' : 'Microsoft 365 non configurato', p.microsoft ? 'gr' : 'am'),
-      tile('moduli', 'grid', 'Moduli', 'Le impostazioni proprie di Alma, CRM, Mezzi, Energy e Notifiche.', '5 moduli')));
+      tile('moduli', 'grid', 'Moduli', 'Le impostazioni proprie di Alma, CRM, Mezzi, Energy e Notifiche.', '5 moduli'),
+      tile('manuali', 'book-open', 'Manuali d\'uso', 'Come si usa Alma CRM, passo per passo. Li vedono tutti, anche chi non è amministratore.', '16 manuali del CRM')));
   void go;
 }
 
