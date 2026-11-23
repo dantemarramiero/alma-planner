@@ -110,7 +110,7 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   // ── panoramica: ultimi aggiornamenti (email, incontri, note) ────────────────────────────────
   app.get('/api/crm/:target/:id/timeline', async (req, res) => {
     const { t, id } = await target(req);
-    const [emails, meetings, notes] = await Promise.all([listEmails(t, id, 15), listMeetings(t, id, 15), listNotes(t, id, 15)]);
+    const [emails, meetings, notes] = await Promise.all([listEmails(t, id, req.user.id, 15), listMeetings(t, id, 15), listNotes(t, id, 15)]);
     const items = [
       ...emails.map(e => ({ type: 'email', id: e.id, date: e.sent_at, title: e.subject, meta: e.from_name || e.from_address, via: e.via, attachments: e.attachment_count })),
       ...meetings.map(m => ({ type: 'meeting', id: m.id, date: m.start_at, end: m.end_at, title: m.subject, meta: m.location, via: m.via, auto: m.auto, notes: m.note_count, missing: m.missing_notes })),
@@ -120,7 +120,9 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   });
 
   // ── email ──────────────────────────────────────────────────────────────────────────────
-  async function listEmails(t, id, limit = 500) {
+  // Le email arrivate alla scheda dell'azienda «tramite» un contatto le vede solo chi le ha portate nel CRM (il proprietario):
+  // collegate al contatto restano visibili sulla scheda del contatto, ma non salgono da sole sull'azienda per tutti.
+  async function listEmails(t, id, viewerId, limit = 500) {
     const { rows } = await db.query(
       `SELECT DISTINCT ON (e.id) e.id, e.subject, e.from_name, e.from_address, e.to_list, e.sent_at, e.assigned_by, e.internet_message_id,
               left(regexp_replace(e.body_text, '\\s+', ' ', 'g'), 200) AS preview,
@@ -128,13 +130,14 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
               L.id AS link_id, L.contact_id IS NOT NULL AND ${t === 'subjects' ? 'true' : 'false'} AS indirect, ${VIA} AS via
          FROM crm_email_links L JOIN crm_emails e ON e.id = L.email_id
         WHERE ${linkCond(t, '$1', 'COALESCE(e.sent_at::date, CURRENT_DATE)')}
-        ORDER BY e.id, (L.contact_id IS NULL) DESC`, [id]);
+          AND (${t === 'subjects' ? 'L.subject_id IS NOT NULL OR ' : ''}L.contact_id IS NOT NULL AND ${t === 'subjects' ? 'e.assigned_by = $2' : 'true'})
+        ORDER BY e.id, (L.contact_id IS NULL) DESC`, t === 'subjects' ? [id, viewerId] : [id]);
     return rows.map(r => ({ ...r, via: r.indirect ? r.via : null }))
       .sort((a, b) => String(b.sent_at).localeCompare(String(a.sent_at))).slice(0, limit);
   }
   app.get('/api/crm/:target/:id/emails', async (req, res) => {
     const { t, id } = await target(req);
-    res.json(await listEmails(t, id));
+    res.json(await listEmails(t, id, req.user.id));
   });
 
   // Proposte: email della propria casella scambiate con i contatti della scheda e non ancora collegate.
