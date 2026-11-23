@@ -61,4 +61,4 @@ Il segreto client scade (massimo 24 mesi): segnarsi la data e rinnovarlo prima.
 
 ## Deploy
 
-Railway, progetto `alma-planner`: servizio `alma-planner` collegato a questa repo (deploy automatico da `main`) + servizio `Postgres`. Le migrazioni partono da sole all'avvio. Controllo di salute: `/healthz`.
+Railway, progetto `alma-planner`: servizio `alma-planner` + servizio `Postgres`. Il deploy **non è automatico**: un merge in `main` non pubblica nulla. Si pubblica a mano con `railway up` (Railway CLI), da un checkout aggiornato di `main` e seguendo la coda dei deploy. Le migrazioni partono da sole all'avvio. Controllo di salute: `/healthz`.
