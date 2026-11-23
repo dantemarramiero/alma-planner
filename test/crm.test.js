@@ -193,10 +193,21 @@ test('incontri di Outlook collegati da soli: per email del contatto, per dominio
   assert.deepEqual((await E('GET', `/api/crm/subjects/${adr.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
   // chi non vede l'azienda non vede l'incontro
   assert.equal((await G('GET', `/api/crm/meetings/${pres.id}`)).status, 200); // tutti vedono tutto
-  // «tramite» un contatto: sull'azienda lo vede chi c'era (organizzatore o invitato), non un collega estraneo
+  // collegato da solo dal calendario (o «tramite» un contatto): lo vede solo chi c'era, non un collega estraneo
+  const sop = onAdr.find(m => m.subject === 'Sopralluogo');
   assert.deepEqual((await G('GET', `/api/crm/subjects/${adr.id}/meetings`)).body, []);
-  assert.deepEqual((await G('GET', `/api/crm/contacts/${rossi.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
+  assert.deepEqual((await G('GET', `/api/crm/contacts/${rossi.id}/meetings`)).body, []);
   assert.equal((await G('GET', `/api/crm/subjects/${adr.id}/timeline`)).body.items.some(i => i.type === 'meeting'), false);
+  // collegato a mano al contatto: lo vedono tutti sulla sua scheda; sull'azienda resta «tramite», solo per chi c'era
+  await db.query('UPDATE crm_meeting_links SET auto = false, linked_by = $1 WHERE meeting_id = $2', [u.id, sop.id]);
+  assert.deepEqual((await G('GET', `/api/crm/contacts/${rossi.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
+  assert.deepEqual((await G('GET', `/api/crm/subjects/${adr.id}/meetings`)).body, []);
+  // collegato a mano all'azienda: lo vedono tutti
+  await db.query('INSERT INTO crm_meeting_links (meeting_id, subject_id, linked_by) VALUES ($1, $2, $3)', [sop.id, adr.id, u.id]);
+  assert.deepEqual((await G('GET', `/api/crm/subjects/${adr.id}/meetings`)).body.map(m => m.subject), ['Sopralluogo']);
+  // ripristino: i test dopo ripartono dall'incontro collegato da solo
+  await db.query('DELETE FROM crm_meeting_links WHERE meeting_id = $1 AND subject_id = $2 AND NOT auto', [sop.id, adr.id]);
+  await db.query('UPDATE crm_meeting_links SET auto = true, linked_by = NULL WHERE meeting_id = $1 AND contact_id = $2', [sop.id, rossi.id]);
 });
 
 test('incontro finito senza note: «!» e avviso subito a chi c\'era, una volta sola; sparisce con la prima nota', async () => {
