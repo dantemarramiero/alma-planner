@@ -242,8 +242,8 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   });
 
   // ── incontri ───────────────────────────────────────────────────────────────────────────
-  // Come per le email: gli incontri arrivati alla scheda dell'azienda «tramite» un contatto li vede solo chi c'era
-  // (è nel suo calendario: organizzatore o invitato) o chi li ha collegati; sulla scheda del contatto restano per tutti.
+  // Come per le email: un incontro collegato a mano alla scheda (da chiunque) lo vedono tutti; quelli collegati da soli dal
+  // calendario o arrivati «tramite» un contatto li vede solo chi c'era (organizzatore o invitato) o chi li ha collegati.
   async function listMeetings(t, id, viewer, limit = 500) {
     const { rows } = await db.query(
       `SELECT DISTINCT ON (m.id) ${MEETING_COLS}, L.auto, L.id AS link_id,
@@ -251,9 +251,10 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
               (SELECT COUNT(*)::int FROM crm_notes n WHERE n.meeting_id = m.id AND n.deleted_at IS NULL) AS note_count
          FROM crm_meeting_links L JOIN crm_meetings m ON m.id = L.meeting_id
         WHERE NOT L.removed AND ${linkCond(t, '$1', 'm.start_at::date')}
-          ${t === 'subjects' ? `AND (L.subject_id IS NOT NULL OR m.linked_by = $2 OR L.linked_by = $2 OR lower(m.organizer_address) = $3
-            OR EXISTS (SELECT 1 FROM jsonb_array_elements(m.attendees) a WHERE lower(a->>'address') = $3))` : ''}
-        ORDER BY m.id, (L.contact_id IS NULL) DESC`, t === 'subjects' ? [id, viewer.id, String(viewer.email || '').toLowerCase()] : [id]);
+          AND ((NOT L.auto AND ${t === 'subjects' ? 'L.subject_id IS NOT NULL' : 'true'})
+            OR m.linked_by = $2 OR L.linked_by = $2 OR lower(m.organizer_address) = $3
+            OR EXISTS (SELECT 1 FROM jsonb_array_elements(m.attendees) a WHERE lower(a->>'address') = $3))
+        ORDER BY m.id, (L.contact_id IS NULL) DESC`, [id, viewer.id, String(viewer.email || '').toLowerCase()]);
     const now = nowRome();
     return rows.map(r => ({ ...r, via: r.indirect ? r.via : null, missing_notes: Boolean(r.end_at && r.end_at <= now && !r.note_count) }))
       .sort((a, b) => String(b.start_at).localeCompare(String(a.start_at))).slice(0, limit);
