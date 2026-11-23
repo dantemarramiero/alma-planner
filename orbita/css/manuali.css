@@ -1,0 +1,138 @@
+/* Manuali d'uso di Alma CRM (ALM2-72, canvas «Alma Space · Manuali d'uso del CRM», 23/11/2026). Basi: classi cv-* di crm-v2.css. */
+.mn-num { width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center; font-size: 15px; font-weight: 700; background: var(--cv-soft); color: var(--cv-ink); }
+.mn-num.or { background: var(--cv-or-t); color: var(--cv-or-ink); }
+.mn-num.bl { background: var(--cv-bl-t); color: var(--cv-bl); }
+.mn-num.dk, .mn-num.big.dk { background: var(--cv-orange); color: #fff; }
+.mn-num.big { width: 56px; height: 56px; border-radius: 16px; font-size: 20px; }
+.mn-chip { padding: 6px 12px; border-radius: 999px; background: var(--cv-soft); color: var(--cv-muted); font-size: 13px; }
+.mn-chip.on { background: var(--cv-orange); color: #fff; font-weight: 500; }
+
+/* ricerca */
+.mn-search { display: flex; align-items: center; gap: 10px; background: var(--cv-card); border: 1px solid var(--cv-line-strong); border-radius: 14px; padding: 0 16px; height: 52px; color: var(--cv-muted); }
+.mn-search:focus-within { border: 2px solid var(--cv-orange); padding: 0 15px; }
+.mn-search input { border: 0; outline: 0; flex: 1; min-width: 0; font: inherit; font-size: 15px; background: transparent; color: var(--cv-text); }
+.mn-count { font-size: 13px; white-space: nowrap; }
+.mn-results { display: grid; gap: 12px; max-width: 900px; }
+.mn-results[hidden], .mn-groups[hidden], .mn-hero[hidden] { display: none; }
+.mn-res { display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: start; padding: 18px 20px; text-decoration: none; color: var(--cv-text); }
+.mn-res:hover, .mn-card:hover { box-shadow: 0 4px 18px rgba(60,40,20,.10); }
+.mn-res-b { display: grid; gap: 4px; min-width: 0; }
+.mn-res-w { font-size: 13px; color: var(--cv-faint); }
+.mn-res-h { font-size: 16px; font-weight: 500; color: var(--cv-ink); }
+.mn-res-t { font-size: 14px; line-height: 1.5; }
+.mn-res-go { font-size: 13px; color: var(--cv-or-ink); display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.mn-article mark, .mn-results mark { background: var(--cv-av-or); color: var(--cv-ink); border-radius: 4px; padding: 0 2px; }
+.mn-ask { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--cv-card); border: 1px dashed var(--cv-line-strong); border-radius: 18px; padding: 18px 20px; font-size: 14px; }
+
+/* indice */
+.mn-hero { display: flex; gap: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #2C2C2C; color: #fff; border-radius: 18px; padding: 24px 28px; text-decoration: none; }
+.mn-hero:hover { color: #fff; background: #1E1D1B; }
+.mn-hero:focus-visible, .mn-card:focus-visible, .mn-res:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.mn-hero-l { display: flex; gap: 16px; align-items: center; }
+.mn-hero-l > span:last-child { display: grid; gap: 2px; }
+.mn-hero .mn-num { background: var(--ap-orange); color: #fff; width: 48px; height: 48px; border-radius: 14px; font-size: 18px; }
+.mn-hero-e { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #F5B27A; font-weight: 500; }
+.mn-hero b { font-size: 20px; font-weight: 500; }
+.mn-hero-d { font-size: 14px; color: #D6D2CC; }
+.mn-hero-d .mn-k { background: rgba(255,255,255,.12); color: #fff; }
+.mn-hero-b { padding: 10px 18px; border-radius: 12px; background: #fff; color: #2C2C2C; font-size: 14px; font-weight: 500; }
+.mn-groups { display: grid; gap: 24px; }
+.mn-group { display: grid; gap: 12px; }
+.mn-gh { margin: 0; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--cv-muted); font-weight: 500; }
+.mn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.mn-card { padding: 20px; display: grid; gap: 8px; align-content: start; text-decoration: none; color: var(--cv-text); transition: box-shadow var(--ap-dur) var(--ap-ease); }
+.mn-ct { font-size: 16px; font-weight: 500; color: var(--cv-ink); }
+.mn-cd { font-size: 13px; color: var(--cv-muted); line-height: 1.45; }
+.mn-cd .mn-k { font-size: 12.5px; }
+.mn-cm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--cv-faint); }
+.mn-dir { padding: 2px 8px; border-radius: 999px; background: var(--cv-or-t); color: var(--cv-or-ink); }
+.mn-foot { margin: 0; font-size: 13px; color: var(--cv-muted); }
+
+/* testo dei manuali */
+.mn-k { display: inline; padding: 1px 5px; border-radius: 7px; background: var(--cv-soft); color: var(--cv-ink); font-weight: 500; white-space: normal; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.mn-ch { display: grid; gap: 14px; scroll-margin-top: 20px; }
+.mn-ch h2 { margin: 0; font-size: 22px; font-weight: 500; color: var(--cv-ink); display: flex; gap: 12px; align-items: baseline; }
+.mn-ch h2 span { font-size: 13px; color: var(--cv-orange-d); font-weight: 500; }
+.mn-ch p, .mn-drawer p { margin: 0; font-size: 15.5px; line-height: 1.65; color: var(--cv-text); }
+.mn-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.mn-steps li { display: grid; grid-template-columns: 32px 1fr; gap: 12px; font-size: 15.5px; line-height: 1.6; }
+.mn-n { width: 28px; height: 28px; border-radius: 999px; background: var(--cv-dark); color: var(--cv-on-dark); display: grid; place-items: center; font-size: 13px; }
+.mn-call { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 14px 16px; border-radius: 14px; font-size: 14.5px; line-height: 1.55; }
+.mn-call .mn-ci { padding-top: 1px; }
+.mn-call.auto { background: var(--cv-gr-t); color: var(--cv-gr); }
+.mn-call.info { background: var(--cv-am-t); color: var(--cv-am); }
+.mn-call.bell { background: var(--cv-bl-t); color: var(--cv-bl); }
+.mn-call.who { background: var(--cv-or-t); color: var(--cv-or-ink); }
+.mn-call .mn-k { background: rgba(255,255,255,.6); color: inherit; }
+
+/* manuale aperto */
+.mn-head { display: flex; gap: 18px; align-items: center; }
+.mn-body { display: flex; gap: 24px; align-items: flex-start; }
+.mn-toc { width: 240px; flex: none; padding: 12px; display: grid; gap: 2px; position: sticky; top: 16px; }
+.mn-toc-h { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--cv-faint); padding: 6px 12px 8px; }
+.mn-toc-sep { border-top: 1px solid var(--cv-line-2); margin: 10px 0 4px; }
+.mn-toc button, .mn-toc a { display: flex; gap: 10px; padding: 8px 12px; border-radius: 10px; text-decoration: none; color: var(--cv-text-2); font: inherit; font-size: 14px; border: 0; background: none; text-align: left; cursor: pointer; line-height: 1.35; }
+.mn-toc button b, .mn-toc a b { color: var(--cv-faint); min-width: 14px; }
+.mn-toc button:hover, .mn-toc a:hover { background: var(--cv-soft); }
+.mn-toc button.on { background: var(--cv-or-t); color: var(--cv-ink); font-weight: 500; }
+.mn-toc button.on b { color: var(--cv-orange-d); }
+.mn-toc button:focus-visible, .mn-toc a:focus-visible, .mn-pills button:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.mn-article { flex: 1; min-width: 0; max-width: 820px; padding: 36px 44px; display: grid; gap: 40px; }
+.mn-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--cv-line-2); padding-top: 24px; }
+.mn-useful { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--cv-muted); flex-wrap: wrap; }
+.mn-pills { display: none; }
+.mn-print-head { display: none; }
+
+/* «Come si usa» */
+.mn-help { gap: 6px; }
+.mn-help-row { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.mn-help-wrap { display: flex; align-items: center; flex: none; margin-left: auto; }
+.modal-head .mn-dh, .mn-dh { margin: 4px 0 0; font-size: 24px; font-weight: 300; color: var(--cv-ink); }
+.mn-dh b { font-weight: 700; }
+.mn-drawer { display: grid; gap: 8px; }
+.mn-dd { margin-bottom: 8px !important; font-size: 14.5px !important; }
+.mn-acc { border-top: 1px solid var(--cv-line-2); padding: 12px 0; }
+.mn-acc summary { list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; font-size: 15px; font-weight: 500; color: var(--cv-ink); min-height: 28px; }
+.mn-acc summary::-webkit-details-marker { display: none; }
+.mn-acc summary svg { color: var(--cv-faint); transition: transform var(--ap-dur) var(--ap-ease); flex: none; }
+.mn-acc[open] summary svg { transform: rotate(180deg); color: var(--cv-orange-d); }
+.mn-acc-b { display: grid; gap: 10px; padding-top: 10px; }
+.mn-acc-b p, .mn-acc-b .mn-steps li { font-size: 14px; }
+.mn-acc-b .mn-call { font-size: 13.5px; padding: 12px 14px; }
+
+@media (max-width: 760px) {
+  .mn-body { display: block; }
+  .mn-toc { display: none; }
+  .mn-article { padding: 18px; gap: 28px; }
+  .mn-pills { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; position: sticky; top: 0; z-index: 2; background: var(--cv-bg); padding-block: 6px; }
+  .mn-pills button { padding: 8px 14px; border-radius: 999px; background: var(--cv-card); border: 1px solid var(--cv-line-strong); font: inherit; font-size: 13px; white-space: nowrap; color: var(--cv-text); min-height: 40px; }
+  .mn-pills button.on { background: var(--cv-dark); border-color: var(--cv-dark); color: var(--cv-on-dark); }
+  .mn-ch h2 { font-size: 19px; }
+  .mn-ch p, .mn-steps li { font-size: 15px; }
+  .mn-head .mn-num.big { width: 44px; height: 44px; font-size: 16px; }
+  .mn-nav { justify-content: center; }
+  .mn-nav .mn-useful { order: -1; width: 100%; justify-content: center; }
+  .mn-res { grid-template-columns: 36px 1fr; padding: 14px; }
+  .mn-res .mn-num { width: 36px; height: 36px; }
+  .mn-res-go { display: none; }
+  .mn-grid { grid-template-columns: 1fr; gap: 10px; }
+  .mn-card { grid-template-columns: 36px 1fr; column-gap: 12px; padding: 14px; }
+  .mn-card .mn-num { width: 36px; height: 36px; grid-row: span 3; }
+  .mn-card .mn-cd { display: none; }
+  .mn-hero { padding: 16px; }
+  .mn-hero-b, .mn-hero-d { display: none; }
+  .mn-help span { display: none; }
+}
+
+@media print {
+  body.mn-print * { visibility: hidden; }
+  body.mn-print .mn-article, body.mn-print .mn-article * { visibility: visible; }
+  body.mn-print .mn-article { position: absolute; left: 0; top: 0; max-width: none; border: 0; box-shadow: none; padding: 0; }
+  body.mn-print .mn-print-head { display: block; font-size: 12px; color: #6B6B6B; }
+  body.mn-print .mn-nav { display: none; }
+  body.mn-print .mn-ch { break-inside: avoid-page; }
+}
+
+/* «Come si usa» nella barra in alto (pagine senza testata) */
+.tb-crumb .mn-help-tb { margin-left: 10px; height: 30px; padding: 0 10px; font-size: 13px; flex: none; }
+@media (max-width: 760px) { .mn-print-btn { display: none; } }

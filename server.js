@@ -81,6 +81,7 @@ const { registerHrRec, purgeCandidates, remindApprovals } = require('./routes/hr
 const { registerHrOnb, remindOnboarding } = require('./routes/hr-onb');
 const { registerHrPerf } = require('./routes/hr-perf');
 const { registerFeedback } = require('./routes/feedback');
+const { registerManuali } = require('./routes/manuali');
 
 function readConfig(env = process.env) {
   const port = Number(env.PORT || 3000);
@@ -269,6 +270,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerSearch(app, deps);
   registerSoftware(app, deps);
   registerIt(app, deps);
+  registerManuali(app); // manuali d'uso di Alma CRM (ALM2-72), per tutti
   registerFeedback(app, deps); // feedback su Alma Space (ALM2-56): problema tecnico o suggerimento, su Linear, con l'esito che torna
   registerFleet(app, deps);
   registerEnergy(app, deps);
