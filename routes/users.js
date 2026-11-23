@@ -21,6 +21,7 @@ function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAc
       qhse: gov ? gov.roleOf(req.user.email).key === 'qhse' : false,
       onboarding: Boolean((await db.query("SELECT 1 FROM hr_onboardings WHERE email = $1 AND stato = 'aperto' LIMIT 1", [req.user.email.toLowerCase()]).catch(() => ({ rows: [] }))).rows.length),
       onb_team: Boolean((await db.query("SELECT 1 FROM hr_onboardings WHERE (resp_email = $1 OR buddy_email = $1) AND stato = 'aperto' LIMIT 1", [req.user.email.toLowerCase()]).catch(() => ({ rows: [] }))).rows.length),
+      hr_on: process.env.HR_ATTIVO === '1' || Boolean(process.env.NODE_TEST_CONTEXT), // Alma HR nascosto a tutti finché non si accende
       posta_voce: postaVoce ? postaVoce.canUse(req) : false });
   });
 

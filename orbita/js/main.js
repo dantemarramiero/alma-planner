@@ -120,7 +120,7 @@ const MODULES = [
   // Alma CRM: la direzione e chi è assegnato a un'ASA (canvas del 12/11/2026)
   { key: 'crm', label: 'Alma CRM', icon: 'contact', home: '#/crm/settimana', can: () => Boolean(store.me.crm) },
   // Alma HR: griglia salary grade, mansionario e il mio percorso per tutti; persone, RAL e pannello solo al team HR
-  { key: 'hr', label: 'Alma HR', icon: 'id-card', home: '#/hr/percorso', can: () => true },
+  { key: 'hr', label: 'Alma HR', icon: 'id-card', home: '#/hr/percorso', can: () => Boolean(store.me?.hr_on) }, // nascosto a tutti finché HR_ATTIVO non è 1
 ];
 // sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
 const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar']); // OneDrive è in Alma Agorà
@@ -319,6 +319,7 @@ async function route() {
       await energyView(view, parts);
       break;
     case 'hr': {
+      if (!store.me?.hr_on) { location.replace('#/home'); break; } // Alma HR nascosto a tutti per ora
       const { hrView } = await import('./hr.js');
       await hrView(view, parts, params);
       break;

@@ -75,6 +75,7 @@ const { createGovernance } = require('./lib/impostazioni');
 const { registerImpostazioni, startOrgNightly } = require('./routes/impostazioni');
 const { registerOrganigramma } = require('./routes/organigramma');
 const { registerHr, syncPeopleFromBoss } = require('./routes/hr');
+const HR_ON = process.env.HR_ATTIVO === '1' || Boolean(process.env.NODE_TEST_CONTEXT); // Alma HR acceso solo con HR_ATTIVO=1
 const { registerHrOrg } = require('./routes/hr-org');
 const { registerHrRec, purgeCandidates, remindApprovals } = require('./routes/hr-rec');
 const { registerHrOnb, remindOnboarding } = require('./routes/hr-onb');
@@ -293,6 +294,9 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerAlerts(app, deps); // preferenze delle notifiche e telefoni iscritti
   // Alma, l'assistente (nei test il Claude è finto: assistantClient); la modalità finta solo con DEV_LOGIN
   const alma = registerAssistente(app, { ...deps, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, openaiKey: config.openaiKey, almaFake: config.devLogin && config.almaFake });
+  // Alma HR nascosto a tutti (Dante 23/11: «nascondere a tutti per il momento»): finché HR_ATTIVO non è 1 le API, la
+  // pagina pubblica «Lavora con noi» e i promemoria automatici non ci sono. Nei test resta acceso.
+  if (!HR_ON) app.use(['/api/hr', '/lavora-con-noi', '/lavora-con-noi.js'], (_req, res) => res.status(404).json({ error: 'Alma HR non è ancora disponibile' }));
   registerHr(app, deps); // Alma HR: persone da BOSS, ruoli sugli incarichi, mansionario, salary grade (RAL solo al team HR)
   registerHrOrg(app, deps); // Alma HR fase 2: organigramma in sola lettura (dati da BOSS), costo, scenari, cambi da BOSS, Strategy
   registerHrRec(app, deps); // Alma HR fase 3: richieste di personale, annunci, «Lavora con noi», candidati, offerte, pre-boarding
@@ -331,11 +335,11 @@ if (require.main === module) {
     setInterval(() => purgeMedia(db).catch(err => console.warn('[media] pulizia non riuscita', err.message)), 6 * 3600 * 1000).unref();
     // cantieri da BOSS (BSAL-1725): ogni ora, solo quando BOSS_CANTIERI_URL e BOSS_CANTIERI_TOKEN ci sono
     // Alma HR: persone e RAL da BOSS ogni notte, solo quando BOSS_PERSONALE_URL e BOSS_PERSONALE_TOKEN ci sono
-    setInterval(() => purgeCandidates(db).then(n => n && console.log('[hr] CV cancellati: ' + n)).catch(err => console.warn('[hr] cancellazione CV non riuscita', err.message)), 24 * 3600 * 1000).unref(); // CV dei non assunti
+    if (HR_ON) setInterval(() => purgeCandidates(db).then(n => n && console.log('[hr] CV cancellati: ' + n)).catch(err => console.warn('[hr] cancellazione CV non riuscita', err.message)), 24 * 3600 * 1000).unref(); // CV dei non assunti
     const hrNotifier = createNotifier({ db, live });
-    setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
-    setInterval(() => remindOnboarding(db, gov, hrNotifier).catch(err => console.warn('[hr] promemoria inserimento non riusciti', err.message)), 24 * 3600 * 1000).unref(); // compiti, corsi in scadenza, fine prova
-    if (process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).then(() => registerHrPerf.bossCheck?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
+    if (HR_ON) setInterval(() => remindApprovals(db, gov, hrNotifier).catch(err => console.warn('[hr] solleciti non riusciti', err.message)), 24 * 3600 * 1000).unref(); // approvazioni ferme da 2 giorni lavorativi
+    if (HR_ON) setInterval(() => remindOnboarding(db, gov, hrNotifier).catch(err => console.warn('[hr] promemoria inserimento non riusciti', err.message)), 24 * 3600 * 1000).unref(); // compiti, corsi in scadenza, fine prova
+    if (HR_ON && process.env.BOSS_PERSONALE_URL) setInterval(() => syncPeopleFromBoss(db).then(() => registerHrRec.checkArrivals?.()).then(() => registerHrPerf.bossCheck?.()).catch(err => console.warn('[hr] sincronizzazione da BOSS non riuscita', err.message)), 24 * 3600 * 1000).unref();
     if (process.env.BOSS_PERSONALE_CREATE_URL) setInterval(() => registerHrRec.retryBoss?.().catch(err => console.warn('[hr] invio a BOSS non riuscito', err.message)), 6 * 3600 * 1000).unref(); // persone assunte non ancora arrivate su BOSS (ALM2-63)
     if (process.env.BOSS_CANTIERI_URL) setInterval(() => syncFromBoss(db).catch(err => console.warn('[cantieri] sincronizzazione da BOSS non riuscita', err.message)), 3600 * 1000).unref();
     app.listen(config.port, () => {
