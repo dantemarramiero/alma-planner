@@ -37,7 +37,7 @@
 .pg-bar i span { display: block; height: 100%; border-radius: 4px; background: #FF8A26; }
 .pg-bar b { text-align: right; }
 .pg-op { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--cv-line-2); }
-.pg-op b { display: block; font-size: 13px; color: var(--cv-ink); }
+.pg-op b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; color: var(--cv-ink); }
 .pg-op small { display: block; font-size: 11.5px; color: var(--cv-faint); }
 .pg-after { justify-self: start; display: inline-flex; gap: 5px; align-items: center; padding: 3px 10px; border-radius: 999px; border: 0; font: inherit; font-size: 11.5px; background: var(--cv-bg); color: var(--cv-text-2); }
 .pg-after.ok { background: var(--cv-gr-t); color: var(--cv-gr); }

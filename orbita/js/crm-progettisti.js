@@ -44,7 +44,7 @@ export async function progettistiSection(box, { st, tabs, again }) {
       h('div.cg-kicker', ic('pencil-ruler', 12), r.data.incarichi ? `Fonte ANAC${r.data.at ? ` · aggiornato al ${fmtDate(String(r.data.at).slice(0, 10))}` : ''} · ${num(r.data.incarichi)} incarichi` : 'Dati ANAC dei progettisti non ancora caricati'),
       h('h1.cg-h1', 'Chi progetta le opere'),
       h('p.cg-sub', `Incarichi di progettazione e direzione lavori (servizi di architettura e ingegneria) negli ultimi ${st.months} mesi, collegati alle gare dei lavori con il CUP.`)), admin),
-    h('div.pg-zone', h('button.pg-z', { type: 'button', class: f.italia ? '' : 'on', 'aria-pressed': String(!f.italia), on: { click: () => { f.italia = false; reload(); } } }, zone),
+    !r.zone.length ? null : h('div.pg-zone', h('button.pg-z', { type: 'button', class: f.italia ? '' : 'on', 'aria-pressed': String(!f.italia), on: { click: () => { f.italia = false; reload(); } } }, zone),
       h('button.pg-z', { type: 'button', class: f.italia ? 'on' : '', 'aria-pressed': String(f.italia), on: { click: () => { f.italia = true; reload(); } } }, 'Tutta Italia')),
     h('div.cg-kpis',
       kpi('Progettisti attivi', num(k.progettisti), 'studi e professionisti con incarichi'),
@@ -142,7 +142,7 @@ export function enteProgettistiCard(s) {
     if (!r.progettisti.length) return;
     const again = () => fill(box, enteProgettistiCard(s));
     fill(box, h('section.cv-card.pad.pg-ente',
-      h('div.cv-row', h('div.cv-lbl.cv-grow', 'I suoi progettisti'), h('span.cv-small.cv-muted', `${r.incarichi} incarichi di progettazione in 24 mesi · ANAC`)),
+      h('div', h('div.cv-lbl', 'I suoi progettisti'), h('div.cv-small.cv-muted', `${r.incarichi} incarichi di progettazione in 24 mesi · ANAC`)),
       r.progettisti.map((p, i) => h('div.pg-ente-r', h('span.cg-n', `${i + 1}.`),
         h('button.pg-link', { type: 'button', on: { click: () => openProgettista(p.key) } }, nice(p.name)), h('span.pv-muted', ` · ${p.n}`), h('span.cv-grow'), crmBadge(p, again)))));
   }).catch(() => {});

@@ -995,8 +995,6 @@ async function overviewTab(box, s, base, go, people, refresh) {
   const codes = dots([s.boss_code && `BOSS ${s.boss_code}`, s.accounting_code && `Target ${s.accounting_code}`, s.zoho_id && `Zoho ${s.zoho_id}`]);
   const right = [
     linkedToCard('subjects', s.id),
-    r.includes('progettista') ? progettistaCard(s) : null, // incarichi da ANAC (ALM2-70)
-    s.kind === 'ente_pubblico' || r.includes('cliente') || r.includes('lead') ? enteProgettistiCard(s) : null, // i suoi progettisti, se ne ha
     card({ title: 'Persone', count: people.length, right: people.length ? link('Tutte', { on: { click: () => go('contatti') } }) : null },
       people.length ? people.slice(0, 5).map(x => listRow({ lead: av(personName(x), 'bl'), title: personName(x), meta: dots([x.job, x.is_primary && 'principale']) || null, href: `#/crm/contatti/${x.id}`,
         actions: [x.mobile || x.phone ? h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `tel:${x.mobile || x.phone}`, 'aria-label': `Chiama ${personName(x)}` }, ic('phone', 15)) : null,
@@ -1021,6 +1019,8 @@ async function overviewTab(box, s, base, go, people, refresh) {
       ['Codici', codes ? h('span.cv-small.cv-muted', codes) : '']]),
     s.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap' } }, s.notes) : null,
     link('Modifica i dati', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })));
+  // Progettisti da ANAC (ALM2-70): incarichi del progettista, o i progettisti dell'ente (il riquadro resta vuoto se non ne ha)
+  right.splice(1, 0, r.includes('progettista') ? progettistaCard(s) : null, s.kind === 'ente_pubblico' || r.includes('cliente') || r.includes('lead') ? enteProgettistiCard(s) : null);
   fill(box, anagraficaSections(s, refresh), h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
 }
 
