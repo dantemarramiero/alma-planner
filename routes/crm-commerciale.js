@@ -26,7 +26,8 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
            SELECT title, due_date FROM crm_steps WHERE subject_id = $1 AND done_at IS NULL ORDER BY due_date, sort, id LIMIT 1) x ON true
         WHERE s.id = k.id`, [subjectId]);
   }
-  async function stepFields(b, { partial }) {
+  async function stepFields(b0, { partial }) {
+    let b = b0;
     const f = {};
     if (!partial || b.title !== undefined) f.title = v.text(b.title, 'Cosa fare', { max: 300, required: true });
     if (!partial || b.due_date !== undefined) {
@@ -35,6 +36,17 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
     }
     if (b.channel !== undefined) f.channel = b.channel ? v.oneOf(b.channel, 'Canale', Object.keys(CHANNELS)) : '';
     if (b.draft !== undefined) f.draft = v.text(b.draft, 'Bozza', { max: 5000 }) || '';
+    if (b.note !== undefined) f.note = v.text(b.note, 'Note', { max: 2000 }) || '';
+    // ALM2-71: più persone sullo stesso compito; la prima è owner_id, le altre in crm_step_people
+    if (Array.isArray(b.owner_ids)) {
+      const ids = [...new Set(b.owner_ids.map(x => v.int(x, 'Chi lo fa', { min: 1 })))].slice(0, 20);
+      if (ids.length) {
+        const { rows } = await db.query('SELECT id FROM users WHERE id = ANY($1::int[])', [ids]);
+        if (rows.length !== ids.length) throw new HttpError(400, 'Persona non trovata');
+      }
+      f.people = ids;
+      b = { ...b, owner_id: ids[0] || null };
+    }
     if (b.owner_id !== undefined) {
       f.owner_id = b.owner_id ? v.int(b.owner_id, 'Chi lo fa', { min: 1 }) : null;
       if (f.owner_id && !(await db.query('SELECT 1 FROM users WHERE id = $1', [f.owner_id])).rowCount) throw new HttpError(400, 'Persona non trovata');
@@ -47,10 +59,19 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
     if (!st) throw new HttpError(404, 'Passo non trovato');
     return st;
   }
+  // le altre persone del compito (oltre a owner_id), per l'elenco e per «Compiti»
+  async function setPeople(stepId, ids) {
+    await db.query('DELETE FROM crm_step_people WHERE step_id = $1', [stepId]);
+    const others = ids.slice(1);
+    if (others.length) await db.query('INSERT INTO crm_step_people (step_id, user_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING', [stepId, others]);
+  }
   const STEP_SELECT = `SELECT st.*, u.name AS owner_name, d.name AS done_by_name, s.name AS subject_name,
+                              (SELECT COALESCE(json_agg(json_build_object('id', pu.id, 'name', pu.name) ORDER BY pu.name), '[]')
+                                 FROM crm_step_people sp JOIN users pu ON pu.id = sp.user_id WHERE sp.step_id = st.id) AS people,
+                              cb.name AS created_by_name,
                               NULLIF(trim(concat_ws(' ', c.first_name, c.last_name)), '') AS contact_name
                          FROM crm_steps st JOIN crm_subjects s ON s.id = st.subject_id
-                         LEFT JOIN users u ON u.id = st.owner_id LEFT JOIN users d ON d.id = st.done_by
+                         LEFT JOIN users u ON u.id = st.owner_id LEFT JOIN users d ON d.id = st.done_by LEFT JOIN users cb ON cb.id = st.created_by
                          LEFT JOIN crm_contacts c ON c.id = st.contact_id`;
 
   // ── prossimi passi ─────────────────────────────────────────────────────────────────────────
@@ -58,7 +79,7 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
   app.get('/api/crm/steps', async (req, res) => {
     const dati = req.query.di === 'dati';
     const { rows } = await db.query(
-      `${STEP_SELECT} WHERE st.done_at IS NULL AND ${dati ? 'st.created_by = $1 AND st.owner_id IS DISTINCT FROM $1' : 'st.owner_id = $1'}
+      `${STEP_SELECT} WHERE st.done_at IS NULL AND ${dati ? 'st.created_by = $1 AND st.owner_id IS DISTINCT FROM $1' : '(st.owner_id = $1 OR EXISTS (SELECT 1 FROM crm_step_people sp WHERE sp.step_id = st.id AND sp.user_id = $1))'}
         ORDER BY st.due_date, st.sort, st.id LIMIT 300`, [req.user.id]);
     const today = todayRome();
     res.json({ today, steps: rows.map(s => ({ ...s, due_date: dayOf(s.due_date), late: dayOf(s.due_date) < today })) });
@@ -72,27 +93,58 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
     ]);
     res.json({ open, done, today: todayRome(), channels: CHANNELS });
   });
+  // scheda del contatto (ALM2-71): i compiti con quella persona, su qualunque azienda
+  app.get('/api/crm/contacts/:id/steps', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const [{ rows: open }, { rows: done }] = await Promise.all([
+      db.query(`${STEP_SELECT} WHERE st.contact_id = $1 AND st.done_at IS NULL ORDER BY st.due_date, st.sort, st.id`, [id]),
+      db.query(`${STEP_SELECT} WHERE st.contact_id = $1 AND st.done_at IS NOT NULL ORDER BY st.done_at DESC LIMIT 30`, [id]),
+    ]);
+    res.json({ open, done, today: todayRome(), channels: CHANNELS });
+  });
   app.post('/api/crm/subjects/:id/steps', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const s = await subjectById(req, id, { forWrite: true });
     const f = await stepFields(req.body, { partial: false });
     if (f.owner_id === undefined) f.owner_id = s.owner_id || req.user.id;
-    const { rows: [st] } = await db.query(
-      `INSERT INTO crm_steps (subject_id, contact_id, title, channel, due_date, owner_id, draft, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [id, f.contact_id || null, f.title, f.channel || '', f.due_date, f.owner_id, f.draft || '', req.user.id]);
+    const people = f.people?.length ? f.people : [f.owner_id].filter(Boolean);
+    // «Uno a testa»: un compito per persona; «Uno per tutti» (di base): uno solo, basta che uno lo chiuda
+    const each = req.body.mode === 'testa' && people.length > 1;
+    const insert = owner => db.query(
+      `INSERT INTO crm_steps (subject_id, contact_id, title, channel, due_date, owner_id, draft, note, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [id, f.contact_id || null, f.title, f.channel || '', f.due_date, owner, f.draft || '', f.note || '', req.user.id]).then(r => r.rows[0]);
+    const created = [];
+    if (each) for (const p of people) created.push(await insert(p));
+    else { const st = await insert(people[0] || null); await setPeople(st.id, people); created.push(st); }
     await syncNext(id);
-    res.status(201).json(st);
-    // un passo dato a un collega (app sul telefono: «Dai un compito») gli arriva come avviso
-    if (notifier && st.owner_id && st.owner_id !== req.user.id) {
-      notifier.notify({ userIds: [st.owner_id], actorId: req.user.id, kind: 'crm', body: `ti ha dato un compito nel CRM su ${s.name}: «${st.title.slice(0, 140)}»`, link: `/crm/scheda/${id}` })
-        .catch(err => console.warn('[crm] avviso del passo non inviato', err.message));
+    res.status(201).json({ ...created[0], created });
+    // un compito dato a un collega gli arriva come avviso (campanella, telefono)
+    const to = people.filter(u => u !== req.user.id);
+    if (notifier && to.length) {
+      const others = people.length - 1;
+      const withText = people.length > 1 && !each ? ` · insieme a ${others === 1 ? 'un collega' : `${others} colleghi`}` : '';
+      notifier.notify({ userIds: to, actorId: req.user.id, kind: 'crm', body: `ti ha dato un compito nel CRM su ${s.name}: «${f.title.slice(0, 140)}»${withText}`, link: `/crm/scheda/${id}/compiti` })
+        .catch(err => console.warn('[crm] avviso del compito non inviato', err.message));
     }
   });
   app.patch('/api/crm/steps/:id', async (req, res) => {
     const st = await stepById(v.int(req.params.id, 'id', { min: 1 }));
     const f = await stepFields(req.body, { partial: true });
     if (f.due_date && f.due_date !== dayOf(st.due_date)) f.alerted_at = null; // spostato: se scade di nuovo, nuovo avviso
+    const people = f.people;
+    delete f.people;
+    if (people) {
+      const { rows: before } = await db.query('SELECT user_id FROM crm_step_people WHERE step_id = $1', [st.id]);
+      const had = new Set([st.owner_id, ...before.map(r => r.user_id)]);
+      await setPeople(st.id, people);
+      const added = people.filter(u => !had.has(u) && u !== req.user.id);
+      if (notifier && added.length) {
+        const { rows: [s] } = await db.query('SELECT name FROM crm_subjects WHERE id = $1', [st.subject_id]);
+        notifier.notify({ userIds: added, actorId: req.user.id, kind: 'crm', body: `ti ha dato un compito nel CRM su ${s?.name || 'un\'azienda'}: «${(f.title || st.title).slice(0, 140)}»`, link: `/crm/scheda/${st.subject_id}/compiti` })
+          .catch(err => console.warn('[crm] avviso del compito non inviato', err.message));
+      }
+    }
     if (!Object.keys(f).length) return res.json(st);
     const keys = Object.keys(f);
     const { rows: [out] } = await db.query(

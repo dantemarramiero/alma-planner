@@ -14,6 +14,7 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { timelineCard, emailsTab, meetingsTab, notesTab, projectsTab, openCrmMeeting, bang } from './crm-tabs.js';
 import { weekTab, settingsTab, stepsCard, keyAccountPill, keyAccountDialog, stepDialog } from './crm-commerciale.js';
+import { compitiTab, personeCard, shareDialog, markShareOpened } from './crm-compiti.js';
 import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.js';
 import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
@@ -637,7 +638,7 @@ function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () 
         h('td.cv-hide-m', ownerCell(s)),
         h(`td${col4[2] ? '.num' : ''}.cv-hide-m`, col4[1](s)),
         h('td', s.next_step ? h('div', { style: { minWidth: 0 } }, h('div.cv-small.cv-t5.cv-ell', { style: { maxWidth: '220px' } }, s.next_step), h('div.cv-date', { class: late(s.next_step_date) ? 'late' : '' }, late(s.next_step_date) ? day(s.next_step_date) : `entro ${day(s.next_step_date)}`)) : h('span.cv-small.cv-muted', '—')),
-        h('td', moreMenu([['Apri la scheda', () => open(s)], ['Nuovo passo', async () => {
+        h('td', moreMenu([['Apri la scheda', () => open(s)], ['Dai un compito', async () => {
           const full = await get(`/api/crm/subjects/${s.id}`);
           stepDialog({ subjectId: s.id, subjectName: s.name, contacts: full.contacts.filter(x => !x.date_to), defaultOwner: s.owner_id, onSaved: reload });
         }]], { label: `Azioni per ${s.name}`, ghost: true }))))))),
@@ -678,10 +679,12 @@ async function subjectPage(container, id, tabKey) {
   const s = await get(`/api/crm/subjects/${id}`);
   if (s.merged_into) return fill(container, h('div.cv', h('section.cv-card', emptyState('link', ['Questa scheda è stata unita a ', h('a', { href: `#/crm/scheda/${s.merged_into}` }, s.merged_name), '.']))));
   const base = `/api/crm/subjects/${id}`;
-  const c = await counts(base, { plans: true });
+  const [c, steps] = await Promise.all([counts(base, { plans: true }), get(`${base}/steps`).catch(() => ({ open: [] }))]);
   const back = TAB_OF_ROLE[s.roles[0]] || 'tutte';
   const people = activePeople(s);
-  const tabs = [['panoramica', 'Panoramica'], ['piani', 'Piano d’azione', c.piani], ['contatti', 'Contatti', people.length], ['email', 'Email', c.email], ['incontri', 'Incontri', c.incontri, c.missing],
+  markShareOpened('subjects', id);
+  const lateSteps = steps.open.some(x => String(x.due_date).slice(0, 10) < new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }));
+  const tabs = [['panoramica', 'Panoramica'], ['compiti', 'Compiti', steps.open.length, lateSteps], ['piani', 'Piano d’azione', c.piani], ['contatti', 'Contatti', people.length], ['email', 'Email', c.email], ['incontri', 'Incontri', c.incontri, c.missing],
     ['note', 'Note', c.note], ['progetti', 'Progetti', c.progetti],
     ...(s.roles.includes('cliente') ? [['opportunita', 'Opportunità e gare'], ['commesse', 'Commesse']] : s.roles.includes('lead') ? [['opportunita', 'Opportunità']] : []),
     ...(s.roles.includes('fornitore') ? [['qualifica', 'Qualifica e documenti'], ['ordini', 'Ordini e subappalti']] : []),
@@ -693,8 +696,12 @@ async function subjectPage(container, id, tabKey) {
   const primary = people.find(x => x.is_primary) || people[0];
   const phone = s.phone || primary?.mobile || primary?.phone;
   const mail = s.email || primary?.email;
-  const newStep = () => stepDialog({ subjectId: s.id, subjectName: s.name, contacts: people, defaultOwner: s.owner_id, onSaved: () => refresh() });
+  const newStep = () => stepDialog({ subjectId: s.id, subjectName: s.name, contacts: people, defaultOwner: s.owner_id, onSaved: () => refresh(tab === 'panoramica' ? 'panoramica' : tab) });
+  const share = () => shareDialog({ target: 'subjects', id: s.id, name: s.name, initials: initialsOf(s.short_name || s.name),
+    summary: dots([rolePill(s).textContent, `${people.length} ${people.length === 1 ? 'contatto' : 'contatti'}`, steps.open.length ? `${steps.open.length} compiti aperti` : null]) });
+  const addContact = preset => new Promise(resolve => contactForm({ preset, onSaved: x => resolve(x) }));
   const menu = moreMenu([
+    ['Condividi con un collega', share],
     ['Collega a…', () => linkDialog(s, () => refresh())],
     ['Trasforma in…', () => transformDialog(s, () => refresh())],
     ['Modifica i dati', () => subjectForm({ subject: s, onSaved: () => refresh() })],
@@ -725,18 +732,21 @@ async function subjectPage(container, id, tabKey) {
           mail ? h('a.btn', { href: `mailto:${mail}` }, ic('mail', 15), 'Email') : h('button.btn', { type: 'button', disabled: true, title: 'Nessuna email' }, ic('mail', 15), 'Email'),
           s.website ? h('a.btn.cv-hide-m', { href: /^https?:/i.test(s.website) ? s.website : `https://${s.website}`, target: '_blank', rel: 'noopener' }, ic('globe', 15), 'Sito') : null,
           h('button.btn.an-websearch', { type: 'button', on: { click: () => webSearchDialog(s, () => refresh()) } }, ic('sparkles', 15), h('span.cv-hide-m', 'Cerca su internet'), h('span.cv-only-m', 'Internet')),
-          h('button.btn.btn-primary', { type: 'button', on: { click: newStep }, 'aria-label': 'Nuovo passo' }, ic('plus', 15), h('span.cv-hide-m', 'Nuovo passo'), h('span.cv-only-m', 'Passo')),
+          h('button.btn.cm-share.cv-hide-m', { type: 'button', on: { click: share } }, ic('share-2', 15), 'Condividi'),
+          h('button.btn.btn-primary', { type: 'button', on: { click: newStep }, 'aria-label': 'Dai un compito' }, ic('plus', 15), h('span.cv-hide-m', 'Dai un compito'), h('span.cv-only-m', 'Compito')),
           menu),
         completenessRing(s)),
       s.roles.includes('lead') ? [h('div.cv-hr'), stageBar(s, () => refresh())] : null,
       h('div.cv-hr'),
-      stepsCard(s, () => refresh(), { onNew: newStep })),
+      stepsCard(s, () => refresh(), { onNew: newStep, onAll: () => go('compiti') })),
     cvTabs(tabs, tab, go),
     body));
   const canWrite = true;
   const invite = people.map(x => ({ name: personName(x), email: x.email, preset: x.is_primary }));
   if (tab === 'panoramica') await overviewTab(body, s, base, go, people, () => refresh());
-  else if (tab === 'contatti') subjectContacts(body, s, () => refresh());
+  else if (tab === 'compiti') await compitiTab(body, { kind: 'subjects', id: s.id, subjectId: s.id, subjectName: s.name, contacts: people, defaultOwner: s.owner_id },
+    { aside: personeCard(s, { onAdd: addContact, onChange: () => refresh('compiti') }), onChange: () => refresh('compiti') });
+  else if (tab === 'contatti') subjectContacts(body, s, () => refresh(), addContact);
   else if (tab === 'email') emailsTab(body, base, { canWrite });
   else if (tab === 'incontri') meetingsTab(body, base, { canWrite, people: invite, label: 'quest\'azienda', name: s.short_name || s.name });
   else if (tab === 'note') notesTab(body, base, { isSubject: true });
@@ -1021,26 +1031,17 @@ async function overviewTab(box, s, base, go, people, refresh) {
   fill(box, anagraficaSections(s, refresh), h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
 }
 
-async function subjectContacts(box, s, refresh) {
+async function subjectContacts(box, s, refresh, addContact) {
   const current = activePeople(s);
   const past = s.contacts.filter(c => c.date_to);
   const row = c => listRow({ lead: av(personName(c), c.date_to ? '' : 'bl'), title: personName(c), href: `#/crm/contatti/${c.id}`,
     meta: dots([c.job, c.is_primary && 'principale', c.date_to && `fino al ${day(c.date_to)}`, c.email || c.mobile || c.phone]) });
-  const proposals = await get(`/api/crm/subjects/${s.id}/proposals`).catch(() => []);
   fill(box, h('div.cv-cols.w420',
     h('div.cv-stack',
       card({ title: 'Persone', count: current.length, right: h('button.btn.btn-sm', { type: 'button', on: { click: () => contactForm({ preset: { subject_id: s.id }, onSaved: refresh }) } }, ic('plus', 14), 'Nuovo contatto') },
         current.length ? current.map(row) : emptyState('users', 'Nessun contatto. Aggiungi le persone da conoscere, con la loro qualifica.')),
       past.length ? card({ title: 'Non ci lavorano più', count: past.length }, past.map(row)) : null),
-    proposals.length ? card({ title: 'Proposti dagli incontri', count: proposals.length },
-      h('p.cv-small.cv-muted', { style: { padding: '0 24px 8px' } }, 'Indirizzi di quest\'azienda visti negli incontri di Outlook, non ancora tra i contatti.'),
-      proposals.map(p => listRow({ icon: 'user', title: p.name || p.email, meta: dots([p.email, p.meeting_subject && `«${p.meeting_subject}»`]),
-        actions: [h('button.btn.btn-sm', { type: 'button', on: { click: () => {
-          const [first, ...rest] = (p.name && !p.name.includes('@') ? p.name : '').split(' ');
-          contactForm({ preset: { subject_id: s.id, email: p.email, first_name: rest.length ? first : '', last_name: rest.length ? rest.join(' ') : first || p.email.split('@')[0] }, onSaved: refresh });
-        } } }, 'Crea'),
-        h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/crm/proposals/${p.id}/dismiss`); refresh(); } } }, 'Ignora')] })))
-      : h('div')));
+    personeCard(s, { onAdd: addContact || (preset => new Promise(resolve => contactForm({ preset, onSaved: x => resolve(x) }))), onChange: refresh })));
 }
 
 // ── modulo del soggetto (con gli elenchi da cui scegliere) ──────────────────
@@ -1385,14 +1386,17 @@ function workHistory(links) {
 async function contactPage(container, id, tabKey) {
   const c = await get(`/api/crm/contacts/${id}`);
   const base = `/api/crm/contacts/${id}`;
-  const n = await counts(base);
-  const tabs = [['panoramica', 'Panoramica'], ['email', 'Email', n.email], ['incontri', 'Incontri', n.incontri, n.missing], ['note', 'Note', n.note], ['progetti', 'Progetti', n.progetti]];
+  const [n, steps] = await Promise.all([counts(base), get(`${base}/steps`).catch(() => ({ open: [] }))]);
+  markShareOpened('contacts', id);
+  const tabs = [['panoramica', 'Panoramica'], ['compiti', 'Compiti', steps.open.length], ['email', 'Email', n.email], ['incontri', 'Incontri', n.incontri, n.missing], ['note', 'Note', n.note], ['progetti', 'Progetti', n.progetti]];
   const tab = tabs.some(([k]) => k === tabKey) ? tabKey : 'panoramica';
   const refresh = (k = tab) => contactPage(container, id, k);
   const go = k => { history.replaceState(null, '', `#/crm/contatti/${id}/${k}`); refresh(k); };
   const body = h('div.cv-stack');
   const primary = c.links.find(l => l.is_primary && !l.date_to) || c.links.find(l => !l.date_to);
-  const menu = moreMenu([['Modifica', () => contactForm({ contact: c, onSaved: () => refresh() })],
+  const menu = moreMenu([['Condividi con un collega', () => shareDialog({ target: 'contacts', id: c.id, name: personName(c), summary: dots(['Contatto', primary?.job, primary?.name]) })],
+    primary ? ['Dai un compito', () => stepDialog({ subjectId: primary.subject_id, subjectName: primary.name, contacts: [c], contactId: c.id, defaultOwner: c.owner_id, onSaved: () => go('compiti') })] : null,
+    ['Modifica', () => contactForm({ contact: c, onSaved: () => refresh() })],
     data.admin || c.created_by === store.me.id ? ['Cancella', async () => {
       if (!await confirmDialog(`Cancellare ${personName(c)} dal CRM?`, { ok: 'Cancella', danger: true })) return;
       await del(base);
@@ -1412,11 +1416,16 @@ async function contactPage(container, id, tabKey) {
         // LinkedIn (Dante 20/11): solo il link al profilo pubblico, scelto dalla persona; il profilo si guarda su LinkedIn
         c.linkedin ? h('a.btn', { href: /^https?:/i.test(c.linkedin) ? c.linkedin : `https://${c.linkedin}`, target: '_blank', rel: 'noopener' }, ic('linkedin', 15), h('span.cv-hide-m', 'Apri su LinkedIn'))
           : h('button.btn.an-websearch', { type: 'button', on: { click: () => linkedinDialog(c, () => refresh()) } }, ic('sparkles', 15), h('span.cv-hide-m', 'Trova su LinkedIn')),
+        h('button.btn.cm-share.cv-hide-m', { type: 'button', on: { click: () => shareDialog({ target: 'contacts', id: c.id, name: personName(c), initials: initialsOf(personName(c) || '?'), summary: dots(['Contatto', primary?.job, primary?.name]) }) } }, ic('share-2', 15), 'Condividi'),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => go('note') } }, ic('file-text', 15), 'Nuova nota'),
         menu),
       contactRing(c, primary))),
     cvTabs(tabs, tab, go),
     body));
+  if (tab === 'compiti') {
+    if (!primary) return fill(body, emptyState('square-check', 'Per dare un compito su questo contatto, collegalo prima a un\'azienda.'));
+    return compitiTab(body, { kind: 'contacts', id: c.id, subjectId: primary.subject_id, subjectName: primary.name, contacts: [c], contactId: c.id, defaultOwner: c.owner_id }, { onChange: () => refresh('compiti') });
+  }
   if (tab === 'email') return emailsTab(body, base, {});
   if (tab === 'incontri') return meetingsTab(body, base, { people: [{ name: personName(c), email: c.email, preset: true }], label: 'questo contatto', name: personName(c) });
   if (tab === 'note') return notesTab(body, base, {});
@@ -1459,11 +1468,12 @@ async function quickContactForm({ preset = {}, onSaved }) {
   const list = h('div.crm-qlist', { hidden: true });
   const picked = h('div');
   const dup = h('div');
-  const more = h('div', { hidden: true },
-    h('div.en-row3', field('Qualifica', input({ 'data-k': 'job' })), field('Telefono', input({ 'data-k': 'phone' })), field('LinkedIn', input({ 'data-k': 'linkedin' }))),
-    field('Note', textarea('', { 'data-k': 'notes' })));
+  const more = h('div', { hidden: !(preset.job || preset.linkedin || preset.notes) },
+    h('div.en-row3', field('Qualifica', input({ 'data-k': 'job', value: preset.job || '' })), field('Telefono', input({ 'data-k': 'phone' })), field('LinkedIn', input({ 'data-k': 'linkedin', value: preset.linkedin || '' }))),
+    field('Note', textarea(preset.notes || '', { 'data-k': 'notes' })));
   const toggleMore = h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => { more.hidden = !more.hidden; toggleMore.lastChild.textContent = more.hidden ? 'Altri campi (qualifica, telefono, LinkedIn, note)' : 'Meno campi'; } } },
     icon('chevron-down', { size: 14 }), h('span', 'Altri campi (qualifica, telefono, LinkedIn, note)'));
+  if (!more.hidden) toggleMore.lastChild.textContent = 'Meno campi';
   const drawChips = () => {
     split = splitNameUi(nameIn.value);
     fill(chips, nameIn.value.trim() ? [split.title ? ['titolo', split.title] : null, split.first ? ['nome', split.first] : null, ['cognome', split.last]].filter(Boolean)

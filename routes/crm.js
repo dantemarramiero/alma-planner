@@ -19,6 +19,7 @@ function daCompletare(s) {
 }
 const { registerCrmLinks } = require('./crm-links');
 const { registerCrmWeb } = require('./crm-web');
+const { registerCrmCompiti } = require('./crm-compiti');
 const { registerCrmImport } = require('./crm-import');
 const { registerCrmDoppioni } = require('./crm-doppioni'); // doppioni e «Unisci» (canvas v15)
 const DUP = require('../lib/crm-doppioni');
@@ -160,7 +161,7 @@ function contactFields(b, { partial }) {
   });
 }
 
-function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails = [], radarFetch, anacFetch }) {
+function registerCrm(app, { db, auth, gov, notifier, crmAccess, crmSync, adminEmails = [], radarFetch, anacFetch }) {
   app.use('/api/crm', (req, _res, next) => {
     crmAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Accesso richiesto')), next);
   });
@@ -737,6 +738,7 @@ function registerCrm(app, { db, auth, notifier, crmAccess, crmSync, adminEmails 
   registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, contactById, seeSql, contactSeeSql });
   registerCrmImport(app, { db }); // primo caricamento da Zoho (direzione)
   registerCrmWeb(app, { db, subjectById, contactById, subjectFields, allAsa, radarFetch, seeSql, vatConflict }); // «Cerca su internet» nell'anagrafica
+  registerCrmCompiti(app, { db, gov, notifier, subjectById, contactById, radarFetch }); // ALM2-71: Condividi e Persone da aggiungere
   commercial = registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, radarFetch, anacFetch }); // prossimi passi, key account, La mia settimana, impostazioni
 }
 

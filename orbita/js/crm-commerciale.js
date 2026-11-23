@@ -11,6 +11,7 @@ import { openCrmMeeting } from './crm-tabs.js';
 import { signalRow, newSignalDialog, openPlan } from './crm-radar.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, seg, toggle, choiceChips, cvModal, scoreRing, settingsCrumb } from './crm-v2.js';
 import { todoRows } from './crm-esiti.js';
+import { peoplePicker } from './people.js';
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
 const CH_ICON = { telefonata: 'phone', email: 'mail', incontro: 'users', sopralluogo: 'map-pin', altro: 'circle' };
@@ -87,7 +88,7 @@ function tagEditor(values, { placeholder = 'parola', max = 80 } = {}) {
 // ── prossimi passi ─────────────────────────────────────────────────────────────────────────────
 // Nuovo passo (artboard «Dialoghi»): date rapide come pillole sopra il calendario, «Come» con le icone, chi e con chi,
 // la bozza del messaggio solo se serve.
-export function stepDialog({ subjectId, subjectName, step = null, contacts = [], defaultOwner = null, onSaved }) {
+export function stepDialog({ subjectId, subjectName, step = null, contacts = [], defaultOwner = null, contactId = null, onSaved }) {
   const titleIn = input({ value: step?.title || '', placeholder: 'Cosa fare: chiamare l\'ing. Rossi, mandare le referenze…', maxlength: 300 });
   const due = input({ type: 'date', value: step?.due_date?.slice(0, 10) || plusDays(3), 'aria-label': 'Entro quando' });
   const quickOpts = [['1', 'Domani'], ['3', 'Fra 3 giorni'], ['7', 'Fra una settimana'], ['30', 'Fra un mese']];
@@ -99,37 +100,63 @@ export function stepDialog({ subjectId, subjectName, step = null, contacts = [],
     type: 'button', role: 'radio', class: channel === k ? 'on' : '', 'aria-checked': String(channel === k), on: { click: () => { channel = channel === k ? '' : k; drawPicks(); } },
   }, ic(CH_ICON[k], 18), CHANNELS[k])));
   drawPicks();
-  const owner = select(userOptions(), step ? step.owner_id : (defaultOwner || store.me.id), { 'aria-label': 'Chi lo fa' });
-  const contact = select([['', 'Nessuno in particolare'], ...contacts.map(c => [c.id, personName(c) + (c.job ? ` · ${c.job}` : '')])], step?.contact_id || '', { 'aria-label': 'Con chi' });
+  let people = step ? [step.owner_id, ...(step.people || []).map(p => p.id)].filter(Boolean) : [defaultOwner || store.me.id].filter(Boolean);
+  let mode = 'tutti';
+  const modeBox = h('div.cv-fld', { hidden: true });
+  const drawMode = () => {
+    modeBox.hidden = Boolean(step) || people.length < 2;
+    const pick = choiceChips([['tutti', 'Uno per tutti'], ['testa', 'Uno a testa']], mode, { label: 'Con più persone', onChange: k => { mode = k; } });
+    fill(modeBox, h('span', 'Con più persone'), pick.el, h('span.cv-hint', '«Uno per tutti»: basta che uno lo chiuda. «Uno a testa»: ognuno ha il suo compito.'));
+  };
+  const suggest = h('div.cv-row.cv-wrap', { style: { gap: '6px' } });
+  let picker;
+  const drawSuggest = () => fill(suggest, h('span.cv-small.cv-muted', 'Suggeriti:'),
+    [[store.me.id, 'Io'], defaultOwner && defaultOwner !== store.me.id ? [defaultOwner, `${userName(defaultOwner)} · owner`] : null].filter(Boolean)
+      .filter(([id]) => !people.includes(id))
+      .map(([id, label]) => h('button.pill.en-chip', { type: 'button', on: { click: () => { people = [...people, id]; mountPicker(); } } }, label)));
+  const pickerBox = h('div');
+  const mountPicker = () => {
+    picker = peoplePicker({ selected: people, label: '+ Collega', onChange: ids => { people = ids; drawMode(); drawSuggest(); } });
+    fill(pickerBox, picker.el);
+    drawMode(); drawSuggest();
+  };
+  mountPicker();
+  const note = textarea(step?.note || '', { rows: 2, placeholder: 'Quello che serve sapere a chi lo fa', 'aria-label': 'Note per chi lo fa', maxlength: 2000 });
+  const contact = select([['', 'Nessuno in particolare'], ...contacts.map(c => [c.id, personName(c) + (c.job ? ` · ${c.job}` : '')])], step?.contact_id || contactId || '', { 'aria-label': 'Con chi' });
   const draft = textarea(step?.draft || '', { rows: 4, placeholder: 'Il testo dell\'email o cosa dire al telefono' });
   const draftBox = h('div', { hidden: !step?.draft }, fld('Bozza del messaggio', draft));
   const draftLink = link([ic('plus', 14), 'Aggiungi una bozza del messaggio'], { hidden: Boolean(step?.draft), on: { click: () => { draftBox.hidden = false; draftLink.hidden = true; draft.focus(); } } });
   const m = cvModal({
     size: 'md',
-    title: h('div', h('h2', step ? 'Modifica il passo' : 'Nuovo passo'), subjectName ? h('div.cv-subh', subjectName) : null),
-    body: h('div.en-form', fld('Cosa fare', titleIn), h('div.cv-fld', h('span', 'Entro quando'), quick.el, due),
+    title: h('div', h('h2', step ? 'Modifica il compito' : 'Dai un compito'), subjectName ? h('div.cv-subh', subjectName) : null),
+    body: h('div.en-form', fld('Cosa fare', titleIn),
+      h('div.cv-fld', h('span', 'A chi · uno o più colleghi'), pickerBox, suggest), modeBox,
+      h('div.cv-fld', h('span', 'Entro quando'), quick.el, due),
       h('div.cv-fld', h('span', 'Come'), picks),
-      h('div.cv-grid2', { style: { gap: '10px' } }, fld('Chi lo fa', owner), contacts.length ? fld('Con chi', contact) : null),
+      contacts.length ? fld('Con chi', contact) : null,
+      fld('Note per chi lo fa', note),
       draftLink, draftBox),
     actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
         if (!titleIn.value.trim()) return toast('Scrivi cosa fare', 'err');
         if (!due.value) return toast('Scegli entro quando', 'err');
-        const body = { title: titleIn.value, due_date: due.value, owner_id: owner.value ? Number(owner.value) : null, channel, draft: draft.value,
+        if (!people.length) return toast('Scegli a chi darlo', 'err');
+        const body = { title: titleIn.value, due_date: due.value, owner_ids: people, mode, channel, draft: draft.value, note: note.value,
           ...(contacts.length ? { contact_id: contact.value ? Number(contact.value) : null } : {}) };
         if (step) await patch(`/api/crm/steps/${step.id}`, body);
         else await post(`/api/crm/subjects/${subjectId}/steps`, body);
         m.close();
-        toast('Passo salvato');
+        const others = people.filter(id => id !== store.me.id);
+        toast(step ? 'Compito salvato' : others.length ? `Compito dato a ${others.map(userName).map(n => n.split(' ')[0]).join(' e ')}: riceve l'avviso` : 'Compito salvato');
         onSaved?.();
-      } } }, 'Salva il passo')],
+      } } }, step ? 'Salva' : 'Dai il compito')],
   });
   setTimeout(() => titleIn.focus(), 50);
 }
 // «Fatto» (artboard «Dialoghi»): com'è andata e «E adesso?» con il passo dopo; un lead senza passo aperto non è vivo
 export function doneDialog(step, { otherOpen = 0, nextFromPlan = null, onSaved } = {}) {
   const outcome = textarea('', { placeholder: 'Interessati, vogliono un sopralluogo la settimana prossima…', 'aria-label': 'Com\'è andata' });
-  const nextTitle = input({ placeholder: 'Il passo dopo (consigliato)', maxlength: 300, 'aria-label': 'Il passo dopo' });
+  const nextTitle = input({ placeholder: 'Il compito dopo (consigliato)', maxlength: 300, 'aria-label': 'Il compito dopo' });
   const nextDue = input({ type: 'date', value: plusDays(7), 'aria-label': 'Entro quando' });
   const when = h('span.cv-small.cv-muted', `· ${longDay(nextDue.value)}`);
   const quick = choiceChips([['3', 'Fra 3 giorni'], ['7', 'Fra una settimana']], '7', { label: 'Date rapide', onChange: n => { nextDue.value = plusDays(Number(n)); when.textContent = `· ${longDay(nextDue.value)}`; } });
@@ -144,14 +171,14 @@ export function doneDialog(step, { otherOpen = 0, nextFromPlan = null, onSaved }
   };
   const m = cvModal({
     size: 'sm',
-    title: h('div', h('h2', 'Passo fatto'), h('div.cv-subh', dots([step.title, step.subject_name]))),
+    title: h('div', h('h2', 'Compito fatto'), h('div.cv-subh', dots([step.title, step.subject_name]))),
     body: h('div.en-form',
       fld('Com\'è andata?', outcome),
       nextFromPlan ? h('div.cv-box.big', h('div.cv-row', h('span.cv-lbl.cv-grow', 'E adesso?'), pill('dal piano', 'bl')),
         h('div.cv-small', `Il passo dopo è già in agenda: «${nextFromPlan.title}» entro ${day(nextFromPlan.due_date)}.`))
         : h('div.cv-box.big', h('div.cv-lbl', 'E adesso?'), nextTitle, h('div.cv-row.cv-wrap', { style: { gap: '6px' } }, quick.el, when), h('details', h('summary.cv-hint', { style: { cursor: 'pointer' } }, 'Scegli un\'altra data'), nextDue)),
-      h('p.cv-hint', otherOpen ? `Ci sono già altri ${otherOpen} passi aperti su quest'azienda.` : 'Senza un passo aperto l\'azienda torna tra i lead senza prossimo passo.')),
-    left: nextFromPlan ? [] : [h('button.btn.btn-ghost', { type: 'button', on: { click: () => save(false) } }, 'Fatto, senza passo dopo')],
+      h('p.cv-hint', otherOpen ? `Ci sono già altri ${otherOpen} compiti aperti su quest'azienda.` : 'Senza un compito aperto l\'azienda torna tra i lead senza prossimo compito.')),
+    left: nextFromPlan ? [] : [h('button.btn.btn-ghost', { type: 'button', on: { click: () => save(false) } }, 'Fatto, senza compito dopo')],
     actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => save(true) } }, ic('check', 15), 'Salva')],
   });
   setTimeout(() => outcome.focus(), 50);
@@ -160,27 +187,31 @@ export function doneDialog(step, { otherOpen = 0, nextFromPlan = null, onSaved }
 export function stepRow(st, { showSubject = false, onChange, contacts = [], otherOpen = 0, siblings = [] } = {}) {
   const late = String(st.due_date).slice(0, 10) < todayIso();
   const nextFromPlan = st.plan_id ? siblings.find(x => x.plan_id === st.plan_id && x.id !== st.id) : null;
-  const meta = [showSubject ? h('a', { href: `#/crm/scheda/${st.subject_id}` }, st.subject_name) : st.owner_name,
-    st.channel ? CHANNELS[st.channel].toLowerCase() : null, st.contact_name, st.plan_id ? 'dal piano d\'azione' : null].filter(Boolean);
+  const who = [st.owner_name, ...(st.people || []).map(p => p.name)].filter(Boolean);
+  const meta = [showSubject ? h('a', { href: `#/crm/scheda/${st.subject_id}` }, st.subject_name) : null,
+    st.channel ? CHANNELS[st.channel].toLowerCase() : null, st.contact_name && `con ${st.contact_name}`,
+    st.created_by_name && st.created_by !== st.owner_id ? `dato da ${st.created_by_name.split(' ')[0]}` : null,
+    st.plan_id ? 'dal piano d\'azione' : null, st.note ? `«${st.note.length > 90 ? `${st.note.slice(0, 90)}…` : st.note}»` : null].filter(Boolean);
   return h('div.cv-step', { class: showSubject ? '' : 'acts' },
     h('button.cv-ck', { type: 'button', class: late ? 'late' : '', title: 'Segna come fatto', 'aria-label': `Segna come fatto: ${st.title}`, on: { click: () => doneDialog(st, { otherOpen, nextFromPlan, onSaved: onChange }) } }, ic('check', 13)),
     h('div', { style: { minWidth: 0 } },
       h('div.cv-step-t', st.title),
       meta.length || st.draft ? h('div.cv-step-m', meta.flatMap((x, i) => (i ? [' · ', x] : [x])), st.draft ? pill('bozza pronta', 'bl') : null) : null,
       st.draft ? h('details.cv-draft', h('summary', 'Bozza del messaggio'), h('p', st.draft)) : null),
-    h('span.cv-date', { class: late ? 'late' : '' }, late && String(st.due_date).slice(0, 10) === plusDays(-1) ? 'ieri' : String(st.due_date).slice(0, 10) === todayIso() ? 'oggi' : day(st.due_date)),
+    h('span.cm-when', h('span.cv-date', { class: late ? 'late' : '' }, late && String(st.due_date).slice(0, 10) === plusDays(-1) ? 'ieri' : String(st.due_date).slice(0, 10) === todayIso() ? 'oggi' : day(st.due_date)),
+      who.length ? h('span.cm-avs', { title: who.join(', '), 'aria-label': `Lo fa ${who.join(', ')}` }, who.slice(0, 3).map(n => av(n, 'bl')), who.length > 3 ? h('span.cm-more', `+${who.length - 3}`) : null) : null),
     showSubject ? null : h('div.cv-acts',
       h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Modifica ${st.title}`, on: { click: () => stepDialog({ subjectId: st.subject_id, step: st, contacts, onSaved: onChange }) } }, ic('pencil', 14)),
       h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': `Cancella ${st.title}`, on: { click: async () => {
-        if (!await confirmDialog(`Cancellare il passo «${st.title}»?`, { ok: 'Cancella', danger: true })) return;
+        if (!await confirmDialog(`Cancellare il compito «${st.title}»?`, { ok: 'Cancella', danger: true })) return;
         await del(`/api/crm/steps/${st.id}`);
         onChange?.();
       } } }, ic('trash', 14))));
 }
 
 // sulla scheda dell'azienda, nell'intestazione: il prossimo passo è una riga; «Tutti i passi» apre l'elenco
-export function stepsCard(s, refresh, { onNew } = {}) {
-  const box = h('div', { 'aria-live': 'polite' }, h('div.cv-small.cv-muted', 'Prossimi passi…'));
+export function stepsCard(s, refresh, { onNew, onAll } = {}) {
+  const box = h('div', { 'aria-live': 'polite' }, h('div.cv-small.cv-muted', 'Compiti…'));
   const contacts = s.contacts.filter(c => !c.date_to);
   let expanded = false;
   const draw = async () => {
@@ -188,15 +219,18 @@ export function stepsCard(s, refresh, { onNew } = {}) {
     const isLead = s.roles.includes('lead') && s.lead_stage !== 'non_interessato';
     const first = open[0];
     const late = first && String(first.due_date).slice(0, 10) < todayIso();
-    const toggleAll = open.length + done.length > 1 || done.length ? link(expanded ? 'Chiudi l\'elenco' : `Tutti i passi (${open.length + done.length})`, { 'aria-expanded': String(expanded), on: { click: () => { expanded = !expanded; draw(); } } }) : null;
+    const toggleAll = onAll && open.length + done.length ? link(`Tutti i compiti (${open.length + done.length})`, { on: { click: onAll } })
+      : open.length + done.length > 1 || done.length ? link(expanded ? 'Chiudi l\'elenco' : `Tutti i compiti (${open.length + done.length})`, { 'aria-expanded': String(expanded), on: { click: () => { expanded = !expanded; draw(); } } }) : null;
+    const nLate = open.filter(x => String(x.due_date).slice(0, 10) < todayIso()).length;
     fill(box,
       first ? h('div.cv-next', h('span.cv-ib', { class: late ? 'rd' : 'or' }, ic('alarm-clock', 16)),
-        h('div.cv-grow', h('span.cv-t5', 'Prossimo passo: '), h('span', dots([first.title, first.channel && CHANNELS[first.channel].toLowerCase(), first.contact_name || (first.owner_id !== s.owner_id ? first.owner_name : '')]))),
+        h('div.cv-grow', h('span.cv-t5', 'Prossimo compito: '), h('span', dots([first.title, first.channel && CHANNELS[first.channel].toLowerCase(), first.contact_name, first.owner_name && first.owner_name.split(' ')[0]])),
+          open.length > 1 ? h('span.cv-small.cv-muted', ` · ${open.length} aperti${nLate ? ` · ${nLate} scadut${nLate === 1 ? 'o' : 'i'}` : ''}`) : null),
         h('span.cv-date', { class: late ? 'late' : '' }, late ? `scaduto il ${day(first.due_date)}` : `entro ${day(first.due_date)}`),
         h('button.btn.btn-sm.cv-ok', { type: 'button', on: { click: () => doneDialog({ ...first, subject_name: s.name }, { otherOpen: open.length - 1, nextFromPlan: first.plan_id ? open.find(x => x.plan_id === first.plan_id && x.id !== first.id) : null, onSaved: refresh }) } }, ic('check', 14), 'Fatto'),
         toggleAll)
         : h('div.cv-next', h('span.cv-ib', ic('alarm-clock', 16)),
-          h('div.cv-grow', h('span.cv-t5', 'Nessun passo aperto'), isLead ? h('span.cv-muted', ' · senza un prossimo passo il lead non è vivo') : null),
+          h('div.cv-grow', h('span.cv-t5', 'Nessun compito aperto'), isLead ? h('span.cv-muted', ' · senza un prossimo compito il lead non è vivo') : null),
           h('button.btn.btn-sm', { type: 'button', on: { click: onNew } }, ic('plus', 14), 'Aggiungi'), toggleAll),
       expanded ? h('div', { style: { margin: '6px -28px -24px' } },
         open.map(st => stepRow(st, { onChange: refresh, contacts, otherOpen: open.length - 1, siblings: open })),

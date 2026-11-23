@@ -1,0 +1,40 @@
+/* Compiti, Condividi e Persone da aggiungere nelle schede del CRM (ALM2-71, canvas CRM v18). Colori dai token cv-* / ap-*. */
+.cm-when { display: inline-flex; align-items: center; gap: 10px; }
+.cm-avs { display: inline-flex; align-items: center; }
+.cm-avs .cv-av { width: 26px; height: 26px; font-size: 11px; }
+.cm-avs .cv-av + .cv-av { margin-left: -8px; }
+.cm-more { font-size: 11.5px; color: var(--cv-muted); margin-left: 4px; }
+.cm-foot { padding: 14px 24px 18px; display: grid; gap: 8px; border-top: 1px solid var(--cv-line-2); }
+.cm-foot .cm-add { justify-self: start; border-style: dashed; }
+.cm-foot p { margin: 0; }
+
+/* Persone da aggiungere */
+.cm-persone .cm-intro { margin: 0; padding: 0 24px 6px; }
+.cm-persone .cm-none { margin: 0; padding: 6px 24px 10px; color: var(--cv-text-2); }
+.cm-person { margin: 8px 16px 0; padding: 12px 14px; border: 1px solid var(--cv-line); border-radius: 14px; display: grid; gap: 6px; }
+.cm-person-h { display: flex; align-items: baseline; gap: 8px; }
+.cm-person-h b { flex: 1; min-width: 0; color: var(--cv-ink); font-weight: 500; overflow-wrap: anywhere; }
+.cm-person-a { display: flex; gap: 8px; margin-top: 2px; }
+.cm-pfoot { padding: 14px 16px 18px; display: grid; gap: 8px; }
+.cm-pfoot p { margin: 0; }
+.cm-pfoot .cm-search { justify-self: stretch; justify-content: center; }
+
+/* Condividi */
+.cm-warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--cv-soft); font-size: 13px; color: var(--cv-text-2); margin-top: 8px; }
+.cm-bang { width: 18px; height: 18px; border-radius: 50%; background: var(--cv-rd); color: #fff; font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; flex: none; }
+.person-chip.cm-nocrm { background: var(--cv-av-or); box-shadow: inset 0 0 0 1.5px var(--cv-rd); }
+.cm-what { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--cv-line); border-radius: 12px; }
+.cm-what .cv-mono { width: 36px; height: 36px; font-size: 12px; }
+.btn.cm-share { border-color: var(--cv-orange); }
+
+@media (max-width: 760px) {
+  .cm-person { margin: 8px 12px 0; }
+  .cm-foot { padding: 12px 14px 16px; }
+}
+
+/* con «Condividi» i pulsanti della scheda sono uno in più: sotto i 1400 px vanno su una riga loro invece di uscire dalla pagina */
+@media (min-width: 761px) and (max-width: 1400px) {
+  .cv-head-main { flex-wrap: wrap; }
+  .cv-head-main > .cv-grow { flex: 1 1 320px; }
+  .cv-head-acts { flex: 1 1 100%; order: 3; flex-wrap: wrap; }
+}

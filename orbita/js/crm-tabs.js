@@ -36,16 +36,18 @@ export async function timelineCard(base, { onOpenTab } = {}) {
   let filter = 'all';
   const el = card({ title: 'Ultimi aggiornamenti', right: seg([['all', 'Tutto'], ['email', 'Email'], ['meeting', 'Incontri'], ['note', 'Note']], 'all', k => { filter = k; draw(); }, { label: 'Tipo di aggiornamento' }) }, body);
   const { items } = await get(`${base}/timeline`).catch(() => ({ items: [] }));
-  const kind = { email: ['mail', 'bl'], meeting: ['calendar', 'or'], note: ['file-text', 'gr'] };
+  const kind = { email: ['mail', 'bl'], meeting: ['calendar', 'or'], note: ['file-text', 'gr'], share: ['share-2', 'bl'], task: ['square-check', 'or'] };
   const noteKind = k => ({ nota: 'nota', telefonata: 'telefonata', riunione: 'riunione', decisione: 'decisione' }[k] || 'nota');
   const draw = () => {
     const shown = items.filter(i => filter === 'all' || i.type === filter).slice(0, 12);
     fill(body, shown.length ? shown.map(i => listRow({
       icon: kind[i.type][0], tone: i.missing ? 'rd' : kind[i.type][1], title: i.title || '(senza titolo)', after: i.missing ? bang() : i.auto ? autoPill() : null,
-      meta: i.type === 'meeting' ? dots([`incontro · ${shortWhen({ start_at: i.date })}`, i.missing ? 'mancano le note' : i.notes ? `${i.notes} note` : null, viaText(i.via)])
+      meta: i.type === 'share' ? dots([i.body && `«${i.body.length > 120 ? `${i.body.slice(0, 120)}…` : i.body}»`, fmtDate(String(i.date).slice(0, 10)), i.opened ? 'aperta' : 'non ancora aperta'])
+        : i.type === 'task' ? dots([`compito · ${fmtDate(String(i.date).slice(0, 10))}`, i.due && `entro il ${fmtDate(String(i.due).slice(0, 10))}`])
+        : i.type === 'meeting' ? dots([`incontro · ${shortWhen({ start_at: i.date })}`, i.missing ? 'mancano le note' : i.notes ? `${i.notes} note` : null, viaText(i.via)])
         : i.type === 'email' ? dots([`email${i.meta ? ` da ${i.meta}` : ''}`, fmtDate(String(i.date || '').slice(0, 10)), viaText(i.via)])
           : dots([`${noteKind(i.kind)} · ${fmtDate(String(i.date).slice(0, 10))}`, i.meeting && `dell'incontro «${i.meeting}»`, viaText(i.via)]),
-      onClick: () => (i.type === 'meeting' ? openCrmMeeting(i.id, () => onOpenTab?.('incontri')) : i.type === 'email' ? openCrmEmail(i.id) : onOpenTab?.('note')),
+      onClick: () => (i.type === 'share' ? null : i.type === 'task' ? onOpenTab?.('compiti') : i.type === 'meeting' ? openCrmMeeting(i.id, () => onOpenTab?.('incontri')) : i.type === 'email' ? openCrmEmail(i.id) : onOpenTab?.('note')),
       actions: i.type === 'meeting' && i.missing ? [h('button.btn.btn-sm', { type: 'button', on: { click: () => openCrmMeeting(i.id, () => onOpenTab?.('incontri')) } }, 'Scrivi la nota')] : null,
     })) : emptyState('clock', 'Ancora niente: email, incontri e note compariranno qui.'));
   };

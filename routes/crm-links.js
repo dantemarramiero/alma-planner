@@ -111,7 +111,21 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   app.get('/api/crm/:target/:id/timeline', async (req, res) => {
     const { t, id } = await target(req);
     const [emails, meetings, notes] = await Promise.all([listEmails(t, id, req.user.id, 15), listMeetings(t, id, req.user, 15), listNotes(t, id, req.user, 15)]);
+    // ALM2-71: anche le condivisioni con i colleghi e i compiti dati ad altri
+    const col = t === 'subjects' ? 'subject_id' : 'contact_id';
+    const [{ rows: shares }, { rows: tasks }] = await Promise.all([
+      db.query(`SELECT sh.id, sh.created_at, sh.opened_at, sh.message, f.name AS from_name, u.name AS to_name
+                  FROM crm_shares sh LEFT JOIN users f ON f.id = sh.from_user JOIN users u ON u.id = sh.to_user
+                 WHERE sh.${col} = $1 ORDER BY sh.created_at DESC LIMIT 15`, [id]).catch(() => ({ rows: [] })),
+      db.query(`SELECT st.id, st.title, st.created_at, st.due_date, cb.name AS by_name, u.name AS owner_name,
+                       (SELECT count(*)::int FROM crm_step_people sp WHERE sp.step_id = st.id) AS more
+                  FROM crm_steps st LEFT JOIN users cb ON cb.id = st.created_by LEFT JOIN users u ON u.id = st.owner_id
+                 WHERE st.${col} = $1 AND st.created_by IS NOT NULL AND st.owner_id IS DISTINCT FROM st.created_by
+                 ORDER BY st.created_at DESC LIMIT 15`, [id]).catch(() => ({ rows: [] })),
+    ]);
     const items = [
+      ...shares.map(x => ({ type: 'share', id: x.id, date: x.created_at, title: `${x.from_name || 'Qualcuno'} ha condiviso la scheda con ${x.to_name}`, body: x.message, opened: x.opened_at })),
+      ...tasks.map(x => ({ type: 'task', id: x.id, date: x.created_at, title: `${x.by_name} ha dato un compito a ${x.owner_name || 'un collega'}${x.more ? ` e ${x.more === 1 ? 'un altro' : `altri ${x.more}`}` : ''}: «${x.title}»`, due: x.due_date })),
       ...emails.map(e => ({ type: 'email', id: e.id, date: e.sent_at, title: e.subject, meta: e.from_name || e.from_address, via: e.via, attachments: e.attachment_count })),
       ...meetings.map(m => ({ type: 'meeting', id: m.id, date: m.start_at, end: m.end_at, title: m.subject, meta: m.location, via: m.via, auto: m.auto, notes: m.note_count, missing: m.missing_notes })),
       ...notes.map(n => ({ type: 'note', id: n.id, date: n.note_date, title: n.title || n.body.slice(0, 120), body: n.body, kind: n.kind, author_id: n.author_id, via: n.via, meeting: n.meeting_subject })),

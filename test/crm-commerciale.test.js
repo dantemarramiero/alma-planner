@@ -147,5 +147,5 @@ test('app 3.0 sul telefono: «Compiti» legge i miei passi e quelli dati ad altr
   assert.ok((await F('GET', '/api/crm/steps?di=me')).body.steps.some(x => x.id === given.body.id));
   await new Promise(r => setTimeout(r, 50)); // l'avviso parte dopo la risposta
   const { rows } = await db.query("SELECT n.body, n.link, n.actor_id FROM notifications n JOIN users u ON u.id = n.user_id WHERE u.email = 'facility@almacis.it' AND n.kind = 'crm'");
-  assert.ok(rows.some(r => /Preparare offerta/.test(r.body) && r.link === `/crm/scheda/${s.id}` && r.actor_id === eId));
+  assert.ok(rows.some(r => /Preparare offerta/.test(r.body) && r.link === `/crm/scheda/${s.id}/compiti` && r.actor_id === eId));
 });
