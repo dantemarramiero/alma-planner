@@ -18,6 +18,7 @@ import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.j
 import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
 import { soaCard, soaShort } from './crm-soa-card.js';
+import { progettistaCard, enteProgettistiCard } from './crm-progettisti.js';
 import { doppioniPage, dupBanner, dupLine, mergeDialog, conflictBox } from './crm-doppioni.js'; // canvas v15
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
@@ -994,6 +995,8 @@ async function overviewTab(box, s, base, go, people, refresh) {
   const codes = dots([s.boss_code && `BOSS ${s.boss_code}`, s.accounting_code && `Target ${s.accounting_code}`, s.zoho_id && `Zoho ${s.zoho_id}`]);
   const right = [
     linkedToCard('subjects', s.id),
+    r.includes('progettista') ? progettistaCard(s) : null, // incarichi da ANAC (ALM2-70)
+    s.kind === 'ente_pubblico' || r.includes('cliente') || r.includes('lead') ? enteProgettistiCard(s) : null, // i suoi progettisti, se ne ha
     card({ title: 'Persone', count: people.length, right: people.length ? link('Tutte', { on: { click: () => go('contatti') } }) : null },
       people.length ? people.slice(0, 5).map(x => listRow({ lead: av(personName(x), 'bl'), title: personName(x), meta: dots([x.job, x.is_primary && 'principale']) || null, href: `#/crm/contatti/${x.id}`,
         actions: [x.mobile || x.phone ? h('a.btn.btn-sm.btn-ghost.cv-ico', { href: `tel:${x.mobile || x.phone}`, 'aria-label': `Chiama ${personName(x)}` }, ic('phone', 15)) : null,
