@@ -7,6 +7,7 @@ import { store } from './store.js';
 import { ic, dots, pill, av, pageTop, title, kpiRow, card, link, sect, listRow, emptyState, toggle, choiceChips, cvModal, scoreRing } from './crm-v2.js';
 import { probabilityBox, pathsBox, firstMoveBox, registraEsito } from './crm-esiti.js';
 import { garaBox } from './crm-concorrenza.js';
+import { garaProgettisti } from './crm-progettisti.js';
 import { linksBox, touchBox, touchBadges } from './crm-progetti.js';
 import { regionPicker } from './crm-regioni-pick.js';
 const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
@@ -107,6 +108,7 @@ export async function openSignal(id, onDone, data, list = []) {
       g.soa?.length || g.cig || g.place || g.region ? h('dl.cv-kv', [g.place || g.region ? [h('dt', 'Luogo'), h('dd', [g.place, g.region].filter(Boolean).join(', '))] : null,
         g.soa?.length ? [h('dt', 'SOA'), h('dd', g.soa.join(' · '))] : null, g.cig ? [h('dt', 'CIG'), h('dd', g.cig)] : null]) : null,
       g.soa?.length || g.cig ? garaBox(g, { onDone, close: () => m.close() }) : null, // prezzo e concorrenti dai dati ANAC (17/11)
+      garaProgettisti(g.id), // chi l'ha progettata (ALM2-70)
       known,
       (() => { const wrap = h('div', { style: { display: 'grid', gap: '14px' } }); const lb = () => linksBox({ signal: g.id }, { title: 'Collegati a questa opportunità' }); let cur = lb(); wrap.append(touchBox({ signal: g.id }, { onChange: () => { const n = lb(); cur.replaceWith(n); cur = n; } }), cur); return wrap; })(),
       decided ? h('div.cv-soft.cv-small', `Deciso: ${({ interessa: 'Interessa', scartato: `scartato (${g.discard_reason})`, boss: 'portato su BOSS', gara_scartata: `gara scartata (${g.discard_reason})` })[g.status]} · ${dots([g.decided_by_name, day(g.decided_at)])}`) : null),

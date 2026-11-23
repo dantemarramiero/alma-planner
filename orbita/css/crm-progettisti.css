@@ -1,0 +1,69 @@
+/* Progettisti (ALM2-70, tavola O del canvas, Dante 23/11/2026). Variabili --cv-* da crm-v2.css, struttura da crm-gare.css. */
+.pg-zone { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.08); justify-self: start; }
+.pg-z { border: 0; background: transparent; color: rgba(255,255,255,.7); font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+.pg-z.on { background: #fff; color: #2C2C2C; font-weight: 600; }
+.pg-lbl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--cv-faint); }
+.pg-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--cv-line-strong); background: var(--cv-card); }
+.pg-seg button { border: 0; background: transparent; font: inherit; font-size: 12.5px; padding: 4px 12px; border-radius: 999px; color: var(--cv-text-2); cursor: pointer; }
+.pg-seg button.on { background: #2C2C2C; color: #fff; font-weight: 600; }
+.pg-head, .pg-row { display: grid; grid-template-columns: 28px minmax(0, 2.2fr) .6fr .7fr minmax(0, 1.5fr) minmax(0, 1.5fr) 118px; gap: 12px; align-items: center; padding: 11px 16px; }
+.pg-head { padding: 10px 16px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--cv-faint); background: var(--cv-head); }
+.pg-row { border-top: 1px solid var(--cv-line-2); cursor: pointer; }
+.pg-row:hover { background: #FFF8F1; box-shadow: inset 3px 0 0 #FF8A26; }
+.pg-row:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.pg-num b { font-size: 15px; font-weight: 700; color: var(--cv-ink); }
+.pg-num small { display: block; font-size: 11px; color: var(--cv-faint); }
+.pg-enti { display: grid; gap: 2px; min-width: 0; font-size: 12px; color: var(--cv-faint); }
+.pg-enti span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-enti em { font-style: normal; color: var(--cv-text); }
+.pg-crm { justify-self: end; display: inline-flex; gap: 4px; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--cv-line-strong); background: var(--cv-card); font: inherit; font-size: 11.5px; color: var(--cv-text-2); cursor: pointer; white-space: nowrap; text-decoration: none; }
+.pg-crm:hover { border-color: var(--cv-orange); color: var(--cv-or-ink); }
+.pg-crm.in { border-color: transparent; background: var(--cv-gr-t); color: var(--cv-gr); font-weight: 600; }
+/* cassetto */
+.pg-dr { display: grid; gap: 16px; }
+.pg-dr-top { display: flex; gap: 12px; align-items: center; }
+.pg-dr-top h3 { margin: 0; font-size: 18px; font-weight: 600; color: var(--cv-ink); }
+.pg-dr-top small { display: block; font-size: 12px; color: var(--cv-faint); }
+.pg-av { width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center; background: #EEF0FF; color: #4B53BC; }
+.pg-av.sm { width: 30px; height: 30px; border-radius: 9px; }
+.pg-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.pg-nums > div { padding: 10px 12px; border-radius: 14px; background: var(--cv-bg); }
+.pg-nums b { display: block; font-size: 18px; font-weight: 700; color: var(--cv-ink); }
+.pg-nums small { font-size: 11px; color: var(--cv-faint); }
+.pg-sec { display: grid; gap: 8px; }
+.pg-sec > .pg-lbl { margin-bottom: 2px; }
+.pg-bar { display: grid; grid-template-columns: minmax(0, 1.4fr) 1fr 28px; gap: 10px; align-items: center; font-size: 13px; }
+.pg-bar i { height: 8px; border-radius: 4px; background: var(--cv-bg); overflow: hidden; }
+.pg-bar i span { display: block; height: 100%; border-radius: 4px; background: #FF8A26; }
+.pg-bar b { text-align: right; }
+.pg-op { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--cv-line-2); }
+.pg-op b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; color: var(--cv-ink); }
+.pg-op small { display: block; font-size: 11.5px; color: var(--cv-faint); }
+.pg-after { justify-self: start; display: inline-flex; gap: 5px; align-items: center; padding: 3px 10px; border-radius: 999px; border: 0; font: inherit; font-size: 11.5px; background: var(--cv-bg); color: var(--cv-text-2); }
+.pg-after.ok { background: var(--cv-gr-t); color: var(--cv-gr); }
+.pg-after.or { background: #FFF1E5; color: #C25E0E; }
+button.pg-after { cursor: pointer; }
+button.pg-after:hover { text-decoration: underline; }
+.pg-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.pg-chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--cv-line-strong); font-size: 12px; color: var(--cv-text); }
+.pg-chip em { font-style: normal; color: var(--cv-faint); }
+.pg-chip a { margin-left: 4px; color: var(--cv-gr); font-weight: 600; text-decoration: none; }
+.pg-know { display: flex; gap: 10px; align-items: center; }
+.pg-know b { display: block; font-size: 13px; color: var(--cv-ink); }
+.pg-know small { display: block; font-size: 11.5px; color: var(--cv-faint); }
+/* nella gara e nella scheda dell'ente */
+.pg-gara { display: grid; gap: 8px; }
+.pg-gara-r { display: flex; gap: 10px; align-items: center; padding-top: 8px; border-top: 1px solid var(--cv-line-2); }
+.pg-gara-r b { display: block; font-size: 13px; color: var(--cv-ink); }
+.pg-gara-r small { display: block; font-size: 11.5px; color: var(--cv-faint); }
+.pg-ente { display: grid; gap: 8px; }
+.pg-ente-r { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.pg-link { border: 0; background: transparent; padding: 0; font: inherit; font-size: 13px; color: var(--cv-ink); font-weight: 600; cursor: pointer; text-align: left; }
+.pg-link:hover { color: var(--cv-or-ink); text-decoration: underline; }
+@media (max-width: 900px) {
+  .pg-head { display: none; }
+  .pg-row { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .pg-row > :nth-child(4), .pg-row > :nth-child(5), .pg-row > :nth-child(6) { display: none; }
+  .pg-row > .pg-crm { grid-column: 2 / -1; justify-self: start; }
+  .pg-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -29,7 +29,7 @@ function nextFriday(iso = todayISO()) {
 }
 const initialsOf = name => String(name || '?').replace(/^(ing|arch|dott|geom|avv|prof|sig|dr)\.?\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 const contactName = c => [c.title, c.first_name, c.last_name].filter(Boolean).join(' ').trim() || c.email || 'Contatto';
-const ROLE = { lead: ['Lead', 'or'], cliente: ['Cliente', 'gr'], fornitore: ['Fornitore', 'bl'], partner: ['Partner', 'pu'], concorrente: ['Concorrente', 'gy'] };
+const ROLE = { lead: ['Lead', 'or'], cliente: ['Cliente', 'gr'], fornitore: ['Fornitore', 'bl'], partner: ['Partner', 'pu'], concorrente: ['Concorrente', 'gy'], progettista: ['Progettista', 'bl'] };
 const roleOf = roles => ROLE[(roles || []).find(r => ROLE[r])] || null;
 const store3 = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const save3 = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* niente */ } };
@@ -359,7 +359,7 @@ export function contactSheet({ name = '', contact = null, onSaved } = {}) {
   const state = { role: 'lead', company: link ? { id: link.subject_id, name: link.name, roles: link.roles } : null };
   const roleBox = h('fieldset.a3-roles', { hidden: true });
   const drawRoles = () => fill(roleBox, h('legend', 'La nuova azienda è un'), h('div.a3-chips',
-    [['lead', 'Lead'], ['cliente', 'Cliente'], ['fornitore', 'Fornitore'], ['partner', 'Partner'], ['concorrente', 'Concorrente']].map(([k, l]) =>
+    [['lead', 'Lead'], ['cliente', 'Cliente'], ['fornitore', 'Fornitore'], ['partner', 'Partner'], ['concorrente', 'Concorrente'], ['progettista', 'Progettista']].map(([k, l]) =>
       h('button.a3-chip', { type: 'button', class: state.role === k ? 'on' : '', 'aria-pressed': String(state.role === k), on: { click: () => { state.role = k; drawRoles(); } } }, l))));
   drawRoles();
   const picker = companyPicker({ initial: state.company?.name || '', onPick: s => { state.company = s; roleBox.hidden = !(s && !s.id); } });

@@ -7,6 +7,7 @@ import { ic, dots, pill, emptyState, cvModal } from './crm-v2.js';
 import { bandBar, nice, crmCell } from './crm-concorrenza.js';
 import { openImpresaMercato } from './crm-impresa-mercato.js';
 import { regioniSection, partnerSection } from './crm-gare-regioni.js';
+import { progettistiSection } from './crm-progettisti.js';
 import { sourceLine, basedOn } from './crm-fonti.js';
 import { regionPicker, regionsQuery } from './crm-regioni-pick.js';
 
@@ -16,7 +17,7 @@ const num = n => Number(n || 0).toLocaleString('it-IT');
 const day = d => (d ? fmtDate(String(d).slice(0, 10)) : '—');
 const month = d => (d ? new Date(`${String(d).slice(0, 10)}T12:00:00Z`).toLocaleDateString('it-IT', { month: 'short', year: 'numeric' }) : '');
 // v17 (Dante 22/11): Concorrenza e gare solo «a gara fatta»; Prima del bando e Opere finanziate vivono nel Radar
-const SECTIONS = [['chi-vince', 'Chi vince', 'users'], ['regioni', 'Regioni', 'map-pin'], ['partner', 'Partner', 'handshake'], ['vinte-da-altri', 'Vinte da altri', 'package']];
+const SECTIONS = [['chi-vince', 'Chi vince', 'users'], ['regioni', 'Regioni', 'map-pin'], ['partner', 'Partner', 'handshake'], ['vinte-da-altri', 'Vinte da altri', 'package'], ['progettisti', 'Progettisti', 'pencil-ruler']];
 const MOVED = { 'prima-del-bando': '#/crm/radar', 'opere-finanziate': '#/crm/radar/opere' };
 
 let gState = null;
@@ -28,12 +29,12 @@ export async function gareHub(box, data, section, { openSignal } = {}) {
   const again = (s = sec) => gareHub(box, data, s, { openSignal });
   const go = s => { history.replaceState(null, '', `#/crm/concorrenza/${s}`); again(s); };
   // Regioni e Partner (canvas v12): sezioni con i loro dati e la loro testata
-  if (sec === 'regioni' || sec === 'partner') {
+  if (sec === 'regioni' || sec === 'partner' || sec === 'progettisti') {
     const buLabel = x => data.asa.find(a => a.key === x)?.label || x;
     const tabs = h('div.cg-tabs', { role: 'tablist' }, SECTIONS.map(([key, l, i]) => h('button.cg-tab', { type: 'button', role: 'tab', 'aria-selected': String(key === sec), class: key === sec ? 'on' : '', on: { click: () => go(key) } },
-      ic(i, 14), h('b', l), h('span', { regioni: 'dove conviene', partner: 'da contattare' }[key] || ''))));
+      ic(i, 14), h('b', l), h('span', { regioni: 'dove conviene', partner: 'da contattare', progettisti: 'chi progetta' }[key] || ''))));
     const opts = { st, buLabel, tabs, go, again: () => again(sec) };
-    return sec === 'regioni' ? regioniSection(box, opts) : partnerSection(box, opts);
+    return sec === 'regioni' ? regioniSection(box, opts) : sec === 'progettisti' ? progettistiSection(box, opts) : partnerSection(box, opts);
   }
   const qs = new URLSearchParams({ months: st.months, ...(st.bu !== null ? { bu: st.bu } : {}), ...(regionsQuery(st.rsel) !== undefined ? { regions: regionsQuery(st.rsel) } : {}), ...(st.amount ? { amount: 'tutte' } : {}) });
   const [r, pb] = await Promise.all([get(`/api/crm/concorrenza?${qs}`), get(`/api/crm/prima-del-bando${st.bu ? `?bu=${st.bu}` : ''}`).catch(() => ({ stages: {}, vinte_altri: [] }))]);
@@ -43,7 +44,7 @@ export async function gareHub(box, data, section, { openSignal } = {}) {
   const buLabel = x => data.asa.find(a => a.key === x)?.label || x;
   const openCo = w => openImpresaMercato(w.cf ? { cf: w.cf } : { name: w.name }, { cats: sc.categories, regions: sc.regions, months: st.months, onChange: () => again() })
     .catch(err => toast(err.message || 'Scheda non disponibile', 'error'));
-  const counts = { regioni: 'dove conviene', partner: 'da contattare', 'chi-vince': `${num(r.winners.length)} imprese`, 'vinte-da-altri': `${pb.vinte_altri.length} dove entrare` };
+  const counts = { regioni: 'dove conviene', partner: 'da contattare', progettisti: 'chi progetta', 'chi-vince': `${num(r.winners.length)} imprese`, 'vinte-da-altri': `${pb.vinte_altri.length} dove entrare` };
 
   // ── testata: numeri dei dati ANAC e «Cerca un'impresa» ──
   const search = h('input', { type: 'search', placeholder: 'Cerca un\'impresa per nome o P.IVA: vedi tutte le gare che ha vinto', 'aria-label': 'Cerca un\'impresa' });
