@@ -89,3 +89,17 @@ test('SOA da ANAC sulle aziende del CRM: differenze, scelta, filtri, scadute, P.
   await D('POST', '/api/crm/soa/usa-anac', { ids: [edil] });
   assert.deepEqual((await D('GET', `/api/crm/subjects/${edil}`)).body.soa, []);
 });
+
+test('SOA trovate anche col codice fiscale diverso dalla P.IVA e con la P.IVA scritta «IT…» (Dante 23/11)', async () => {
+  const CF = vat('0444444444');
+  const PIVA = vat('0333333333');
+  await db.query('INSERT INTO crm_soa (cf, name, cats, expires_on) VALUES ($1, $2, $3, $4), ($5, $6, $7, $8) ON CONFLICT (cf) DO NOTHING',
+    [CF, 'Consorzio', JSON.stringify({ OG1: 'III' }), day(400), PIVA, 'Ditta IT', JSON.stringify({ OS30: 'II' }), day(400)]);
+  const { rows: [a] } = await db.query("INSERT INTO crm_subjects (name, vat, tax_code) VALUES ('Consorzio CF', $1, $2) RETURNING id", [vat('0222222222'), CF]);
+  const { rows: [b] } = await db.query("INSERT INTO crm_subjects (name, vat) VALUES ('Ditta con IT', $1) RETURNING id", [`IT${PIVA}`]);
+  await C.syncSubjectsSoa(db, { ids: [a.id, b.id] });
+  const { rows } = await db.query('SELECT id, soa_anac FROM crm_subjects WHERE id = ANY($1::int[]) ORDER BY id', [[a.id, b.id]]);
+  assert.deepEqual(rows.map(r => r.soa_anac.found), [true, true]);
+  assert.deepEqual(rows[0].soa_anac.cats.map(x => x.cat), ['OG1']);
+  assert.deepEqual(rows[1].soa_anac.cats.map(x => x.cat), ['OS30']);
+});
