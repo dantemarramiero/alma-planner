@@ -4,10 +4,10 @@ const assert = require('node:assert/strict');
 const manuali = require('../lib/manuali-crm');
 const TOOLS = require('../lib/assistente-strumenti');
 
-test('16 manuali numerati, ognuno con gruppo, pagina, indirizzi e capitoli non vuoti', () => {
+test('17 manuali numerati, ognuno con gruppo, pagina, indirizzi e capitoli non vuoti', () => {
   const { manuals, groups } = manuali.catalog();
-  assert.equal(manuals.length, 16);
-  assert.deepEqual(manuals.map(m => m.n), Array.from({ length: 16 }, (_, i) => i + 1));
+  assert.equal(manuals.length, 17);
+  assert.deepEqual(manuals.map(m => m.n), Array.from({ length: 17 }, (_, i) => i + 1));
   const ids = new Set();
   for (const m of manuals) {
     assert.ok(!ids.has(m.id), `id doppio ${m.id}`); ids.add(m.id);

@@ -512,10 +512,13 @@ export async function belowTab(box, data) {
 const COLS = [['programmata', 'Programmata', 'calendar', '#8A8A8A'], ['finanziata', 'Finanziata', 'coins', '#FF8A26'], ['approvato', 'Progetto approvato', 'check', '#1B7A45'], ['arrivo', 'Gara in arrivo', 'flag', '#E5484D']];
 const WARM = [['', 'Chi conosciamo: tutti'], ['forte', 'Ci conoscono: forte'], ['media', 'Ci conoscono: forte o media'], ['qualcuno', 'Ci conosce qualcuno'], ['nessuno', 'Non ci conosce nessuno']];
 const SHOW = [['', 'Mostra: in corsa'], ['altri', 'Anche vinte da altri'], ['scartate', 'Anche scartate'], ['tutte', 'Tutte']];
-const AMOUNTS = [['', 'Importo: tutti'], ['100000', 'Importo: da 100 mila €'], ['1000000', 'Importo: da 1 M€'], ['5000000', 'Importo: da 5 M€']];
+const AMOUNTS = [['', 'Importo: tutti'], ['100000', 'Importo: da 100 mila €'], ['1000000', 'Importo: da 1 M€'], ['2000000', 'Importo: oltre 2 M€'], ['5000000', 'Importo: da 5 M€']];
+// Alma Impianti (ALM2-73): i cinque settori della BU, come pillole sopra la lavagna
+const SECTORS = [['depurazione', 'Depurazione', '#0057B8'], ['fotovoltaico', 'Fotovoltaico', '#E0A400'], ['biometano', 'Biometano', '#2E8B57'], ['edilizia', 'Impianti in edilizia', '#7A5AF8'], ['efficientamento', 'Efficientamento', '#FF8A26']];
+const sectorOf = k => SECTORS.find(x => x[0] === k) || [k, k, '#5B6770'];
 const WARM_RANK = { forte: 3, media: 2, debole: 1, '': 0 };
-const FILTER_KEYS = ['q', 'bu', 'kind', 'regions', 'min', 'warm', 'altri', 'scartate', 'col', 'src'];
-const emptyFilters = () => ({ q: '', bu: '', kind: '', regions: [], min: '', warm: '', altri: false, scartate: false, col: '', src: '' });
+const FILTER_KEYS = ['q', 'bu', 'kind', 'regions', 'min', 'warm', 'altri', 'scartate', 'col', 'src', 'sector'];
+const emptyFilters = () => ({ q: '', bu: '', kind: '', regions: [], min: '', warm: '', altri: false, scartate: false, col: '', src: '', sector: '' });
 // i filtri salvati prima del 22/11 avevano una regione sola («region») e la provincia d'Abruzzo («prov»)
 const upgradeFilters = x => { const f = { ...emptyFilters(), ...x }; if (!Array.isArray(f.regions)) f.regions = []; if (x?.region && !f.regions.length) f.regions = [x.region]; delete f.region; delete f.prov; return f; };
 const PER_COL = 12;
@@ -552,6 +555,7 @@ const scoreDial = v => {
 const MON = ['GEN', 'FEB', 'MAR', 'APR', 'MAG', 'GIU', 'LUG', 'AGO', 'SET', 'OTT', 'NOV', 'DIC'];
 const whenOf = g => g.deadline || g.expected_on || null;
 let radarState = null;
+let impiantiState = null; // il Radar di Alma Impianti ricorda i suoi filtri a parte
 
 // «Le fonti del Radar»: cosa porta ogni fonte, in che fase, ogni quanto, quante opportunità e quanti progetti
 function sourcesDialog(signals) {
@@ -570,26 +574,30 @@ function sourcesDialog(signals) {
   cvModal({ title: 'Le fonti del Radar', body, drawer: true });
 }
 
-export async function radarTab(box, data, sub = '') {
+// scopeOpts.scope = 'impianti': il Radar dentro Alma Impianti (ALM2-73): solo la BU Impianti, pillole dei settori, filtri salvati a parte
+export async function radarTab(box, data, sub = '', scopeOpts = {}) {
   fill(box, loading());
-  const st = radarState || (radarState = { view: 'kanban', f: null, more: {}, opere: null });
-  const again = (s = sub) => radarTab(box, data, s);
+  const imp = scopeOpts.scope === 'impianti';
+  const st = imp ? (impiantiState || (impiantiState = { view: 'kanban', f: null, more: {}, opere: null })) : (radarState || (radarState = { view: 'kanban', f: null, more: {}, opere: null }));
+  const again = (s = sub) => radarTab(box, data, s, scopeOpts);
   const asaName = k => data.asa.find(a => a.key === k)?.label || k || 'Senza BU';
   // sotto-vista «Opere finanziate» (OpenCUP per BU, canvas v16 spostata qui con la v17)
   const subTabs = h('div.rk-sub', { role: 'tablist' },
     [['', 'Lavagna', 'radar'], ['opere', 'Opere finanziate · OpenCUP', 'calendar']].map(([k, l, i]) => h('a.rk-subt', { href: `#/crm/radar${k ? `/${k}` : ''}`, role: 'tab', 'aria-selected': String(k === sub), class: k === sub ? 'on' : '' }, ic(i, 13), l)));
-  if (sub === 'opere') {
+  if (sub === 'opere' && !imp) {
     const { opereSection } = await import('./crm-gare-opere.js');
     return opereSection(box, { st, buLabel: asaName, tabs: subTabs, again: () => again('opere') });
   }
-  const load = () => get(`/api/crm/radar/board?${st.f?.altri ? 'altri=1&' : ''}${st.f?.scartate ? 'scartate=1' : ''}`);
+  const load = () => get(`/api/crm/radar/board?${imp ? 'scope=impianti&' : ''}${st.f?.altri ? 'altri=1&' : ''}${st.f?.scartate ? 'scartate=1' : ''}`);
   let r = await load();
   if (!st.f) { const def = (r.filtri || []).find(x => x.predefinito); st.f = upgradeFilters(def ? def.filtri : {}); if (st.f.altri || st.f.scartate) r = await load(); }
   const f = st.f;
   const passes = (g, skip = '') => {
     const q = f.q.trim().toLowerCase();
     if (q && !`${g.title} ${g.entity || ''} ${g.subject_name || ''} ${g.place || ''}`.toLowerCase().includes(q)) return false;
+    if (imp && g.bu !== 'impianti') return false;
     if (f.bu && g.bu !== f.bu) return false;
+    if (skip !== 'sector' && f.sector && g.sector !== f.sector) return false;
     if (f.kind && g.kind !== f.kind) return false;
     if (skip !== 'region' && f.regions.length && !f.regions.includes(g.region || '')) return false;
     if (skip !== 'col' && f.col && g.column !== f.col) return false;
@@ -618,6 +626,17 @@ export async function radarTab(box, data, sub = '') {
     return s;
   };
   const timeline = h('div.rk-tl');
+  const sectorBox = h('div.rk-srcs.im-sectors', { role: 'group', 'aria-label': 'Settori' });
+  const drawSectors = () => {
+    if (!imp) return;
+    const base = r.signals.filter(g => passes(g, 'sector'));
+    const none = base.filter(g => !g.sector).length;
+    fill(sectorBox,
+      h('button.rk-sc', { type: 'button', class: !f.sector ? 'on' : '', 'aria-pressed': String(!f.sector), on: { click: () => { f.sector = ''; st.more = {}; draw(); } } }, 'Tutti i settori', h('em', String(base.length))),
+      SECTORS.map(([k, l, color]) => { const n = base.filter(g => g.sector === k).length; return h('button.rk-sc', { type: 'button', class: [f.sector === k ? 'on' : '', n ? 'rk-live' : 'rk-zero'].join(' '), 'aria-pressed': String(f.sector === k),
+        on: { click: () => { f.sector = f.sector === k ? '' : k; st.more = {}; draw(); } } }, h('i', { style: { background: color } }), l, h('em', String(n))); }),
+      none ? h('span.rk-sc.soon', { title: 'Opportunità della BU senza un settore riconosciuto' }, 'Senza settore', h('em', String(none))) : null);
+  };
   const favs = h('div.rk-favs');
   const map = h('div.rk-it');
   const regionBox = h('span');
@@ -626,7 +645,7 @@ export async function radarTab(box, data, sub = '') {
   const side = h('aside.rk-side');
   const viewChips = choiceChips([['kanban', 'Lavagna'], ['elenco', 'Elenco']], st.view, { label: 'Vista', onChange: k => { st.view = k; draw(); } });
 
-  const saveFavs = async list => { const out = await api('PUT', '/api/crm/radar/filtri', { filtri: list }); r.filtri = out.filtri; drawFavs(); };
+  const saveFavs = async list => { const out = await api('PUT', `/api/crm/radar/filtri${imp ? '?scope=impianti' : ''}`, { filtri: list }); r.filtri = out.filtri; drawFavs(); };
   const same = a => FILTER_KEYS.every(k => JSON.stringify(a[k] ?? '') === JSON.stringify(f[k] ?? ''));
   const drawFavs = () => fill(favs,
     h('span.rk-favs-l', 'I miei filtri'),
@@ -702,7 +721,7 @@ export async function radarTab(box, data, sub = '') {
       h('div.rk-card-src', srcTag(g), isNew(g) && !off ? h('span.rk-hot', { title: 'Arrivata nelle ultime 24 ore' }, 'nuova') : null),
       h('div.rk-card-top', h('span.rk-ent-ic', { style: { background: tintOf(ent) }, 'aria-hidden': 'true' }, entInitials(ent)),
         h('div.rk-card-tt', h('h4', g.title), h('div.rk-ent', ent)), scoreDial(g.score)),
-      h('div.rk-meta', { 'data-sid': g.subject_id || '' }, h('b.rk-val', g.amount ? eur(g.amount) : '—'), h('span.rk-bu', g.bu_label || asaName(g.bu)), g.region ? h('span.rk-bu', g.region) : null, h('span.cv-grow'), due(g)),
+      h('div.rk-meta', { 'data-sid': g.subject_id || '' }, h('b.rk-val', g.amount ? eur(g.amount) : '—'), imp && g.sector ? h('span.rk-bu.im-sec', h('i', { style: { background: sectorOf(g.sector)[2] } }), sectorOf(g.sector)[1]) : h('span.rk-bu', g.bu_label || asaName(g.bu)), g.region ? h('span.rk-bu', g.region) : null, h('span.cv-grow'), due(g)),
       h('div.rk-prog', { title: 'Avanzamento verso la gara' }, h('span', { style: { width: `${g.to_gare ? 95 : PROGRESS[g.stage] ?? 15}%` } })),
       h('div.rk-card-ft', warmEl(g), h('span.cv-grow'),
         g.project_id ? h('a.rk-run', { href: `#/crm/progetto/${g.project_id}`, title: 'Apri il progetto' }, `● in corso${g.project_owner ? ` · ${g.project_owner.split(' ')[0]}` : ''}`)
@@ -729,7 +748,7 @@ export async function radarTab(box, data, sub = '') {
 
   function draw() {
     const shown = r.signals.filter(g => passes(g));
-    drawFavs(); drawTimeline(); drawMap(); drawSources(); drawSide(shown);
+    drawFavs(); drawTimeline(); drawMap(); drawSources(); drawSectors(); drawSide(shown);
     if (!shown.length) { fill(body, h('section.cv-card', emptyState('radar', r.signals.length ? 'Nessuna opportunità con questi filtri.' : 'Il radar non ha ancora trovato opportunità.'))); return; }
     if (st.view === 'elenco') { fill(body, h('section.cv-card', shown.map(g => signalRow(g, { highlight: r.highlight, reasons: r.discardReasons, onChange: again, data, list: shown })))); return; }
     const cols = f.col ? COLS.filter(([k]) => k === f.col) : COLS;
@@ -755,13 +774,13 @@ export async function radarTab(box, data, sub = '') {
   const newest = r.signals.reduce((m, g) => (g.created_at > m ? g.created_at : m), '');
   const upd = newest ? new Date(newest).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
   fill(box,
-    subTabs,
+    imp ? null : subTabs,
     h('section.rk-hero.v17',
       h('div.rk-hero-l',
         h('div.rk-hero-top',
-          h('div.cv-grow', h('div.rk-eyebrow', ic('radar', 12), `Radar${upd ? ` · ultima novità ${upd}` : ''} · ${Object.keys(SRC).length - 1} fonti attive`),
-            h('h1.rk-h1', 'Le gare ', h('b', 'prima che escano')),
-            h('p.rk-lede', 'Opere programmate, finanziate e approvate nelle categorie e nelle zone delle BU, da tutte le fonti. Più sono a destra, più la gara è vicina.')),
+          h('div.cv-grow', h('div.rk-eyebrow', ic('radar', 12), `${imp ? 'Alma Impianti · ' : ''}Radar${upd ? ` · ultima novità ${upd}` : ''} · ${Object.keys(SRC).length - 1} fonti attive`),
+            imp ? h('h1.rk-h1', 'Le occasioni ', h('b', 'prima della gara')) : h('h1.rk-h1', 'Le gare ', h('b', 'prima che escano')),
+            imp ? h('p.rk-lede', 'Ogni settore ha le sue ricerche: incentivi e graduatorie, autorizzazioni, piani d’investimento, gare vinte da altri. Tutta Italia, ogni taglia; «oltre 2 M€» è tra gli importi.') : h('p.rk-lede', 'Opere programmate, finanziate e approvate nelle categorie e nelle zone delle BU, da tutte le fonti. Più sono a destra, più la gara è vicina.')),
           h('div.rk-hero-act',
             h('a.rk-ghost', { href: '#/crm/sottosoglia' }, 'Sotto soglia'),
             data.gare ? h('a.rk-ghost', { href: '#/crm/gare' }, ic('gavel', 13), 'Gare') : null,
@@ -769,9 +788,10 @@ export async function radarTab(box, data, sub = '') {
         timeline, favs),
       map),
     h('section.rk-bar',
-      h('span.rk-search', ic('search', 14), search), sel('bu', opts(bus, 'BU: tutte'), 'BU'), regionBox,
+      h('span.rk-search', ic('search', 14), search), imp ? null : sel('bu', opts(bus, 'BU: tutte'), 'BU'), regionBox,
       sel('min', AMOUNTS, 'Importo'), sel('kind', opts(kinds, 'Tipo: tutti'), 'Tipo'), sel('warm', WARM, 'Chi conosciamo', 'warm'),
       h('div.rk-bar-r', showSel(), viewChips.el)),
+    imp ? sectorBox : null,
     sources,
     h('div.rk-main', body, side));
   draw();
