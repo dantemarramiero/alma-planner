@@ -3,6 +3,7 @@
 // «Scheda-tab»: stesso schema di riga ovunque, incontri per mese con «!» e «Scrivi la nota» sulla riga, proposte di
 // email in un riquadro tenue). base = '/api/crm/subjects/12' oppure '/api/crm/contacts/7'.
 import { h, fill, confirmDialog, toast, fmtDate, loading, today, addDays } from './ui.js';
+import { sharePeople } from './condividi.js';
 import { get, post, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
@@ -42,11 +43,12 @@ export async function timelineCard(base, { onOpenTab } = {}) {
     const shown = items.filter(i => filter === 'all' || i.type === filter).slice(0, 12);
     fill(body, shown.length ? shown.map(i => listRow({
       icon: kind[i.type][0], tone: i.missing ? 'rd' : kind[i.type][1], title: i.title || '(senza titolo)', after: i.missing ? bang() : i.auto ? autoPill() : null,
-      meta: i.type === 'share' ? dots([i.body && `«${i.body.length > 120 ? `${i.body.slice(0, 120)}…` : i.body}»`, fmtDate(String(i.date).slice(0, 10)), i.opened ? 'aperta' : 'non ancora aperta'])
+      meta: i.type === 'share' ? dots([i.body && `«${i.body.length > 120 ? `${i.body.slice(0, 120)}…` : i.body}»`, fmtDate(String(i.date).slice(0, 10)), i.to ? null : i.opened ? 'aperta' : 'non ancora aperta'])
         : i.type === 'task' ? dots([`compito · ${fmtDate(String(i.date).slice(0, 10))}`, i.due && `entro il ${fmtDate(String(i.due).slice(0, 10))}`])
         : i.type === 'meeting' ? dots([`incontro · ${shortWhen({ start_at: i.date })}`, i.missing ? 'mancano le note' : i.notes ? `${i.notes} note` : null, viaText(i.via)])
         : i.type === 'email' ? dots([`email${i.meta ? ` da ${i.meta}` : ''}`, fmtDate(String(i.date || '').slice(0, 10)), viaText(i.via)])
           : dots([`${noteKind(i.kind)} · ${fmtDate(String(i.date).slice(0, 10))}`, i.meeting && `dell'incontro «${i.meeting}»`, viaText(i.via)]),
+      extra: i.type === 'share' && i.to ? sharePeople(i.to) : null, // ALM2-87: canale e «aperta» persona per persona
       onClick: () => (i.type === 'share' ? null : i.type === 'task' ? onOpenTab?.('compiti') : i.type === 'meeting' ? openCrmMeeting(i.id, () => onOpenTab?.('incontri')) : i.type === 'email' ? openCrmEmail(i.id) : onOpenTab?.('note')),
       actions: i.type === 'meeting' && i.missing ? [h('button.btn.btn-sm', { type: 'button', on: { click: () => openCrmMeeting(i.id, () => onOpenTab?.('incontri')) } }, 'Scrivi la nota')] : null,
     })) : emptyState('clock', 'Ancora niente: email, incontri e note compariranno qui.'));

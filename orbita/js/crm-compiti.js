@@ -7,10 +7,10 @@
 import { h, fill, toast, fmtDate, loading } from './ui.js';
 import { get, post } from './api.js';
 import { store } from './store.js';
-import { peoplePicker } from './people.js';
 import { openContactFromMail } from './crm-scrivo.js';
 import { stepRow, stepDialog } from './crm-commerciale.js';
-import { ic, dots, pill, card, emptyState, seg, cvModal } from './crm-v2.js';
+import { ic, dots, pill, card, emptyState, seg } from './crm-v2.js';
+import { shareDialog as condividi, markShareOpened as markOpened } from './condividi.js';
 
 const todayIso = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const plusDays = n => { const d = new Date(`${todayIso()}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -135,47 +135,6 @@ export function personeCard(s, { onAdd, onChange } = {}) {
 }
 
 // ── Condividi ────────────────────────────────────────────────────────────────
-// target = 'subjects' | 'contacts'; summary: una riga su cosa si condivide
-export async function shareDialog({ target, id, name, summary = '', initials = '' }) {
-  const all = await get('/api/crm/condividi/persone');
-  const noCrm = new Set(all.filter(u => !u.crm).map(u => u.id));
-  let ids = [];
-  const warn = h('div');
-  const pickerBox = h('div');
-  const drawWarn = () => {
-    const bad = ids.filter(x => noCrm.has(x)).map(x => all.find(u => u.id === x)?.name).filter(Boolean);
-    fill(warn, bad.length ? h('div.cm-warn', h('span.cm-bang', '!'),
-      h('span', `${bad.join(', ')} non ${bad.length === 1 ? 'vede' : 'vedono'} il CRM: ${bad.length === 1 ? 'riceverebbe' : 'riceverebbero'} l'avviso ma non ${bad.length === 1 ? 'può' : 'possono'} aprire la scheda. ${bad.length === 1 ? 'Toglila' : 'Toglile'}, oppure chiedi alla direzione di dare il CRM.`)) : null);
-    pickerBox.querySelectorAll('.person-chip').forEach(chip => {
-      const u = all.find(x => chip.textContent.includes(x.name));
-      chip.classList.toggle('cm-nocrm', Boolean(u && noCrm.has(u.id)));
-    });
-  };
-  const picker = peoplePicker({ selected: [], label: '+ Collega', onChange: x => { ids = x.filter(i => i !== store.me.id); drawWarn(); } });
-  fill(pickerBox, picker.el);
-  const msg = h('textarea.input', { rows: 3, maxlength: 1000, placeholder: 'Perché glielo mandi: cosa guardare, cosa fare', 'aria-label': 'Messaggio' });
-  const link = `${location.origin}/app#/crm/${target === 'contacts' ? 'contatti' : 'scheda'}/${id}`;
-  const send = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-    if (!ids.length) return toast('Scegli almeno un collega', 'err');
-    if (ids.some(x => noCrm.has(x))) return toast('Togli chi non vede il CRM, poi condividi', 'err');
-    send.disabled = true;
-    try {
-      const r = await post(`/api/crm/${target}/${id}/condividi`, { user_ids: ids, message: msg.value });
-      m.close();
-      toast(`Condivisa con ${plural(r.sent, 'collega', 'colleghi')}: ricevono l'avviso`);
-    } catch { send.disabled = false; }
-  } } }, ic('share-2', 15), 'Condividi');
-  const m = cvModal({
-    size: 'md',
-    title: h('div', h('h2', `Condividi ${name}`), h('div.cv-subh', 'Il collega riceve l\'avviso con il link alla scheda')),
-    body: h('div.en-form',
-      h('div.cv-fld', h('span', 'Con chi'), pickerBox, warn),
-      h('label.cv-fld', h('span', 'Messaggio · facoltativo'), msg),
-      h('div.cv-fld', h('span', 'Cosa condividi'), h('div.cm-what', h('span.cv-mono', initials || name.slice(0, 2).toUpperCase()), h('div', h('b', name), summary ? h('div.cv-small.cv-muted', summary) : null)))),
-    left: [h('button.btn.btn-ghost', { type: 'button', on: { click: async () => { try { await navigator.clipboard.writeText(link); toast('Link copiato'); } catch { toast(link); } } } }, ic('link', 15), 'Copia il link')],
-    actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), send],
-  });
-}
-
-// chi apre una scheda che gli è stata condivisa: la cronologia mostra «l'ha aperta»
-export function markShareOpened(target, id) { post(`/api/crm/${target}/${id}/condivisioni/aperta`, {}, { quiet: true }).catch(() => {}); }
+// Dal 24/11 (ALM2-87) è la finestra unica di condividi.js, con Teams ed email: qui restano i nomi usati da crm.js.
+export const shareDialog = ({ target, id }) => condividi({ kind: target, id });
+export const markShareOpened = (target, id) => markOpened(target, id);

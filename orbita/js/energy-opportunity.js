@@ -11,6 +11,7 @@ import { meta, num, field, select, kindPill, stagePill, stageLabel, opportunityS
 import { projectDetail } from './projects.js';
 import { targetTab, selectAsTargetButton } from './energy-target.js';
 import { ownerChip } from './energy-owner.js';
+import { shareButton, markShareOpened } from './condividi.js';
 
 const PIPELINE_TAB = { ppa_onsite: 'ppa', revamping: 'revamping', fv_classico: 'fv' };
 const PROJECT_TABS = ['Panoramica', 'Gantt', 'Ticket', 'Documenti', 'Email', 'Incontri', 'Note', 'Membri'];
@@ -24,6 +25,7 @@ export async function opportunityPage(container, id) {
     return fill(container, h('div.card.empty', err.status === 404 ? 'Opportunità non trovata.' : err.message, ' ', h('a', { href: '#/energy/opportunita' }, 'Tutte le opportunità')));
   }
   const refresh = () => opportunityPage(container, id);
+  markShareOpened('energy', id); // ALM2-87: «aperta» per chi l'ha ricevuta con Condividi
   const base = `#/energy/opportunita/${id}`;
   const crumb = { href: `#/energy/${PIPELINE_TAB[o.kind]}`, label: meta.kinds[o.kind] };
   const sheetTab = box => box.append(opportunitySheet(o, refresh));
@@ -31,7 +33,7 @@ export async function opportunityPage(container, id) {
   const owner = h('div.eo-head', h('span.eo-head-k', 'Responsabile'), ownerChip(o, refresh, { big: true }));
   if (o.project_id) {
     return projectDetail(container, o.project_id, {
-      base, crumb, defaultTab: 'opportunita', head: h('div.eo-headwrap', owner, stageBar(o, refresh)),
+      base, crumb, defaultTab: 'opportunita', share: { kind: 'energy', id }, head: h('div.eo-headwrap', owner, stageBar(o, refresh)),
       actions: () => null, // nome e responsabile si cambiano dal tab «Opportunità»
       extraTabs: [
         ['opportunita', 'Opportunità', sheetTab],
@@ -47,7 +49,7 @@ export async function opportunityPage(container, id) {
       h('nav.pj-top', { 'aria-label': 'Percorso' }, h('a.pj-crumb', { href: crumb.href }, icon('chevron-left', { size: 16 }), crumb.label)),
       h('div.pj-row', h('div.pj-title',
         h('div.pj-name', h('span.pj-swatch'), h('h1', o.title), kindPill(o.kind)),
-        o.company_name ? h('div.pj-meta', o.company_name) : null), owner),
+        o.company_name ? h('div.pj-meta', o.company_name) : null), h('div.pj-actions', shareButton('energy', id), owner)),
       h('div.pj-facts',
         fact('Priorità', o.priority || '—'), fact('Potenza', o.mw ? `${num(o.mw, 2)} MW` : '—'),
         fact('Capex', o.capex ? `${num(Math.round(o.capex / 1000))} k€` : '—'), fact('Luogo', [o.city, o.province].filter(Boolean).join(', ') || '—')),

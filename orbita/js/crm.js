@@ -642,7 +642,7 @@ function subjectTable(subjects, tab, filtered, state = { page: 0 }, reload = () 
         h('td.cv-hide-m', ownerCell(s)),
         h(`td${col4[2] ? '.num' : ''}.cv-hide-m`, col4[1](s)),
         h('td', s.next_step ? h('div', { style: { minWidth: 0 } }, h('div.cv-small.cv-t5.cv-ell', { style: { maxWidth: '220px' } }, s.next_step), h('div.cv-date', { class: late(s.next_step_date) ? 'late' : '' }, late(s.next_step_date) ? day(s.next_step_date) : `entro ${day(s.next_step_date)}`)) : h('span.cv-small.cv-muted', '—')),
-        h('td', moreMenu([['Apri la scheda', () => open(s)], ['Dai un compito', async () => {
+        h('td', moreMenu([['Apri la scheda', () => open(s)], ['Condividi con un collega', () => shareDialog({ target: 'subjects', id: s.id })], ['Dai un compito', async () => {
           const full = await get(`/api/crm/subjects/${s.id}`);
           stepDialog({ subjectId: s.id, subjectName: s.name, contacts: full.contacts.filter(x => !x.date_to), defaultOwner: s.owner_id, onSaved: reload });
         }]], { label: `Azioni per ${s.name}`, ghost: true }))))))),

@@ -7,6 +7,7 @@ import { get, post, put, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, choiceChips, toggle } from './crm-v2.js';
 import { stepDialog, doneDialog } from './crm-commerciale.js';
+import { shareDialog, markShareOpened } from './condividi.js';
 import { radarTab, openSignal, newSignalDialog, TILES } from './crm-radar.js';
 import { garaProgettisti } from './crm-progettisti.js';
 
@@ -351,6 +352,7 @@ async function oppPage(box, id) {
   const r = await get(`/api/crm/impianti/opportunita/${id}`);
   const o = r.opportunity;
   const again = () => oppPage(box, id);
+  markShareOpened('impianti', id); // ALM2-87: «aperta» per chi l'ha ricevuta con Condividi
   const save = async body => { await put(`/api/crm/impianti/opportunita/${id}`, body); again(); };
   const stepIdx = STAGES.findIndex(s => s[0] === o.imp_stage);
   const big = o.amount >= r.settings.big_amount;
@@ -359,6 +361,7 @@ async function oppPage(box, id) {
       h('div.cv-grow', h('div.im-tags', o.sector ? h('span.cv-pill.dark', secDot(o.sector), sectorName(o.sector)) : null, big ? pill(`Oltre ${eur(r.settings.big_amount)}`, 'or') : null, o.source ? pill(`dal radar · ${o.source}`, 'line') : null),
         h('h1', o.title), h('p', dots([o.site_name || o.entity, o.place || o.region, o.amount ? `valore stimato ${eur(o.amount)}` : '', o.owner_name ? `segue ${o.owner_name}` : '']))),
       h('div.im-acts', h('button.btn', { type: 'button', on: { click: () => openSignal(o.id, again, store.crmData || {}) } }, 'Apri nel radar'),
+        h('button.btn.sh-btn', { type: 'button', on: { click: () => shareDialog({ kind: 'impianti', id }) } }, ic('share-2', 14), 'Condividi'), // ALM2-87
         o.subject_id ? h('button.btn.btn-primary', { type: 'button', on: { click: () => stepDialog({ subjectId: o.subject_id, subjectName: o.site_name, onSaved: again }) } }, ic('plus', 14), 'Nuovo compito') : null)),
     h('ol.im-stepper', { 'aria-label': 'Fase' }, STAGES.map(([k, l], i) => h('li', h('button', { type: 'button', class: o.imp_stage === 'persa' ? '' : i < stepIdx ? 'done' : i === stepIdx ? 'on' : '', 'aria-current': i === stepIdx ? 'step' : null,
       on: { click: () => save({ imp_stage: k }) } }, l)))),

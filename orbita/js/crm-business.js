@@ -16,6 +16,7 @@ import { notesPanel } from './notes.js';
 import { projectDocuments } from './activities.js';
 import { ganttView } from './gantt.js';
 import { peoplePicker } from './people.js';
+import { shareDialog, markShareOpened } from './condividi.js';
 
 const PHASES = [['esplorazione', 'Esplorazione'], ['analisi', 'Analisi'], ['piano', 'Piano'], ['ingresso', 'Ingresso'], ['consolidamento', 'Consolidamento']];
 const PHASE_KEYS = PHASES.map(([k]) => k);
@@ -450,6 +451,7 @@ function ideaDialog(ctx) {
 async function initiativePage(container, id, tabKey, crmData) {
   fill(container, loading());
   const i = await get(`/api/crm/business/${id}`);
+  markShareOpened('business', id); // ALM2-87: «aperta» per chi l'ha ricevuta con Condividi
   const allTabs = [...TABS, ...WORK_TABS, ...MORE_TABS];
   const tab = allTabs.some(([k]) => k === tabKey) ? tabKey : 'chat';
   const go = (k, extra) => { history.replaceState(null, '', `#/crm/business/${id}/${k}`); initiativePage(container, id, k, { ...crmData, ...extra }); };
@@ -502,6 +504,7 @@ async function initiativePage(container, id, tabKey, crmData) {
         i.project_id && i.launched_at ? btn('Apri il progetto', () => { location.hash = `#/crm/progetto/${i.project_id}`; }, { ico: 'folder' })
           : i.canEdit && i.phase !== 'abbandonata' ? btn('Porta avanti', () => { location.hash = `#/crm/lancio/i/${i.id}`; }, { ico: 'rocket', primary: true }) : null,
         member ? btn('Nuovo compito', newTask, { ico: 'plus' }) : null,
+        btn('Condividi', () => shareDialog({ kind: 'business', id: i.id }), { ico: 'share-2' }), // ALM2-87
         i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh, crmData.meta || {}), { ico: 'pencil' }) : null,
         h('details.nb-menu', h('summary.nb-btn.ghost', { 'aria-label': 'Altro' }, ic('more')), more)), stats),
       h('div.nb-hero-steps', stepper(i))),
