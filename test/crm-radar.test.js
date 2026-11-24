@@ -259,3 +259,23 @@ test('scadute tolte da sole (Dante 22/11): gara scaduta o bando atteso da più d
   assert.deepEqual(rows.map(r => [r.status, r.discard_reason]), [['scartato', 'scaduta'], ['scartato', 'scaduta'], ['interessa', '']]);
   assert.ok((await F('GET', '/api/crm/radar/board?scartate=1')).body.signals.some(g => g.id === a.id));
 });
+
+test('ricerca mirata sul web (Alma): risultati con «già nel radar», aggiunta a mano e «Annulla»', async () => {
+  aiCalls.length = 0;
+  const r = await E('GET', `/api/crm/radar/cerca-web?q=${encodeURIComponent('capannone Ortona')}`);
+  assert.equal(r.status, 200);
+  assert.match(aiCalls[0].input, /capannone Ortona/);
+  assert.equal(r.body.found.length, 2); // quella senza link scartata
+  assert.ok(r.body.cost_usd > 0);
+  const nuovo = r.body.found.find(x => x.url === 'https://example.com/ortona-bis');
+  assert.match(nuovo.already.title, /Ortona/); // stesso titolo di una notizia già nel radar
+  const g = await E('POST', '/api/crm/radar/signals', { title: 'Gara per il magazzino di Ortona', entity: 'Ortona Logistica Srl', kind: 'gara', url: nuovo.url, cig: 'b12345', to_gare: true, place: 'Ortona' });
+  assert.equal(g.status, 201);
+  assert.equal(g.body.place, 'Ortona');
+  assert.equal((await E('GET', `/api/crm/radar/doppione?cig=B12345`)).body.signal.id, g.body.id);
+  const again = await E('GET', `/api/crm/radar/cerca-web?q=x`);
+  assert.equal(again.body.found.find(x => x.url === nuovo.url).already.id, g.body.id);
+  assert.equal((await F('DELETE', `/api/crm/radar/signals/${g.body.id}`)).status, 409); // solo chi l'ha aggiunto
+  assert.equal((await E('DELETE', `/api/crm/radar/signals/${g.body.id}`)).status, 200);
+  assert.equal((await E('GET', `/api/crm/radar/doppione?cig=B12345`)).body.signal, null);
+});

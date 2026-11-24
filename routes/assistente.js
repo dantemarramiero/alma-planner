@@ -144,10 +144,11 @@ Come lavori:
 - Non fare calcoli. Totali, aperti, in ritardo, percentuali (*_pct), somme di ore e importi (*_eur) arrivano già calcolati: riportali così come sono. Se ti serve un numero che non c'è, chiedi un'altra ricerca invece di calcolarlo tu.
 - Persone, progetti e aziende dette per nome: passa il nome detto, non un id inventato. Se una ricerca dice che ci sono più persone o schede con quel nome, chiedi quale: non scegliere MAI tu.
 - Le ore registrate in Alma Space ci sono solo nelle RDA interne (ore stimate, confermate, effettive): se chiedono ore di altro tipo, dillo.
-- Puoi registrare SOLO con gli strumenti «proponi_…» (ticket, nota CRM, prossimo passo CRM, contatto CRM). Non scrivono subito: preparano una scheda che l'utente conferma o annulla. Dopo una proposta dì in una frase cosa hai preparato e che serve la sua conferma: MAI dire che è fatto. Saprai l'esito da un messaggio successivo.
+- Puoi registrare SOLO con gli strumenti «proponi_…» (ticket, nota CRM, prossimo passo CRM, contatto CRM, segnale nel radar). Non scrivono subito: preparano una scheda che l'utente conferma o annulla. Dopo una proposta dì in una frase cosa hai preparato e che serve la sua conferma: MAI dire che è fatto. Saprai l'esito da un messaggio successivo.
 - Prepara una proposta solo quando chi ti scrive te lo chiede. Se mancano dati obbligatori (titolo, azienda, entro quando), chiedili prima. Più cose dette insieme: chiama tutti i «proponi_…» nella stessa risposta (al massimo 5), arrivano in una sola scheda.
 - Email: le prepari con «proponi_email» e partono dalla casella Outlook di chi ti scrive solo dopo la sua conferma. Destinatari SOLO contatti del CRM (usa «c:ID» dalle ricerche); a chi non è nel CRM non si scrive: proponi prima di creare il contatto. Prima di scrivere usa «email_tono» per vedere come l'utente scriveva a quella persona (tu o lei, come la chiamava, saluto e firma) e scrivi nello stesso tono; senza email passate usa il «lei». Firma con il nome di chi ti scrive e «Almacis». Nel testo niente indirizzi email né link. Metti «quando» solo se l'utente dice un giorno o un'ora.
 - Email a un gruppo («scrivi ai clienti di Facility che non sentiamo da 3 mesi»): trova i destinatari (crm_da_ricontattare, crm_cerca, crm_scheda), leggi il tono di tutti con una sola «email_tono», poi UNA «proponi_email» con una voce per persona (al massimo 10), ognuna diversa e con i dati veri della sua scheda; in «criterio» scrivi come li hai scelti. Chi non ha email lo salti e lo dici.
+- Bandi e opportunità che il radar non ha («c'è un bando per l'ex COFA a Pescara, lo trovi?»): guarda prima radar_segnali e cerca; se lì non c'è, NON fermarti e non rimandare l'utente a cercare da solo: usa «radar_cerca_web» (una volta, descrizione precisa) e riporta cosa hai trovato (oggetto, ente, importo, CIG, scadenza, fonte) dicendo che i dati vengono dal web e vanno controllati sul bando. Il link della fonte web puoi scriverlo (è l'unica eccezione ai link esterni). Se un risultato è già nel radar dillo; se è nuovo e l'utente ti ha chiesto di aggiungerlo, chiama subito «proponi_segnale_radar» con i dati del risultato, altrimenti chiedi se vuole aggiungerlo. Se il web non trova niente, dillo e chiedi un dettaglio in più (ente, anno, nome del progetto).
 - Contatti («aggiungi l'ing. Rossi di Elettro Sud, cellulare…»): una «proponi_contatto_crm» con il nome come detto in «nome_completo», l'azienda come detta e i recapiti. Crea da sola l'azienda se non c'è e la trova anche dall'email: NON chiedere campi mancanti (P.IVA, città, qualifica…), si completano dopo. Basta un nome o un'email.
 - Biglietti da visita (foto o dettati): per OGNI biglietto chiama «proponi_biglietto» nella stessa risposta (al massimo 5). Copia nomi, email e numeri esattamente come sono scritti; se un campo non si legge bene mettilo in «incerti» invece di indovinare. Se l'utente dice dove li ha conosciuti, mettilo in «nota» di ognuno. Se nella foto non ci sono biglietti, dillo e chiedi cosa vuole fare.
 - Se l'utente corregge una scheda ancora aperta («la scadenza è lunedì», «assegnalo a Giulia») usa «modifica_proposta». Dopo il salvataggio l'utente ha 10 minuti per «Annulla».
@@ -160,7 +161,7 @@ Come scrivi:
 - Usa **grassetto** per i numeri chiave, elenchi con «- » e tabelle Markdown (| a | b |) quando ci sono più righe. Al massimo 10 righe per tabella: poi dì quante ne restano.
 - Ogni risultato ha un «fonte_id» (f1, f2, …). Subito dopo ogni numero chiave in grassetto scrivi la sua fonte tra graffe, senza spazi: **12**{f2}. In grassetto solo numeri presi così come sono da un risultato.
 - Importi in euro col formato italiano (€ 1.234,56), date gg/mm/aaaa, percentuali con il segno quando sono differenze (+8%, −3%).
-- Link solo a pagine di Alma Space che trovi nei risultati (campo «link»), scritti come [testo](#/percorso). Mai link esterni.
+- Link solo a pagine di Alma Space che trovi nei risultati (campo «link»), scritti come [testo](#/percorso). Mai link esterni, tranne le fonti («fonte_web») trovate da «radar_cerca_web».
 ${DIFESA.PROMPT}
 - Niente saluti lunghi, niente ripetere la domanda.
 
@@ -251,7 +252,17 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
     };
   }
   async function runTool(req, tool, input) {
-    try { return await tool.run(input || {}, getter(req), ctxOf(req)); } catch (e) { return { error: e.message || 'La ricerca non è riuscita.' }; }
+    let out;
+    try { out = await tool.run(input || {}, getter(req), ctxOf(req)); } catch (e) { return { error: e.message || 'La ricerca non è riuscita.' }; }
+    // ricerche che spendono da sole (radar_cerca_web): il costo va nel budget AI di chi chiede, come i token
+    if (out && typeof out === 'object' && out._cost_usd != null) {
+      const cost = Number(out._cost_usd) || 0, model = out._model || tool.name;
+      delete out._cost_usd; delete out._model;
+      try {
+        await db.query('INSERT INTO assistant_usage (user_id, conversation_id, model, cost_usd, day) VALUES ($1, NULL, $2, $3, $4)', [req.user.id, model === 'web' ? 'web-search' : model, cost, today()]);
+      } catch (e) { console.error('[alma] costo della ricerca:', e.message); }
+    }
+    return out;
   }
 
   // ── messaggi e conversazioni ──────────────────────────────────────────────────────────────────
@@ -499,6 +510,8 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
       const proposals = [];
       const seen = { free: 0 };
       DIFESA.see(seen, ctxState);
+      // fonti trovate sul web da «radar_cerca_web» in questa conversazione: i loro link si possono mostrare e proporre
+      const webLinks = DIFESA.webLinksIn((await db.query(`SELECT content::text AS c FROM assistant_messages WHERE conversation_id = $1 AND content::text LIKE '%fonte_web%'`, [conv.id])).rows.map(r => r.c).join('\n'));
       const said = await userTexts(conv.id);
       // Una proposta passa solo se chi scrive ha chiesto di fare qualcosa: nella frase di adesso se in questo giro sono
       // arrivati testi scritti da altri (note, email, segnali…), altrimenti in una delle sue ultime tre frasi.
@@ -511,7 +524,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         if (!seen.free && !said.slice(-3).some(DIFESA.asksAction)) {
           return 'Non preparo niente: chi ti scrive non ha chiesto di registrare nulla. Chiedigli se vuole che lo prepari.';
         }
-        return DIFESA.guard({ tool, input, question: text, userTexts: said, ctx: seen, checkAsk: true });
+        return DIFESA.guard({ tool, input, question: text, userTexts: said, ctx: seen, checkAsk: true, webLinks });
       };
       const group = { id: null, size: 0 };
       let proposing = Promise.resolve();
@@ -578,7 +591,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
         const content = plainBlocks(response.content);
         const uses = content.filter(b => b.type === 'tool_use');
         if (response.stop_reason !== 'tool_use' || !uses.length) {
-          let reply = DIFESA.cleanReply(textOf(content));
+          let reply = DIFESA.cleanReply(textOf(content), webLinks);
           if (response.stop_reason === 'refusal') reply = 'Su questa domanda non posso rispondere.';
           if (!reply) reply = 'Non sono riuscita a rispondere: prova a riformulare la domanda.';
           await finish(content, reply);
@@ -603,6 +616,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
             for (const pr of p.proposals || []) { proposals.push(pr.id); emit('proposal', { proposal: pr }); }
           } else if (tool && tool.grafico) out = makeChart(b.input);
           else out = tool ? await runTool(req, tool, b.input) : { error: 'Ricerca non disponibile.' };
+          if (out && Array.isArray(out.risultati)) for (const r of out.risultati) if (r && r.fonte_web) webLinks.add(r.fonte_web);
           traceTool(trace, b.name, Date.now() - t0, out && out.error);
           if (out && !out.error && out.ricevuta) { // fonte_id per Claude, la ricevuta resta per la chat
             const id = `f${nextFonte++}`;
@@ -619,7 +633,7 @@ function registerAssistente(app, { db, audit, auth, notifier, isAdmin, crmAccess
           await addMessage(conv.id, 'user', [{ type: 'text', text: 'Fermati qui e rispondi con quello che hai.' }]);
           const r2 = await ask({ max_tokens: 4000, system, tools: toolDefs, tool_choice: { type: 'none' }, messages: CLAUDE.cacheTail(withImages(await history(conv.id), attach)), output_config: { effort: 'low' }, context_management }, model);
           const c2 = plainBlocks(r2.content);
-          await finish(c2, DIFESA.cleanReply(textOf(c2)) || 'Ci sono volute troppe ricerche: prova a fare una domanda più precisa.');
+          await finish(c2, DIFESA.cleanReply(textOf(c2), webLinks) || 'Ci sono volute troppe ricerche: prova a fare una domanda più precisa.');
         }
       }
       await touchConv(conv.id);
