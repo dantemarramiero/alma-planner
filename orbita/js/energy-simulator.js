@@ -10,7 +10,7 @@ const MODELS = [['ppa_onsite', 'PPA on-site'], ['revamping', 'Revamping / Repowe
 const KIND_MODEL = { ppa_onsite: 'ppa_onsite', revamping: 'revamping', fv_classico: 'fv_classico' };
 
 // Campi delle ipotesi: [chiave, etichetta, unità, tipo]. «pct» si scrive in percentuale e si manda come frazione.
-const FIELDS = {
+export const FIELDS = {
   ppa_onsite: [
     ['Impianto', [['roofArea', 'Superficie del tetto', 'm²'], ['usableShare', 'Quota utilizzabile', '%', 'pct'], ['kwpPerM2', 'Densità', 'kWp/m²'],
       ['kwhPerKwp', 'Producibilità', 'kWh/kWp'], ['epcPerKwp', 'Costo EPC', '€/kWp']]],
@@ -35,7 +35,7 @@ const FIELDS = {
   ],
 };
 // Ipotesi finanziarie comuni (motore dei flussi), non per il FV classico che segue il BusinessPlan.
-const FINANCE = ['Ipotesi finanziarie', [['hours', 'Ore equivalenti (primo anno)', 'h'], ['decalage', 'Decalage', '%', 'pct'], ['inflation', 'Inflazione', '%', 'pct'],
+export const FINANCE = ['Ipotesi finanziarie', [['hours', 'Ore equivalenti (primo anno)', 'h'], ['decalage', 'Decalage', '%', 'pct'], ['inflation', 'Inflazione', '%', 'pct'],
   ['opexPerMw', 'OPEX', '€/MW/anno'], ['price', 'Prezzo dell\'energia fisso (vuoto = curva)', '€/MWh'], ['leverage', 'Leva', '%', 'pct'], ['kd', 'Costo del debito', '%', 'pct'],
   ['ke', 'Costo dell\'equity', '%', 'pct'], ['debtYears', 'Durata del debito', 'anni'], ['depreciationYears', 'Ammortamento', 'anni'], ['ires', 'IRES', '%', 'pct'], ['irap', 'IRAP', '%', 'pct']]];
 
@@ -156,7 +156,11 @@ export async function simulatorView(box, params) {
   } } }, icon('sheet', { size: 16 }), 'Esporta Excel');
   oppSel.addEventListener('change', () => { state.opportunityId = Number(oppSel.value) || null; state.compare.clear(); drawSaved(); });
 
+  // versione di un'analisi (ALM2-74): salvando si aggiorna la sua scheda
+  const backTo = state.scenarioId ? await get(`/api/energy/scenarios/${state.scenarioId}/analysis`, { quiet: true }).catch(() => null) : null;
   fill(box,
+    backTo ? h('div.banner.en-sim-back', 'Versione ', h('strong', `v${backTo.n}`), ' dell\'analisi ',
+      h('a', { href: `#/energy/analisi/${backTo.id}?v=${backTo.n}` }, backTo.title), ': con «Salva scenario» si aggiorna la sua scheda.') : null,
     h('div.toolbar', modelSeg),
     h('div.toolbar', nameIn, oppSel, saveBtn, state.scenarioId ? asNew : null, exportBtn),
     state.note ? h('div.banner', state.note) : null,
@@ -188,6 +192,12 @@ function prefillFrom(o) {
     }).filter(([, val]) => val !== undefined));
   }
   return o.mw ? { projectsYear1: 1, mwpPerProject: Number(o.mw), growthYear2: 0, growthYear3: 0 } : {};
+}
+
+// Ipotesi di partenza dei modelli (per la scheda dell'analisi, che mostra le ipotesi della versione).
+export async function simDefaults(model) {
+  defaultsCache ??= await get('/api/energy/simulate/defaults');
+  return defaultsFor(model);
 }
 
 function defaultsFor(model) {

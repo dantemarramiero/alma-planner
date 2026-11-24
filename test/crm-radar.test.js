@@ -331,3 +331,9 @@ test('gara di progettazione riconosciuta', () => {
   assert.ok(!isDesignTender({ title: 'Lavori di riqualificazione della scuola' }));
   assert.equal(teamOf([{ name: 'X SRL', role: '' }])[0].role, 'capogruppo');
 });
+
+test('i «sì» di Alma (Dante 24/11: chiedeva la conferma più volte): si senza accento, s, dai, yes', () => {
+  const { asksAction } = require('../lib/assistente-difesa');
+  for (const t of ['si', 'Si.', 'sì', 'S', 's.', 'dai', 'yes', 'esatto', 'si aggiungilo', 'ok']) assert.equal(asksAction(t), true, t);
+  for (const t of ['lo trovi?', 'leggimi le note', 'Rossi S.p.A. note', 'sicuro?', 'sindaco di pescara']) assert.equal(asksAction(t), false, t);
+});

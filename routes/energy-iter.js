@@ -150,6 +150,9 @@ function registerEnergyIter(app, { db, opportunityById }) {
       selection: o.selection, selection_reason: o.selection_reason, selection_changed_at: o.selection_changed_at,
       company_name: o.company_name, owner_id: o.owner_id, owner_name: o.owner_name, mw: o.mw, capex: o.capex,
       city: o.city, province: o.province, scenario: o.data?.scenario || null,
+      analyses: (await db.query(
+        `SELECT a.id, a.title, a.reference, (SELECT MAX(n) FROM energy_analysis_versions x WHERE x.analysis_id = a.id) AS n
+           FROM energy_analyses a WHERE a.opportunity_id = $1 ORDER BY a.reference DESC, a.updated_at DESC`, [id])).rows,
       current: cur, done: cur === -1 && phases.length > 0,
       phases: phases.map((p, i) => ({
         id: p.id, position: p.position, key: p.key, label: p.label, days: p.days, added: p.added,
