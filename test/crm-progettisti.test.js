@@ -210,3 +210,36 @@ test('API: area, committente (anche per sigla), anagrafica e nuovo progettista',
   assert.deepEqual(tutti.body.progettisti.map(p => p.name), ['Ing. Paolo Verdi']);
   assert.equal(tutti.body.tiles.tutti, 3);
 });
+
+// ── ALM2-80, seconda parte: incarichi dietro una casella, «Tutti ›» nella gara, Alma «chi vince per…» ─────────────
+test('API: incarichi di una casella della mappa (progettista × area, con l\'ente)', async () => {
+  const all = await D('GET', '/api/crm/progettisti/incarichi?key=01111111111&regions=tutte');
+  assert.equal(all.status, 200, JSON.stringify(all.body));
+  assert.equal(all.body.totale, 2);
+  assert.equal(all.body.name, 'STUDIO INGEGNERIA ALFA S.R.L.');
+  const ed = await D('GET', `/api/crm/progettisti/incarichi?key=01111111111&regions=tutte&bu=edilizia&sa=${SA}`);
+  assert.equal(ed.body.totale, 1);
+  assert.equal(ed.body.incarichi[0].cig, 'DDDDDDDDD1');
+  assert.equal(ed.body.incarichi[0].dopo.stato, 'aggiudicata');
+  assert.deepEqual(ed.body.incarichi[0].aree, ['edilizia']);
+  assert.equal((await D('GET', '/api/crm/progettisti/incarichi?key=NONESISTE00&regions=tutte')).body.totale, 0);
+  // nella gara: l'ente torna indietro per «Tutti ›»
+  const { rows: [g] } = await db.query("SELECT id FROM crm_signals WHERE external_id = 'x2'");
+  assert.equal((await D('GET', `/api/crm/progettisti/gara?signal_id=${g.id}`)).body.sa, SA);
+});
+
+test('Alma: «chi vince più gare di progettazione per la Provincia di Chieti?»', async () => {
+  const tool = require('../lib/assistente-strumenti').find(t => t.name === 'progettisti');
+  const get = async path => { const r = await D('GET', path); if (r.status !== 200) throw new Error(JSON.stringify(r.body)); return r.body; };
+  const o = await tool.run({ ente: 'provincia chieti' }, get);
+  assert.equal(o.ente.cf, SA);
+  assert.equal(o.incarichi, 3);
+  assert.equal(o.primi[0].posizione, 1);
+  assert.ok(o.primi.some(p => p.nome === 'STUDIO INGEGNERIA ALFA S.R.L.' && p.incarichi === 2 && p.nel_crm));
+  const ric = tool.ricevuta({ ente: 'provincia chieti' }, o);
+  assert.equal(ric.link, `#/crm/concorrenza/progettisti?sa=${SA}`);
+  assert.equal((await tool.run({ ente: 'ente che non esiste' }, get)).ente_trovato, false);
+  const area = await tool.run({ area: 'edilizia' }, get);
+  assert.equal(area.area, 'edilizia');
+  assert.equal(area.incarichi, 1);
+});

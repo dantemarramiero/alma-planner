@@ -165,6 +165,14 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     return rules.map(r => ({ key: r.key, label: byKey.get(r.key)?.label || r.key.replace(/_/g, ' '), sort: byKey.get(r.key)?.sort ?? 999 }))
       .sort((a, b) => a.sort - b.sort).map(({ key, label }) => ({ key, label }));
   }
+  // casella della mappa di calore: gli incarichi di un progettista con area, ente e zona della classifica
+  app.get('/api/crm/progettisti/incarichi', async (req, res) => {
+    const c = await ctx(req);
+    const rules = P.areaRules(c.settings);
+    const type = P.TYPE_KEYS.includes(req.query.type) ? req.query.type : '';
+    res.json(await P.incarichi(db, String(req.query.key || '').slice(0, 220), { months: monthsOf(c, req.query.months), regions: regionsParam(req.query.regions) ?? [],
+      sa: saParam(req.query.sa), type, bu: buParam(rules, req.query.bu) }, rules));
+  });
   app.get('/api/crm/progettisti/enti', async (req, res) => {
     const c = await ctx(req);
     res.json({ enti: await P.enti(db, req.query.q, { months: monthsOf(c, req.query.months) }) });
@@ -229,7 +237,7 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     const pick = async (sql) => (await db.query(sql, [id]).catch(() => ({ rows: [] }))).rows[0]?.cf || '';
     const sa = aw?.sa_cf || await pick('SELECT sa_cf AS cf FROM crm_prog_interventi WHERE signal_id = $1 LIMIT 1') || await pick('SELECT owner_cf AS cf FROM crm_cup_works WHERE signal_id = $1 LIMIT 1')
       || String(g.vat || g.tax_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^IT(?=\d{11}$)/, '');
-    res.json(await P.perGara(db, { cup, sa }));
+    res.json({ ...(await P.perGara(db, { cup, sa })), sa: sa || '' }); // sa: per «Tutti ›» verso la classifica dell'ente (ALM2-80)
   });
   // progettista di ANAC → CRM col tipo «Progettista» (studio o professionista: P.IVA o codice fiscale)
   app.post('/api/crm/progettisti/crm', async (req, res) => {
