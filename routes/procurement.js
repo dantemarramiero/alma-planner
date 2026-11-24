@@ -222,7 +222,7 @@ function registerProcurement(app, { db, auth, config, radarFetch, mailFake }) {
     if (q) { params.push(`%${q}%`); where.push(`(s.name ILIKE $${params.length} OR s.vat ILIKE $${params.length} OR s.city ILIKE $${params.length} OR EXISTS (SELECT 1 FROM proc_item_suppliers l JOIN proc_items i ON i.id = l.item_id WHERE l.subject_id = s.id AND i.name ILIKE $${params.length}))`); }
     if (req.query.categoria) { params.push(String(req.query.categoria)); where.push(`$${params.length} = ANY(s.supplier_categories)`); }
     if (req.query.merce) { params.push(Number(req.query.merce) || 0); where.push(`EXISTS (SELECT 1 FROM proc_item_suppliers l WHERE l.subject_id = s.id AND l.item_id = $${params.length})`); }
-    const { rows } = await db.query(`SELECT s.id, s.name, s.city, s.province, s.vat, s.origin, s.supplier_categories, s.created_at,
+    const { rows } = await db.query(`SELECT s.id, s.name, s.city, s.province, s.vat, s.email, s.origin, s.supplier_categories, s.created_at,
         (SELECT array_agg(i.name ORDER BY i.name) FROM proc_item_suppliers l JOIN proc_items i ON i.id = l.item_id AND NOT i.archived WHERE l.subject_id = s.id) AS items,
         (SELECT array_agg(DISTINCT l.source) FROM proc_item_suppliers l WHERE l.subject_id = s.id) AS sources
         FROM crm_subjects s WHERE ${where.join(' AND ')} ORDER BY lower(s.name) LIMIT 400`, params);
@@ -237,7 +237,7 @@ function registerProcurement(app, { db, auth, config, radarFetch, mailFake }) {
       suppliers: rows.map(r => {
         const src = r.sources || [];
         const origin = ddt[r.id] ? (src.includes('web') ? 'BOSS + web' : 'BOSS + CRM') : src.includes('web') || /procurement/i.test(r.origin) ? 'Alma, dal web' : 'CRM';
-        return { id: r.id, name: r.name, city: r.city, province: r.province, vat: r.vat, items: (r.items || []).slice(0, 6), categories: r.supplier_categories,
+        return { id: r.id, name: r.name, city: r.city, province: r.province, vat: r.vat, email: r.email, items: (r.items || []).slice(0, 6), categories: r.supplier_categories,
           tags: tags[r.id] || [], ddt: ddt[r.id] || null, contact: contacts[r.id] || null, last_mail: mails[r.id]?.last_at || null, origin, created_at: r.created_at };
       }),
     });
