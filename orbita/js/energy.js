@@ -10,12 +10,13 @@ import { simulatorView, scenariosSection } from './energy-simulator.js';
 import { targetsView, openTarget, templatesView } from './energy-target.js';
 import { analysesView, analysisPage } from './energy-analisi.js';
 import { radarView } from './energy-radar.js';
+import { clientiView } from './energy-clienti.js';
 import { paramsView } from './energy-params.js';
 import { screeningView } from './energy-screening.js';
 import { opportunityPage } from './energy-opportunity.js';
 import { ownerChip, ownerPicker, assignOwners, takeButtons } from './energy-owner.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['analisi', 'Analisi economico-finanziarie'], ['radar', 'Radar energia'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['analisi', 'Analisi economico-finanziarie'], ['radar', 'Radar energia'], ['clienti', 'Clienti e contatti'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
@@ -77,6 +78,7 @@ export async function energyView(container, parts = []) {
   else if (tab === 'modelli') await templatesView(body);
   else if (tab === 'analisi') await analysesView(body);
   else if (tab === 'radar') await radarView(body);
+  else if (tab === 'clienti') await clientiView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'screening') await screeningView(body);
   else if (tab === 'simulatore') await simulatorView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);
@@ -505,7 +507,8 @@ async function openCompany(id, onChange) {
     .map(([k, label, kind]) => [label, kind === 'bool' ? (c.extra[k] ? 'Sì' : 'No') : kind === 'number' ? num(c.extra[k], 2) : kind === 'date' ? day(c.extra[k]) : c.extra[k]]));
   const m = modal({
     drawer: true,
-    title: h('div', h('h2', c.name), h('div.en-head-pills', c.types.map(t => h('span.pill', meta.companyTypes[t]?.label || t)))),
+    title: h('div', h('h2', c.name), h('div.en-head-pills', c.types.map(t => h('span.pill', meta.companyTypes[t]?.label || t)),
+      c.subject_id ? h('a.pill.en-link-pill', { href: `#/crm/scheda/${c.subject_id}` }, 'Scheda nel CRM centrale') : null)),
     body: h('div.en-detail',
       h('section.en-sec', dl([
         ['P.IVA', c.vat || '—'], ['Stato', meta.companyStatus[c.status]], ['Gruppo', c.group_id ? h('a', { href: `#/energy/aziende/${c.group_id}` }, c.group_name) : '—'],
