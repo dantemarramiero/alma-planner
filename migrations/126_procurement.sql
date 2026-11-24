@@ -1,5 +1,5 @@
 -- Alma Procurement (ALM2-81, canvas «Alma Procurement · capitolato e fornitori» approvato da Dante il 24/11/2026).
--- Numeri 125–129 riservati a Procurement; 130–139 a Richieste di acquisto e RDO (ALM2-82).
+-- Numero 126 (la 125 è di Alma Energy, ALM2-83); 126–129 per Procurement, 130–139 a Richieste di acquisto e RDO (ALM2-82).
 -- - Capitolato: le merci di Almacis, ognuna in una categoria dei fornitori del CRM (supplier_categories) con la sua
 --   sottocategoria, unità, specifiche, norme, documenti richiesti e le BU che la comprano.
 -- - I fornitori sono le aziende del CRM (crm_subjects con il ruolo «fornitore»): qui solo il legame merce ↔ fornitore,
