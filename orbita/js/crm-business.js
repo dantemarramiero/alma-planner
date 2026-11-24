@@ -7,6 +7,15 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { warmPill, pathsBox, registraEsito } from './crm-esiti.js'; // forza dei rapporti e vinte/perse (win ratio, 16/11)
 import { mercatoTab, soaDialog, marketCard } from './crm-business-mercato.js'; // mappa del mercato (20/11)
+// ALM2-79: i tab del progetto dell'iniziativa, con gli stessi pezzi dei progetti
+import { openTicket } from './tickets.js';
+import { taskBoard, calendarTab, relationsBox, touchBox } from './crm-progetti.js';
+import { projectMeetings } from './project-meetings.js';
+import { projectEmails } from './project-emails.js';
+import { notesPanel } from './notes.js';
+import { projectDocuments } from './activities.js';
+import { ganttView } from './gantt.js';
+import { peoplePicker } from './people.js';
 
 const PHASES = [['esplorazione', 'Esplorazione'], ['analisi', 'Analisi'], ['piano', 'Piano'], ['ingresso', 'Ingresso'], ['consolidamento', 'Consolidamento']];
 const PHASE_KEYS = PHASES.map(([k]) => k);
@@ -25,8 +34,10 @@ const CHECK = { da_verificare: 'da verificare', confermata: 'confermata', smenti
 const PROB = [['poco', 'poco probabile'], ['possibile', 'possibile'], ['probabile', 'probabile']];
 const LEVELS = ['alto', 'medio', 'basso'];
 const LIGHT = { g: 'Verde', y: 'Giallo', r: 'Rosso', n: 'Spento' };
-const TABS = [['chat', 'Chat'], ['clienti', 'Clienti target'], ['gap', 'Cosa ci manca'], ['piano', 'Piano'], ['riflessioni', 'Riflessioni'], ['analisi', 'Analisi'], ['mercato', 'Mercato']];
-const MORE_TABS = [['radar', 'Radar']];
+// ALM2-79 (canvas «Nuovi business come progetto», 24/11): due gruppi di tab, Strategia e Lavoro (quelli di un progetto)
+const TABS = [['chat', 'Chat'], ['clienti', 'Clienti target'], ['gap', 'Cosa ci manca'], ['piano', 'Piano'], ['mercato', 'Mercato']];
+const WORK_TABS = [['compiti', 'Compiti'], ['relazioni', 'Relazioni'], ['incontri', 'Incontri'], ['calendario', 'Calendario'], ['email', 'Email'], ['note', 'Note'], ['documenti', 'Documenti']];
+const MORE_TABS = [['riflessioni', 'Riflessioni'], ['analisi', 'Analisi'], ['radar', 'Radar'], ['gantt', 'Gantt'], ['membri', 'Membri']];
 const MONTHS = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 
 const todayIso = () => new Date().toLocaleDateString('sv-SE');
@@ -439,11 +450,15 @@ function ideaDialog(ctx) {
 async function initiativePage(container, id, tabKey, crmData) {
   fill(container, loading());
   const i = await get(`/api/crm/business/${id}`);
-  const allTabs = [...TABS, ...MORE_TABS];
+  const allTabs = [...TABS, ...WORK_TABS, ...MORE_TABS];
   const tab = allTabs.some(([k]) => k === tabKey) ? tabKey : 'chat';
   const go = (k, extra) => { history.replaceState(null, '', `#/crm/business/${id}/${k}`); initiativePage(container, id, k, { ...crmData, ...extra }); };
   const refresh = () => initiativePage(container, id, tab, crmData);
-  const tasks = (await get(`/api/crm/business/${id}/tasks`)).tasks;
+  // il progetto dell'iniziativa (ALM2-79): compiti, relazioni, incontri, calendario, email, note, documenti, Gantt, membri
+  const [{ tasks }, proj, sum] = await Promise.all([
+    get(`/api/crm/business/${id}/tasks`),
+    i.project_id ? get(`/api/projects/${i.project_id}`, { quiet: true }).catch(() => null) : null,
+    i.project_id ? get(`/api/crm/progetti/${i.project_id}`, { quiet: true }).catch(() => null) : null]);
   const lateTask = tasks.find(t => t.late);
   const body = h('div.nb-body', loading());
   const toolbar = h('div.nb-tb-r');
@@ -455,17 +470,25 @@ async function initiativePage(container, id, tabKey, crmData) {
   } } }, 'Elimina l\'iniziativa'));
   more.append(h('button.nb-menu-i', { type: 'button', on: { click: () => go('analisi', { print: true }) } }, 'Esporta per la riunione'));
   const reason = i.light.reasons.find(r => r.c === i.light.color && r.c !== 'g');
-  const ctx = { i, id, body, toolbar, refresh, go, crmData, tasks, ask: q => go('chat', { ask: q }) };
+  const member = Boolean(proj && proj.my_role && proj.my_role !== 'viewer');
+  const ctx = { i, id, body, toolbar, refresh, go, crmData, tasks, proj, sum, member, ask: q => go('chat', { ask: q }) };
   const n = (t, x) => [t, x ? h('span.nb-tab-n', x) : null];
-  const tabBtn = (k, l) => h('button', { type: 'button', role: 'tab', class: k === tab ? 'on' : '', 'aria-selected': String(k === tab), on: { click: () => go(k) } }, l);
+  const tabBtn = (k, l, work = false) => h('button', { type: 'button', role: 'tab', class: [k === tab ? 'on' : '', work ? 'work' : ''].join(' '), 'aria-selected': String(k === tab), on: { click: () => go(k) } }, l);
+  const openTasks = sum ? sum.tasks_total - sum.tasks_done : 0;
   const tabLabel = k => (k === 'gap' ? n('Cosa ci manca', i.gaps.total ? `${i.gaps.ok}/${i.gaps.total}` : '') : k === 'clienti' ? n('Clienti target', i.funnel.individuati || '')
-    : k === 'piano' && i.lateTasks ? ['Piano', h('span.nb-bang', '!')] : k === 'riflessioni' ? n('Riflessioni', '') : k === 'mercato' ? n('Mercato', i.market_gare || '') : TABS.find(x => x[0] === k)[1]);
+    : k === 'piano' && i.lateTasks ? ['Piano', h('span.nb-bang', '!')] : k === 'mercato' ? n('Mercato', i.market_gare || '')
+      : k === 'compiti' ? (sum?.tasks_late ? ['Compiti', h('span.nb-bang', '!')] : n('Compiti', openTasks || '')) : k === 'incontri' ? n('Incontri', sum?.meetings || '')
+        : allTabs.find(x => x[0] === k)[1]);
   const moreMenu = h('details.nb-more-tab', { class: MORE_TABS.some(([k]) => k === tab) ? 'on' : '' },
     h('summary', MORE_TABS.find(([k]) => k === tab)?.[1] || 'Altro', ic('chevron-down', 12)),
     h('div.nb-menu-list', MORE_TABS.map(([k, l]) => h('button.nb-menu-i', { type: 'button', on: { click: () => go(k) } }, l))));
-  const stats = h('div.nb-stats', h('div', h('b', i.gaps.total ? `${i.gaps.ok} / ${i.gaps.total}` : '—'), h('small', 'requisiti a posto')),
+  const nextMeet = sum?.next_meeting ? new Date(sum.next_meeting) : null;
+  const stats = h('div.nb-stats.four',
+    h('div', h('b', sum ? `${sum.tasks_done} / ${sum.tasks_total}` : '—'), h('small', 'compiti fatti'), sum?.tasks_late ? h('small.nb-red', `${sum.tasks_late} in ritardo`) : null),
+    h('div', h('b', nextMeet ? nextMeet.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', timeZone: 'Europe/Rome' }) : '—'), h('small', 'prossimo incontro')),
     h('div', h('b', `${i.funnel.contattati} / ${i.funnel.individuati}`), h('small', 'clienti contattati')),
     h('div', h('b', eur(i.spent)), h('small', `su ${eur(i.budget_eur)} di budget`)));
+  const newTask = () => openTicket(null, { defaults: { project_id: i.project_id, assignee_ids: [store.me.id] }, onSaved: refresh });
   const gl = i.gate;
   fill(container, h('div.nb',
     h('nav.pj-top', { 'aria-label': 'Percorso' }, h('a.pj-crumb', { href: '#/crm/business' }, ic('chevron-left'), 'Nuovi business')),
@@ -475,19 +498,108 @@ async function initiativePage(container, id, tabKey, crmData) {
         h('div.nb-meta', h('span.nb-who', av(i.owner_name), `${i.owner_name || '—'} · responsabile`), i.sponsor_name ? h('span.nb-who', av(i.sponsor_name, 'o'), `${i.sponsor_name} · sponsor`) : null,
           i.phase === 'abbandonata' ? pill('Abbandonata', 'off') : lightPill(i.light.color, `${LIGHT[i.light.color]}${reason ? ` · ${reason.t[0].toLowerCase()}${reason.t.slice(1)}` : ''}`))),
       h('div.nb-hero-r', h('div.nb-actions',
-        // «Porta avanti» (canvas v9): l'iniziativa diventa un progetto di Alma Space in «I miei progetti»
-        i.project_id ? btn('Apri il progetto', () => { location.hash = `#/crm/progetto/${i.project_id}`; }, { ico: 'folder' })
+        // «Porta avanti» (canvas v9, ALM2-79): il progetto dell'iniziativa riceve squadra, piano e obiettivo ed entra in «I miei progetti»
+        i.project_id && i.launched_at ? btn('Apri il progetto', () => { location.hash = `#/crm/progetto/${i.project_id}`; }, { ico: 'folder' })
           : i.canEdit && i.phase !== 'abbandonata' ? btn('Porta avanti', () => { location.hash = `#/crm/lancio/i/${i.id}`; }, { ico: 'rocket', primary: true }) : null,
+        member ? btn('Nuovo compito', newTask, { ico: 'plus' }) : null,
         i.canEdit ? btn('Modifica', () => editForm(i, crmData.asa || [], refresh, crmData.meta || {}), { ico: 'pencil' }) : null,
         h('details.nb-menu', h('summary.nb-btn.ghost', { 'aria-label': 'Altro' }, ic('more')), more)), stats),
       h('div.nb-hero-steps', stepper(i))),
     gl?.late && i.phase !== 'abbandonata' ? h('div.nb-focus', ic('alert-triangle'), h('div.grow', h('b', 'Da decidere: '), `gate G${gl.n} «${gl.question}» è scaduto il ${day(gl.due_date)}.${lateTask ? ` Passo scaduto: «${lateTask.title}» (${lateTask.owner_name || '—'}).` : ''}`),
       i.canDecide ? btn('Decidi il gate', () => gateDialog(i, gl, 'prosegui', tasks, refresh), { small: true }) : null,
       lateTask ? btn('Apri il passo', () => go('piano'), { small: true, ghost: true }) : null) : null,
-    h('div.nb-tb', h('nav.nb-tabs', { role: 'tablist' }, TABS.map(([k]) => tabBtn(k, tabLabel(k))), moreMenu), toolbar),
+    h('div.nb-tb', h('nav.nb-tabs.nb-tabs2', { role: 'tablist', 'aria-label': 'Sezioni dell\'iniziativa' },
+      h('span.nb-tabgrp', 'Strategia'), TABS.map(([k]) => tabBtn(k, tabLabel(k))),
+      h('span.nb-tabsep', { 'aria-hidden': 'true' }),
+      h('span.nb-tabgrp', 'Lavoro'), WORK_TABS.map(([k]) => tabBtn(k, tabLabel(k), true)), moreMenu), toolbar),
     body));
-  const fn = { chat: chatTab, clienti: targetsTab, gap: gapsTab, piano: planTab, radar: radarTab, riflessioni: notesTab, analisi: analysisTab, mercato: mercatoTab }[tab];
-  await fn(ctx);
+  const fn = { chat: chatTab, clienti: targetsTab, gap: gapsTab, piano: planTab, radar: radarTab, riflessioni: notesTab, analisi: analysisTab, mercato: mercatoTab,
+    compiti: workTasksTab, relazioni: workRelationsTab, incontri: workTab, calendario: workTab, email: workTab, note: workTab, documenti: workTab, gantt: workTab, membri: membersTab }[tab];
+  await fn({ ...ctx, tab, newTask });
+}
+
+// ── Lavoro: i tab del progetto dell'iniziativa (ALM2-79) ─────────────────────────────────────────
+const noProject = ctx => fill(ctx.body, empty('Il progetto dell\'iniziativa non si è caricato: ricarica la pagina.', 'alert-triangle'));
+async function workTasksTab(ctx) {
+  const { i, proj, body, member, newTask } = ctx;
+  if (!proj) return noProject(ctx);
+  const [tickets, meetings, emails] = await Promise.all([get(`/api/tickets?project=${proj.id}`),
+    get(`/api/projects/${proj.id}/meetings`, { quiet: true }).catch(() => []), get(`/api/projects/${proj.id}/emails`, { quiet: true }).catch(() => [])]);
+  let mine = false;
+  const boardBox = h('div');
+  // il selettore Tutti/Miei ridisegna solo la bacheca
+  const segBox = h('div');
+  const drawSeg = () => fill(segBox, seg([['tutti', 'Tutti'], ['miei', 'Miei']], mine ? 'miei' : 'tutti', k => { mine = k === 'miei'; drawSeg(); drawBoard(); }));
+  const drawBoard = () => fill(boardBox, taskBoard(mine ? tickets.filter(t => (t.assignee_ids || []).includes(store.me.id)) : tickets, proj, ctx.refresh, { drag: member, origin: true }));
+  const today = todayIso();
+  const weekEnd = new Date(`${today}T12:00:00Z`); weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+  const we = weekEnd.toISOString().slice(0, 10);
+  const week = [
+    ...meetings.filter(m => String(m.start_at).slice(0, 10) >= today && String(m.start_at).slice(0, 10) <= we).map(m => ({ d: String(m.start_at).slice(0, 10), t: m.subject || 'Incontro', k: 'inc' })),
+    ...tickets.filter(t => t.status !== 'done' && t.due_date && t.due_date <= we).map(t => ({ d: t.due_date, t: t.title, k: t.due_date < today ? 'late' : 'task', id: t.id })),
+  ].sort((a, b) => a.d.localeCompare(b.d)).slice(0, 8);
+  fill(body, h('div.nb-work',
+    h('div.nb-work-main',
+      h('div.nb-work-h', h('div.grow', h('p.nb-small.muted', 'Gli stessi compiti di un progetto: assegnati, con scadenza, in «La mia settimana». I passi del Piano sono qui con l\'etichetta «Piano». Trascina un compito per cambiarne lo stato.')),
+        segBox),
+      boardBox),
+    h('aside.nb-work-side',
+      card('Questa settimana', h('button.nb-link', { type: 'button', on: { click: () => ctx.go('calendario') } }, 'Calendario'),
+        week.length ? week.map(w => h(w.id ? 'button.nb-wk' : 'div.nb-wk', { type: w.id ? 'button' : undefined, class: w.k, on: w.id ? { click: () => openTicket(w.id, { onSaved: ctx.refresh }) } : undefined },
+          h('span.nb-wk-d', w.d < today ? 'scaduto' : new Date(`${w.d}T12:00:00Z`).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })), h('i'), h('span', w.t)))
+          : h('p.nb-small.muted', 'Niente in agenda nei prossimi sette giorni.')),
+      card('Ultime email', h('button.nb-link', { type: 'button', on: { click: () => ctx.go('email') } }, 'Tutte'),
+        emails.length ? emails.slice(0, 3).map(e => h('div.nb-wm', h('b', e.subject || '(senza oggetto)'), h('small', [e.from_name || e.from_address, e.sent_at ? relDay(e.sent_at) : null].filter(Boolean).join(' · '))))
+          : h('p.nb-small.muted', 'Nessuna email nell\'iniziativa. Collegale dal tab Email.')))));
+  drawSeg();
+  drawBoard();
+}
+async function workRelationsTab(ctx) {
+  const { proj, body, member } = ctx;
+  if (!proj) return noProject(ctx);
+  fill(body, h('div.nb-work',
+    h('div.nb-work-main',
+      h('p.nb-small.muted', 'Aziende ed enti del CRM collegati all\'iniziativa, ognuno con le sue persone: spunta chi c\'entra. Collegando una persona entra anche la sua azienda. I clienti target nel CRM entrano da soli.'),
+      relationsBox(proj.id, { canEdit: member || ctx.i.canEdit })),
+    h('aside.nb-work-side', touchBox({ project: proj.id }, { onChange: ctx.refresh }))));
+}
+async function workTab(ctx) {
+  const { proj, body, tab } = ctx;
+  if (!proj) return noProject(ctx);
+  const box = h('div.nb-workpane');
+  fill(body, box);
+  const canManage = proj.my_role === 'owner' || proj.my_role === 'admin';
+  if (tab === 'incontri') projectMeetings(box, proj, {});
+  else if (tab === 'calendario') calendarTab(box, proj.id);
+  else if (tab === 'email') projectEmails(box, proj);
+  else if (tab === 'note') notesPanel(box, { url: `/api/projects/${proj.id}/notes`, showTicket: true });
+  else if (tab === 'documenti') projectDocuments(box, proj.id, { canManage, onFolderChanged: ctx.refresh });
+  else if (tab === 'gantt') ganttView(box, new URLSearchParams({ project: String(proj.id) }), { embedded: true });
+}
+async function membersTab(ctx) {
+  const { proj, body, i } = ctx;
+  if (!proj) return noProject(ctx);
+  const canManage = proj.my_role === 'owner' || proj.my_role === 'admin' || i.canEdit;
+  const team = await get(`/api/projects/${proj.id}/members`);
+  const add = () => {
+    const picker = peoplePicker({ selected: [], label: '＋ Scegli' });
+    const md = modal({
+      title: `Aggiungi persone a «${i.name}»`, body: [picker.el],
+      actions: [btn('Annulla', () => md.close()), btn('Aggiungi', async () => {
+        if (!picker.value.length) return toast('Scegli almeno una persona', 'err');
+        await post(`/api/projects/${proj.id}/members`, { user_ids: picker.value });
+        md.close(); toast('Aggiunte all\'iniziativa'); ctx.refresh();
+      }, { primary: true })],
+    });
+  };
+  fill(body, card('Membri', canManage ? btn('Aggiungi persone', add, { small: true, ico: 'plus' }) : null,
+    h('p.nb-small.muted', 'Lavorano all\'iniziativa queste persone; gli altri la vedono in sola lettura. Chi viene assegnato a un compito entra da solo.'),
+    h('div.nb-members', team.map(m => h('div.nb-member', av(m.name), h('div.grow', h('b', m.name), h('small', m.job_title || m.email || '')),
+      h('small', m.owner ? 'Responsabile' : `${m.open_tickets} ${m.open_tickets === 1 ? 'compito aperto' : 'compiti aperti'}`),
+      !m.owner && canManage ? btn('Togli', async () => {
+        if (!await confirmDialog(`Togliere ${m.name} dall'iniziativa?`, { ok: 'Togli', danger: true })) return;
+        await del(`/api/projects/${proj.id}/members/${m.id}`); ctx.refresh();
+      }, { small: true, ghost: true }) : null)))));
 }
 
 // ── chat ──────────────────────────────────────────────────────────────────────────────────────

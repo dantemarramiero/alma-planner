@@ -18,6 +18,7 @@ const { stats: outcomeStats } = require('../lib/crm-esiti');
 const { registerCrmBusinessMercato } = require('./crm-business-mercato'); // mappa del mercato (20/11)
 const { marketSummary, countGare } = require('../lib/crm-business-mercato');
 const { effectiveSoa } = require('../lib/crm-soa-crm'); // SOA da ANAC e a mano (canvas v14)
+const NBP = require('../lib/crm-business-progetto'); // ogni iniziativa ha il suo progetto, ogni passo il suo compito (ALM2-79)
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const month = () => todayRome().slice(0, 7);
@@ -41,7 +42,7 @@ const strList = (value, field, max = 40) => {
   return [...new Set(value.map(x => String(x ?? '').trim().slice(0, 120)).filter(Boolean))].slice(0, max);
 };
 
-function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], auth, push, baseUrl }) {
+function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], auth, push, baseUrl, alerts }) {
   const aiKey = () => process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
   const fetchImpl = () => radarFetch || fetch;
 
@@ -231,6 +232,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     const { rows: [i] } = await db.query(`INSERT INTO crm_initiatives (${c.join(', ')}) VALUES (${c.map((_, k) => `$${k + 1}`).join(', ')}) RETURNING *`, Object.values(f));
     // G0 fra due settimane (aprire l'iniziativa dopo l'esplorazione), gli altri senza data finché non c'è il piano
     for (let n = 0; n < 5; n++) await db.query('INSERT INTO crm_initiative_gates (initiative_id, n, question, due_date) VALUES ($1, $2, $3, $4)', [i.id, n, B.GATES[n], n === 0 ? g0 : null]);
+    i.project_id = await NBP.ensureProject(db, i.id, req.user.id); // il progetto nasce con l'iniziativa (ALM2-79)
     res.status(201).json(i);
   });
 
@@ -281,6 +283,8 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
   });
 
   app.get('/api/crm/business/:id', async (req, res) => {
+    await byId(iid(req));
+    await NBP.ensureProject(db, iid(req), req.user.id); // le iniziative nate prima di ALM2-79 lo ricevono alla prima apertura
     const i = await byId(iid(req));
     const marketGare = await countGare(db, await loadSettings(db), i).catch(() => 0);
     res.json({ ...i, started_on: dayOf(i.started_on), ...(await stats(i)), market_gare: marketGare, canEdit: canEdit(req, i), canDecide: canDecide(req, i), ai: Boolean(aiKey()), meta: meta() });
@@ -291,6 +295,12 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     if (!Object.keys(f).length) return res.json(i);
     const c = Object.keys(f);
     const { rows: [out] } = await db.query(`UPDATE crm_initiatives SET ${c.map((k, n) => `${k} = $${n + 2}`).join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`, [i.id, ...Object.values(f)]);
+    // il progetto dell'iniziativa segue nome, descrizione e responsabile; responsabile e sponsor ci lavorano
+    if (out.project_id) {
+      await db.query('UPDATE projects SET name = $2, description = $3, owner_id = COALESCE($4, owner_id), updated_at = now() WHERE id = $1',
+        [out.project_id, out.name.slice(0, 200), String(out.description || '').slice(0, 2000), out.owner_id]);
+      await NBP.addMembers(db, out.project_id, [i.owner_id, out.sponsor_id], req.user.id);
+    }
     res.json(out);
   });
   app.delete('/api/crm/business/:id', async (req, res) => {
@@ -359,6 +369,12 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
       [i.id, subject?.id || null, t.name, t.segment || '', t.why || '', t.priority || 'media', t.status || 'da_contattare', t.note || '', userId]);
     return x;
   }
+  // un cliente target nel CRM entra nelle Relazioni del progetto dell'iniziativa (ALM2-79)
+  async function linkTarget(i, subjectId, userId) {
+    if (!subjectId || !i.project_id) return;
+    await db.query(`INSERT INTO crm_project_links (project_id, subject_id, role, linked_by) VALUES ($1, $2, 'cliente_target', $3)
+                    ON CONFLICT (project_id, subject_id) WHERE subject_id IS NOT NULL DO NOTHING`, [i.project_id, subjectId, userId]);
+  }
   app.get('/api/crm/business/:id/targets', async (req, res) => {
     const i = await byId(iid(req));
     const { rows } = await db.query(
@@ -377,6 +393,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     const i = await editable(req, iid(req));
     const t = await addTarget(i, await targetFields(req.body, { partial: false }), req.user.id);
     if (!t) throw new HttpError(409, 'Questa azienda è già tra i clienti target');
+    await linkTarget(i, t.subject_id, req.user.id);
     await touch(i.id);
     res.status(201).json(t);
   });
@@ -412,6 +429,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
       subjectId = s.id;
     }
     await db.query('UPDATE crm_initiative_targets SET subject_id = $2, updated_at = now() WHERE id = $1', [t.id, subjectId]);
+    await linkTarget(i, subjectId, req.user.id);
     res.status(201).json({ subject_id: subjectId, existed: Boolean(found) });
   });
 
@@ -479,7 +497,16 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     if (f.owner_id === undefined) f.owner_id = i.owner_id;
     f.created_by = userId;
     const c = ['initiative_id', ...Object.keys(f)];
-    return (await db.query(`INSERT INTO crm_initiative_tasks (${c.join(', ')}) VALUES (${c.map((_, k) => `$${k + 1}`).join(', ')}) RETURNING *`, [i.id, ...Object.values(f)])).rows[0];
+    const step = (await db.query(`INSERT INTO crm_initiative_tasks (${c.join(', ')}) VALUES (${c.map((_, k) => `$${k + 1}`).join(', ')}) RETURNING *`, [i.id, ...Object.values(f)])).rows[0];
+    // ogni passo è un compito del progetto dell'iniziativa: arriva a chi lo fa (campanella, telefono, email)
+    step.ticket_id = await NBP.ticketForStep(db, step, userId);
+    if (step.ticket_id && step.owner_id && step.owner_id !== userId && alerts) {
+      Promise.all([
+        db.query('SELECT t.*, p.name AS project_name FROM tickets t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = $1', [step.ticket_id]),
+        db.query('SELECT id, name, email FROM users WHERE id = $1', [userId]),
+      ]).then(([{ rows: [tk] }, { rows: [actor] }]) => (tk && actor ? alerts.ticketAssigned({ ...tk, due_date: dayOf(tk.due_date) }, [step.owner_id], actor) : null)).catch(() => {});
+    }
+    return step;
   }
   app.post('/api/crm/business/:id/tasks', async (req, res) => {
     const i = await editable(req, iid(req));
@@ -493,12 +520,14 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     if (!Object.keys(f).length) return res.json(taskOut(t));
     const c = Object.keys(f);
     const out = (await db.query(`UPDATE crm_initiative_tasks SET ${c.map((k, n) => `${k} = $${n + 2}`).join(', ')}, alerted_at = NULL WHERE id = $1 RETURNING *`, [t.id, ...Object.values(f)])).rows[0];
+    await NBP.stepToTicket(db, out, f, req.user.id); // il compito segue il passo
     await touch(t.initiative_id);
     res.json(taskOut(out));
   });
   app.delete('/api/crm/business/tasks/:tid', async (req, res) => {
     const t = await child('crm_initiative_tasks', v.int(req.params.tid, 'id', { min: 1 }), 'Passo');
     await editable(req, t.initiative_id);
+    if (t.ticket_id) await db.query('DELETE FROM tickets WHERE id = $1', [t.ticket_id]); // via anche il suo compito
     await db.query('DELETE FROM crm_initiative_tasks WHERE id = $1', [t.id]);
     res.json({ ok: true });
   });

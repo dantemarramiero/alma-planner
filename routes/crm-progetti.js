@@ -139,12 +139,14 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
   async function initiativeProposal(req, id, users) {
     const { rows: [i] } = await db.query('SELECT i.*, a.label AS asa_label FROM crm_initiatives i LEFT JOIN crm_asa a ON a.key = i.asa WHERE i.id = $1', [id]);
     if (!i) throw new HttpError(404, 'Iniziativa non trovata');
-    if (i.project_id) return { already: i.project_id };
+    // dal 24/11 (ALM2-79) l'iniziativa ha il progetto da subito: «già portata avanti» = lanciata
+    if (i.project_id && i.launched_at) return { already: i.project_id };
     const today = todayRome();
     const owner = i.owner_id || req.user.id;
     const [{ rows: gates }, { rows: tasks }, { rows: targets }] = await Promise.all([
       db.query('SELECT n, question, due_date, decision FROM crm_initiative_gates WHERE initiative_id = $1 ORDER BY n', [id]),
-      db.query('SELECT title, owner_id, due_date, phase FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL ORDER BY sort, id', [id]),
+      // i passi che sono già compiti del progetto non si ripropongono (sarebbero doppioni)
+      db.query('SELECT title, owner_id, due_date, phase FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL AND ticket_id IS NULL ORDER BY sort, id', [id]),
       db.query('SELECT count(*)::int AS n FROM crm_initiative_targets WHERE initiative_id = $1', [id]).catch(() => ({ rows: [{ n: 0 }] })),
     ]);
     const at = PHASE_OF_INITIATIVE[i.phase] ?? 0;
@@ -230,18 +232,30 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
       } else {
         const { rows: [i] } = await q.query('SELECT * FROM crm_initiatives WHERE id = $1 FOR UPDATE', [initiativeId]);
         if (!i) throw new HttpError(404, 'Iniziativa non trovata');
-        if (i.project_id) throw new HttpError(409, 'Questa iniziativa ha già il suo progetto');
+        if (i.project_id && i.launched_at) throw new HttpError(409, 'Questa iniziativa è già stata portata avanti');
         src = i; kind = 'settore'; color = '#3A3835';
         name = String(b.name || i.name).trim().slice(0, 200);
         desc = String(i.description || '').slice(0, 2000);
         step = Math.min(PHASE_OF_INITIATIVE[i.phase] ?? 0, 4);
       }
       const allDue = phases.flatMap(p => p.tasks.map(t => t.due_date)).filter(Boolean).sort();
-      const { rows: [p] } = await q.query(
-        `INSERT INTO projects (name, description, color, status, start_date, end_date, owner_id, crm_kind, crm_goal, crm_step)
-         VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9) RETURNING id`,
-        [name, desc, color, today, allDue.length ? later(allDue[allDue.length - 1], today) : null, ownerId, kind, JSON.stringify(goal), step]);
-      const pid = p.id;
+      const endDate = allDue.length ? later(allDue[allDue.length - 1], today) : null;
+      let pid;
+      if (initiativeId && src.project_id) {
+        // l'iniziativa ha già il suo progetto (ALM2-79): «Porta avanti» lo fa crescere, compiti ed email restano
+        pid = src.project_id;
+        await q.query(`UPDATE projects SET name = $2, owner_id = $3, crm_kind = 'settore', crm_goal = $4, crm_step = $5, status = 'active',
+                         end_date = CASE WHEN $6::date IS NULL THEN end_date WHEN end_date IS NULL OR end_date < $6::date THEN $6::date ELSE end_date END, updated_at = now() WHERE id = $1`,
+          [pid, name, ownerId, JSON.stringify(goal), step, endDate]);
+        if (src.owner_id && src.owner_id !== ownerId) await q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pid, src.owner_id, req.user.id]);
+        await q.query('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [pid, ownerId]); // il responsabile non è anche membro
+      } else {
+        const { rows: [p] } = await q.query(
+          `INSERT INTO projects (name, description, color, status, start_date, end_date, owner_id, crm_kind, crm_goal, crm_step)
+           VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9) RETURNING id`,
+          [name, desc, color, today, endDate, ownerId, kind, JSON.stringify(goal), step]);
+        pid = p.id;
+      }
       const add = async uid => q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pid, uid, req.user.id]);
       if (ownerId !== req.user.id) await add(req.user.id);
       for (const uid of memberIds) await add(uid);
@@ -269,7 +283,7 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
         await q.query(`UPDATE crm_signals SET project_id = $2, status = CASE WHEN status IN ('nuovo', 'interessa') THEN 'interessa' ELSE status END,
                          decided_by = COALESCE(decided_by, $3), decided_at = COALESCE(decided_at, now()) WHERE id = $1`, [signalId, pid, req.user.id]);
       } else {
-        await q.query('UPDATE crm_initiatives SET project_id = $2, updated_at = now() WHERE id = $1', [initiativeId, pid]);
+        await q.query('UPDATE crm_initiatives SET project_id = $2, launched_at = now(), updated_at = now() WHERE id = $1', [initiativeId, pid]);
       }
       return { project_id: pid, kind, tasks: n, people: new Set(created.map(c => c.user)).size, subject_id: subjectId, source: src.id };
     });
@@ -295,7 +309,7 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
       db.query('SELECT project_id, user_id FROM project_members WHERE project_id = ANY($1::int[])', [projectIds]),
       db.query(`SELECT g.id, g.project_id, g.title, g.entity, g.bu, g.amount, g.deadline, g.expected_on, g.stage, g.score, g.source, s.name AS subject_name, a.label AS bu_label
                   FROM crm_signals g LEFT JOIN crm_subjects s ON s.id = g.subject_id LEFT JOIN crm_asa a ON a.key = g.bu WHERE g.project_id = ANY($1::int[])`, [projectIds]),
-      db.query(`SELECT i.id, i.project_id, i.name, i.asa, i.phase, i.budget_eur, i.spent_eur, a.label AS asa_label,
+      db.query(`SELECT i.id, i.project_id, i.name, i.asa, i.phase, i.budget_eur, i.spent_eur, i.launched_at, a.label AS asa_label,
                        (SELECT json_build_object('n', gg.n, 'due_date', gg.due_date) FROM crm_initiative_gates gg WHERE gg.initiative_id = i.id AND gg.decision = '' AND gg.n > 0 ORDER BY gg.n LIMIT 1) AS next_gate
                   FROM crm_initiatives i LEFT JOIN crm_asa a ON a.key = i.asa WHERE i.project_id = ANY($1::int[])`, [projectIds]),
       db.query("SELECT project_id, count(*)::int AS n, min(start_at) FILTER (WHERE start_at >= (now() AT TIME ZONE 'Europe/Rome')) AS next_at FROM project_meetings WHERE project_id = ANY($1::int[]) GROUP BY project_id", [projectIds]).catch(() => ({ rows: [] })),
@@ -324,7 +338,7 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
         source: sig ? { type: 'signal', id: sig.id, email: sig.source === 'email', entity: sig.subject_name || sig.entity || '', bu: sig.bu, bu_label: sig.bu_label || '', amount: sig.amount != null ? Number(sig.amount) : null,
           deadline: iso(sig.deadline), expected_on: iso(sig.expected_on), stage: sig.stage, score: sig.score }
           : ini ? { type: 'initiative', id: ini.id, entity: ini.asa_label || '', bu: ini.asa || '', bu_label: ini.asa_label || '', budget: Number(ini.budget_eur) || 0,
-            spent: Number(ini.spent_eur) || 0, phase: ini.phase, next_gate: ini.next_gate ? { n: ini.next_gate.n, due_date: iso(ini.next_gate.due_date) } : null }
+            spent: Number(ini.spent_eur) || 0, phase: ini.phase, launched: Boolean(ini.launched_at), next_gate: ini.next_gate ? { n: ini.next_gate.n, due_date: iso(ini.next_gate.due_date) } : null }
             : null,
       };
     });
@@ -342,15 +356,18 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
     let ids;
     if (vista === 'miei') {
       ({ rows: ids } = await db.query(`SELECT p.id FROM projects p WHERE p.crm_kind <> '' AND p.status <> 'archived'
+        AND NOT EXISTS (SELECT 1 FROM crm_initiatives ni WHERE ni.project_id = p.id AND ni.launched_at IS NULL)
         AND (p.owner_id = $1 OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = $1))`, [me]));
     } else if (vista === 'team') {
       const bus = await myBus(me);
-      ({ rows: ids } = await db.query(`SELECT p.id FROM projects p WHERE p.crm_kind <> '' AND p.status <> 'archived' AND (
+      ({ rows: ids } = await db.query(`SELECT p.id FROM projects p WHERE p.crm_kind <> '' AND p.status <> 'archived'
+        AND NOT EXISTS (SELECT 1 FROM crm_initiatives ni WHERE ni.project_id = p.id AND ni.launched_at IS NULL) AND (
           EXISTS (SELECT 1 FROM crm_signals g WHERE g.project_id = p.id AND g.bu = ANY($1::text[]))
           OR EXISTS (SELECT 1 FROM crm_initiatives i WHERE i.project_id = p.id AND i.asa = ANY($1::text[]))
           OR p.owner_id = $2 OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = $2))`, [bus, me]));
     } else {
-      ({ rows: ids } = await db.query("SELECT id FROM projects WHERE crm_kind <> '' AND status <> 'archived'"));
+      ({ rows: ids } = await db.query(`SELECT p.id FROM projects p WHERE p.crm_kind <> '' AND p.status <> 'archived'
+        AND NOT EXISTS (SELECT 1 FROM crm_initiatives ni WHERE ni.project_id = p.id AND ni.launched_at IS NULL)`));
     }
     const list = await summaries(ids.map(r => r.id), users);
     const today = todayRome();
