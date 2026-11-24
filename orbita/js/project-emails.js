@@ -4,6 +4,7 @@ import { h, clear, fill, avatar, modal, toast, loading, debounce, confirmDialog,
 import { icon } from './icons.js';
 import { get, post, del } from './api.js';
 import { store, userById } from './store.js';
+import { proposalSection, syncTwin } from './proposte-persone.js';
 
 const FOLDERS = [['inbox', 'Posta in arrivo'], ['sent', 'Posta inviata'], ['all', 'Tutte']];
 const sender = e => ({ name: e.from_name || e.from?.name || e.from_address || e.from?.address || '?', email: e.from_address || e.from?.address || '' });
@@ -111,11 +112,16 @@ function assignDialog(p, onDone) {
   const tabs = h('div.seg', FOLDERS.map(([k, label]) => h('button', { type: 'button', class: k === folder ? 'on' : '', 'data-k': k, on: { click: () => { folder = k; tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); reload(); } } }, label)));
   const counter = h('span.muted');
   const assignBtn = h('button.btn.btn-primary', { type: 'button', disabled: true }, 'Assegna');
+  // in cima: le email con le persone del progetto, già spuntate (ALM2-84)
+  const proposals = proposalSection({
+    url: `/api/projects/${p.id}/email-proposals`, listKey: 'messages', noun: ['email', 'email', 'f'],
+    pick: msg => picked.set(msg.id, msg), row: msg => row(msg, true), onReady: updateFooter,
+  });
 
   const m = modal({
     title: `Assegna email a «${p.name}»`,
     wide: true,
-    body: [h('div.pe-pick-bar', tabs, search), listBox],
+    body: [proposals, h('div.pe-pick-bar', tabs, search), listBox],
     left: [counter],
     actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), assignBtn],
   });
@@ -127,18 +133,20 @@ function assignDialog(p, onDone) {
     assignBtn.textContent = picked.size > 1 ? `Assegna ${picked.size} email` : 'Assegna';
   }
 
-  function row(msg) {
+  function row(msg, proposed = false) {
     const on = picked.has(msg.id);
-    const box = h('input', { type: 'checkbox', checked: on || msg.assigned, disabled: msg.assigned, tabIndex: -1 });
+    const box = h('input', { type: 'checkbox', checked: on || msg.assigned, disabled: msg.assigned, tabIndex: -1, 'data-pid': msg.id });
     const el = h('label.pe-pick', { class: [on ? 'on' : '', msg.assigned ? 'done' : ''].join(' ') },
       box,
       h('div.pe-main',
         h('div.pe-line', h('strong.pe-from', msg.from.name || msg.from.address), h('span.pe-date', fmtDateTime(msg.date))),
+        proposed && msg.with?.length ? h('div.pp-with', icon('users', { size: 13 }), ` con ${msg.with.join(', ')}`) : null,
         h('div.pe-subject', msg.subject, msg.has_attachments ? h('span.pe-clip', { title: 'Con allegati' }, icon('paperclip', { size: 13 })) : null, msg.assigned ? h('span.pill.pe-already', 'già nel progetto') : null),
         h('div.pe-preview', msg.preview)));
     box.addEventListener('change', () => {
       if (box.checked) picked.set(msg.id, msg); else picked.delete(msg.id);
       el.classList.toggle('on', box.checked);
+      syncTwin(m.box, msg.id, box.checked);
       updateFooter();
     });
     return el;
