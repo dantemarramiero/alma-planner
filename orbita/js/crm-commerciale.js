@@ -367,6 +367,19 @@ export async function weekTab(box, data, { userId = null } = {}) {
           h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => openPlan(p.id, again) } }, s0.draft ? [ic('mail', 14), 'Vedi email'] : 'Apri'),
           h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; await post(`/api/crm/plans/${p.id}/accept`, {}); toast('Approvato: il primo passo è nei prossimi passi'); again(); } } }, ic('check', 14), 'Approva')));
     })) : null;
+  // ALM2-76 (tavola 3): progettisti delle opportunità seguite, con il passo proposto da approvare
+  if (w.designers?.length) {
+    side.unshift(card({ title: 'Progettisti nuovi da conoscere', icon: 'pencil-ruler', count: w.designers.length, attrs: { id: 'cv-wk-designers' } },
+      w.designers.map(dz => h('div.cv-li', { style: { display: 'grid', gap: '8px' } },
+        h('div.cv-row', { style: { gap: '10px' } }, av(dz.capo.name, 'bl'),
+          h('div.cv-grow', { style: { minWidth: 0 } }, h('a.cv-li-t', { href: `#/crm/scheda/${dz.capo.subject_id}` }, dz.capo.name),
+            h('div.cv-li-m', dots([`progetta ${dz.title}`, dz.amount ? `${Number(dz.amount).toLocaleString('it-IT')} €` : '', dz.expected_on ? `gara attesa ${day(dz.expected_on)}` : 'gara attesa da capire', dz.confirmed ? '' : 'da confermare']))),
+          dz.knows[0] ? pill(`${dz.knows[0].user_name.split(' ')[0]} lo conosce`, 'gr') : null),
+        dz.step ? h('div.cv-soft.cv-small', 'Passo proposto: ', h('b', dz.step.title), ` entro ${dz.step.within_days || 7} giorni. Il progettista sceglie materiali e capitolato: conoscerlo prima del bando dei lavori conta.`) : null,
+        h('div.cv-row', { style: { gap: '8px' } },
+          dz.step ? h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; await post(`/api/crm/radar/signals/${dz.id}/progettista/passo`, {}); toast('Passo approvato: è nei prossimi passi'); again(); } } }, 'Approva il passo') : null,
+          h('a.btn.btn-sm', { href: `#/crm/scheda/${dz.capo.subject_id}` }, 'Cambia'))))));
+  }
   if (todoOut.items.length) {
     side.push(card({ title: 'Esiti da registrare', icon: 'trophy', count: todoOut.items.length, right: h('a.cv-lnk', { href: '#/crm/esiti' }, 'Vinte e perse') }, todoRows(todoOut.items.slice(0, 5), again)));
   }

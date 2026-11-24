@@ -92,7 +92,7 @@ export async function openSignal(id, onDone, data, list = []) {
     drawer: true,
     title: h('div.cv-head-row', scoreRing(g.score, { size: 'lg', hi: g.highlight || 70 }),
       h('div.cv-grow',
-        h('div.cv-row.cv-wrap.cv-small.cv-muted', { style: { gap: '6px' } }, pill(KIND_SHORT[g.kind] || (g.kind === 'subappalto' ? 'Subappalto o ATI' : g.kind) || 'Segnale', 'or'), g.stage ? pill(STAGE_LABEL[g.stage] || g.stage, 'bl') : null, g.bu_label ? pill(g.bu_label, 'line') : null,
+        h('div.cv-row.cv-wrap.cv-small.cv-muted', { style: { gap: '6px' } }, pill(KIND_SHORT[g.kind] || (g.kind === 'subappalto' ? 'Subappalto o ATI' : g.kind) || 'Segnale', 'or'), g.stage ? pill(g.stage === 'progetto' && (g.design_signal_id || g.designer) ? 'Prima del bando · progetto in corso' : STAGE_LABEL[g.stage] || g.stage, 'bl') : null, g.bu_label ? pill(g.bu_label, 'line') : null,
           h('span', dots([g.source === 'infordat' ? 'Infordat' : g.source === 'manuale' ? 'segnalato a mano' : g.source, day(g.published_on || g.created_at)]))),
         h('h2', { style: { marginTop: '6px' } }, g.title),
         g.url ? h('a.cv-lnk', { href: g.url, target: '_blank', rel: 'noopener', style: { marginTop: '4px' } }, ic('external', 13), `Apri la fonte${host(g.url) ? ` · ${host(g.url)}` : ''}`) : null),
@@ -101,6 +101,7 @@ export async function openSignal(id, onDone, data, list = []) {
         h('button.btn.btn-sm.btn-ghost.cv-ico', { type: 'button', 'aria-label': 'Segnale dopo', disabled: idx < 0 || idx >= list.length - 1 || undefined, on: { click: () => move(1) } }, ic('chevron-right', 15))) : null),
     body: h('div', { style: { display: 'grid', gap: '20px' } },
       h('div.cv-facts', facts.map(([l, val, i]) => h('div.cv-fact', h('div.cv-row.cv-small.cv-muted', { style: { gap: '6px' } }, ic(i, 14), l), h('div.cv-t5', val)))),
+      designTrail(g, () => m.close(), onDone), // dalla progettazione ai lavori (ALM2-76)
       g.summary ? h('div', h('div.cv-lbl', 'Cosa dice la notizia'), h('p', { style: { margin: '6px 0 0' } }, g.summary)) : null,
       h('div.cv-box.big', h('div.cv-row', h('div.cv-lbl.cv-grow', `Come si arriva a ${g.score}`), h('span.cv-small.cv-muted', 'pesi in Impostazioni')),
         PARTS.map(([k, l]) => [h('div.cv-part', h('span', l), h('span.cv-bar', h('i', { style: { width: `${g.weights?.[k] ? Math.round((100 * (parts[k] || 0)) / g.weights[k]) : 0}%` } })), h('b', `${parts[k] ?? 0}/${g.weights?.[k] ?? '—'}`)),
@@ -140,6 +141,65 @@ export async function openSignal(id, onDone, data, list = []) {
   };
   drawKnown(false);
 }
+// ── Dalla progettazione ai lavori (ALM2-76, canvas approvato 24/11, tavola 2) ───────────────────────────────────
+// Nell'opportunità dei lavori: «A che punto è» (progettazione pubblicata → offerte → aggiudicazione → esecutivo → gara dei
+// lavori) e il riquadro del progettista (Alma lo sta cercando / c'è il progettista). Nella gara di progettazione: il
+// collegamento all'opportunità dei lavori che ne nasce.
+function designTrail(g, close, onDone) {
+  if (!g.design && !g.watch_designer && !g.designer && !(g.works || []).length) return null;
+  if (!g.design && !g.designer && !g.watch_designer) { // è la gara di progettazione: dove porta
+    return h('section.cv-box.big.pz-box', h('div.cv-lbl', 'Dopo la progettazione'),
+      g.works.map(w => h('a.pz-work', { href: '#/crm/radar', on: { click: e => { e.preventDefault(); close(); openSignal(w.id, onDone); } } }, ic('building', 15),
+        h('span.cv-grow', h('b', w.title), h('small.cv-muted', dots(['opportunità dei lavori', w.amount ? `intervento ${eur(w.amount)}` : '', w.has_designer ? 'progettista trovato' : w.watch_designer ? 'Alma segue il progettista' : '']))), ic('chevron-right', 15))));
+  }
+  const d = g.designer || {};
+  const st = d.steps || {};
+  const des = g.design;
+  const capo = d.team?.[0];
+  const done = (ok, label, sub) => ({ ok, label, sub });
+  const offerte = des?.deadline;
+  const steps = [
+    done(Boolean(des), des ? `Gara di progettazione pubblicata${des.published_on ? ` · ${day(des.published_on)}` : ''}` : 'Gara di progettazione', des ? [eur(des.amount), h('a', { href: '#/crm/radar', on: { click: e => { e.preventDefault(); close(); openSignal(des.id, onDone); } } }, 'apri la gara')] : null),
+    done(Boolean(offerte && daysTo(offerte) < 0) || Boolean(capo), offerte ? `Offerte entro il ${day(offerte)}` : 'Offerte', capo ? null : 'poi la commissione valuta'),
+    done(Boolean(capo), capo ? `Progettista: ${capo.name}${d.team.length > 1 ? ` (raggruppamento di ${d.team.length})` : ''}` : 'Aggiudicazione: chi è il progettista', capo ? (d.confirmed ? `da ANAC${d.awarded_on ? ` · ${day(d.awarded_on)}` : ''}` : 'dal web, da confermare con ANAC') : 'in attesa'),
+    done(Boolean(st.esecutivo_on), st.esecutivo_on ? `Progetto esecutivo approvato · ${day(st.esecutivo_on)}` : 'Progetto esecutivo approvato', st.esecutivo_url ? h('a', { href: st.esecutivo_url, target: '_blank', rel: 'noopener' }, 'fonte') : null),
+    done(Boolean(st.gara_on || st.gara_url), st.gara_on ? `Gara dei lavori · ${day(st.gara_on)}` : st.gara_url ? 'Gara dei lavori uscita' : `Gara dei lavori · ${g.expected_on ? `attesa ${day(g.expected_on)}` : 'data da capire'}`,
+      st.gara_url ? h('a', { href: st.gara_url, target: '_blank', rel: 'noopener' }, 'apri il bando') : null),
+  ];
+  const next = steps.findIndex(s => !s.ok);
+  const trail = h('div.pz-trail', steps.map((s, k) => h('div.pz-step', { class: s.ok ? 'ok' : k === next ? 'now' : '' },
+    h('span.pz-dot', s.ok ? ic('check', 12) : null), h('div', h('b', s.label), s.sub ? h('div.cv-small.cv-muted', Array.isArray(s.sub) ? s.sub.filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x])) : s.sub) : null))));
+  const box = h('div');
+  const drawBox = () => {
+    if (capo) {
+      fill(box, h('section.pz-found', h('div.cv-row', { style: { gap: '8px' } }, ic('pencil-ruler', 16), h('b.cv-grow', d.confirmed ? 'C\'è il progettista' : 'C\'è il progettista (da confermare)'), d.url ? h('a.cv-small', { href: d.url, target: '_blank', rel: 'noopener' }, 'fonte') : null),
+        d.team.map(w => h('div.cv-row', { style: { gap: '8px' } }, h('a.cv-grow', { href: `#/crm/scheda/${w.subject_id}`, on: { click: () => close() } }, w.name), pill(w.role || 'studio', w.role === 'capogruppo' ? 'or' : 'line'))),
+        d.knows?.length ? h('div.cv-small', `${d.knows.map(k => k.user_name.split(' ')[0]).join(', ')} lo ${d.knows.length > 1 ? 'conoscono' : 'conosce'}`) : h('div.cv-small.cv-muted', 'In Almacis non lo conosce ancora nessuno.'),
+        h('div.cv-row.cv-wrap', { style: { gap: '8px' } },
+          h('a.btn.btn-sm.btn-primary', { href: `#/crm/scheda/${capo.subject_id}`, on: { click: () => close() } }, 'Apri il progettista'),
+          d.step && !d.step_id ? h('button.btn.btn-sm', { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; await post(`/api/crm/radar/signals/${g.id}/progettista/passo`, {}); toast('Passo creato: è in «La mia settimana»'); d.step_id = 1; drawBox(); } } }, d.step.title) : null)));
+      return;
+    }
+    const watching = g.watch_designer;
+    fill(box, h('section.pz-watch', h('div.cv-row', { style: { gap: '8px' } }, ic('radar', 16), h('b', watching ? 'Progettista: Alma lo sta cercando' : 'Progettista: non lo seguo più')),
+      h('div.cv-small', 'Ogni notte controlla l\'aggiudicazione nei dati ANAC; una volta a settimana cerca l\'esito della gara sul web.'
+        + (g.watch_checked_at ? ` Ultimo controllo: ${new Date(g.watch_checked_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${g.watch_note ? ` (${g.watch_note})` : ''}.` : ' Ancora nessun controllo.')),
+      h('div.cv-small.cv-muted', `Avviserà: responsabile della BU${g.bu_label ? ` ${g.bu_label}` : ''} e chi ha aggiunto l'opportunità.`),
+      h('div.cv-row.cv-wrap', { style: { gap: '8px' } },
+        watching ? h('button.btn.btn-sm', { type: 'button', on: { click: async e => {
+          const b = e.currentTarget; b.disabled = true; fill(b, h('span.spinner'), 'Controllo…');
+          const r = await post(`/api/crm/radar/signals/${g.id}/progettista/controlla`, {}).catch(() => null);
+          if (!r) { b.disabled = false; fill(b, 'Controlla adesso'); return; }
+          Object.assign(g, r.signal); toast(r.found ? 'Trovato il progettista' : 'Ancora niente: riprovo da solo ogni notte');
+          const nt = designTrail(g, close, onDone); wrap.replaceWith(nt); } } }, 'Controlla adesso') : null,
+        h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: async () => {
+          await post(`/api/crm/radar/signals/${g.id}/progettista/segui`, { on: !watching }); g.watch_designer = !watching; drawBox(); toast(watching ? 'Non la seguo più' : 'La seguo di nuovo'); } } }, watching ? 'Smetti di seguirla' : 'Seguila di nuovo'))));
+  };
+  drawBox();
+  const wrap = h('section.cv-box.big.pz-box', h('div.cv-lbl', 'A che punto è'), trail, box);
+  return wrap;
+}
+
 // riga di un segnale: anello, titolo su 2 righe, un rigo di dettagli con il perché in pillola, Scarta · Interessa
 // data della gara nelle righe: scadenza vicina in arancio, date passate in rosso (Dante 22/11)
 function dateFlag(sig) {
@@ -480,7 +540,7 @@ const SRC_INFO = [
   ['bollettini', 'Bollettini regionali', 'Finanziamenti e graduatorie per i comuni', 'finanziata', 'ogni settimana'],
 ];
 // mappa d'Italia a tessere (colonna, riga, sigla)
-const TILES = { 'Valle d\'Aosta': [0, 0, 'VdA'], Piemonte: [1, 0, 'Pie'], Lombardia: [2, 0, 'Lom'], 'Trentino-Alto Adige': [3, 0, 'TAA'], Veneto: [4, 0, 'Ven'], 'Friuli-Venezia Giulia': [5, 0, 'FVG'],
+export const TILES = { 'Valle d\'Aosta': [0, 0, 'VdA'], Piemonte: [1, 0, 'Pie'], Lombardia: [2, 0, 'Lom'], 'Trentino-Alto Adige': [3, 0, 'TAA'], Veneto: [4, 0, 'Ven'], 'Friuli-Venezia Giulia': [5, 0, 'FVG'],
   Liguria: [1, 1, 'Lig'], 'Emilia-Romagna': [3, 1, 'EmR'], Toscana: [2, 2, 'Tos'], Umbria: [3, 2, 'Umb'], Marche: [4, 2, 'Mar'], Lazio: [3, 3, 'Laz'], Abruzzo: [4, 3, 'Abr'],
   Molise: [5, 3, 'Mol'], Campania: [4, 4, 'Cam'], Puglia: [5, 4, 'Pug'], Basilicata: [5, 5, 'Bas'], Calabria: [5, 6, 'Cal'], Sicilia: [4, 7, 'Sic'], Sardegna: [1, 5, 'Sar'] };
 const TINTS = ['#5A6B7A', '#7A5A6B', '#6B7A5A', '#C25E0E', '#4B6B8A', '#5A7A6B', '#7A6B5A', '#6B5A7A'];

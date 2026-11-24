@@ -160,3 +160,52 @@ export function progettistaCard(s) {
   }).catch(() => {});
   return box;
 }
+
+// ── Il progettista di un'opportunità (ALM2-76, canvas «Radar · dalla progettazione ai lavori», tavola 4) ─────────────
+// In cima alla scheda del progettista, a tutta larghezza: perché ci interessa (l'opera che progetta) e il raggruppamento;
+// i dati trovati su internet da spuntare e le persone da conoscere; chi lo conosce in Almacis e il prossimo passo.
+export function progettistaOpportunita(s, refresh) {
+  const box = h('div');
+  get(`/api/crm/progettisti/opportunita/${s.id}`, { quiet: true }).then(r => {
+    const g = r.opportunita[0];
+    if (!g) return;
+    const d = g.designer || {};
+    const draw = () => {
+      const col = (...x) => h('section.cv-card.pad.pg-why', ...x);
+      const lbl = t => h('div.cv-lbl', t);
+      const why = col(lbl('Perché ci interessa'),
+        h('div', 'Progetta ', h('a', { href: '#/crm/radar' }, g.title), ' · ', dots([g.amount ? `intervento ${eur(g.amount)}` : '', g.expected_on ? `gara attesa ${fmtDate(String(g.expected_on).slice(0, 10))}` : 'gara dei lavori attesa: da capire'])),
+        r.opportunita.length > 1 ? h('div.cv-small.cv-muted', `e altre ${r.opportunita.length - 1} opportunità`) : null,
+        lbl('Il raggruppamento'),
+        (d.team || []).map(w => h('div.pg-row', w.subject_id === s.id ? h('span', h('b', w.name)) : h('span', h('a', { href: `#/crm/scheda/${w.subject_id}` }, w.name)), h('span.cv-small.cv-muted', w.role || 'studio'))),
+        h('div.cv-small.cv-muted', d.confirmed ? `Da ANAC${d.awarded_on ? `, aggiudicata il ${fmtDate(String(d.awarded_on).slice(0, 10))}` : ''}.` : 'Dal web: da confermare con ANAC.'));
+      // dati da internet: si spuntano e si salvano come «da internet» (come «Cerca su internet»)
+      const fields = (d.web?.fields || []).filter(f => !f.saved);
+      const checks = fields.map(f => ({ f, inp: h('input', { type: 'checkbox', checked: !f.current }) }));
+      const web = fields.length ? [h('div.cv-row', h('div.cv-lbl.cv-grow', 'Dati trovati su internet'), pill('da confermare', 'or')),
+        checks.map(({ f, inp }) => h('label.pg-row', inp, h('span', h('span.cv-small.cv-muted', f.label), h('br'), f.value, f.current ? h('span.cv-small.cv-muted', ` (ora: ${f.current})`) : null))),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async e => {
+          const pick = checks.filter(c => c.inp.checked);
+          if (!pick.length) return toast('Spunta almeno un dato', 'err');
+          e.currentTarget.disabled = true;
+          await post(`/api/crm/subjects/${s.id}/da-web`, { fields: Object.fromEntries(pick.map(c => [c.f.key, c.f.value])), sources: Object.fromEntries(pick.map(c => [c.f.key, c.f.source])) });
+          toast('Dati salvati: restano «da internet» finché non li confermi'); refresh?.();
+        } } }, 'Salva i dati spuntati')] : [lbl('Dati trovati su internet'), h('div.cv-small.cv-muted', 'Niente di nuovo: usa «Cerca su internet» nell\'anagrafica.')];
+      const people = (d.people || []).map((p, n) => ({ ...p, n }));
+      const ppl = col(...web, lbl('Persone da conoscere'),
+        people.length ? people.map(p => h('div.pg-row', h('span', h('b', p.name), h('br'), h('span.cv-small.cv-muted', dots([p.role, p.company]))),
+          p.contact_id ? h('a.btn.btn-sm.btn-ghost', { href: `#/crm/contatti/${p.contact_id}` }, 'Nel CRM')
+            : h('button.btn.btn-sm', { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; const x = await post(`/api/crm/radar/signals/${g.id}/progettista/persona`, { n: p.n }); d.people[p.n].contact_id = x.contact_id; toast(`${p.name} è nei contatti`); draw(); } } }, 'Aggiungi')))
+          : h('div.cv-small.cv-muted', 'Alma non ha trovato nomi: li cerca di nuovo ogni settimana.'));
+      const knows = col(lbl('Chi lo conosce in Almacis'),
+        (d.knows || []).length ? d.knows.map(k => h('div.pg-row', h('span', h('b', k.user_name), h('br'), h('span.cv-small.cv-muted', k.why || (k.contact ? `conosce ${k.contact}` : ''))), k.level ? pill(k.level, k.level === 'forte' ? 'gr' : 'line') : null))
+          : h('div.cv-small.cv-muted', 'Nessuno ancora: si parte con un contatto diretto.'),
+        lbl('Prossimo passo'),
+        d.step ? h('div.pg-row', h('span', d.step.title, h('br'), h('span.cv-small.cv-muted', d.step_id ? 'approvato: è nei prossimi passi' : `entro ${d.step.within_days || 7} giorni`)),
+          d.step_id ? null : h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async e => { e.currentTarget.disabled = true; await post(`/api/crm/radar/signals/${g.id}/progettista/passo`, {}); d.step_id = 1; toast('Passo creato'); draw(); refresh?.(); } } }, 'Approva')) : null);
+      fill(box, h('div.pg-opp', why, ppl, knows));
+    };
+    draw();
+  }).catch(() => {});
+  return box;
+}

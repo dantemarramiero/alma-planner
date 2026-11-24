@@ -279,3 +279,55 @@ test('ricerca mirata sul web (Alma): risultati con «già nel radar», aggiunta 
   assert.equal((await E('DELETE', `/api/crm/radar/signals/${g.body.id}`)).status, 200);
   assert.equal((await E('GET', `/api/crm/radar/doppione?cig=B12345`)).body.signal, null);
 });
+
+test('dalla progettazione ai lavori (ALM2-76): opportunità seguita, progettista da ANAC nel CRM, passo e persona', async () => {
+  const gara = await E('POST', '/api/crm/radar/signals', { title: 'Servizi di architettura e ingegneria per il progetto esecutivo del capannone di Vasto', entity: 'Comune di Vasto', kind: 'gara', to_gare: true, cig: 'Z99PROG001', url: 'https://example.com/vasto-prog', amount: 300000 });
+  assert.equal(gara.status, 201);
+  const w = await E('POST', '/api/crm/radar/signals', { title: 'Lavori del capannone di Vasto', entity: 'Comune di Vasto', kind: 'opera_finanziata', stage: 'progetto', amount: 5000000, url: 'https://example.com/vasto-prog', design_signal_id: gara.body.id, watch_designer: true, watch_cig: 'Z99PROG001' });
+  assert.equal(w.status, 201);
+  assert.equal(w.body.design_signal_id, gara.body.id);
+  assert.equal(w.body.watch_designer, true);
+  const g1 = (await E('GET', `/api/crm/radar/signals/${w.body.id}`)).body;
+  assert.equal(g1.design.id, gara.body.id);
+  assert.equal((await E('GET', `/api/crm/radar/signals/${gara.body.id}`)).body.works[0].id, w.body.id);
+  // ancora niente in ANAC
+  let r = await E('POST', `/api/crm/radar/signals/${w.body.id}/progettista/controlla`, {});
+  assert.equal(r.status, 200);
+  assert.equal(r.body.found, false);
+  // ANAC pubblica l'aggiudicazione: RTP di due studi
+  await db.query(`INSERT INTO crm_anac_design (cig, object, winners, amount, awarded_on) VALUES ('Z99PROG001', 'progettazione', $1, 250000, '2026-12-20')`,
+    [JSON.stringify([{ cf: '01234567890', name: 'STUDIO ALFA INGEGNERIA SRL', role: 'MANDANTE' }, { cf: '09876543210', name: 'BETA ARCHITETTI ASSOCIATI', role: 'MANDATARIA' }])]);
+  r = await E('POST', `/api/crm/radar/signals/${w.body.id}/progettista/controlla`, {});
+  assert.equal(r.body.found, true);
+  const d = r.body.signal.designer;
+  assert.equal(d.confirmed, true);
+  assert.equal(d.team.length, 2);
+  assert.equal(d.team[0].role, 'capogruppo');
+  assert.match(d.team[0].name, /Beta Architetti/);
+  const capo = (await E('GET', `/api/crm/subjects/${d.team[0].subject_id}`)).body;
+  assert.ok((capo.roles || capo.subject?.roles).includes('progettista'));
+  assert.equal(d.step.kind, 'contatta'); // nessuno lo conosce
+  const opp = (await E('GET', `/api/crm/progettisti/opportunita/${d.team[0].subject_id}`)).body.opportunita;
+  assert.equal(opp[0].id, w.body.id);
+  // La mia settimana: il responsabile di Edilizia lo vede
+  const wk = (await E('GET', '/api/crm/settimana')).body;
+  assert.ok(wk.designers.some(x => x.id === w.body.id && x.capo.subject_id === d.team[0].subject_id));
+  const st = await E('POST', `/api/crm/radar/signals/${w.body.id}/progettista/passo`, {});
+  assert.equal(st.status, 201);
+  assert.ok(!(await E('GET', '/api/crm/settimana')).body.designers.some(x => x.id === w.body.id));
+  // persona da conoscere → contatto nello studio giusto
+  await db.query(`UPDATE crm_signals SET designer = jsonb_set(designer, '{people}', $2::jsonb) WHERE id = $1`, [w.body.id, JSON.stringify([{ name: 'Ing. Mario Verdi', role: 'progettista strutturale', company: 'Studio Alfa Ingegneria', source: 'https://example.com/alfa' }])]);
+  const p = await E('POST', `/api/crm/radar/signals/${w.body.id}/progettista/persona`, { n: 0 });
+  assert.equal(p.status, 201);
+  assert.equal(p.body.subject_id, d.team.find(x => /Alfa/.test(x.name)).subject_id);
+  // smetti di seguirla
+  assert.equal((await E('POST', `/api/crm/radar/signals/${w.body.id}/progettista/segui`, { on: false })).body.watch_designer, false);
+});
+
+test('gara di progettazione riconosciuta', () => {
+  const { isDesignTender, teamOf } = require('../lib/crm-segui-progettista');
+  assert.ok(isDesignTender({ title: 'Affidamento dei servizi di architettura e ingegneria per il progetto EASSITECH' }));
+  assert.ok(isDesignTender({ title: 'Progettazione esecutiva della nuova scuola' }));
+  assert.ok(!isDesignTender({ title: 'Lavori di riqualificazione della scuola' }));
+  assert.equal(teamOf([{ name: 'X SRL', role: '' }])[0].role, 'capogruppo');
+});

@@ -121,7 +121,7 @@ const MODULES = [
   // Alma CRM: la direzione e chi è assegnato a un'ASA (canvas del 12/11/2026)
   { key: 'crm', label: 'Alma CRM', icon: 'contact', home: '#/crm/settimana', can: () => Boolean(store.me.crm) },
   // Alma Impianti (ALM2-73): la BU Impianti sopra il CRM comune; chi vede il CRM vede anche questo
-  { key: 'impianti', label: 'Alma Impianti', icon: 'factory', home: '#/impianti/dafare', can: () => Boolean(store.me.crm) },
+  { key: 'impianti', label: 'Alma Impianti', icon: 'factory', home: '#/impianti/home', can: () => Boolean(store.me.crm) },
   // Alma HR: griglia salary grade, mansionario e il mio percorso per tutti; persone, RAL e pannello solo al team HR
   { key: 'hr', label: 'Alma HR', icon: 'id-card', home: '#/hr/percorso', can: () => Boolean(store.me?.hr_on) }, // nascosto a tutti finché HR_ATTIVO non è 1
 ];
@@ -200,7 +200,7 @@ async function route() {
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
     : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
-    : section === 'impianti' ? `impianti-${parts[1] || 'dafare'}`
+    : section === 'impianti' ? `impianti-${parts[1] || 'home'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'hr' ? `hr-${parts[1] === 'persona' ? 'persone' : parts[1] === 'ruolo' ? 'mansionario' : parts[1] === 'candidato' ? 'richieste' : ['incontro', 'fineprova', 'onboarding'].includes(parts[1]) ? (store.me?.hr ? 'onboarding' : 'onboarding-mie') : ['valutazione', 'semestre'].includes(parts[1]) ? 'valutazioni' : parts[1] === 'esito' ? 'percorso' : parts[1] || 'percorso'}`
     : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'

@@ -330,6 +330,9 @@ function registerImpianti(app, { db, auth, mailFake }) {
     await db.query('DELETE FROM crm_exchanges WHERE id = $1', [id]);
     res.json({ ok: true });
   });
+
+  // tappa 2 (ALM2-77): Home, Opportunità col triangolo, Energivori, con gli stessi pezzi
+  require('./impianti-tappa2').registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts, openSignals, matchesOf, mandateOut, kindOf });
 }
 
 module.exports = { registerImpianti };

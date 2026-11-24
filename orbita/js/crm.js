@@ -19,7 +19,7 @@ import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.j
 import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
 import { soaCard, soaShort } from './crm-soa-card.js';
-import { progettistaCard, enteProgettistiCard } from './crm-progettisti.js';
+import { progettistaCard, enteProgettistiCard, progettistaOpportunita } from './crm-progettisti.js';
 import { doppioniPage, dupBanner, dupLine, mergeDialog, conflictBox } from './crm-doppioni.js'; // canvas v15
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
@@ -1031,7 +1031,7 @@ async function overviewTab(box, s, base, go, people, refresh) {
     link('Modifica i dati', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })));
   // Progettisti da ANAC (ALM2-70): incarichi del progettista, o i progettisti dell'ente (il riquadro resta vuoto se non ne ha)
   right.splice(1, 0, r.includes('progettista') ? progettistaCard(s) : null, s.kind === 'ente_pubblico' || r.includes('cliente') || r.includes('lead') ? enteProgettistiCard(s) : null);
-  fill(box, anagraficaSections(s, refresh), h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
+  fill(box, r.includes('progettista') ? progettistaOpportunita(s, refresh) : null, anagraficaSections(s, refresh), h('div.cv-cols.w400', h('div.cv-stack', left), h('div.cv-stack', right)));
 }
 
 async function subjectContacts(box, s, refresh, addContact) {
