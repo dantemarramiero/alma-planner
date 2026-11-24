@@ -691,7 +691,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening, energ
                   FROM energy_opportunities o LEFT JOIN energy_companies c ON c.id = o.company_id WHERE ${filter} GROUP BY o.stage`, params),
       db.query(`SELECT * FROM (
                   SELECT o.id, o.title, o.stage, o.priority, o.mw, o.capex, o.city, o.province, o.region, o.project_id, o.stage_changed_at,
-                         c.name AS company_name, u.name AS owner_name,
+                         c.name AS company_name, o.owner_id, u.name AS owner_name,
                          o.data->>'profilo' AS profilo, (o.data->>'punteggio')::float AS punteggio,
                          (o.data->>'convenzioni')::int AS convenzioni, (o.data->>'incassi_persi')::float AS incassi_persi,
                          o.data->'segnali' AS segnali, o.data->>'regime' AS regime, o.data->>'strategia' AS strategia,

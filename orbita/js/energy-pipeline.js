@@ -6,6 +6,7 @@ import { get, post, patch, api, qs } from './api.js';
 import { icon } from './icons.js';
 import { meta, num, openOpportunity, opportunityForm, field, input, select } from './energy.js';
 import { mapView } from './energy-map.js';
+import { ownerChip, takeButtons } from './energy-owner.js';
 
 const eur = n => (n === null || n === undefined ? '—' : `${num(n)} €`);
 // 46.637.000 → «46,6 M», 203.750 → «204 k»
@@ -151,7 +152,10 @@ function card(kind, c, reload) {
   c.company_name && !c.title.startsWith(c.company_name) ? h('div.t-meta', c.company_name) : null,
   h('div.en-card-meta', meta2.filter(Boolean).join(' · ') || null),
   h('div.t-meta', [c.city, c.province].filter(Boolean).join(', ')),
-  kind === 'revamping' ? signalPills((c.segnali || []).slice(0, 3)) : null);
+  kind === 'revamping' ? signalPills((c.segnali || []).slice(0, 3)) : null,
+  // ALM2-78: chi la segue, da cambiare sulla scheda stessa (il clic qui non apre l'opportunità e non trascina)
+  h('div.eo-card-owner', { on: { click: e => e.stopPropagation(), keydown: e => e.stopPropagation(), mousedown: e => e.stopPropagation() } },
+    c.owner_id ? ownerChip(c, reload) : takeButtons(c, reload)));
   return el;
 }
 

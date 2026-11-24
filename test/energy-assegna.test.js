@@ -155,3 +155,11 @@ test('Posta → pipeline di Alma Energy: solo membri, proposta dalle regole, cre
   assert.equal((await D('PATCH', `/api/energy/opportunities/${c.body.id}/emails`, { new_mode: 'auto' })).status, 200);
   assert.equal((await T('PATCH', `/api/energy/opportunities/${c.body.id}/emails`, { new_mode: 'auto' })).status, 404);
 });
+
+test('kanban: le schede portano chi le segue, per cambiarlo dalla scheda', async () => {
+  const o = await newOpp('Scheda kanban', { owner_id: tullio });
+  const { body } = await D('GET', '/api/energy/pipeline/revamping');
+  const card = body.stages.flatMap(s => s.cards).find(c => c.id === o.id);
+  assert.equal(card.owner_id, tullio);
+  assert.ok(card.owner_name);
+});
