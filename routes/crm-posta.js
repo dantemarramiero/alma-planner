@@ -1020,6 +1020,45 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
     res.json({ ok: true });
   });
 
+  // Nuovi business (ALM2-79): le email della MIA casella che aspettano il mio sì su questo progetto (solo le mie)
+  app.get('/api/crm/progetti/:id/suggerite', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await project(req, id);
+    const { rows } = await db.query(
+      `SELECT id, kind, subject, from_name, from_address, sent_at, preview, why FROM crm_mail_suggestions
+        WHERE project_id = $1 AND owner_id = $2 AND status = 'nuova' ORDER BY sent_at DESC NULLS LAST LIMIT 30`, [id, req.user.id]);
+    res.json({ suggestions: rows });
+  });
+  // «Cerca nella mia posta»: Alma cerca nella casella di chi chiede le email delle persone collegate (e delle aziende
+  // collegate) e quelle che parlano dell'iniziativa; finiscono fra le suggerite, entrano solo con il suo sì (ALM2-67)
+  app.post('/api/crm/progetti/:id/cerca-email', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    const p = await project(req, id);
+    const { rows: [ini] } = await db.query('SELECT name, description FROM crm_initiatives WHERE project_id = $1', [id]);
+    const themes = P.themesOf(ini?.name || p.name, ini?.description || '').filter(w => w.length >= 6).slice(0, 2);
+    const { rows: people } = await db.query(
+      `SELECT DISTINCT ON (lower(c.email)) lower(c.email) AS email, trim(concat_ws(' ', c.first_name, c.last_name)) AS name, s.name AS company
+         FROM crm_contacts c
+         LEFT JOIN crm_contact_links cl ON cl.contact_id = c.id AND cl.date_to IS NULL
+         LEFT JOIN crm_subjects s ON s.id = cl.subject_id
+        WHERE c.email <> '' AND (c.id IN (SELECT contact_id FROM crm_project_links WHERE project_id = $1 AND contact_id IS NOT NULL)
+           OR cl.subject_id IN (SELECT subject_id FROM crm_project_links WHERE project_id = $1 AND subject_id IS NOT NULL))
+        ORDER BY lower(c.email) LIMIT 12`, [id]);
+    let t;
+    try { t = await token(req.user.id); } catch { throw new HttpError(400, 'Per cercare nella tua posta serve l\'accesso con Microsoft: esci e rientra'); }
+    const search = async q => ((await mail(t, 'GET', `/me/messages?$search=${encodeURIComponent(`"${q}"`)}&$select=${SELECT}&$top=10`).catch(() => ({ value: [] }))).value || [])
+      .filter(m => !m.isDraft).map(P.normMsg);
+    let found = 0;
+    for (const x of people) {
+      const who = `${x.name || x.email}${x.company ? ` (${x.company})` : ''}`;
+      for (const m of await search(`from:${x.email}`)) found += await queue(id, req.user.id, m, 'suggerita', `ti scrive ${who}`);
+      for (const m of await search(`to:${x.email}`)) found += await queue(id, req.user.id, m, 'suggerita', `hai scritto a ${who}`);
+    }
+    for (const w of themes) for (const m of await search(w)) found += await queue(id, req.user.id, m, 'suggerita', `parla di «${w}»`);
+    req.auditDetail = { label: 'Ha cercato nella sua posta le email di un\'iniziativa', target: `progetto #${id}`, before: null, after: { trovate: found } };
+    res.json({ found, people: people.length, themes });
+  });
+
   // «Entrano tutte»: tutte le email della mia casella in attesa su questo progetto
   app.post('/api/crm/progetti/:id/suggerite', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });

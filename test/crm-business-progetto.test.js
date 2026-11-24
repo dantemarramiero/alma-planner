@@ -136,3 +136,33 @@ test('«Porta avanti» fa crescere lo stesso progetto: compiti ed email restano,
   assert.equal((await D('GET', `/api/crm/lancio/proposta?initiative=${ini.id}`)).body.already, ini.project_id);
   assert.equal((await D('POST', '/api/crm/lancio', { initiative_id: ini.id, phases: prop.phases })).status, 409);
 });
+
+test('email suggerite da Alma (solo mie, entrano col mio sì) e persone spuntate da sole da email e incontri', async () => {
+  const ini = (await D('POST', '/api/crm/business', { name: 'Raffrescamento capannoni', owner_id: await meId(D) })).body;
+  const pid = ini.project_id;
+  const studio = (await D('POST', '/api/crm/subjects/rapida', { name: 'Studio Tecnico Rossi' })).body;
+  const rossi = (await D('POST', '/api/crm/contacts', { first_name: 'Luca', last_name: 'Rossi', email: 'l.rossi@studiotecnicorossi.it', links: [{ subject_id: studio.id }] })).body;
+  await D('POST', '/api/crm/collegamenti', { project: pid, subject_id: studio.id });
+  // Alma cerca nella mia casella le email delle aziende collegate
+  const r = await D('POST', `/api/crm/progetti/${pid}/cerca-email`, {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body.found > 0);
+  const list = (await D('GET', `/api/crm/progetti/${pid}/suggerite`)).body.suggestions;
+  const pre = list.find(s => s.subject === 'Preventivo raffrescamento');
+  assert.ok(pre, 'trova l\'email di Rossi');
+  assert.match(pre.why, /Luca Rossi \(Studio Tecnico Rossi\)|raffrescamento/);
+  // un collega non le vede
+  assert.deepEqual((await E('GET', `/api/crm/progetti/${pid}/suggerite`)).body.suggestions, []);
+  // una seconda ricerca non le ripropone
+  await D('POST', `/api/crm/progetti/${pid}/cerca-email`, {});
+  assert.equal((await D('GET', `/api/crm/progetti/${pid}/suggerite`)).body.suggestions.length, list.length);
+  // «Aggiungi»: entra nelle email del progetto
+  assert.equal((await D('POST', `/api/crm/progetti/${pid}/suggerite/${pre.id}`, { azione: 'aggiungi' })).status, 200);
+  const emails = (await D('GET', `/api/projects/${pid}/emails`)).body;
+  assert.ok(emails.some(e => e.subject === 'Preventivo raffrescamento'));
+  // ricollegando l'azienda, Rossi (che è nelle email del progetto) si spunta da solo
+  await D('DELETE', '/api/crm/collegamenti', { project: pid, subject_id: studio.id });
+  const out = (await D('POST', '/api/crm/collegamenti', { project: pid, subject_id: studio.id, auto_contacts: true })).body;
+  assert.equal(out.auto, 1);
+  assert.ok(out.links.some(l => l.contact_id === rossi.id));
+});

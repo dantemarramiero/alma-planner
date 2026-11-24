@@ -766,3 +766,10 @@ button.nb-wk { cursor: pointer; } button.nb-wk:hover span:last-child { color: va
   .nb-tabgrp, .nb-tabsep { display: none; }
   .nb-tabs2 { flex-wrap: nowrap; overflow-x: auto; }
 }
+/* email suggerite da Alma nel tab Email dell'iniziativa (ALM2-79) */
+.nb-sugg { display: grid; gap: 10px; margin-bottom: 14px; background: var(--nb-or-t); border-color: transparent; }
+.nb-sugg-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.nb-sugg-list { display: grid; gap: 2px; }
+.nb-sugg-r { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; background: var(--nb-card); border-radius: 12px; }
+.nb-sugg-r .grow { display: grid; min-width: 0; flex: 1 1 260px; }
+.nb-sugg-r b { font-size: 13px; } .nb-sugg-r small { font-size: 11.5px; color: var(--nb-muted); }

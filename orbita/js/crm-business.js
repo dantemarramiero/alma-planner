@@ -519,12 +519,50 @@ async function initiativePage(container, id, tabKey, crmData) {
 }
 
 // ── Lavoro: i tab del progetto dell'iniziativa (ALM2-79) ─────────────────────────────────────────
+// Email suggerite da Alma: cerca nella MIA casella le email delle persone e aziende collegate e quelle che parlano
+// dell'iniziativa; le vedo solo io ed entrano solo con il mio sì (come in Posta › Da approvare, ALM2-67).
+function mailSuggestions(ctx) {
+  const pid = ctx.proj.id;
+  const box = h('section.nb-card.nb-sugg');
+  const key = `nb.cerca.${pid}`;
+  let searching = false;
+  const draw = async () => {
+    const { suggestions: list } = await get(`/api/crm/progetti/${pid}/suggerite`, { quiet: true }).catch(() => ({ suggestions: [] }));
+    const act = async (s, azione) => { await post(`/api/crm/progetti/${pid}/suggerite/${s.id}`, { azione }); if (azione === 'aggiungi') ctx.go('email'); else draw(); };
+    const searchBtn = btn(searching ? 'Cerco…' : 'Cerca nella mia posta', () => run(), { small: true, ico: 'search', disabled: searching });
+    fill(box,
+      h('div.nb-sugg-h', h('span.nb-ki.chat', ic('sparkles', 15)),
+        h('div.grow', h('b', list.length ? `Alma ha trovato ${list.length} ${list.length === 1 ? 'email che sembra' : 'email che sembrano'} di questa iniziativa` : 'Email dell\'iniziativa nella tua posta'),
+          h('div.nb-small.muted', list.length ? 'Sono nella tua casella: le vedi solo tu ed entrano nell\'iniziativa solo se dici sì.' : 'Alma cerca le email delle persone e delle aziende collegate e quelle che parlano dell\'iniziativa. Le vedi solo tu.')),
+        list.length > 1 ? btn('Entrano tutte', async () => { await post(`/api/crm/progetti/${pid}/suggerite`, { azione: 'aggiungi' }); ctx.go('email'); }, { small: true }) : null,
+        searchBtn),
+      list.length ? h('div.nb-sugg-list', list.map(s => h('div.nb-sugg-r',
+        h('div.grow', h('b', s.subject || '(senza oggetto)'), h('small', [s.from_name || s.from_address, s.sent_at ? relDay(s.sent_at) : null, s.why].filter(Boolean).join(' · '))),
+        btn('Aggiungi', () => act(s, 'aggiungi'), { small: true }), btn('Non c\'entra', () => act(s, 'scarta'), { small: true, ghost: true })))) : null);
+  };
+  const run = async () => {
+    searching = true; draw();
+    try {
+      const r = await post(`/api/crm/progetti/${pid}/cerca-email`, {});
+      try { sessionStorage.setItem(key, '1'); } catch { /* niente */ }
+      toast(r.found ? `Trovate ${r.found} email nuove da guardare` : 'Nessuna email nuova trovata');
+    } finally { searching = false; draw(); }
+  };
+  // la prima volta che apro il tab in questa sessione Alma cerca da sola
+  let done = false;
+  try { done = sessionStorage.getItem(key) === '1'; } catch { /* niente */ }
+  if (!done && ctx.member) run().catch(() => {}); else draw();
+  return box;
+}
 const noProject = ctx => fill(ctx.body, empty('Il progetto dell\'iniziativa non si è caricato: ricarica la pagina.', 'alert-triangle'));
 async function workTasksTab(ctx) {
   const { i, proj, body, member, newTask } = ctx;
   if (!proj) return noProject(ctx);
-  const [tickets, meetings, emails] = await Promise.all([get(`/api/tickets?project=${proj.id}`),
-    get(`/api/projects/${proj.id}/meetings`, { quiet: true }).catch(() => []), get(`/api/projects/${proj.id}/emails`, { quiet: true }).catch(() => [])]);
+  const [tickets, meetings, emails, targets] = await Promise.all([get(`/api/tickets?project=${proj.id}`),
+    get(`/api/projects/${proj.id}/meetings`, { quiet: true }).catch(() => []), get(`/api/projects/${proj.id}/emails`, { quiet: true }).catch(() => []),
+    get(`/api/crm/business/${i.id}/targets`, { quiet: true }).then(r => r.targets).catch(() => [])]);
+  // sinergie dal CRM: i clienti target che conosciamo già (contatti, incontri, email dei colleghi)
+  const syn = targets.filter(t => t.subject_id && t.status !== 'scartato' && t.synergies?.length).slice(0, 4);
   let mine = false;
   const boardBox = h('div');
   // il selettore Tutti/Miei ridisegna solo la bacheca
@@ -550,7 +588,10 @@ async function workTasksTab(ctx) {
           : h('p.nb-small.muted', 'Niente in agenda nei prossimi sette giorni.')),
       card('Ultime email', h('button.nb-link', { type: 'button', on: { click: () => ctx.go('email') } }, 'Tutte'),
         emails.length ? emails.slice(0, 3).map(e => h('div.nb-wm', h('b', e.subject || '(senza oggetto)'), h('small', [e.from_name || e.from_address, e.sent_at ? relDay(e.sent_at) : null].filter(Boolean).join(' · '))))
-          : h('p.nb-small.muted', 'Nessuna email nell\'iniziativa. Collegale dal tab Email.')))));
+          : h('p.nb-small.muted', 'Nessuna email nell\'iniziativa. Collegale dal tab Email.')),
+      card('Sinergie trovate', h('button.nb-link', { type: 'button', on: { click: () => ctx.go('clienti') } }, 'Clienti target'),
+        syn.length ? syn.map(t => h('div.nb-wm', h('a.nb-t', { href: `#/crm/scheda/${t.subject_id}` }, t.subject_name || t.name), h('small', t.synergies.slice(0, 2).join(' · '))))
+          : h('p.nb-small.muted', 'Nessun cliente target già nel CRM. Aggiungili dal tab Clienti target o dalla Chat.')))));
   drawSeg();
   drawBoard();
 }
@@ -570,8 +611,12 @@ async function workTab(ctx) {
   fill(body, box);
   const canManage = proj.my_role === 'owner' || proj.my_role === 'admin';
   if (tab === 'incontri') projectMeetings(box, proj, {});
-  else if (tab === 'calendario') calendarTab(box, proj.id);
-  else if (tab === 'email') projectEmails(box, proj);
+  else if (tab === 'calendario') {
+    // i gate della direzione ancora da decidere, con la loro data
+    const gates = ctx.i.gates.filter(g => g.due_date && !g.decision).map(g => ({ date: g.due_date, kind: 'gate', title: `Gate G${g.n} · ${g.question}`,
+      on: ctx.i.canDecide ? () => gateDialog(ctx.i, g, 'prosegui', ctx.tasks, ctx.refresh) : null }));
+    calendarTab(box, proj.id, { extra: gates });
+  } else if (tab === 'email') { box.append(mailSuggestions(ctx)); projectEmails(box, proj); }
   else if (tab === 'note') notesPanel(box, { url: `/api/projects/${proj.id}/notes`, showTicket: true });
   else if (tab === 'documenti') projectDocuments(box, proj.id, { canManage, onFolderChanged: ctx.refresh });
   else if (tab === 'gantt') ganttView(box, new URLSearchParams({ project: String(proj.id) }), { embedded: true });
