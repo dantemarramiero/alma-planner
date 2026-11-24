@@ -1,0 +1,101 @@
+/* Alma Impianti (ALM2-73, canvas «Alma Impianti · radar e CRM»): Da fare, Fondi e investitori, Progettisti.
+   Sopra il design v2 del CRM (css/crm-v2.css): solo le variabili --cv-* (che vengono dai token), niente colori nuovi,
+   tranne i colori dei settori che arrivano dal JS. */
+
+/* gruppi di «Da fare»: quattro tessere, quella scelta piena grafite */
+.im-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+.im-tile { display: grid; gap: 4px; text-align: left; padding: 16px 18px; border-radius: 16px; border: 1px solid var(--cv-line); background: var(--cv-card); color: var(--cv-ink); cursor: pointer; font: inherit; box-shadow: var(--cv-shadow); }
+.im-tile:hover { border-color: var(--cv-line-strong); }
+.im-tile.on { background: var(--cv-dark); border-color: var(--cv-dark); color: var(--cv-on-dark); }
+.im-tile-l { font-size: 13px; font-weight: 500; }
+.im-tile-n { font-size: 30px; font-weight: 300; line-height: 1.1; }
+.im-tile-d { font-size: 12px; opacity: .78; }
+
+/* elenco a sinistra, riquadro a destra; sul telefono uno sotto l'altro */
+.im-main { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.im-list { flex: 999 1 560px; min-width: 0; padding: 4px 20px; }
+.im-side { flex: 1 1 320px; max-width: 400px; display: grid; gap: 16px; }
+.im-side .cv-card { padding: 18px 20px; display: grid; gap: 10px; }
+.im-drawer { flex: 1 1 360px; max-width: 440px; padding: 22px; display: grid; gap: 14px; align-content: start; }
+
+.im-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--cv-line-2); }
+.im-row:last-child { border-bottom: 0; }
+.im-row-main { display: grid; gap: 6px; min-width: 0; }
+.im-row-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.im-who { font-size: 15px; font-weight: 500; color: var(--cv-ink); text-decoration: none; }
+a.im-who:hover { text-decoration: underline; }
+.im-org { font-size: 13px; color: var(--cv-muted); }
+.im-what { font-size: 13.5px; color: var(--cv-text); }
+.im-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+.im-funnel { display: grid; gap: 10px; }
+.im-fn-row { display: grid; grid-template-columns: 120px 1fr 36px; gap: 10px; align-items: center; font-size: 13px; }
+.im-fn-row b { text-align: right; font-weight: 500; }
+.im-fn-bar { height: 10px; border-radius: 999px; background: var(--cv-soft); overflow: hidden; display: flex; }
+.im-fn-bar i { display: block; height: 100%; border-radius: 999px; }
+
+.im-dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 13.5px; }
+.im-dl dt { color: var(--cv-muted); }
+.im-dl dd { margin: 0; color: var(--cv-ink); }
+
+/* numeri in cima a Fondi */
+.im-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+.im-kpi { display: grid; gap: 2px; padding: 16px 18px; border-radius: 16px; border: 1px solid var(--cv-line); background: var(--cv-card); box-shadow: var(--cv-shadow); }
+.im-kpi-l { font-size: 12px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--cv-muted); }
+.im-kpi-n { font-size: 28px; font-weight: 300; color: var(--cv-ink); }
+.im-kpi.or .im-kpi-n { color: var(--cv-or-ink); }
+.im-kpi-s { font-size: 12.5px; color: var(--cv-muted); }
+
+.im-table-box { overflow-x: auto; margin: 0 -12px; }
+.im-table { width: 100%; border-collapse: collapse; }
+.im-table th { font-size: 12px; font-weight: 500; color: var(--cv-muted); text-align: left; padding: 12px; border-bottom: 1px solid var(--cv-line); white-space: nowrap; }
+.im-table td { font-size: 13.5px; padding: 12px; border-bottom: 1px solid var(--cv-line-2); vertical-align: top; }
+.im-table tbody tr { cursor: pointer; }
+.im-table tbody tr:hover { background: var(--cv-soft); }
+.im-table tbody tr.on { background: var(--cv-or-t); }
+.im-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.im-sub { font-size: 12.5px; color: var(--cv-muted); }
+.im-nw { white-space: nowrap; }
+.im-or { color: var(--cv-or-ink); font-weight: 500; }
+
+.im-dr-h h2 { font-size: 22px; font-weight: 500; margin: 4px 0 2px; }
+.im-sec-l { font-size: 12px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--cv-muted); margin-top: 4px; }
+.im-matches { display: grid; gap: 8px; }
+.im-match { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--cv-line-2); border-radius: 12px; font-size: 13.5px; }
+.im-dr-acts { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
+.im-warn { padding: 12px 14px; border-radius: 14px; background: var(--cv-am-t); color: var(--cv-am); font-size: 13.5px; line-height: 1.5; }
+
+/* Progettisti: avvisi cliccabili, righe con la barra dare/avere */
+.im-alerts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+.im-alert { display: flex; gap: 10px; align-items: center; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--cv-line); background: var(--cv-card); font: inherit; font-size: 13.5px; color: var(--cv-text); cursor: pointer; }
+.im-alert b { font-size: 20px; font-weight: 300; color: var(--cv-ink); }
+.im-alert.on { border-color: var(--cv-orange); background: var(--cv-or-t); }
+.im-pr { display: grid; grid-template-columns: minmax(0, 1.4fr) 170px auto; gap: 14px; align-items: center; padding: 14px 8px; border-bottom: 1px solid var(--cv-line-2); cursor: pointer; border-radius: 10px; }
+.im-pr:hover { background: var(--cv-soft); }
+.im-pr.on { background: var(--cv-or-t); }
+.im-recip { display: grid; gap: 4px; }
+.im-recip-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--cv-soft); }
+.im-recip-bar i, .im-legend i { display: block; height: 100%; }
+.im-recip-bar i.dato, .im-legend i.dato { background: var(--cv-orange); }
+.im-recip-bar i.ric, .im-legend i.ric { background: var(--cv-dark); }
+.im-legend { display: flex; gap: 16px; padding: 12px 8px; font-size: 12px; color: var(--cv-muted); }
+.im-legend span { display: inline-flex; gap: 6px; align-items: center; }
+.im-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.im-ledger { display: grid; }
+.im-led { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--cv-line-2); font-size: 13px; }
+.im-led-s { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; color: var(--cv-on-dark); font-size: 13px; font-weight: 700; }
+.im-led-s.dato { background: var(--cv-orange); }
+.im-led-s.ric { background: var(--cv-dark); }
+
+/* Radar di Alma Impianti: pallino colorato del settore sulle pillole e sulle carte */
+.im-sectors .rk-sc i, .rk-bu.im-sec i { display: inline-block; width: 8px; height: 8px; border-radius: 999px; margin-right: 6px; vertical-align: middle; }
+.rk-bu.im-sec { display: inline-flex; align-items: center; }
+
+@media (max-width: 760px) {
+  .im-tiles, .im-kpis, .im-alerts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .im-row { grid-template-columns: 1fr; }
+  .im-acts { justify-content: flex-start; }
+  .im-side, .im-drawer { max-width: none; }
+  .im-pr { grid-template-columns: 1fr auto; }
+  .im-pr .im-recip { grid-column: 1 / -1; grid-row: 2; }
+}

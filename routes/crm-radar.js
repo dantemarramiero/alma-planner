@@ -12,6 +12,9 @@ const { scoreSignal, bestBu, parseDelimited, readInfordat, proposePlan, pickPlay
 const { relationsFor, pathsOf, relationshipLevel } = require('../lib/crm-relazioni');
 const { getSetting, saveSetting } = require('../lib/settings');
 const { draftTemplate, draftAI, moveFrom } = require('../lib/crm-primo-passo');
+const IMP = require('../lib/impianti');
+// filtri preferiti: quelli del Radar del CRM e quelli del Radar di Alma Impianti sono separati
+const filtriKey = (req, scope) => (scope === 'impianti' ? `crm.radar_filtri.impianti.${req.user.id}` : `crm.radar_filtri.${req.user.id}`);
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const KINDS = ['gara', 'opera_finanziata', 'scadenza', 'permesso', 'nuovo_gestore', 'investimento', 'cliente', 'notizia', 'indiscrezione', 'subappalto'];
@@ -46,12 +49,14 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     const { score, parts, why } = scoreSignal(sig, bu ? c.settings.profiles[bu] : null, c.settings.scoring, { relationship, today: todayRome() });
     const { rows: [row] } = await db.query(
       `INSERT INTO crm_signals (source, external_id, kind, bu, title, summary, why, entity, subject_id, amount, region, place, url, published_on, deadline, cig, soa,
-                                score, score_parts, to_gare, created_by, stage, expected_on)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                                score, score_parts, to_gare, created_by, stage, expected_on, sector)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
        ON CONFLICT (source, external_id) WHERE external_id <> '' DO NOTHING RETURNING *`,
       [sig.source, sig.external_id || '', sig.kind || '', bu, sig.title, sig.summary || '', sig.why || why.join(' · '), sig.entity || '', subject?.id || null,
         sig.amount ?? null, sig.region || '', sig.place || '', sig.url || '', sig.published_on || null, sig.deadline || null, sig.cig || '', sig.soa || [],
-        score, JSON.stringify(parts), Boolean(sig.to_gare), userId, STAGES.includes(sig.stage) ? sig.stage : '', sig.expected_on || null]);
+        score, JSON.stringify(parts), Boolean(sig.to_gare), userId, STAGES.includes(sig.stage) ? sig.stage : '', sig.expected_on || null,
+        // settore di Alma Impianti (ALM2-73): quello dato, altrimenti dalle parole del segnale
+        bu === 'impianti' ? (IMP.SECTOR_KEYS.includes(sig.sector) ? sig.sector : IMP.sectorOf(sig.title, sig.summary, sig.why)) : '']);
     return row || null;
   }
   const SELECT = `SELECT g.*, s.name AS subject_name, s.roles AS subject_roles, a.label AS bu_label, u.name AS decided_by_name
@@ -123,11 +128,12 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       return { id: g.id, title: g.title, entity: g.entity, subject_id: g.subject_id, subject_name: g.subject_name, bu: g.bu, bu_label: g.bu_label, kind: g.kind, stage: g.stage,
         column: columnOf(g), status: g.status, to_gare: g.to_gare, amount: g.amount != null ? Number(g.amount) : null, region: g.region, place: g.place,
         deadline: g.deadline, expected_on: g.expected_on, score: g.score, created_at: g.created_at, decided_by_name: g.decided_by_name, source: g.source,
+        sector: g.sector || (g.bu === 'impianti' ? IMP.sectorOf(g.title, g.summary) : ''),
         project_id: g.project_id || null, project_owner: g.project_id ? owners.find(o => o.id === g.project_id)?.name || '' : '',
         warm: rel && rel.level ? rel.level : '', warm_us: paths.map(p => p.us && p.us.name).filter(Boolean), warm_why: paths[0] ? `${paths[0].us ? paths[0].us.name : ''} → ${paths[0].contact}` : '' };
     });
     res.json({ signals, bus: c.myBus, gare: c.gare, highlight: c.settings.scoring.highlight, discardReasons: c.settings.rules.discard_reasons,
-      filtri: (await getSetting(db, `crm.radar_filtri.${req.user.id}`, [])) || [] });
+      filtri: (await getSetting(db, filtriKey(req, req.query.scope), [])) || [] });
   });
   // Spostare un'opportunità tra le colonne (trascinandola): Programmata → Finanziata → Progetto approvato
   app.post('/api/crm/radar/signals/:id/fase', async (req, res) => {
@@ -144,7 +150,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       .filter(f => f.nome);
     let seen = false;
     for (const f of list) { if (f.predefinito && !seen) seen = true; else f.predefinito = false; }
-    await saveSetting(db, `crm.radar_filtri.${req.user.id}`, list, req.user.id);
+    await saveSetting(db, filtriKey(req, req.query.scope || req.body?.scope), list, req.user.id);
     res.json({ filtri: list });
   });
   app.get('/api/crm/radar/signals/:id', async (req, res) => {
@@ -481,6 +487,23 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
             cost += pre.costEur;
             r.signals.push(...pre.signals.filter(s => s.stage).map(s => ({ ...s, kind: s.kind === 'gara' ? 'opera_finanziata' : s.kind })));
           } catch (err) { error = `Prima del bando: ${String(err.message || err).slice(0, 300)}`; }
+        }
+        // Alma Impianti (ALM2-73): un giro in più per ogni settore (depurazione, fotovoltaico, biometano, impianti in
+        // edilizia, efficientamento), con cosa cercare per quel settore; i segnali portano il loro settore
+        if (bu === 'impianti') {
+          const I = require('../lib/impianti');
+          const cfg = I.normalizeSettings(await getSetting(db, 'impianti.settings', {}) || {});
+          for (const s of r.signals) s.sector = I.sectorOf(s.title, s.summary, s.why);
+          for (const sec of I.SECTORS.filter(x => cfg.sectors.includes(x.key))) {
+            if ((await spendOf(bu)).eur + cost >= b.quota_eur) break;
+            try {
+              const sp = { ...profile, description: `${sec.hint} ${profile.description || ''}`.trim(), works: [sec.label], keywords: [...new Set([...(profile.keywords || []), ...sec.words.slice(0, 6)])],
+                amount_min: null, amount_max: null }; // tutte le taglie (Dante 24/11); quelle oltre 2 M€ salgono nel radar
+              const rs = await searchBu({ apiKey, buLabel: `${label} · ${sec.label}`, profile: sp, clients: [], today: todayRome(), fetchImpl });
+              cost += rs.costEur;
+              r.signals.push(...rs.signals.map(x => ({ ...x, sector: sec.key })));
+            } catch (err) { error = `${sec.label}: ${String(err.message || err).slice(0, 300)}`; }
+          }
         }
         found = r.signals.length;
         if (!found) error = `Nessuna notizia utilizzabile: ${r.raw || 'risposta vuota'}`.slice(0, 900);

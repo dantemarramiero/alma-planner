@@ -48,6 +48,8 @@ const { registerCrmCup } = require('./routes/crm-cup');
 const { registerCrmTriennali } = require('./routes/crm-triennali');
 const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
+const { registerImpianti } = require('./routes/impianti');
+const { createImpiantiMailFake } = require('./lib/impianti-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
 const { registerCrmCalendario } = require('./routes/crm-calendario');
@@ -276,6 +278,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
   registerCrmScrivo(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createMailFake() : null }); // CRM: «Persone con cui mi scrivo» dalla propria posta
+  registerImpianti(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createImpiantiMailFake() : null }); // Alma Impianti (ALM2-73): Da fare, Fondi, Progettisti
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
