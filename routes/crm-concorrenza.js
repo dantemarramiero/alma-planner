@@ -144,13 +144,75 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     const zone = def.length ? def : allRegions(c);
     const regions = regionsParam(req.query.regions) ?? zone;
     const type = P.TYPE_KEYS.includes(req.query.type) ? req.query.type : '';
-    const [o, { rows: [st] }, { rows: imp }] = await Promise.all([
-      P.overview(db, { months: monthsOf(c, req.query.months), regions, type, sa: String(req.query.sa || '').slice(0, 20), q: String(req.query.q || '').slice(0, 80),
-        sort: ['incarichi', 'valore', 'enti'].includes(req.query.sort) ? req.query.sort : 'incarichi' }),
+    const rules = P.areaRules(c.settings);
+    const bu = buParam(rules, req.query.bu);
+    const [o, { rows: [st] }, { rows: imp }, labels] = await Promise.all([
+      P.overview(db, { months: monthsOf(c, req.query.months), regions, type, sa: saParam(req.query.sa), q: String(req.query.q || '').slice(0, 80), bu,
+        sort: ['incarichi', 'valore', 'enti', 'crescita'].includes(req.query.sort) ? req.query.sort : 'incarichi' }, rules),
       db.query('SELECT count(*)::int AS n, count(*) FILTER (WHERE cup <> \'\')::int AS con_cup FROM crm_anac_design'),
       db.query("SELECT max(at) AS at FROM crm_anac_design_imports WHERE error = ''"),
+      areaLabels(rules),
     ]);
-    res.json({ ...o, regions, zone, data: { incarichi: st.n, con_cup: st.con_cup, at: imp[0]?.at || null, running: P.isRunning() || isRunning() }, admin: req.crm.admin });
+    res.json({ ...o, regions, zone, my_bus: c.myBus.filter(b => rules.some(r => r.key === b)), area_labels: labels,
+      data: { incarichi: st.n, con_cup: st.con_cup, at: imp[0]?.at || null, running: P.isRunning() || isRunning() }, admin: req.crm.admin });
+  });
+  // ALM2-80: aree (BU) con il nome delle ASA, committenti da cercare, Anagrafiche › Progettisti, nuovo progettista
+  const buParam = (rules, q) => { const b = String(q || ''); return b === 'nessuna' || rules.some(r => r.key === b) ? b : ''; };
+  const saParam = q => String(q || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+  async function areaLabels(rules) {
+    const { rows } = await db.query('SELECT key, label, sort FROM crm_asa');
+    const byKey = new Map(rows.map(r => [r.key, r]));
+    return rules.map(r => ({ key: r.key, label: byKey.get(r.key)?.label || r.key.replace(/_/g, ' '), sort: byKey.get(r.key)?.sort ?? 999 }))
+      .sort((a, b) => a.sort - b.sort).map(({ key, label }) => ({ key, label }));
+  }
+  // casella della mappa di calore: gli incarichi di un progettista con area, ente e zona della classifica
+  app.get('/api/crm/progettisti/incarichi', async (req, res) => {
+    const c = await ctx(req);
+    const rules = P.areaRules(c.settings);
+    const type = P.TYPE_KEYS.includes(req.query.type) ? req.query.type : '';
+    res.json(await P.incarichi(db, String(req.query.key || '').slice(0, 220), { months: monthsOf(c, req.query.months), regions: regionsParam(req.query.regions) ?? [],
+      sa: saParam(req.query.sa), type, bu: buParam(rules, req.query.bu) }, rules));
+  });
+  app.get('/api/crm/progettisti/enti', async (req, res) => {
+    const c = await ctx(req);
+    res.json({ enti: await P.enti(db, req.query.q, { months: monthsOf(c, req.query.months) }) });
+  });
+  app.get('/api/crm/progettisti/anagrafica', async (req, res) => {
+    const c = await ctx(req);
+    const rules = P.areaRules(c.settings);
+    const [a, labels] = await Promise.all([
+      P.anagrafica(db, { months: monthsOf(c, req.query.months), sa: saParam(req.query.sa), bu: buParam(rules, req.query.bu), q: String(req.query.q || '').trim().slice(0, 80) }, rules),
+      areaLabels(rules)]);
+    res.json({ ...a, area_labels: labels });
+  });
+  app.get('/api/crm/progettisti/cerca', async (req, res) => {
+    const c = await ctx(req);
+    res.json({ trovati: await P.cerca(db, req.query.q, { months: monthsOf(c, req.query.months), sa: saParam(req.query.sa) }, P.areaRules(c.settings)) });
+  });
+  // «+ Nuovo progettista» (tavola Q): Progettista e Fornitore › Professionisti › Progettista; se c'è già, si completa
+  app.post('/api/crm/progettisti/nuovo', async (req, res) => {
+    const c = await ctx(req);
+    const name = v.text(req.body.name, 'Nome', { max: 200, required: true });
+    const cf = String(req.body.cf || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^IT(?=\d{11}$)/, '').slice(0, 16);
+    if (cf && !/^\d{11}$/.test(cf) && !/^[A-Z0-9]{16}$/.test(cf)) throw new HttpError(400, 'P.IVA (11 cifre) o codice fiscale (16 caratteri) non valido');
+    const [kind, legal] = P.TIPI[req.body.tipo] || P.TIPI.societa;
+    const rules = P.areaRules(c.settings);
+    const asa = [...new Set((Array.isArray(req.body.aree) ? req.body.aree : []).map(String).filter(a => rules.some(r => r.key === a)))];
+    const ownerId = req.body.owner_id ? v.int(req.body.owner_id, 'Responsabile', { min: 1 }) : req.user.id;
+    const found = [{ cf, name }];
+    await P.linkCrm(db, found);
+    const s = found[0].subject;
+    if (s) {
+      await db.query(`UPDATE crm_subjects SET roles = ARRAY(SELECT DISTINCT unnest(roles || '{progettista,fornitore}'::text[])),
+          supplier_categories = ARRAY(SELECT DISTINCT unnest(supplier_categories || '{professionisti}'::text[])),
+          supplier_subcategories = ARRAY(SELECT DISTINCT unnest(supplier_subcategories || '{Progettista}'::text[])),
+          asa = ARRAY(SELECT DISTINCT unnest(asa || $2::text[])), updated_at = now() WHERE id = $1`, [s.id, asa]);
+      return res.json({ id: s.id, name: s.name, created: false });
+    }
+    const { rows: [n] } = await db.query(`INSERT INTO crm_subjects (name, vat, tax_code, kind, legal_form, roles, supplier_categories, supplier_subcategories, asa, owner_id, origin, created_by)
+      VALUES ($1, $2, $3, $4, $5, '{progettista,fornitore}', '{professionisti}', '{Progettista}', $6, $7, $8, $9) RETURNING id, name`,
+      [name, /^\d{11}$/.test(cf) ? cf : '', /^[A-Z0-9]{16}$/.test(cf) ? cf : '', kind, legal, asa, ownerId, req.body.from_anac ? 'ANAC' : '', req.user.id]);
+    res.status(201).json({ id: n.id, name: n.name, created: true });
   });
   app.get('/api/crm/progettisti/scheda/:key', async (req, res) => {
     const c = await ctx(req);
@@ -175,7 +237,7 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     const pick = async (sql) => (await db.query(sql, [id]).catch(() => ({ rows: [] }))).rows[0]?.cf || '';
     const sa = aw?.sa_cf || await pick('SELECT sa_cf AS cf FROM crm_prog_interventi WHERE signal_id = $1 LIMIT 1') || await pick('SELECT owner_cf AS cf FROM crm_cup_works WHERE signal_id = $1 LIMIT 1')
       || String(g.vat || g.tax_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^IT(?=\d{11}$)/, '');
-    res.json(await P.perGara(db, { cup, sa }));
+    res.json({ ...(await P.perGara(db, { cup, sa })), sa: sa || '' }); // sa: per «Tutti ›» verso la classifica dell'ente (ALM2-80)
   });
   // progettista di ANAC → CRM col tipo «Progettista» (studio o professionista: P.IVA o codice fiscale)
   app.post('/api/crm/progettisti/crm', async (req, res) => {
@@ -185,10 +247,14 @@ function registerCrmConcorrenza(app, { db, radar, anacFetch }) {
     await P.linkCrm(db, found);
     if (found[0].subject) {
       const s = found[0].subject;
-      if (!s.roles.includes('progettista')) await db.query("UPDATE crm_subjects SET roles = array_append(roles, 'progettista') WHERE id = $1", [s.id]);
+      // ALM2-80: il progettista è anche fornitore (Professionisti › Progettista)
+      await db.query(`UPDATE crm_subjects SET roles = ARRAY(SELECT DISTINCT unnest(roles || '{progettista,fornitore}'::text[])),
+          supplier_categories = ARRAY(SELECT DISTINCT unnest(supplier_categories || '{professionisti}'::text[])),
+          supplier_subcategories = ARRAY(SELECT DISTINCT unnest(supplier_subcategories || '{Progettista}'::text[])) WHERE id = $1`, [s.id]);
       return res.json({ id: s.id, name: s.name, created: false });
     }
-    const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, vat, tax_code, roles, asa, owner_id, origin, created_by) VALUES ($1, $2, $3, '{progettista}', '{}', $4, 'ANAC', $4) RETURNING id, name`,
+    const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, vat, tax_code, roles, supplier_categories, supplier_subcategories, asa, owner_id, origin, created_by)
+      VALUES ($1, $2, $3, '{progettista,fornitore}', '{professionisti}', '{Progettista}', '{}', $4, 'ANAC', $4) RETURNING id, name`,
       [name, /^\d{11}$/.test(cf) ? cf : '', /^[A-Z0-9]{16}$/.test(cf) ? cf : '', req.user.id]);
     res.status(201).json({ id: s.id, name: s.name, created: true });
   });

@@ -24,7 +24,7 @@ function installHint() {
   try { until = Number(localStorage.getItem(HINT_KEY) || 0); } catch { /* niente memoria: si mostra */ }
   if (until > Date.now()) return;
   const box = h('div.pwa-hint', { role: 'dialog', 'aria-label': 'Aggiungi Alma Space al telefono' },
-    h('img', { src: '/brand/almacis/app-icon-180.png', alt: '' }),
+    h('img', { src: '/brand/almacis/app-icon-180.png?v=3', alt: '' }),
     h('div',
       h('strong', 'Aggiungi Alma Space al telefono'),
       h('span', 'Tocca ', h('strong', 'Condividi'), ' in basso, poi ', h('strong', 'Aggiungi alla schermata Home'), '. Si apre come un\'app e ti avvisa dei ticket e dei post nuovi.'),

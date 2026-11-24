@@ -24,6 +24,7 @@ let gState = null;
 export async function gareHub(box, data, section, { openSignal } = {}) {
   fill(box, loading());
   const st = gState || (gState = { bu: null, months: 24, rsel: undefined, amount: '', top: 25 });
+  section = String(section || '').split('?')[0]; // #/crm/concorrenza/progettisti?sa=…&bu=… (ALM2-80)
   if (MOVED[section]) { location.replace(MOVED[section]); return; } // link vecchi: ora nel Radar
   const sec = SECTIONS.some(([k]) => k === section) ? section : 'chi-vince';
   const again = (s = sec) => gareHub(box, data, s, { openSignal });
