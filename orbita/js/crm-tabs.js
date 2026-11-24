@@ -8,7 +8,8 @@ import { get, post, del } from './api.js';
 import { store } from './store.js';
 import { icon } from './icons.js';
 import { notesPanel } from './notes.js';
-import { uploadNoteFiles, noteFileLinks } from './project-meetings.js';
+import { uploadNoteFiles, noteFileLinks, meetingWhen } from './project-meetings.js';
+import { proposalSection, syncTwin } from './proposte-persone.js';
 import { ic, dots, pill, card, link, sect, listRow, emptyState, seg, cvModal } from './crm-v2.js';
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -112,18 +113,33 @@ function mailboxDialog(base, onDone) {
   const folder = h('select.select', { 'aria-label': 'Cartella', style: { width: 'auto' } }, [['inbox', 'Posta in arrivo'], ['sent', 'Posta inviata'], ['all', 'Tutte']].map(([k, l]) => h('option', { value: k }, l)));
   const list = h('div', { style: { maxHeight: '55vh', overflowY: 'auto' } }, loading());
   const picked = new Set();
+  let m;
+  const pickRow = msg => {
+    const el = h('label.pe-pick', { class: picked.has(msg.id) ? 'on' : '' },
+      h('input', { type: 'checkbox', checked: picked.has(msg.id), 'data-pid': msg.id, on: { change: e => {
+        e.target.checked ? picked.add(msg.id) : picked.delete(msg.id);
+        el.classList.toggle('on', e.target.checked);
+        syncTwin(m.box, msg.id, e.target.checked);
+      } } }),
+      h('div.pe-main', h('div.pe-line', h('strong.pe-from', msg.from.name || msg.from.address), h('span.pe-date', fmtDate(String(msg.date).slice(0, 10)))),
+        msg.with?.length ? h('div.pp-with', ic('users', 13), ` con ${msg.with.join(', ')}`) : null,
+        h('div.pe-subject', msg.subject)));
+    return el;
+  };
+  // in cima: le email con i contatti della scheda, già spuntate (ALM2-84)
+  const proposals = proposalSection({ url: `${base}/email-proposals`, listKey: 'messages', noun: ['email', 'email', 'f'], pick: msg => picked.add(msg.id), row: pickRow });
   const load = async () => {
     fill(list, loading());
     let r;
     try { r = await get(`/api/mail/messages?folder=${folder.value}${search.value.trim() ? `&q=${encodeURIComponent(search.value.trim())}` : ''}`); } catch { return fill(list, emptyState('mail', 'Posta non disponibile: collega Microsoft.')); }
     fill(list, r.messages.length ? r.messages.map(m => h('label.cv-li', { style: { cursor: 'pointer', padding: '10px 0' } },
-      h('input', { type: 'checkbox', checked: picked.has(m.id), on: { change: e => (e.target.checked ? picked.add(m.id) : picked.delete(m.id)) } }),
+      h('input', { type: 'checkbox', checked: picked.has(m.id), 'data-pid': m.id, on: { change: e => { e.target.checked ? picked.add(m.id) : picked.delete(m.id); syncTwin(dlg.box, m.id, e.target.checked); } } }),
       h('div.cv-li-main', h('div.cv-li-t', h('span.cv-ell', m.subject)), h('div.cv-li-m', dots([m.from.name || m.from.address, fmtDate(String(m.date).slice(0, 10))])), m.preview ? h('div.cv-li-m.cv-clamp', m.preview) : null))) : emptyState('mail', 'Nessuna email.'));
   };
   search.addEventListener('change', load);
   folder.addEventListener('change', load);
-  const m = cvModal({
-    wide: true, title: 'Collega email dalla tua casella', body: h('div', { style: { display: 'grid', gap: '12px' } }, h('div.cv-row', folder, search), list),
+  const dlg = m = cvModal({
+    wide: true, title: 'Collega email dalla tua casella', body: h('div', { style: { display: 'grid', gap: '12px' } }, proposals, h('div.cv-row', folder, search), list),
     actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
       h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
         if (!picked.size) return toast('Scegli almeno una email', 'err');
@@ -169,10 +185,52 @@ export function meetingsTab(box, base, opts = {}) {
     const { schedaCalendar } = await import('./crm-calendario.js');
     schedaCalendar(body, { target: m[1], id: Number(m[2]), label: opts.label || 'questa scheda', name: opts.name || 'loro', people: opts.people || [], canWrite: opts.canWrite !== false, onChange: () => get(`${base}/meetings`).then(x => { count.textContent = String(x.length); }).catch(() => {}) });
   }
-  fill(box, h('div.kc-incontri', pills, body));
-  get(`${base}/meetings`, { quiet: true }).then(x => { count.textContent = String(x.length); }).catch(() => {});
+  const props = h('div');
+  fill(box, h('div.kc-incontri', props, pills, body));
+  const refreshCount = () => get(`${base}/meetings`, { quiet: true }).then(x => { count.textContent = String(x.length); }).catch(() => {});
+  refreshCount();
   drawPills();
   draw();
+  if (opts.canWrite !== false) meetingProposals(props, base, { label: opts.label || 'questa scheda', onDone: () => { refreshCount(); draw(); } });
+}
+
+// Incontri con i contatti della scheda, dal proprio calendario, non ancora collegati (ALM2-84): già spuntati, un clic per collegarli
+function meetingProposals(box, base, { label, onDone }) {
+  const picked = new Set();
+  let total = 0;
+  const btn = h('button.btn.btn-primary.btn-sm', { type: 'button' }, 'Collega');
+  const setBtn = () => { btn.disabled = !picked.size; btn.textContent = picked.size > 1 ? `Collega ${picked.size} incontri` : 'Collega'; };
+  const row = ev => {
+    const el = h('label.pe-pick', { class: picked.has(ev.id) ? 'on' : '' },
+      h('input', { type: 'checkbox', checked: picked.has(ev.id), on: { change: e => {
+        e.target.checked ? picked.add(ev.id) : picked.delete(ev.id);
+        el.classList.toggle('on', e.target.checked);
+        setBtn();
+      } } }),
+      h('div.pe-main', h('div.pe-line', h('strong.pe-from', ev.subject), h('span.pe-date', meetingWhen(ev))),
+        ev.with?.length ? h('div.pp-with', ic('users', 13), ` con ${ev.with.join(', ')}`) : null,
+        h('div.pe-preview', [ev.location, ev.organizer?.name ? `organizza ${ev.organizer.name}` : '', ev.online ? 'Teams' : ''].filter(Boolean).join(' · ') || ' ')));
+    return el;
+  };
+  const section = proposalSection({
+    url: `${base}/meeting-proposals`, listKey: 'events', noun: ['incontro', 'incontri'], pick: ev => picked.add(ev.id), row,
+    onReady: n => {
+      total = n;
+      if (!n) return fill(box); // nessuna proposta: niente riquadro nella scheda
+      setBtn();
+      section.querySelector('.pp-rest')?.replaceWith(h('div.cv-row', { style: { justifyContent: 'flex-end', gap: '8px' } },
+        h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => fill(box) } }, 'Non ora'), btn));
+    },
+  });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const ids = [...picked];
+    for (let i = 0; i < ids.length; i += 20) await post(`${base}/meetings`, { event_ids: ids.slice(i, i + 20) });
+    toast(`${ids.length} ${ids.length === 1 ? 'incontro collegato' : 'incontri collegati'} a ${label}`);
+    fill(box);
+    onDone?.(total);
+  });
+  fill(box, h('div', { style: { margin: '0 0 12px' } }, section));
 }
 
 function meetingsTabOld(box, base, { canWrite = true, people = [], onCount, label = 'questa scheda', listOnly = false } = {}) {

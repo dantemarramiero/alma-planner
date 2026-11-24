@@ -7,6 +7,16 @@ const { createDb } = require('../lib/db');
 const I = require('../lib/impianti');
 
 let server, base, db, D, U;
+// OpenAI finto: per «Trova fondi con Alma» risponde con due fondi (uno già nel CRM), per il resto niente
+const FONDI = [
+  { name: 'Fondo Verde Test', type: 'SGR', techs: ['biometano'], ticket_min: 5e6, ticket_max: 3e7, regions: [], phases: ['autorizzato'], why: 'già noto', url: 'https://esempio.it/a' },
+  { name: 'Sole Infrastrutture Test SGR', type: 'fondo infrastrutturale', city: 'Milano', website: 'https://sole-test.it', techs: ['fotovoltaico', 'xx'], ticket_min: 1e7, ticket_max: 8e7, regions: ['Sicilia'], phases: ['autorizzato', 'costruzione'], seeks_epc: true, why: 'Ha comprato 120 MW in Sicilia nel 2026', url: 'https://esempio.it/b' },
+];
+async function fakeOpenAI(_url, opts) {
+  const body = JSON.parse(opts.body);
+  const text = /fondi d'investimento/.test(body.input) ? '```json\n' + JSON.stringify(FONDI) + '\n```' : '[]';
+  return { ok: true, json: async () => ({ output_text: text, usage: { input_tokens: 1000, output_tokens: 500 }, output: [{ type: 'web_search_call' }] }) };
+}
 const ADMIN = 'direzione@almacis.it';
 const USER = 'simone.mancinelli@almacis.it';
 
@@ -22,7 +32,7 @@ async function api(cookie, method, path, body) {
 
 before(async () => {
   db = await createDb({});
-  const { app } = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db });
+  const { app } = await createApp(readConfig({ DEV_LOGIN: '1', PORT: '0', ADMIN_EMAILS: ADMIN }), { db, crmFetchEvents: async () => [], radarFetch: fakeOpenAI });
   server = app.listen(0);
   server.keepAliveTimeout = 60000;
   await new Promise(r => server.once('listening', r));
@@ -261,4 +271,37 @@ test('energivori via API: anteprima, carica, porta nel radar', async () => {
   assert.equal(sig.bu, 'impianti');
   const again = await U('POST', `/api/crm/impianti/energivori/${vet.id}/radar`);
   assert.equal(again.body.signal_id, go.body.signal_id, 'niente segnale doppio');
+});
+
+test("CSEA: classe di agevolazione dal file e 40 punti senza consumi", () => {
+  const { REGIONS } = require("../lib/energy-places");
+  const rows = [["Elenco delle imprese a forte consumo di energia elettrica per l anno di competenza 2026", "", "", "", ""], ["", "", "", "", ""],
+    ["P.IVA", "Codice fiscale", "Ragione sociale", "Classe di agevolazione", "Decorrenza"], ["03245060045", "03245060045", "2 GAMMA SRL", "ASOS1", "01/01/2026"]];
+  const r = I.readEnergivori(rows, { provinces: REGIONS });
+  assert.equal(r.rows.length, 1);
+  assert.equal(r.rows[0].vat, "03245060045");
+  assert.equal(r.rows[0].csea_class, "ASOS1");
+  assert.equal(I.energivoroScore(r.rows[0]), 40);
+  assert.ok(I.energivoroScore({ ...r.rows[0], consumption_gwh: 90, roof_m2: 20000 }) > 40);
+});
+
+test("Trova fondi con Alma: proposte, già nel CRM, aggiungi solo i scelti col mandato", async () => {
+  const r = await U("POST", "/api/crm/impianti/fondi/cerca", { sector: "fotovoltaico" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.funds.length, 2);
+  assert.ok(r.body.funds.find(f => f.name === "Fondo Verde Test").existing, "riconosce chi c è già");
+  const nuovo = r.body.funds.find(f => f.name.startsWith("Sole"));
+  assert.equal(nuovo.existing, null);
+  assert.deepEqual(nuovo.techs, ["fotovoltaico"]);
+  assert.equal((await U("POST", "/api/crm/impianti/fondi/aggiungi", { funds: [] })).status, 400);
+  const add = await U("POST", "/api/crm/impianti/fondi/aggiungi", { funds: [nuovo] });
+  assert.equal(add.status, 201);
+  const { rows: [s] } = await db.query("SELECT s.segment, s.asa, s.website, m.techs, m.ticket_max, m.regions FROM crm_subjects s JOIN crm_fund_mandates m ON m.subject_id = s.id WHERE s.id = $1", [add.body.ids[0]]);
+  assert.equal(s.segment, I.SEGMENT_FUND);
+  assert.ok(s.asa.includes("impianti"));
+  assert.equal(s.website, "https://sole-test.it");
+  assert.deepEqual(s.techs, ["fotovoltaico"]);
+  assert.equal(Number(s.ticket_max), 8e7);
+  const { rows: [sp] } = await db.query("SELECT eur FROM crm_radar_spend WHERE bu = $1", ["impianti"]);
+  assert.ok(Number(sp.eur) > 0, "la ricerca si conta sul budget del radar Impianti");
 });

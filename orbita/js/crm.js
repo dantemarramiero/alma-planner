@@ -773,14 +773,66 @@ function completenessRing(s) {
   el.append(h('b', `${pct}%`), h('small', missing.length ? `mancano ${missing.slice(0, 2).join(', ')}${missing.length > 2 ? '…' : ''}` : 'scheda completa'));
   return el;
 }
+// ALM2-88 (Dante 24/11/2026): un dato alla volta. «+ Aggiungi» o la matita aprono sul posto solo quel campo;
+// Invio o «Salva» lo salvano da solo, Esc o «Annulla» lasciano com'era. Il modulo completo resta in «Modifica».
+let closeInline = null; // un campo aperto alla volta: aprirne un altro chiude quello di prima
+function inlineField({ label, has, shown, control, save, full }) {
+  const box = h('span.an-inl');
+  const name = label.toLowerCase();
+  const view = () => { if (closeInline === view) closeInline = null; fill(box, has
+    ? h('span.an-val', shown, h('button.an-pen', { type: 'button', title: `Modifica ${name}`, 'aria-label': `Modifica ${name}`, on: { click: open } }, ic('pencil', 12)))
+    : h('button.an-add', { type: 'button', 'aria-label': `Aggiungi ${name}`, on: { click: open } }, '+ Aggiungi')); };
+  function open() {
+    if (full) return full();
+    if (closeInline && closeInline !== view) closeInline();
+    closeInline = view;
+    const el = control();
+    const ok = h('button.btn.btn-primary.btn-sm', { type: 'button' }, 'Salva');
+    const go = async () => {
+      ok.disabled = true;
+      try { await save(el.value.trim()); } catch (err) { ok.disabled = false; if (err?.message) toast(err.message, 'err'); }
+    };
+    ok.addEventListener('click', go);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } else if (e.key === 'Escape') { e.preventDefault(); view(); } });
+    fill(box, h('span.an-edit', el, ok, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: view } }, 'Annulla')));
+    el.focus();
+  }
+  view();
+  return box;
+}
 function anagraficaSections(s, refresh) {
   const web = s.web_fields || {};
   const edit = () => subjectForm({ subject: s, onSaved: refresh });
+  const LABEL = { name: 'Ragione sociale', legal_form: 'Forma giuridica', vat: 'P.IVA', tax_code: 'Codice fiscale', pec: 'PEC', sdi_code: 'Codice SDI', ipa_code: 'Codice IPA',
+    address: 'Indirizzo', zip: 'CAP', city: 'Comune', province: 'Provincia', region: 'Regione', email: 'Email', phone: 'Telefono', website: 'Sito', linkedin: 'LinkedIn',
+    ateco: 'ATECO', employees: 'Dipendenti', revenue: 'Fatturato', soa: 'SOA' };
+  const control = k => {
+    const a = { 'aria-label': LABEL[k] };
+    if (k === 'legal_form') return select([['', '—'], ...data.meta.legalForms.map(x => [x, x])], s.legal_form, a);
+    if (k === 'province') return provinceSelect(s.province, a);
+    if (k === 'region') return select([['', '—'], ...data.meta.regions.map(r => [r.name, r.name])], s.region, a);
+    const ph = { ateco: '41.20', employees: '25–30', revenue: '€ 4 M (2024)', website: 'www.…', linkedin: 'https://www.linkedin.com/company/…' }[k] || '';
+    return input({ ...a, value: s[k] || '', type: ['pec', 'email'].includes(k) ? 'email' : 'text', maxlength: { vat: 20, tax_code: 20, zip: 10, sdi_code: 10 }[k] || 200, placeholder: ph });
+  };
+  const saveOne = async (k, value) => {
+    const body = { [k]: value };
+    if (k === 'province' && value) body.region = regionOf(value); // come nel modulo: la provincia porta la regione
+    try { await patch(`/api/crm/subjects/${s.id}`, body, { quiet: true }); } catch (err) {
+      // P.IVA già di un'altra scheda: «È la stessa azienda?» come nel modulo (canvas v15)
+      let m = null;
+      const box = conflictBox(err, { currentId: s.id, onMerged: r => { m?.close(); location.hash = `#/crm/scheda/${r.into}`; } });
+      if (!box) throw err;
+      m = cvModal({ title: 'È la stessa azienda?', body: box });
+      return;
+    }
+    toast(`Salvato: ${LABEL[k]}`);
+    refresh();
+  };
   const val = (k, v) => {
-    if (!v) return h('button.an-add', { type: 'button', on: { click: edit } }, '+ Aggiungi');
     const w = web[k];
-    return h('span.an-val', h('b', v), w ? h('button.an-web', { type: 'button', title: `Preso da internet${w.source ? ` (${w.source})` : ''}: tocca per confermarlo`,
-      on: { click: async () => { await post(`/api/crm/subjects/${s.id}/da-web/conferma`, { key: k }); toast('Dato confermato'); refresh(); } } }, 'da internet') : null);
+    return inlineField({ label: LABEL[k] || k, has: Boolean(v), control: () => control(k), save: value => saveOne(k, value), full: k === 'soa' ? edit : null,
+      shown: [h('b', v), w ? h('button.an-web', { type: 'button', title: `Preso da internet${w.source ? ` (${w.source})` : ''}: tocca per confermarlo`,
+        on: { click: async () => { await post(`/api/crm/subjects/${s.id}/da-web/conferma`, { key: k }); toast('Dato confermato'); refresh(); } } }, 'da internet') : null] });
   };
   const ext = (url, text) => (url ? h('a', { href: /^(https?:|mailto:)/i.test(url) ? url : `https://${url}`, target: '_blank', rel: 'noopener' }, text || url.replace(/^https?:\/\/(www\.)?/i, '')) : '');
   const dl = rows => h('div.an-dl', rows.filter(Boolean).map(([k, label, v]) => h('div', h('span', label), val(k, v))));
@@ -927,9 +979,25 @@ function contactRing(c, primary) {
 }
 function contactSections(c, primary, refresh) {
   const edit = () => contactForm({ contact: c, onSaved: () => refresh() });
-  const val = v => (v ? h('span.an-val', h('b', v)) : h('button.an-add', { type: 'button', on: { click: edit } }, '+ Aggiungi'));
+  // ALM2-88: recapiti, lingua, owner, privacy e stato si cambiano uno alla volta; azienda e qualifica (collegamenti) nel modulo
+  const controls = {
+    email: () => input({ type: 'email', value: c.email || '', 'aria-label': 'Email', maxlength: 200 }),
+    mobile: () => input({ value: c.mobile || '', 'aria-label': 'Cellulare', maxlength: 40, inputmode: 'tel' }),
+    phone: () => input({ value: c.phone || '', 'aria-label': 'Telefono', maxlength: 40, inputmode: 'tel' }),
+    linkedin: () => input({ value: c.linkedin || '', 'aria-label': 'LinkedIn', maxlength: 200, placeholder: 'https://www.linkedin.com/in/…' }),
+    language: () => select([['', '—'], ...data.meta.languages.map(x => [x, x])], c.language, { 'aria-label': 'Lingua' }),
+    owner_id: () => select(userOptions(), c.owner_id, { 'aria-label': 'Owner' }),
+    legal_basis: () => select(Object.entries(data.meta.legalBasis), c.legal_basis || 'legittimo_interesse', { 'aria-label': 'Privacy' }),
+    status: () => select(Object.entries(data.meta.contactStatus), c.status || 'attivo', { 'aria-label': 'Stato' }),
+  };
+  const val = (label, v, k) => inlineField({ label, has: Boolean(v), shown: h('b', v), control: controls[k], full: controls[k] ? null : edit,
+    save: async value => {
+      await patch(`/api/crm/contacts/${c.id}`, { [k]: k === 'owner_id' ? (value ? Number(value) : null) : value }, { quiet: true });
+      toast(`Salvato: ${label}`);
+      refresh();
+    } });
   const ext = (url, text) => h('a', { href: /^https?:/i.test(url) ? url : `https://${url}`, target: '_blank', rel: 'noopener' }, text);
-  const dl = rows => h('div.an-dl', rows.filter(Boolean).map(([label, v]) => h('div', h('span', label), val(v))));
+  const dl = rows => h('div.an-dl', rows.filter(Boolean).map(([label, v, k]) => h('div', h('span', label), val(label, v, k))));
   const sec = (icn, ttl, rows, extra) => h('section.an-sec', h('div.an-sec-h', h('span.an-ic', ic(icn, 15)), h('b', ttl)), dl(rows), extra || null);
   const work = h('span.an-val', h('b', '…'));
   const workRow = primary ? h('div', h('span', 'Sede di lavoro'), work) : null;
@@ -945,16 +1013,16 @@ function contactSections(c, primary, refresh) {
   return h('div.an-wrap', h('div.an-grid.c3',
     workSec,
     sec('phone', 'Recapiti', [
-      ['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : ''],
-      ['Cellulare', c.mobile ? h('a', { href: `tel:${c.mobile}` }, c.mobile) : ''],
-      ['Telefono', c.phone ? h('a', { href: `tel:${c.phone}` }, c.phone) : ''],
-      ['LinkedIn', c.linkedin ? ext(c.linkedin, 'profilo') : ''],
+      ['Email', c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : '', 'email'],
+      ['Cellulare', c.mobile ? h('a', { href: `tel:${c.mobile}` }, c.mobile) : '', 'mobile'],
+      ['Telefono', c.phone ? h('a', { href: `tel:${c.phone}` }, c.phone) : '', 'phone'],
+      ['LinkedIn', c.linkedin ? ext(c.linkedin, 'profilo') : '', 'linkedin'],
     ]),
     sec('user', 'Altro', [
-      ['Lingua', c.language || ''],
-      ['Owner', c.owner_name || ''],
-      ['Privacy', `${data.meta.legalBasis[c.legal_basis] || ''}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`],
-      c.status !== 'attivo' ? ['Stato', data.meta.contactStatus[c.status]] : null,
+      ['Lingua', c.language || '', 'language'],
+      ['Owner', c.owner_name || '', 'owner_id'],
+      ['Privacy', `${data.meta.legalBasis[c.legal_basis] || ''}${c.newsletter ? ' · consenso alle comunicazioni' : ''}`, 'legal_basis'],
+      c.status !== 'attivo' ? ['Stato', data.meta.contactStatus[c.status], 'status'] : null,
     ], c.notes ? h('p.cv-soft.cv-small', { style: { whiteSpace: 'pre-wrap', margin: 0 } }, c.notes) : null)));
 }
 

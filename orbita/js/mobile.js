@@ -84,6 +84,7 @@ const TABS = {
   itTeam: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/ticket', 'it-ticket', 'life-buoy', 'Ticket IT'], ['#/it/richieste', 'it-richieste', 'inbox', 'Richieste'], ['#/it/panoramica', 'it-panoramica', 'layout-dashboard', 'Panoramica']],
   it: [['#/it/strumenti', 'it-strumenti', 'monitor', 'Strumenti'], ['#/it/strumenti?azione=segnala', '', 'life-buoy', 'Segnala'], ['#/it/strumenti?azione=richiedi', '', 'plus', 'Richiedi']],
   crm: [['#/crm/settimana', 'crm-settimana', 'alarm-clock', 'Settimana'], ['#/crm/lead', 'crm-lead', 'target', 'Lead'], ['#/crm/clienti', 'crm-clienti', 'building', 'Clienti'], ['#/crm/contatti', 'crm-contatti', 'contact', 'Contatti']],
+  procurement: [['#/procurement/home', 'procurement-home', 'house', 'Home'], ['#/procurement/capitolato', 'procurement-capitolato', 'package', 'Capitolato'], ['#/procurement/chiedi', 'procurement-chiedi', 'sparkles', 'Alma'], ['#/procurement/quotazioni', 'procurement-quotazioni', 'send', 'Quotazioni']],
   energy: [['#/energy/panoramica', 'energy-panoramica', 'layout-dashboard', 'Panoramica'], ['#/energy/ppa', 'energy-ppa energy-revamping energy-fv energy-opportunita', 'sun', 'Pipeline'], ['#/energy/target', 'energy-target', 'zap', 'Progetti'], ['#/energy/aziende', 'energy-aziende', 'building', 'Aziende']],
 };
 let current = { key: 'planet', label: 'Alma Agorà', modules: [] };

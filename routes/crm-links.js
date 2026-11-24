@@ -10,6 +10,7 @@ const express = require('express');
 const { HttpError, v } = require('../lib/http');
 const { graph, graphAll, TIMEZONE } = require('../lib/graph');
 const { history } = require('./condividi');
+const proposte = require('../lib/proposte-persone');
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const NOTE_KINDS = ['nota', 'telefonata', 'riunione', 'decisione'];
@@ -156,29 +157,38 @@ function registerCrmLinks(app, { db, auth, notifier, crmSync, subjectById, conta
   // Proposte: email della propria casella scambiate con i contatti della scheda e non ancora collegate.
   app.get('/api/crm/:target/:id/email-proposals', async (req, res) => {
     const { t, id } = await target(req);
-    const { rows } = t === 'subjects'
-      ? await db.query(`SELECT DISTINCT lower(c.email) AS email FROM crm_contact_links cl JOIN crm_contacts c ON c.id = cl.contact_id
-                         WHERE cl.subject_id = $1 AND cl.date_to IS NULL AND c.email <> '' LIMIT 8`, [id])
-      : await db.query(`SELECT lower(email) AS email FROM crm_contacts WHERE id = $1 AND email <> ''`, [id]);
-    const addrs = rows.map(r => r.email).filter(a => /^[^\s"]+@[^\s"]+$/.test(a));
-    if (!addrs.length) return res.json({ messages: [], addresses: [] });
+    const people = await proposte.crmPeople(db, t, id, req.user);
+    if (!people.length) return res.json({ messages: [], addresses: [], people });
     const token = await auth.graphToken(req.user.id);
-    const search = addrs.map(a => `participants:${a}`).join(' OR ');
-    const data = await msGraph(token, 'GET', `/me/messages?$search="${encodeURIComponent(search)}"&$select=id,subject,from,toRecipients,receivedDateTime,sentDateTime,bodyPreview,hasAttachments,internetMessageId,isDraft&$top=25`,
-      undefined, 'leggere la posta');
-    const items = (data.value || []).filter(m => !m.isDraft);
+    let items;
+    try { items = await proposte.mailWith(token, people); } catch (err) {
+      if (err.status === 403) throw new HttpError(403, 'Per leggere la posta serve il permesso di Microsoft', 'mail_read');
+      throw err;
+    }
     const { rows: done } = await db.query(
       `SELECT e.internet_message_id FROM crm_emails e JOIN crm_email_links L ON L.email_id = e.id
         WHERE e.internet_message_id = ANY($2::text[]) AND L.${t === 'subjects' ? 'subject_id' : 'contact_id'} = $1`,
-      [id, items.map(m => m.internetMessageId).filter(Boolean)]);
+      [id, items.map(m => m.internet_message_id)]);
     const linked = new Set(done.map(r => r.internet_message_id));
-    res.json({
-      addresses: addrs,
-      messages: items.filter(m => !linked.has(m.internetMessageId)).map(m => ({
-        id: m.id, subject: m.subject || '(senza oggetto)', from: person(m.from), to: (m.toRecipients || []).map(person),
-        date: m.receivedDateTime || m.sentDateTime, preview: (m.bodyPreview || '').slice(0, 240), has_attachments: Boolean(m.hasAttachments),
-      })),
-    });
+    res.json({ addresses: people.map(p => p.address), people, messages: items.filter(m => !linked.has(m.internet_message_id)) });
+  });
+
+  // Proposte (ALM2-84): incontri del proprio calendario con i contatti della scheda, non ancora collegati
+  app.get('/api/crm/:target/:id/meeting-proposals', async (req, res) => {
+    const { t, id, col } = await target(req);
+    const people = await proposte.crmPeople(db, t, id, req.user);
+    if (!people.length) return res.json({ people, events: [] });
+    const token = await auth.graphToken(req.user.id);
+    let list;
+    try { list = await proposte.meetingsWith(token, people); } catch (err) {
+      if (err.status === 403) throw new HttpError(403, 'Per leggere il calendario serve il permesso di Microsoft sul calendario', 'calendar_read');
+      throw err;
+    }
+    const { rows } = list.length ? await db.query(
+      `SELECT m.ical_uid || '|' || ${ts('m.start_at')} AS k FROM crm_meeting_links L JOIN crm_meetings m ON m.id = L.meeting_id
+        WHERE L.${col} = $1 AND NOT L.removed AND m.ical_uid = ANY($2::text[])`, [id, [...new Set(list.map(e => e.ical_uid))]]) : { rows: [] };
+    const done = new Set(rows.map(r => r.k));
+    res.json({ people, events: list.filter(e => !done.has(`${e.ical_uid}|${e.start}`)) });
   });
 
   // Collega email della propria casella (stessa logica dei progetti: testo e allegati copiati una volta).

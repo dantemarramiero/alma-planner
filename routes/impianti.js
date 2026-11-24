@@ -13,7 +13,7 @@ const SETTINGS_KEY = 'impianti.settings';
 const ignoredKey = uid => `impianti.ignora.${uid}`;
 const CACHE_MS = 10 * 60 * 1000;
 
-function registerImpianti(app, { db, auth, mailFake }) {
+function registerImpianti(app, { db, auth, mailFake, radarFetch }) {
   const graphAll = mailFake ? mailFake.graphAll : realGraphAll;
   const cache = new Map(); // userId → { at, sent, inbox }
 
@@ -332,7 +332,7 @@ function registerImpianti(app, { db, auth, mailFake }) {
   });
 
   // tappa 2 (ALM2-77): Home, Opportunità col triangolo, Energivori, con gli stessi pezzi
-  require('./impianti-tappa2').registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts, openSignals, matchesOf, mandateOut, kindOf });
+  require('./impianti-tappa2').registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts, openSignals, matchesOf, mandateOut, kindOf, radarFetch });
 }
 
 module.exports = { registerImpianti };

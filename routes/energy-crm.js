@@ -230,9 +230,13 @@ function registerEnergyCrm(app, { db }) {
       score: F.energivoroScore(e, { regions, today }), saving: F.savingEur(e),
     })).sort((a, b) => b.score - a.score);
     const top = all.filter(e => !e.snoozed && e.status === 'da_chiamare').sort((a, b) => (b.reason ? 1 : 0) - (a.reason ? 1 : 0) || b.score - a.score).slice(0, 3);
+    // energivori trovati nelle notizie dal radar energia e non ancora nell'elenco: anche loro da chiamare
+    const { rows: nuovi } = await db.query(
+      `SELECT id, title, summary, why, entity, region, place, url, published_on, created_at, score FROM energy_signals
+        WHERE kind = 'energivoro' AND status = 'nuovo' ORDER BY score DESC, created_at DESC LIMIT 12`);
     res.json({
-      kpi: { da_chiamare: top.length, totale: all.length, in_contatto: all.filter(e => e.status === 'in_contatto').length, risparmio: all.reduce((s, e) => s + e.saving, 0) },
-      top, elenco: all.slice(0, 200), regions: [...new Set(rows.map(r => r.region).filter(Boolean))].sort(),
+      kpi: { da_chiamare: top.length + nuovi.length, totale: all.length, in_contatto: all.filter(e => e.status === 'in_contatto').length, risparmio: all.reduce((s, e) => s + e.saving, 0) },
+      top, nuovi, elenco: all.slice(0, 200), regions: [...new Set(rows.map(r => r.region).filter(Boolean))].sort(),
     });
   });
 

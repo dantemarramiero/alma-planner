@@ -230,13 +230,11 @@ test('Progetti selezionati (ALM2-74): in valutazione, DD tecnica avviata con l\'
   assert.deepEqual(board.columns.map(c => c.key), ['valutazione', 'avviato', 'scartato']);
   assert.ok(board.columns[0].cards.some(c => c.id === opp.id && c.phase === null));
 
-  // avvia la DD tecnica: fasi dal modello «Acquisizione», una riga del Gantt per fase
+  // avvia la DD tecnica: fasi dal modello «Acquisizione»; le fasi non diventano ticket (ALM2-85)
   let it = (await A('POST', `/api/energy/opportunities/${opp.id}/selection`, { to: 'avviato' })).body;
   assert.deepEqual(it.phases.map(p => p.label), ['Due diligence tecnica', 'Due diligence legale', 'Delibera di investimento', 'Offerta', 'Closing']);
   assert.deepEqual(it.phases.map(p => p.state), ['attuale', 'dopo', 'dopo', 'dopo', 'dopo']);
-  let list = await tickets();
-  assert.deepEqual(list.map(t => t.title).sort(), ['Fase 1 · Due diligence tecnica', 'Fase 2 · Due diligence legale', 'Fase 3 · Delibera di investimento', 'Fase 4 · Offerta', 'Fase 5 · Closing']);
-  assert.equal(list.find(t => t.title.startsWith('Fase 1')).status, 'doing');
+  assert.equal((await tickets()).length, 0);
   assert.equal((await A('GET', `/api/energy/opportunities/${opp.id}`)).body.target_step, 'due_diligence');
 
   // chiudere la fase: punti tutti spuntati, oppure un motivo
@@ -260,11 +258,9 @@ test('Progetti selezionati (ALM2-74): in valutazione, DD tecnica avviata con l\'
   assert.deepEqual([it.phases[2].label, it.phases[2].due_date], ['Verifica archeologica preventiva', '2027-01-15']);
   it = (await A('POST', `/api/energy/iter/phases/${it.phases[2].id}/move`, { dir: 1 })).body;
   assert.equal(it.phases[3].label, 'Verifica archeologica preventiva');
-  list = await tickets();
-  assert.ok(list.some(t => t.title === 'Fase 4 · Verifica archeologica preventiva' && t.due_date?.slice(0, 10) === '2027-01-15'));
   it = (await A('DELETE', `/api/energy/iter/phases/${it.phases[3].id}`)).body;
   assert.equal(it.phases.length, 5);
-  assert.equal((await tickets()).length, 5);
+  assert.equal((await tickets()).length, 0);
   // il modello del tipo non cambia
   const tpl = (await A('GET', '/api/energy/iter/templates')).body.templates.acquisizione;
   assert.equal(tpl.phases.length, 5);

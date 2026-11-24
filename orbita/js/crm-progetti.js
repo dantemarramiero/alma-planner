@@ -130,22 +130,20 @@ export async function launchRoom(container, type, id) {
   };
   const effects = h('div.pv-effects');
   const drawEffects = () => {
-    const n = st.phases.reduce((s, p) => s + p.tasks.filter(t => t.title.trim()).length, 0);
     const who = new Set(st.phases.flatMap(p => p.tasks.filter(t => t.title.trim()).map(t => t.owner_id)));
     fill(effects, h('b', 'Cosa succede quando lanci'),
-      [['folder', 'nasce il progetto in I miei progetti'], ['bell', `${n} compiti arrivano a ${who.size} ${who.size === 1 ? 'persona' : 'persone'} (avviso + email)`],
+      [['folder', 'nasce il progetto in I miei progetti'], ['users', `${who.size} ${who.size === 1 ? 'persona del piano entra' : 'persone del piano entrano'} nella squadra (i ticket li crea chi ci lavora)`],
         money ? ['building', r.subject_id ? `${r.entity} è collegato al progetto` : `${r.entity} entra nel CRM`] : ['sprout', 'l\'iniziativa resta in Nuovi business, collegata'],
         r.source.email ? ['mail', r.source.mail_owner_id && r.source.mail_owner_id !== store.me.id ? `le email sono nella casella di ${userName(r.source.mail_owner_id) || 'un collega'}: entrano solo dopo il suo sì` : r.source.mail_mode === 'auto' ? 'le email che hai scelto entrano nel progetto e le risposte nuove si aggiungono da sole' : 'le email che hai scelto entrano nel progetto; le risposte nuove aspettano il tuo sì in Posta › Da approvare'] : gara ? ['radar', 'l\'opportunità resta nel Radar con «in corso»'] : ['flag', 'i gate restano decisi dalla direzione']]
         .map(([i, t]) => h('div.pv-eff', h('span', ic(i, 14)), t)));
   };
   const launchBtn = h('button.pv-launch', { type: 'button', on: { click: async () => {
     const phases = st.phases.map(p => ({ title: p.title.trim(), tasks: p.tasks.filter(t => t.title.trim()) })).filter(p => p.tasks.length || p.title);
-    if (!phases.some(p => p.tasks.length)) { toast('Serve almeno un compito nel piano', 'error'); return; }
     launchBtn.disabled = true;
     try {
       const out = await post('/api/crm/lancio', { [fromSignal ? 'signal_id' : 'initiative_id']: r.source.id, owner_id: st.owner,
         member_ids: st.team.filter(t => t.on && t.user_id !== st.owner).map(t => t.user_id), phases, goal: st.goal, name: r.name });
-      toast(`Progetto lanciato: ${out.tasks} compiti a ${out.people} ${out.people === 1 ? 'persona' : 'persone'}${out.mail?.copied ? ` · ${out.mail.copied} email nel progetto` : ''}${out.mail?.pending ? ` · ${out.mail.pending} email aspettano il sì di chi le ha ricevute` : ''}`);
+      toast(`Progetto lanciato${out.mail?.copied ? ` · ${out.mail.copied} email nel progetto` : ''}${out.mail?.pending ? ` · ${out.mail.pending} email aspettano il sì di chi le ha ricevute` : ''}`);
       location.hash = `#/crm/progetto/${out.project_id}`;
     } catch { launchBtn.disabled = false; }
   } } }, ic('check', 16), 'Lancia il progetto');
