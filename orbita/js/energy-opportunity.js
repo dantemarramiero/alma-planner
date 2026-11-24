@@ -10,6 +10,7 @@ import { icon } from './icons.js';
 import { meta, num, field, select, kindPill, stagePill, stageLabel, opportunitySheet } from './energy.js';
 import { projectDetail } from './projects.js';
 import { targetTab, selectAsTargetButton } from './energy-target.js';
+import { ownerChip } from './energy-owner.js';
 
 const PIPELINE_TAB = { ppa_onsite: 'ppa', revamping: 'revamping', fv_classico: 'fv' };
 const PROJECT_TABS = ['Panoramica', 'Gantt', 'Ticket', 'Documenti', 'Email', 'Incontri', 'Note', 'Membri'];
@@ -26,9 +27,11 @@ export async function opportunityPage(container, id) {
   const base = `#/energy/opportunita/${id}`;
   const crumb = { href: `#/energy/${PIPELINE_TAB[o.kind]}`, label: meta.kinds[o.kind] };
   const sheetTab = box => box.append(opportunitySheet(o, refresh));
+  // ALM2-78: il responsabile in alto, un clic per cambiarlo (riquadro con «Assegna a me» e i membri del modulo)
+  const owner = h('div.eo-head', h('span.eo-head-k', 'Responsabile'), ownerChip(o, refresh, { big: true }));
   if (o.project_id) {
     return projectDetail(container, o.project_id, {
-      base, crumb, defaultTab: 'opportunita', head: stageBar(o, refresh),
+      base, crumb, defaultTab: 'opportunita', head: h('div.eo-headwrap', owner, stageBar(o, refresh)),
       actions: () => null, // nome e responsabile si cambiano dal tab «Opportunità»
       extraTabs: [
         ['opportunita', 'Opportunità', sheetTab],
@@ -44,7 +47,7 @@ export async function opportunityPage(container, id) {
       h('nav.pj-top', { 'aria-label': 'Percorso' }, h('a.pj-crumb', { href: crumb.href }, icon('chevron-left', { size: 16 }), crumb.label)),
       h('div.pj-row', h('div.pj-title',
         h('div.pj-name', h('span.pj-swatch'), h('h1', o.title), kindPill(o.kind)),
-        h('div.pj-meta', [o.owner_name ? `Responsabile ${o.owner_name}` : 'Senza responsabile', o.company_name].filter(Boolean).join('  ·  ')))),
+        o.company_name ? h('div.pj-meta', o.company_name) : null), owner),
       h('div.pj-facts',
         fact('Priorità', o.priority || '—'), fact('Potenza', o.mw ? `${num(o.mw, 2)} MW` : '—'),
         fact('Capex', o.capex ? `${num(Math.round(o.capex / 1000))} k€` : '—'), fact('Luogo', [o.city, o.province].filter(Boolean).join(', ') || '—')),

@@ -69,6 +69,7 @@ const { createEnergyAccess } = require('./lib/energy');
 const { createEnergyReminders } = require('./lib/energy-reminders');
 const { createScreeningRunner } = require('./lib/energy-screening');
 const { createPush } = require('./lib/push');
+const { createEnergyAssign } = require('./lib/energy-assegna');
 const { createAlerts } = require('./lib/alerts');
 const { createTicketMail } = require('./lib/ticket-mail');
 const { registerAlerts } = require('./routes/alerts');
@@ -243,6 +244,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   deps.energyScreening = createScreeningRunner({ db, ...(energyFetch ? { fetchImpl: energyFetch, retryDelayMs: 0 } : {}) });
   // app sul telefono e i tre avvisi (nuovo post, ticket assegnato, A3) con campanella, telefono ed email
   deps.push = createPush({ db, auth, sender: pushSender || null });
+  deps.energyAssign = createEnergyAssign({ db, notifier: deps.notifier, push: deps.push }); // Alma Energy: chi segue le opportunità (ALM2-78)
   // CRM: incontri di Outlook collegati da soli e avviso «incontro senza note» (nei test il calendario è finto)
   deps.crmSync = createCrmSync({ db, auth, notifier: deps.notifier, push: deps.push, fetchEvents: crmFetchEvents });
   deps.alerts = createAlerts({ db, auth, notifier: deps.notifier, push: deps.push, ticketMail: createTicketMail({ db, auth, baseUrl: config.baseUrl }), baseUrl: config.baseUrl });

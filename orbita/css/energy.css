@@ -284,3 +284,61 @@ button.en-link:hover { border-color: var(--orange); }
 @media (max-width: 600px) {
   .en-sel-toolbar input[type=search] { flex: 1 1 100%; min-width: 0; }
 }
+
+/* ── ALM2-78: assegnare le opportunità (canvas «Assegnare le opportunità», 24/11/2026) ───────────────── */
+.eo-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px 0 4px; border-radius: var(--radius-pill); border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink); font: 500 13px var(--font); cursor: pointer; white-space: nowrap; }
+.eo-chip .avatar { width: 24px; height: 24px; font-size: 10px; }
+.eo-chip:hover, .eo-chip.open { border-color: var(--orange); }
+.eo-chip.open { box-shadow: 0 0 0 3px var(--orange-soft); }
+.eo-chip.big { min-height: 44px; padding: 0 14px 0 6px; font-size: 14px; }
+.eo-chip.big .avatar { width: 30px; height: 30px; font-size: 12px; }
+.eo-chip .ico { color: var(--muted); }
+.eo-head { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.eo-head-k { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.eo-headwrap { display: flex; flex-direction: column; gap: 12px; }
+.eo-headwrap > .eo-head { align-items: flex-start; flex-direction: row; align-items: center; }
+.eo-take-row { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.eo-take { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: var(--radius-pill); border: 1px dashed var(--orange-dark); background: var(--orange-soft); color: var(--orange-dark); font: 500 13px var(--font); cursor: pointer; white-space: nowrap; }
+.eo-take:hover { background: var(--card); }
+.eo-assign { color: var(--muted); }
+.eo-pop { position: absolute; z-index: 300; background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 10px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 2px 6px rgba(28,24,20,.08), 0 24px 48px -16px rgba(28,24,20,.35); box-sizing: border-box; }
+.eo-search { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 12px; border: 1px solid var(--rule-strong); color: var(--muted); }
+.eo-search input { border: 0; outline: 0; flex: 1; font: 400 14px var(--font); background: transparent; color: var(--ink); min-width: 0; }
+.eo-items { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow: auto; }
+.eo-pick { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: 400 14px var(--font); text-align: left; cursor: pointer; }
+.eo-pick:hover, .eo-pick:focus-visible { background: var(--bg); }
+.eo-pick .avatar { width: 26px; height: 26px; font-size: 11px; flex: none; }
+.eo-pick .ico { color: var(--orange-dark); }
+.eo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eo-count { font-size: 12px; color: var(--muted); }
+.eo-me { background: var(--orange-soft); color: var(--orange-dark); font-weight: 500; }
+.eo-none { color: var(--muted); }
+.eo-lab { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; }
+.eo-note, .eo-empty { margin: 4px 10px; font-size: 12px; color: var(--muted); }
+.eo-sep { border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 4px; }
+.eo-bulk { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 12px 10px 18px; margin-bottom: 12px; border-radius: 14px; background: var(--ap-graphite); color: var(--ap-white); }
+.eo-bulk b { font-weight: 500; flex: 1 1 160px; }
+.eo-bulk .eo-bulk-x { background: transparent; color: var(--ap-white); border-color: color-mix(in srgb, var(--ap-white) 35%, transparent); }
+.eo-table tr.sel td { background: var(--orange-soft); }
+.eo-cktd { width: 18px; }
+.eo-ck { width: 18px; height: 18px; accent-color: var(--orange); margin: 0; cursor: pointer; }
+.eo-toast { display: flex; align-items: center; gap: 14px; }
+.eo-undo { border: 0; background: transparent; color: var(--orange); font: 600 14px var(--font); cursor: pointer; padding: 4px 0; }
+.eo-mails { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.eo-mail { padding: 10px 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
+.eo-mail:last-child { border-bottom: 0; }
+.eo-mail-h { display: flex; justify-content: space-between; gap: 8px; }
+.eo-mail-p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.eo-mail-act { display: flex; gap: 6px; margin-top: 4px; }
+.eo-mode { max-width: 230px; min-height: 32px; font-size: 13px; }
+/* Posta: dove salvare l'opportunità */
+.eo-dest { display: flex; gap: 10px; flex-wrap: wrap; }
+.eo-dest label { flex: 1 1 200px; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 14px; border: 1px solid var(--rule-strong); background: var(--card); cursor: pointer; font-size: 13px; color: var(--mid); }
+.eo-dest label:has(input:checked) { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); background: color-mix(in srgb, var(--orange-soft) 50%, var(--card)); }
+.eo-dest input { accent-color: var(--orange); margin: 2px 0 0; }
+.eo-dest b { display: block; color: var(--ink); font-weight: 500; font-size: 14px; }
+.eo-ai { color: var(--ap-grey-700); font-size: 11.5px; font-weight: 500; }
+.eo-box { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; background: var(--bg); font-size: 13.5px; }
+@media (max-width: 720px) {
+  .eo-head { align-items: flex-start; }
+}
