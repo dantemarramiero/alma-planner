@@ -153,6 +153,47 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     await saveSetting(db, filtriKey(req, req.query.scope || req.body?.scope), list, req.user.id);
     res.json({ filtri: list });
   });
+  // ── Ricerca mirata sul web (Dante 24/11/2026): chi sa di un'occasione che il radar non ha trovato la chiede ad Alma,
+  // che la cerca qui e poi propone «Aggiungi al radar» (segnalazione a mano, POST sopra). Per ogni risultato si dice se
+  // è già nel radar (stesso link, stesso CIG o stesso titolo).
+  async function existingSignal({ url = '', cig = '', title = '' }) {
+    const key = t => norm(t).replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+    const { rows: [g] } = await db.query(
+      `SELECT g.id, g.title, g.status, g.bu, a.label AS bu_label FROM crm_signals g LEFT JOIN crm_asa a ON a.key = g.bu
+        WHERE ($1 <> '' AND (g.url = $1 OR g.external_id = $1)) OR ($2 <> '' AND upper(g.cig) = $2)
+           OR ($3 <> '' AND regexp_replace(regexp_replace(lower(g.title), '[^a-z0-9 ]', '', 'g'), '\\s+', ' ', 'g') = $3)
+        ORDER BY ($1 <> '' AND (g.url = $1 OR g.external_id = $1)) DESC, ($2 <> '' AND upper(g.cig) = $2) DESC, g.id LIMIT 1`, [String(url).trim(), String(cig).trim().toUpperCase(), key(title).length >= 12 ? key(title) : '']);
+    return g || null;
+  }
+  app.get('/api/crm/radar/cerca-web', async (req, res) => {
+    const query = v.text(req.query.q, 'Cosa cercare', { max: 500, required: true });
+    const apiKey = process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
+    if (!apiKey) throw new HttpError(503, 'La ricerca sul web non è attiva: manca OPENAI_API_KEY su Railway.');
+    const { findOpportunity } = require('../lib/crm-radar-ai');
+    let r;
+    try { r = await findOpportunity({ apiKey, query, today: todayRome(), fetchImpl: radarFetch || fetch }); } catch (err) {
+      console.error('[radar] ricerca mirata:', err.message);
+      throw new HttpError(502, 'La ricerca sul web non è riuscita: riprova tra poco.');
+    }
+    const found = [];
+    for (const x of r.found) {
+      const g = await existingSignal(x);
+      found.push({ ...x, already: g ? { id: g.id, title: g.title, status: g.status, bu: g.bu_label || g.bu } : null });
+    }
+    res.json({ query, found, sources: r.sources, cost_usd: r.costUsd, model: r.model });
+  });
+  // «Annulla» di Alma: toglie una segnalazione a mano appena fatta da chi la chiede (entro 15 minuti, ancora da decidere)
+  app.delete('/api/crm/radar/signals/:id', async (req, res) => {
+    const { rowCount } = await db.query(
+      `DELETE FROM crm_signals WHERE id = $1 AND created_by = $2 AND source = 'manuale' AND status = 'nuovo' AND created_at > now() - interval '15 minutes'`,
+      [v.int(req.params.id, 'id', { min: 1 }), req.user.id]);
+    if (!rowCount) throw new HttpError(409, 'Il segnale non si può più togliere da qui: scartalo dal Radar.');
+    res.json({ ok: true });
+  });
+  app.get('/api/crm/radar/doppione', async (req, res) => {
+    const g = await existingSignal({ url: String(req.query.url || '').slice(0, 500), cig: String(req.query.cig || '').slice(0, 20), title: String(req.query.title || '').slice(0, 500) });
+    res.json({ signal: g });
+  });
   app.get('/api/crm/radar/signals/:id', async (req, res) => {
     const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
     const c = await ctx(req);
@@ -170,6 +211,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       subject_id: b.subject_id ? v.int(b.subject_id, 'Azienda', { min: 1 }) : null,
       amount: b.amount === undefined || b.amount === null || b.amount === '' ? null : Number(String(b.amount).replace(/\./g, '').replace(',', '.')),
       url: v.text(b.url, 'Link', { max: 500 }) || '', deadline: v.date(b.deadline || null, 'Quando'), region: v.text(b.region, 'Regione', { max: 60 }) || '',
+      place: v.text(b.place, 'Comune', { max: 120 }) || '', published_on: v.date(b.published_on || null, 'Pubblicata il'), why: v.text(b.why, 'Perché', { max: 500 }) || '',
       soa: Array.isArray(b.soa) ? b.soa.map(String).slice(0, 20) : [], to_gare: Boolean(b.to_gare),
       cig: (v.text(b.cig, 'CIG', { max: 20 }) || '').toUpperCase(), stage: b.stage ? v.oneOf(b.stage, 'Fase', STAGES.filter(Boolean)) : '', expected_on: v.date(b.expected_on || null, 'Bando atteso'),
     };
