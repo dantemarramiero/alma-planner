@@ -323,3 +323,27 @@ button.en-link:hover { border-color: var(--orange); }
 .en-sim-back { margin-bottom: var(--ap-space-3); }
 @media (max-width: 1100px) { .en-an-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .en-an-cols { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .en-an-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ── Radar energia (ALM2-74 tappa 3) ── */
+.en-rd { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: var(--ap-space-4); align-items: start; }
+.en-rd-list { overflow: hidden; }
+.en-rd-sig { display: flex; gap: var(--ap-space-3); align-items: flex-start; padding: var(--ap-space-3) var(--ap-space-4); border-bottom: 1px solid var(--rule); cursor: pointer; }
+.en-rd-sig:last-child { border-bottom: 0; }
+.en-rd-sig:hover, .en-rd-sig:focus-visible { background: var(--hover); outline: none; }
+.en-rd-sig.on { background: var(--hover); }
+.en-rd-score { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-weight: var(--ap-fw-bold); font-variant-numeric: tabular-nums; background: var(--ap-grey-100); color: var(--ap-text-strong); }
+.en-rd-score.hi { background: var(--ap-orange-tint); color: #B35300; box-shadow: inset 0 0 0 3px var(--orange); }
+.en-rd-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.en-rd-title { display: flex; gap: var(--ap-space-2); align-items: center; flex-wrap: wrap; }
+.en-rd-title strong { color: var(--ap-text-strong); font-weight: var(--ap-fw-medium); }
+.en-rd-panel { border-top: 4px solid var(--orange); gap: var(--ap-space-3); }
+.en-rd-panel h2 { margin: var(--ap-space-2) 0 0; }
+.en-rd-panel p { margin: 0; }
+.en-rd-parts { display: grid; gap: 6px; }
+.en-rd-parts > div { display: grid; grid-template-columns: 90px 1fr 44px; gap: var(--ap-space-2); align-items: center; font-size: var(--ap-fs-sm); }
+.en-rd-parts b { font-weight: var(--ap-fw-medium); font-variant-numeric: tabular-nums; text-align: right; }
+.en-rd-bar { height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+.en-rd-bar i { display: block; height: 100%; background: var(--orange); }
+.en-rd-take { background: var(--ap-grey-100); border-radius: 14px; padding: var(--ap-space-3); font-size: var(--ap-fs-sm); }
+.en-rd-take p { margin-top: 4px; }
+@media (max-width: 1000px) { .en-rd { grid-template-columns: 1fr; } }

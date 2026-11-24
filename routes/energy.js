@@ -17,6 +17,7 @@ const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { addWorkdays, romeNow } = require('../lib/workdays');
 const { registerEnergyIter } = require('./energy-iter');
 const { registerEnergyAnalisi } = require('./energy-analisi');
+const { registerEnergyRadar } = require('./energy-radar');
 const { PROJECT_TYPES, SELECTION, typeFromKind } = require('../lib/energy-iter');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
@@ -1146,6 +1147,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
 
   registerEnergyIter(app, { db, opportunityById });
   const analisi = registerEnergyAnalisi(app, { db, opportunityById }); // ALM2-74 tappa 2
+  registerEnergyRadar(app, { db }); // ALM2-74 tappa 3: radar energia
 
   // ── simulatore: calcolo senza salvare ─────────────────────────────────────────────────────────
   app.get('/api/energy/simulate/defaults', (_req, res) => res.json({
