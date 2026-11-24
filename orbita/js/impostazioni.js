@@ -77,7 +77,7 @@ async function panoramica(body, { go }) {
       tile('integrazioni', 'plug', 'Integrazioni', 'I servizi collegati ad Alma Space. Oggi Microsoft 365: accesso, OneDrive, Outlook, Teams.',
         p.microsoft ? 'Microsoft 365 collegato' : 'Microsoft 365 non configurato', p.microsoft ? 'gr' : 'am'),
       tile('moduli', 'grid', 'Moduli', 'Le impostazioni proprie di Alma, CRM, Mezzi, Energy e Notifiche.', '5 moduli'),
-      tile('manuali', 'book-open', 'Manuali d\'uso', 'Come si usa Alma CRM, passo per passo. Li vedono tutti, anche chi non è amministratore.', '16 manuali del CRM')));
+      tile('manuali', 'book-open', 'Manuali d\'uso', 'Come si usa Alma CRM, passo per passo. Li vedono tutti, anche chi non è amministratore.', '17 manuali del CRM')));
   void go;
 }
 
