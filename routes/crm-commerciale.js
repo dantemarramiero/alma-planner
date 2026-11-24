@@ -288,6 +288,12 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
           WHERE t.owner_id = $1 AND t.done_at IS NULL AND (t.due_date IS NULL OR t.due_date <= $2)
           ORDER BY t.due_date NULLS LAST, t.sort, t.id LIMIT 50`, [userId, until]).catch(() => ({ rows: [] })),
     ]);
+    // ALM2-76: progettisti nuovi da conoscere (opportunità con il progettista trovato e il passo non ancora approvato)
+    const { rows: designers } = await db.query(
+      `SELECT g.id, g.title, g.amount, g.expected_on, g.bu, g.designer FROM crm_signals g
+        WHERE g.designer IS NOT NULL AND jsonb_array_length(COALESCE(g.designer->'team', '[]'::jsonb)) > 0 AND g.designer->'step_id' IS NULL
+          AND g.status IN ('nuovo', 'interessa') AND (g.bu = ANY($2::text[]) OR g.created_by = $1)
+        ORDER BY g.id DESC LIMIT 10`, [userId, myBus]).catch(() => ({ rows: [] }));
     const silent = keys.map(k => {
       const last = dayOf(k.last_contact);
       const days = last ? Math.round((Date.parse(today) - Date.parse(last)) / 86400000) : null;
@@ -302,6 +308,8 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
       leadsWithoutStep: { total: leads.length, list: leads.slice(0, 20) },
       business: business.map(t => ({ ...t, due_date: dayOf(t.due_date), late: Boolean(t.due_date) && dayOf(t.due_date) < today })),
       signals: [], // il radar arriva nella prossima tappa
+      designers: designers.map(g => ({ id: g.id, title: g.title, amount: g.amount, expected_on: dayOf(g.expected_on), capo: g.designer.team[0], team: g.designer.team.length,
+        confirmed: Boolean(g.designer.confirmed), knows: (g.designer.knows || []).slice(0, 2), step: g.designer.step || null })),
     });
   });
 

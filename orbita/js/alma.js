@@ -439,14 +439,15 @@ export function createChat(opts = {}) {
       const card = p.icon === 'id-card' || p.icon === 'user-plus'; // biglietto e contatto: un campo per riga (canvas V6-Biglietti, V8-Contatto-voce)
       const mail = p.icon === 'mail'; // email (canvas V7-Email): campi in righe, gruppo con le spunte
       const open = p.status === 'proposta' && !p.choices;
-      const summary = card || mail ? '' : (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      const radarRows = p.icon === 'radar' && p.items; // ALM2-76: gara di progettazione + opportunità dei lavori, con le spunte
+      const summary = card || mail || radarRows ? '' : (p.fields || []).filter(([k]) => !['Ticket', 'Nota', 'Persona', 'Cosa'].includes(k) || (p.fields || []).length <= 2).map(([k, v]) => `${k}: ${v}`).join(' · ');
       const unsure = card ? ((p.warnings || []).join(' ').match(/letti male dalla foto: ([^.]+)/) || [, ''])[1].split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : [];
       // «Persona» divisa (titolo · nome · cognome) come pillole, così si vede subito se il nome è stato capito bene
       const chips = v => h('span.al-chips', String(v).split(' · ').map(x => { const [l, ...r] = x.split(': '); return h('span.al-chip', h('b', r.join(': ')), h('small', l)); }));
       const rows = card ? h('div.al-frows', (p.fields || []).filter(([k, v]) => k !== 'Persona' || /cognome: /.test(v)).map(([k, v]) => h('div.al-frow', { class: unsure.includes(k.toLowerCase()) ? 'unsure' : '' },
         h('span.al-muted', k), k === 'Persona' ? chips(v) : h('span', v), unsure.includes(k.toLowerCase()) ? h('span.al-small.al-unsure', 'da controllare') : null)))
         : mail ? h('div.al-frows', (p.fields || []).map(([k, v]) => h('div.al-frow', { class: k === 'Testo' ? 'al-mtext' : '' }, h('span.al-muted', k), h('span', v)))) : null;
-      const items = mail && p.items ? h('div.al-mitems', p.items.map(it => mailItem(it, open))) : null;
+      const items = mail && p.items ? h('div.al-mitems', p.items.map(it => mailItem(it, open))) : radarRows ? h('div.al-mitems', p.items.map(it => radarItem(it, open))) : null;
       const head = h('div.al-row', { style: { alignItems: 'flex-start' } }, h('span.al-ib.or', ic(p.icon || 'sparkles', 15)),
         h('div.al-grow', h('div.al-t5', p.title), summary ? h('div.al-small.al-muted', summary) : null,
           (p.changed || []).length ? h('div.al-small.al-chg', `Cambiato: ${p.changed.map(c => `${c.label} (prima ${c.before})`).join(', ')}`) : null,
@@ -482,6 +483,20 @@ export function createChat(opts = {}) {
       } else if (p.status === 'errore') actions = h('div.al-small.al-bad', p.error);
       fill(box, head, rows, items, warn, actions);
       box.classList.toggle('done', p.status !== 'proposta');
+    };
+    // Una riga della scheda radar (canvas «Radar · dalla progettazione ai lavori», tavola 1): spunta, titolo e pillola, due righe.
+    const radarItem = (it, open) => {
+      const toggle = async () => {
+        const off = (p.items || []).filter(x => (x.n === it.n ? x.incluso : !x.incluso)).map(x => x.n);
+        const r = await post(`/api/alma/azioni/${p.id}/modifica`, { campi: { escludi: off.join(',') } }).catch(() => null);
+        if (r) { draw(r.proposal); if (box.parentNode) syncAll(box.parentNode); }
+      };
+      return h('div.al-mitem', { class: `${it.incluso ? '' : 'off'}${it.n === 2 ? ' al-ritem-w' : ''}` },
+        h('div.al-row', { style: { gap: '8px', alignItems: 'center' } },
+          open ? h('button.al-chk', { type: 'button', class: it.incluso ? 'on' : '', 'aria-pressed': String(it.incluso), title: it.incluso ? 'Togli' : 'Rimetti', on: { click: toggle } }, it.incluso ? ic('check', 12) : null) : null,
+          h('span.al-t5.al-small', it.titolo), it.badge ? h('span.al-rbadge', { class: it.n === 2 ? 'am' : 'bl' }, it.badge) : null),
+        it.incluso ? [ (it.righe || []).filter(Boolean).map((r, k) => h('div.al-small', { class: k ? 'al-muted' : '' }, r)),
+          it.nota ? h('div.al-small.al-row', { style: { gap: '6px', marginTop: '4px' } }, ic('bell', 13), it.nota) : null ] : h('div.al-small.al-muted', 'tolta: non si aggiunge'));
     };
     // Una email del gruppo: spunta (toglie o rimette), a chi, oggetto, testo (si apre al clic).
     const mailItem = (it, open) => {

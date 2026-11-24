@@ -211,6 +211,10 @@ a.al-li:hover .al-t5 { color: var(--cv-orange-d); }
 .al-mitems { display: grid; gap: 8px; }
 .al-mitem { border: 1px solid var(--al-prop-line); border-radius: 14px; background: var(--cv-card); padding: 10px 12px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .al-mitem.off { opacity: .55; }
+.al-mitem.al-ritem-w { background: var(--rf-warm, #FFF7EF); }
+.al-rbadge { font-size: 11px; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.al-rbadge.bl { background: var(--blue-soft, #E9F1FB); color: var(--ap-info, #2F6FA3); }
+.al-rbadge.am { background: var(--amber-soft, #FDF3DC); color: #7A5300; }
 .al-chk { width: 20px; height: 20px; flex: none; border-radius: 6px; border: 1.5px solid var(--cv-line-strong); background: var(--cv-card); color: #fff; display: grid; place-items: center; padding: 0; cursor: pointer; }
 .al-chk.on { background: var(--cv-orange); border-color: var(--cv-orange); }
 .al-mbody { color: var(--cv-muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }

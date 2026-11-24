@@ -12,6 +12,7 @@ const { scoreSignal, bestBu, parseDelimited, readInfordat, proposePlan, pickPlay
 const { relationsFor, pathsOf, relationshipLevel } = require('../lib/crm-relazioni');
 const { getSetting, saveSetting } = require('../lib/settings');
 const { draftTemplate, draftAI, moveFrom } = require('../lib/crm-primo-passo');
+const SEGUI = require('../lib/crm-segui-progettista');
 const IMP = require('../lib/impianti');
 // filtri preferiti: quelli del Radar del CRM e quelli del Radar di Alma Impianti sono separati
 const filtriKey = (req, scope) => (scope === 'impianti' ? `crm.radar_filtri.impianti.${req.user.id}` : `crm.radar_filtri.${req.user.id}`);
@@ -171,7 +172,14 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     if (!apiKey) throw new HttpError(503, 'La ricerca sul web non è attiva: manca OPENAI_API_KEY su Railway.');
     const { findOpportunity } = require('../lib/crm-radar-ai');
     let r;
-    try { r = await findOpportunity({ apiKey, query, today: todayRome(), fetchImpl: radarFetch || fetch }); } catch (err) {
+    try {
+      r = await findOpportunity({ apiKey, query, today: todayRome(), fetchImpl: radarFetch || fetch });
+      // la ricerca web non risponde sempre uguale: se la prima torna vuota, un secondo tentativo con parole da bando
+      if (!r.found.length) {
+        const again = await findOpportunity({ apiKey, query: `${query} — bando di gara, avviso, determina, aggiudicazione, ente appaltante`, today: todayRome(), fetchImpl: radarFetch || fetch });
+        r = { ...again, costUsd: Math.round((r.costUsd + again.costUsd) * 10000) / 10000 };
+      }
+    } catch (err) {
       console.error('[radar] ricerca mirata:', err.message);
       throw new HttpError(502, 'La ricerca sul web non è riuscita: riprova tra poco.');
     }
@@ -197,7 +205,15 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
   app.get('/api/crm/radar/signals/:id', async (req, res) => {
     const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
     const c = await ctx(req);
-    res.json({ ...g, weights: c.settings.scoring.weights, discardReasons: c.settings.rules.discard_reasons });
+    // ALM2-76: la gara di progettazione da cui nasce, o le opportunità dei lavori che ne nascono; nomi del gruppo aggiornati
+    const design = g.design_signal_id ? (await db.query('SELECT id, title, amount, cig, url, published_on, deadline, status, to_gare FROM crm_signals WHERE id = $1', [g.design_signal_id])).rows[0] || null : null;
+    const works = (await db.query('SELECT id, title, amount, stage, expected_on, watch_designer, designer IS NOT NULL AS has_designer FROM crm_signals WHERE design_signal_id = $1 ORDER BY id', [g.id])).rows;
+    if (g.designer?.team?.length) {
+      const ids = g.designer.team.map(w => w.subject_id).filter(Boolean);
+      const { rows: subs } = ids.length ? await db.query('SELECT id, name FROM crm_subjects WHERE id = ANY($1::int[])', [ids]) : { rows: [] };
+      g.designer.team = g.designer.team.map(w => ({ ...w, name: subs.find(x => x.id === w.subject_id)?.name || w.name }));
+    }
+    res.json({ ...g, design, works, weights: c.settings.scoring.weights, discardReasons: c.settings.rules.discard_reasons });
   });
   // segnalazione a mano (anche dal telefono): passa dal punteggio come le altre
   app.post('/api/crm/radar/signals', async (req, res) => {
@@ -217,7 +233,85 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     };
     if (sig.amount !== null && !Number.isFinite(sig.amount)) throw new HttpError(400, 'L\'importo non è valido');
     if (sig.url && !/^https?:\/\//i.test(sig.url)) throw new HttpError(400, 'Il link deve iniziare con http');
-    res.status(201).json(await addSignal(sig, c, req.user.id));
+    // opportunità dei lavori nata da una gara di progettazione (ALM2-76): collegata e seguita fino al progettista
+    const designId = b.design_signal_id ? v.int(b.design_signal_id, 'Gara di progettazione', { min: 1 }) : null;
+    if (designId) await signalById(designId);
+    const row = await addSignal(sig, c, req.user.id);
+    if (row && (designId || b.watch_designer)) {
+      const cig = (v.text(b.watch_cig, 'CIG della progettazione', { max: 20 }) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const { rows: [u] } = await db.query(`UPDATE crm_signals SET design_signal_id = $2, watch_designer = $3, watch_cig = $4, watch_until = $5 WHERE id = $1 RETURNING *`,
+        [row.id, designId, b.watch_designer !== false, cig, SEGUI.watchUntil(todayRome())]);
+      return res.status(201).json(u);
+    }
+    res.status(201).json(row);
+  });
+
+  // ── Il progettista (ALM2-76): «Controlla adesso», «Smetti di seguirla», passo proposto, persone da aggiungere ─────
+  async function checkNow(g, userId) {
+    const settings = await loadSettings(db);
+    const { rows: users } = await db.query('SELECT id, name, email FROM users');
+    const apiKey = process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
+    return SEGUI.checkOne(db, g, { apiKey, fetchImpl: radarFetch || fetch, notifier, settings, users, today: todayRome(), force: true, actorId: userId });
+  }
+  app.post('/api/crm/radar/signals/:id/progettista/controlla', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    if (!g.watch_designer && !g.designer) throw new HttpError(400, 'Questa opportunità non segue un progettista');
+    res.json({ ...(await checkNow(g, req.user.id)), signal: await signalById(g.id) });
+  });
+  app.post('/api/crm/radar/signals/:id/progettista/segui', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const on = req.body?.on !== false;
+    await db.query(`UPDATE crm_signals SET watch_designer = $2, watch_until = CASE WHEN $2 THEN $3::date ELSE watch_until END WHERE id = $1`, [g.id, on, SEGUI.watchUntil(todayRome())]);
+    res.json({ ok: true, watch_designer: on });
+  });
+  // il passo proposto diventa un prossimo passo vero (sulla scheda del capogruppo)
+  app.post('/api/crm/radar/signals/:id/progettista/passo', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const d = g.designer;
+    const capo = d?.team?.[0];
+    if (!capo?.subject_id || !d.step) throw new HttpError(400, 'Non c\'è un passo da approvare');
+    if (d.step_id) return res.json({ step_id: d.step_id, already: true });
+    const due = new Date(Date.now() + (d.step.within_days || 7) * 864e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const owner = v.int(req.body?.owner_id || d.step.user_id || req.user.id, 'Chi', { min: 1 });
+    const title = d.step.kind === 'presentaci'
+      ? `Presentaci a ${capo.name} (progetta «${g.title.slice(0, 80)}»): ce lo chiede ${req.user.name || 'un collega'}`
+      : `Contatta ${capo.name}: progetta «${g.title.slice(0, 80)}»`;
+    const { rows: [st] } = await db.query(`INSERT INTO crm_steps (subject_id, title, channel, due_date, owner_id, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [capo.subject_id, title.slice(0, 300), d.step.kind === 'presentaci' ? 'incontro' : 'telefonata', due, owner, req.user.id]);
+    await db.query(`UPDATE crm_signals SET designer = jsonb_set(designer, '{step_id}', to_jsonb($2::int)) WHERE id = $1`, [g.id, st.id]);
+    if (owner !== req.user.id && notifier) {
+      await notifier.notify({ userIds: [owner], actorId: req.user.id, kind: 'crm', body: `${req.user.name || 'Un collega'} ti chiede: ${title.slice(0, 200)}`, link: `/crm/scheda/${capo.subject_id}` }).catch(() => {});
+    }
+    res.status(201).json({ step_id: st.id, due_date: due });
+  });
+  // «Aggiungi»: una persona da conoscere diventa un contatto del CRM, nello studio giusto del raggruppamento
+  app.post('/api/crm/radar/signals/:id/progettista/persona', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const d = g.designer;
+    const n = v.int(req.body?.n, 'Persona', { min: 0, max: 20 });
+    const p = d?.people?.[n];
+    if (!p) throw new HttpError(404, 'Persona non trovata');
+    if (p.contact_id) return res.json({ contact_id: p.contact_id, already: true });
+    const team = d.team || [];
+    const key = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const at = team.find(w => p.company && (key(w.name).includes(key(p.company)) || key(p.company).includes(key(w.name)))) || team[0];
+    const { splitName } = require('../lib/crm-nomi');
+    const nm = splitName(p.name);
+    const { rows: [c] } = await db.query(`INSERT INTO crm_contacts (title, first_name, last_name, notes, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [nm.title || '', nm.first || '', nm.last || p.name, `Da internet (progettista di «${g.title.slice(0, 120)}»)${p.source ? `: ${p.source}` : ''}`.slice(0, 1000), req.user.id]);
+    if (at?.subject_id) await db.query('INSERT INTO crm_contact_links (contact_id, subject_id, job, is_primary) VALUES ($1, $2, $3, false)', [c.id, at.subject_id, String(p.role || '').slice(0, 200)]);
+    d.people[n] = { ...p, contact_id: c.id };
+    await db.query('UPDATE crm_signals SET designer = $2 WHERE id = $1', [g.id, JSON.stringify(d)]);
+    res.status(201).json({ contact_id: c.id, subject_id: at?.subject_id || null });
+  });
+  // Nella scheda di un progettista: le opportunità che progetta, con gruppo, persone, dati da internet, chi lo conosce
+  app.get('/api/crm/progettisti/opportunita/:subjectId', async (req, res) => {
+    const sid = v.int(req.params.subjectId, 'id', { min: 1 });
+    const { rows } = await db.query(
+      `SELECT g.id, g.title, g.entity, g.amount, g.expected_on, g.deadline, g.stage, g.status, g.designer, g.watch_designer, g.bu, a.label AS bu_label, l.role
+         FROM crm_signal_links l JOIN crm_signals g ON g.id = l.signal_id LEFT JOIN crm_asa a ON a.key = g.bu
+        WHERE l.subject_id = $1 AND l.role LIKE 'progettista%' AND g.designer IS NOT NULL ORDER BY g.id DESC LIMIT 10`, [sid]);
+    res.json({ opportunita: rows.map(g => ({ ...g, designer: { ...g.designer, web: g.designer.web?.subject_id === sid ? g.designer.web : null } })) });
   });
   // «Primo passo pronto» (16/11): strade calde, chi chiama chi e quando, email già scritta; probabilità di vittoria.
   // Si prepara la prima volta che si apre il segnale e resta salvato; «Riscrivi» (fresh) lo rifà.
@@ -556,7 +650,14 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         for (const s of r.signals) {
           if (seen.has(key(s.title))) continue;
           seen.add(key(s.title));
-          if (await addSignal({ ...s, source: 'stampa', external_id: s.url, bu, to_gare: s.kind === 'gara' }, c, null)) added++; // gare già bandite: ufficio gare
+          const row = await addSignal({ ...s, source: 'stampa', external_id: s.url, bu, to_gare: s.kind === 'gara' }, c, null); // gare già bandite: ufficio gare
+          if (row) added++;
+          // ALM2-76: gara di progettazione → anche l'opportunità della gara dei lavori, seguita fino al progettista
+          if (row && s.kind === 'gara' && SEGUI.isDesignTender(s)) {
+            const w = await addSignal({ source: 'stampa', external_id: `lavori:${s.url}`, kind: 'opera_finanziata', stage: 'progetto', bu, title: `Lavori dopo la progettazione: ${s.title}`.slice(0, 500),
+              entity: s.entity, region: s.region, place: s.place, url: s.url, summary: `Nasce dalla gara di progettazione «${s.title.slice(0, 200)}»: dopo il progetto esecutivo arriva la gara dei lavori (data da capire).` }, c, null);
+            if (w) await db.query('UPDATE crm_signals SET design_signal_id = $2, watch_designer = true, watch_until = $3 WHERE id = $1', [w.id, row.id, SEGUI.watchUntil(todayRome())]);
+          }
         }
       } catch (err) { error = String(err.message || err).slice(0, 500); }
       await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, $2, $3) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [month(), bu, cost]);
@@ -604,12 +705,16 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         if (hour !== settings.radar.run_hour || lastDay === todayRome()) return;
         lastDay = todayRome();
         await runRadar();
+        // ALM2-76: le opportunità che aspettano il progettista (ANAC col CIG; web ogni 7 giorni)
+        const { rows: users } = await db.query('SELECT id, name, email FROM users');
+        await SEGUI.runWatches(db, { apiKey: process.env.OPENAI_API_KEY, fetchImpl: radarFetch || fetch, notifier, settings: await loadSettings(db), users, today: todayRome() })
+          .then(r => r.length && console.log('[progettista]', JSON.stringify(r).slice(0, 500)));
       } catch (err) { console.warn('[radar]', err.message); }
     }, 15 * 60000);
     t.unref?.();
   }
 
-  return { addSignal, runRadar };
+  return { addSignal, runRadar, runWatches: opts => SEGUI.runWatches(db, opts) };
 }
 
 module.exports = { registerCrmRadar };

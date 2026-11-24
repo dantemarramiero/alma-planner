@@ -202,66 +202,116 @@ test('scenari salvati: calcolo, salvataggio sull\'opportunità, scelto che porta
   assert.equal((await X('GET', '/api/energy/scenarios')).status, 403);
 });
 
-test('Impianti target: progetto riservato alla BU Energy, iter a step con checklist, Gantt ed esito', async () => {
+test('Progetti selezionati (ALM2-74): in valutazione, DD tecnica avviata con l\'iter del modello, fasi e punti, scartati', async () => {
   const opp = (await A('POST', '/api/energy/opportunities', { kind: 'revamping', title: 'Impianto da acquisire', mw: 3 })).body;
-  // FV classico: solo da RTB
-  const fv = (await A('POST', '/api/energy/opportunities', { kind: 'fv_classico', title: 'Greenfield non pronto' })).body;
-  assert.equal((await A('POST', `/api/energy/opportunities/${fv.id}/target`)).status, 400);
+  // il FV nuovo si seleziona a ogni stadio: l'iter comprende autorizzazione e connessione
+  const fv = (await A('POST', '/api/energy/opportunities', { kind: 'fv_classico', title: 'Greenfield da sviluppare' })).body;
+  assert.equal((await A('POST', `/api/energy/opportunities/${fv.id}/target`)).status, 201);
 
-  const r = await A('POST', `/api/energy/opportunities/${opp.id}/target`);
+  const r = await A('POST', `/api/energy/opportunities/${opp.id}/target`, { project_type: 'acquisizione' });
   assert.equal(r.status, 201);
   const pid = r.body.project_id;
-  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target`)).status, 400); // già target
+  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target`)).status, 400); // già selezionato
   const card = (await A('GET', `/api/energy/opportunities/${opp.id}`)).body;
-  assert.deepEqual([card.stage, card.project_id, card.target_step], ['target', pid, 'contatto_venditore']);
+  assert.deepEqual([card.stage, card.project_id, card.selection, card.project_type], ['target', pid, 'valutazione', 'acquisizione']);
 
   // il progetto: Dante (responsabile) e Tullio (membro del modulo) lo vedono, un amministratore fuori dalla BU Energy no
   assert.equal((await A('GET', `/api/projects/${pid}`)).status, 200);
   assert.equal((await T('GET', `/api/projects/${pid}`)).status, 200);
   assert.equal((await X('GET', `/api/projects/${pid}`)).status, 404);
   assert.ok(!(await X('GET', '/api/projects')).body.some(p => p.id === pid));
-  const tickets = (await A('GET', `/api/tickets?project_id=${pid}`)).body;
-  const list = Array.isArray(tickets) ? tickets : tickets.tickets;
-  assert.deepEqual(list.map(t => t.title).sort(), ['Step 1 · Contatto del venditore', 'Step 2 · Due diligence tecnica e legale', 'Step 3 · Approvazione dell\'investimento', 'Step 4 · Offerta']);
-  const step1 = list.find(t => t.title.startsWith('Step 1'));
-  assert.equal(step1.status, 'doing');
-  assert.equal((await X('GET', `/api/tickets/${step1.id}`)).status, 404);
-  const adminList = (await X('GET', '/api/tickets')).body;
-  assert.ok(!(Array.isArray(adminList) ? adminList : adminList.tickets).some(t => t.project_id === pid)); // nemmeno nell'elenco dei ticket
-  assert.ok(!(await X('GET', '/api/search?q=Impianto')).body.projects?.some(p => p.id === pid)); // né nella ricerca
-  assert.equal((await A('GET', `/api/energy/projects/${pid}/target`)).body.id, opp.id);
+  assert.ok(!(await X('GET', '/api/search?q=Impianto')).body.projects?.some(p => p.id === pid));
+  assert.equal((await X('GET', `/api/energy/opportunities/${opp.id}/iter`)).status, 403);
+  const tickets = async () => { const b = (await A('GET', `/api/tickets?project_id=${pid}`)).body; return (Array.isArray(b) ? b : b.tickets).filter(t => t.project_id === pid); };
+  assert.equal((await tickets()).length, 0); // in valutazione niente iter
 
-  // avanti solo con la checklist completa, o forzando con un motivo
-  const blocked = await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'due_diligence' });
+  // pipeline: tre colonne
+  let board = (await A('GET', '/api/energy/selected')).body;
+  assert.deepEqual(board.columns.map(c => c.key), ['valutazione', 'avviato', 'scartato']);
+  assert.ok(board.columns[0].cards.some(c => c.id === opp.id && c.phase === null));
+
+  // avvia la DD tecnica: fasi dal modello «Acquisizione», una riga del Gantt per fase
+  let it = (await A('POST', `/api/energy/opportunities/${opp.id}/selection`, { to: 'avviato' })).body;
+  assert.deepEqual(it.phases.map(p => p.label), ['Due diligence tecnica', 'Due diligence legale', 'Delibera di investimento', 'Offerta', 'Closing']);
+  assert.deepEqual(it.phases.map(p => p.state), ['attuale', 'dopo', 'dopo', 'dopo', 'dopo']);
+  let list = await tickets();
+  assert.deepEqual(list.map(t => t.title).sort(), ['Fase 1 · Due diligence tecnica', 'Fase 2 · Due diligence legale', 'Fase 3 · Delibera di investimento', 'Fase 4 · Offerta', 'Fase 5 · Closing']);
+  assert.equal(list.find(t => t.title.startsWith('Fase 1')).status, 'doing');
+  assert.equal((await A('GET', `/api/energy/opportunities/${opp.id}`)).body.target_step, 'due_diligence');
+
+  // chiudere la fase: punti tutti spuntati, oppure un motivo
+  const dd = it.phases[0];
+  const blocked = await A('POST', `/api/energy/iter/phases/${dd.id}/close`);
   assert.equal(blocked.status, 400);
-  assert.match(blocked.body.error, /Checklist incompleta/);
-  for (const item of ['primo_contatto', 'interesse', 'nda', 'data_room']) {
-    await A('PATCH', `/api/energy/opportunities/${opp.id}/target/checklist`, { step: 'contatto_venditore', item, done: true });
-  }
-  assert.equal((await A('PATCH', `/api/energy/opportunities/${opp.id}/target/checklist`, { step: 'contatto_venditore', item: 'boh', done: true })).status, 400);
-  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'due_diligence' })).status, 200);
-  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'approvazione', reason: 'DD fatta dal consulente esterno' })).status, 200);
-  const detail = (await A('GET', `/api/energy/opportunities/${opp.id}/target`)).body;
-  assert.deepEqual(detail.steps.map(s => s.state), ['fatto', 'fatto', 'attuale', 'dopo']);
-  assert.equal(detail.steps[1].checklist.length, 11); // revamping: c'è anche la voce sugli incassi GSE
-  assert.equal(detail.history[0].note, 'Forzato: DD fatta dal consulente esterno');
-  const after = (await A('GET', `/api/tickets?project_id=${pid}`)).body;
-  const statuses = Object.fromEntries((Array.isArray(after) ? after : after.tickets).map(t => [t.title.slice(0, 6), t.status]));
-  assert.deepEqual([statuses['Step 1'], statuses['Step 2'], statuses['Step 3'], statuses['Step 4']], ['done', 'done', 'doing', 'todo']);
+  assert.match(blocked.body.error, /Punti ancora aperti/);
+  assert.equal((await A('POST', `/api/energy/iter/phases/${it.phases[1].id}/close`, { reason: 'x' })).status, 400); // una alla volta
+  for (const item of dd.items) await A('PATCH', `/api/energy/iter/phases/${dd.id}/items/${item.key}`, { done: true });
+  assert.equal((await A('PATCH', `/api/energy/iter/phases/${dd.id}/items/boh`, { done: true })).status, 404);
+  it = (await A('POST', `/api/energy/iter/phases/${dd.id}/close`)).body;
+  assert.deepEqual(it.phases.slice(0, 2).map(p => p.state), ['fatta', 'attuale']);
 
-  // kanban dei target
-  const board = (await A('GET', '/api/energy/targets')).body;
-  assert.equal(board.columns.find(c => c.key === 'approvazione').cards[0].id, opp.id);
+  // modifica dell'iter solo su questo progetto: fase in più dopo la DD legale, punto in più, nome, ordine, togliere
+  it = (await A('POST', `/api/energy/opportunities/${opp.id}/iter/phases`, { label: 'Verifica archeologica', after: it.phases[1].id })).body;
+  assert.equal(it.phases[2].label, 'Verifica archeologica');
+  assert.equal(it.phases[2].added, true);
+  it = (await A('POST', `/api/energy/iter/phases/${it.phases[2].id}/items`, { label: 'Parere della Soprintendenza' })).body;
+  assert.equal(it.phases[2].items[0].label, 'Parere della Soprintendenza');
+  it = (await A('PATCH', `/api/energy/iter/phases/${it.phases[2].id}`, { label: 'Verifica archeologica preventiva', due_date: '2027-01-15' })).body;
+  assert.deepEqual([it.phases[2].label, it.phases[2].due_date], ['Verifica archeologica preventiva', '2027-01-15']);
+  it = (await A('POST', `/api/energy/iter/phases/${it.phases[2].id}/move`, { dir: 1 })).body;
+  assert.equal(it.phases[3].label, 'Verifica archeologica preventiva');
+  list = await tickets();
+  assert.ok(list.some(t => t.title === 'Fase 4 · Verifica archeologica preventiva' && t.due_date?.slice(0, 10) === '2027-01-15'));
+  it = (await A('DELETE', `/api/energy/iter/phases/${it.phases[3].id}`)).body;
+  assert.equal(it.phases.length, 5);
+  assert.equal((await tickets()).length, 5);
+  // il modello del tipo non cambia
+  const tpl = (await A('GET', '/api/energy/iter/templates')).body.templates.acquisizione;
+  assert.equal(tpl.phases.length, 5);
+  assert.equal(tpl.custom, false);
 
-  // esito: perso chiede il motivo; acquisito chiude il progetto
-  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: 'perso' })).status, 400);
-  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: 'acquisito' })).body.target_outcome, 'acquisito');
+  // chiudere tutte le fasi = acquisito e progetto concluso; riaprire una fase lo riapre
+  for (const ph of it.phases.filter(p => p.state !== 'fatta')) it = (await A('POST', `/api/energy/iter/phases/${ph.id}/close`, { reason: 'fatto fuori da Alma' })).body;
+  assert.equal(it.done, true);
+  assert.equal((await A('GET', `/api/energy/opportunities/${opp.id}`)).body.target_outcome, 'acquisito');
   assert.equal((await A('GET', `/api/projects/${pid}`)).body.status, 'done');
-  assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/target/step`, { step: 'offerta' })).status, 400); // iter chiuso
-  assert.equal((await A('GET', '/api/energy/targets')).body.columns.find(c => c.key === 'acquisito').count, 1);
-  // riaperto: progetto di nuovo attivo
-  await A('POST', `/api/energy/opportunities/${opp.id}/target/esito`, { outcome: null });
+  it = (await A('POST', `/api/energy/iter/phases/${it.phases[4].id}/reopen`)).body;
+  assert.equal(it.phases[4].state, 'attuale');
   assert.equal((await A('GET', `/api/projects/${pid}`)).body.status, 'active');
+
+  // scartare chiede il motivo; si rimette in valutazione
+  assert.equal((await A('POST', `/api/energy/opportunities/${fv.id}/selection`, { to: 'scartato' })).status, 400);
+  it = (await A('POST', `/api/energy/opportunities/${fv.id}/selection`, { to: 'scartato', reason: 'Connessione non prima del 2030' })).body;
+  assert.deepEqual([it.selection, it.selection_reason], ['scartato', 'Connessione non prima del 2030']);
+  board = (await A('GET', '/api/energy/selected')).body;
+  assert.ok(board.columns[2].cards.some(c => c.id === fv.id));
+  assert.equal((await A('GET', '/api/energy/selected?type=fv_nuovo')).body.columns[2].count >= 1, true);
+  it = (await A('POST', `/api/energy/opportunities/${fv.id}/selection`, { to: 'valutazione' })).body;
+  assert.equal(it.selection, 'valutazione');
+  assert.equal((await A('GET', `/api/energy/opportunities/${fv.id}`)).body.target_outcome, null);
+});
+
+test('modelli di iter: si cambiano per tipo e valgono per i progetti avviati dopo; un target di prima riceve le sue fasi', async () => {
+  const bad = await A('PUT', '/api/energy/iter/templates/ppa_onsite', { phases: [{ label: '' }] });
+  assert.equal(bad.status, 400);
+  const saved = (await A('PUT', '/api/energy/iter/templates/ppa_onsite', { phases: [
+    { label: 'Sopralluogo', days: 5, items: [['s1', 'Foto del tetto'], ['s2', 'Bollette']] }, { label: 'Firma', items: [] }] })).body;
+  assert.deepEqual(saved.phases.map(p => p.label), ['Sopralluogo', 'Firma']);
+  const opp = (await A('POST', '/api/energy/opportunities', { kind: 'ppa_onsite', title: 'Tetto con modello nuovo' })).body;
+  await A('POST', `/api/energy/opportunities/${opp.id}/target`);
+  const it = (await A('POST', `/api/energy/opportunities/${opp.id}/selection`, { to: 'avviato' })).body;
+  assert.deepEqual(it.phases.map(p => p.label), ['Sopralluogo', 'Firma']);
+  assert.equal((await A('DELETE', '/api/energy/iter/templates/ppa_onsite')).body.phases[0].label, 'Due diligence tecnica');
+
+  // target scelto prima di ALM2-74, allo step «approvazione» con la vecchia checklist: le DD risultano chiuse
+  const old = (await A('POST', '/api/energy/opportunities', { kind: 'revamping', title: 'Target di ottobre' })).body;
+  await A('POST', `/api/energy/opportunities/${old.id}/target`);
+  await db.query(`UPDATE energy_opportunities SET selection = 'avviato', project_type = 'revamping', target_step = 'approvazione',
+    target_checklist = '{"approvazione": {"scenario": true}}' WHERE id = $1`, [old.id]);
+  const legacy = (await A('GET', `/api/energy/opportunities/${old.id}/iter`)).body;
+  assert.deepEqual(legacy.phases.map(p => p.state), ['fatta', 'fatta', 'attuale', 'dopo', 'dopo']);
+  assert.equal(legacy.phases[2].items.find(i => i.key === 'scenario').done, true);
+  assert.equal(legacy.phases[2].items.find(i => i.key === 'approvato').done, false);
 });
 
 test('cruscotto: MW e capex per tipo e fase, valore pesato, IRR medio, ferme, step in scadenza, export', async () => {
@@ -322,11 +372,10 @@ test('stadi come in BOSS: progetto oltre il primo stadio, scartata e standby, ri
   const back = (await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'contatto', note: 'Ha richiamato lui' })).body;
   assert.deepEqual([back.stage, back.project_id], ['contatto', pid]); // stesso progetto
 
-  // Impianto target: stesso progetto, con gli step nel Gantt
+  // Progetto selezionato: stesso progetto, in valutazione (le righe del Gantt arrivano con la DD tecnica)
   const t = (await A('POST', `/api/energy/opportunities/${opp.id}/target`)).body;
   assert.equal(t.project_id, pid);
-  const list = (await A('GET', `/api/tickets?project_id=${pid}`)).body;
-  assert.equal((Array.isArray(list) ? list : list.tickets).filter(x => x.title.startsWith('Step ') && x.project_id === pid).length, 4);
+  assert.equal((await A('GET', `/api/energy/opportunities/${opp.id}`)).body.selection, 'valutazione');
   assert.equal((await A('POST', `/api/energy/opportunities/${opp.id}/stage`, { stage: 'offerta' })).status, 400); // si segue dall'iter
   assert.equal((await A('DELETE', `/api/energy/opportunities/${opp.id}`)).status, 400);
 
