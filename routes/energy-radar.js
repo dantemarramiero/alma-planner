@@ -9,6 +9,7 @@ const { OWNER_KEY_SQL, ownersToPipeline, companyByName, SIGNALS } = require('../
 const { runScenario, summaryOf } = require('../lib/energy-scenarios');
 const { romeNow } = require('../lib/workdays');
 const { getSetting, saveSetting } = require('../lib/settings');
+const { addFundFromSignal, approachEnergivoro, reasonForEnergivoro } = require('./energy-crm');
 
 const SIGNAL_LABEL = Object.fromEntries(SIGNALS);
 const STRONG = ['sottoperformance', 'in_liquidazione', 'erogazioni_azzerate', 'cambio_proprieta', 'acquistato_di_recente', 'non_strategico'];
@@ -108,6 +109,8 @@ function registerEnergyRadar(app, { db, radarFetch }) {
           for (const s of r.signals) {
             const row = await addSignal(db, { ...s, source: 'web', external_id: s.url, cost_eur: r.signals.length ? r.costEur / r.signals.length : 0 }, settings);
             if (row) added.web++;
+            // ALM2-83: un energivoro dell'elenco citato in una notizia riceve il «perché chiamarlo adesso»
+            if (s.kind === 'energivoro') await reasonForEnergivoro(db, s).catch(() => false);
           }
         } catch (err) { errors.push(`${search.label}: ${String(err.message || err).slice(0, 300)}`); }
       }
@@ -187,6 +190,19 @@ function registerEnergyRadar(app, { db, radarFetch }) {
   app.post('/api/energy/radar/:id/prendi', async (req, res) => {
     const s = await signalById(v.int(req.params.id, 'id', { min: 1 }));
     if (s.status !== 'nuovo') throw new HttpError(400, 'Il segnale è già stato deciso');
+    // ALM2-83: un fondo entra nel CRM centrale col mandato; un energivoro viene approcciato (PPA on-site)
+    if (s.kind === 'fondo') return res.json(await db.tx(q => addFundFromSignal(q, s, req.user.id)));
+    if (s.kind === 'energivoro') {
+      const out = await db.tx(async q => {
+        const name = (s.entity || s.title).slice(0, 300);
+        let { rows: [e] } = await q.query('SELECT * FROM crm_energivori WHERE lower(name) = lower($1) LIMIT 1', [name]);
+        if (!e) ({ rows: [e] } = await q.query("INSERT INTO crm_energivori (name, region, city, source, imported_by) VALUES ($1, $2, $3, 'Radar energia', $4) RETURNING *", [name, s.region || '', s.place || '', req.user.id]));
+        const r = await approachEnergivoro(q, e, req.user.id);
+        await q.query("UPDATE energy_signals SET status = 'preso', subject_id = $2, opportunity_id = $3, analysis_id = $4, decided_by = $5, decided_at = now() WHERE id = $1", [s.id, r.subject_id, r.opportunity_id, r.analysis_id, req.user.id]);
+        return r;
+      });
+      return res.json(out);
+    }
     const t = R.TAKE[s.kind];
     const out = await db.tx(async q => {
       let oppId;
@@ -235,17 +251,27 @@ function registerEnergyRadar(app, { db, radarFetch }) {
     res.json({ settings });
   });
 
-  // ogni ora controlla se è l'ora del giro notturno (una volta al giorno, dopo le 4); spento nei test
-  if (!process.env.NODE_TEST_CONTEXT) {
-    let lastDay = '';
-    setInterval(() => {
-      const now = romeNow();
-      if (now.minute < 4 * 60 || now.day === lastDay) return;
-      lastDay = now.day;
-      runRadar().catch(err => console.warn('[energy-radar] giro non riuscito', err.message));
-    }, 3600 * 1000).unref();
+  // Il giro automatico si fa una volta al giorno. Se oggi non c'è ancora (lo dice il database, così i riavvii dei
+  // deploy non lo fanno slittare), parte 2 minuti dopo l'avvio; poi il controllo si ripete ogni ora. Spento nei test.
+  async function runIfDue() {
+    if (!(await isDue(db))) return false;
+    const out = await runRadar();
+    console.log(`[energy-radar] giro fatto: Database CE ${out.added.database_ce}, Alma Impianti ${out.added.impianti}, web ${out.added.web}, ${out.cost.toFixed(2)} €${out.errors.length ? ` · ${out.errors.join(' · ')}` : ''}`);
+    return true;
   }
-  return { runRadar };
+  if (!process.env.NODE_TEST_CONTEXT) {
+    const tick = () => runIfDue().catch(err => console.warn('[energy-radar] giro non riuscito', err.message));
+    setTimeout(tick, 2 * 60 * 1000).unref();
+    setInterval(tick, 3600 * 1000).unref();
+  }
+  return { runRadar, runIfDue };
 }
 
-module.exports = { registerEnergyRadar };
+// C'è da fare il giro automatico di oggi? Sì se oggi (ora italiana) non c'è un giro automatico (senza persona).
+async function isDue(db) {
+  const { rows: [r] } = await db.query(
+    `SELECT 1 FROM energy_radar_runs WHERE user_id IS NULL AND to_char(at AT TIME ZONE 'Europe/Rome', 'YYYY-MM-DD') = $1 LIMIT 1`, [romeNow().day]);
+  return !r;
+}
+
+module.exports = { registerEnergyRadar, isDue };
