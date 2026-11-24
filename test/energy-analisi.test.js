@@ -147,10 +147,10 @@ test('gli scenari salvati prima diventano analisi: lo scenario scelto è l\'anal
   assert.ok(s.analysis_id); // salvato dal simulatore: è già un'analisi
   await db.query('DELETE FROM energy_analyses WHERE id = $1', [s.analysis_id]); // come prima della tappa 2
   await db.query("UPDATE energy_scenarios SET chosen = true WHERE id = $1", [s.id]);
-  await db.query("DELETE FROM schema_migrations WHERE name = '111_energy_analyses.sql'");
+  await db.query("DELETE FROM schema_migrations WHERE name = '115_energy_analyses.sql'");
   const { migrate } = require('../lib/db');
   if (migrate) await migrate(db);
-  else await db.exec(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'migrations', '111_energy_analyses.sql'), 'utf8'));
+  else await db.exec(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'migrations', '115_energy_analyses.sql'), 'utf8'));
   const list = (await A('GET', `/api/energy/analyses?opportunity=${opp.id}`)).body.analyses;
   assert.equal(list.length, 1);
   assert.deepEqual([list[0].title, list[0].reference, list[0].n], ['Base di ottobre', true, 1]);
