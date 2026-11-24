@@ -47,49 +47,23 @@ test('l\'iniziativa nasce con il suo progetto; non è in «I miei progetti» fin
   assert.equal((await D('GET', `/api/projects/${ini.project_id}`)).body.name, 'Biometano Lazio e Campania');
 });
 
-test('un\'iniziativa nata prima riceve il progetto alla prima apertura, con un compito per ogni passo', async () => {
+test('un\'iniziativa nata prima riceve il progetto alla prima apertura, senza ticket automatici (ALM2-85)', async () => {
   const { rows: [i] } = await db.query("INSERT INTO crm_initiatives (name, owner_id) VALUES ('Vecchia iniziativa', (SELECT id FROM users WHERE email = $1)) RETURNING id", [ADMIN]);
   await db.query("INSERT INTO crm_initiative_tasks (initiative_id, phase, title, due_date) VALUES ($1, 'esplorazione', 'Mappa degli impianti', $2)", [i.id, plus(5)]);
   const got = (await D('GET', `/api/crm/business/${i.id}`)).body;
   assert.ok(got.project_id);
-  const tickets = (await D('GET', `/api/tickets?project=${got.project_id}`)).body;
-  assert.deepEqual(tickets.map(t => t.title), ['Mappa degli impianti']);
-  // una seconda apertura non crea doppioni
-  await D('GET', `/api/crm/business/${i.id}`);
-  assert.equal((await D('GET', `/api/tickets?project=${got.project_id}`)).body.length, 1);
+  assert.equal((await D('GET', `/api/tickets?project=${got.project_id}`)).body.length, 0);
 });
 
-test('passi del piano ↔ compiti: creare, assegnare, chiudere dal compito, cancellare', async () => {
+test('un passo nuovo del piano non diventa un ticket da solo (ALM2-85)', async () => {
   const eId = await meId(E);
   const ini = (await D('POST', '/api/crm/business', { name: 'Agrisolare', owner_id: await meId(D) })).body;
   const step = (await D('POST', `/api/crm/business/${ini.id}/tasks`, { title: 'Chiamare Acqualatina', owner_id: eId, due_date: plus(3) })).body;
-  assert.ok(step.ticket_id);
-  let t = (await D('GET', `/api/tickets/${step.ticket_id}`)).body;
-  assert.equal(t.title, 'Chiamare Acqualatina');
-  assert.equal(t.due_date, plus(3));
-  assert.deepEqual(t.assignee_ids, [eId]);
-  assert.equal(t.project_id, ini.project_id);
-  // chi riceve il passo entra nel progetto e lo trova nei suoi compiti
-  const members = (await D('GET', `/api/projects/${ini.project_id}/members`)).body;
-  assert.ok(members.some(m => m.id === eId));
-  // dal Piano al compito
-  await D('PATCH', `/api/crm/business/tasks/${step.id}`, { title: 'Chiamare Acqualatina (digestato)', due_date: plus(6) });
-  t = (await D('GET', `/api/tickets/${step.ticket_id}`)).body;
-  assert.equal(t.title, 'Chiamare Acqualatina (digestato)');
-  assert.equal(t.due_date, plus(6));
-  // dal compito al Piano: chi lo fa lo chiude dalla bacheca
-  assert.equal((await E('PATCH', `/api/tickets/${step.ticket_id}`, { status: 'done' })).status, 200);
-  let plan = (await D('GET', `/api/crm/business/${ini.id}/tasks`)).body.tasks;
-  assert.ok(plan.find(x => x.id === step.id).done_at, 'il passo risulta fatto');
-  await E('PATCH', `/api/tickets/${step.ticket_id}`, { status: 'todo' });
-  plan = (await D('GET', `/api/crm/business/${ini.id}/tasks`)).body.tasks;
-  assert.equal(plan.find(x => x.id === step.id).done_at, null);
-  // passo fatto dal Piano → compito fatto
-  await D('PATCH', `/api/crm/business/tasks/${step.id}`, { done: true });
-  assert.equal((await D('GET', `/api/tickets/${step.ticket_id}`)).body.status, 'done');
-  // via il passo, via il compito
-  await D('DELETE', `/api/crm/business/tasks/${step.id}`);
-  assert.equal((await D('GET', `/api/tickets/${step.ticket_id}`)).status, 404);
+  assert.equal(step.ticket_id, null);
+  assert.equal((await D('GET', `/api/tickets?project=${ini.project_id}`)).body.length, 0);
+  await D('PATCH', `/api/crm/business/tasks/${step.id}`, { title: 'Chiamare Acqualatina (digestato)', done: true });
+  const plan = (await D('GET', `/api/crm/business/${ini.id}/tasks`)).body.tasks;
+  assert.ok(plan.find(x => x.id === step.id).done_at, 'il passo resta nel Piano');
 });
 
 test('relazioni: clienti target, persona con la sua azienda, azienda con le persone spuntate', async () => {
@@ -120,15 +94,11 @@ test('relazioni: clienti target, persona con la sua azienda, azienda con le pers
 
 test('«Porta avanti» fa crescere lo stesso progetto: compiti ed email restano, entra in «I miei progetti»', async () => {
   const ini = (await D('POST', '/api/crm/business', { name: 'Fotovoltaico su tetti', budget_eur: 15000, owner_id: await meId(D) })).body;
-  const step = (await D('POST', `/api/crm/business/${ini.id}/tasks`, { title: 'Elenco sviluppatori', due_date: plus(4) })).body;
   const prop = (await D('GET', `/api/crm/lancio/proposta?initiative=${ini.id}`)).body;
-  assert.ok(!prop.phases.some(p => p.tasks.some(t => t.title === 'Elenco sviluppatori')), 'il passo è già un compito: niente doppione');
   const out = await D('POST', '/api/crm/lancio', { initiative_id: ini.id, phases: prop.phases, goal: prop.goal, member_ids: [await meId(E)] });
   assert.equal(out.status, 201);
   assert.equal(out.body.project_id, ini.project_id, 'stesso progetto');
-  const tickets = (await D('GET', `/api/tickets?project=${ini.project_id}`)).body;
-  assert.ok(tickets.some(t => t.id === step.ticket_id), 'il compito di prima c\'è ancora');
-  assert.ok(tickets.length > 1);
+  assert.equal((await D('GET', `/api/tickets?project=${ini.project_id}`)).body.length, 0, 'il lancio non crea ticket (ALM2-85)');
   const card = (await D('GET', '/api/crm/progetti?vista=tutti')).body.projects.find(p => p.id === ini.project_id);
   assert.ok(card, 'ora è in «I miei progetti»');
   assert.equal(card.source.launched, true);

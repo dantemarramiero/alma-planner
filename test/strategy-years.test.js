@@ -1,5 +1,5 @@
-// Alma Strategy: inviti all'A3 (email con l'A3 e la nota), un solo Gantt (inizio della contromisura = inizio del
-// ticket), Hoshin Kanri di più anni e decisione di fine anno sugli A3. Usa l'Outlook finto per le email.
+// Alma Strategy: inviti all'A3 (email con l'A3 e la nota), contromisure senza ticket automatici (ALM2-85),
+// Hoshin Kanri di più anni e decisione di fine anno sugli A3. Usa l'Outlook finto per le email.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp, readConfig } = require('../server');
@@ -89,15 +89,12 @@ test('invito all’A3: è una richiesta; si entra nel team solo accettando, e ch
   assert.equal(no.reply, 'Sono già su troppi progetti');
 });
 
-test('un solo Gantt: l’inizio della contromisura e quello del ticket sono la stessa data, nei due versi', async () => {
+test('le contromisure non diventano ticket da sole (ALM2-85); l’inizio si cambia nell’A3', async () => {
   const p = (await year()).projects.find(x => x.name === 'Gestione di commessa 2.0');
   const t = (await year()).projects.find(x => x.id === p.id).tasks[0];
-  assert.ok(t.ticket_id);
+  assert.equal(t.ticket_id, null);
   assert.equal((await A('PATCH', `/api/strategy/tasks/${t.id}`, { start_date: '2026-02-02' })).status, 200);
-  assert.equal((await A('GET', `/api/tickets/${t.ticket_id}`)).body.start_date, '2026-02-02');
-  // spostato nel Gantt del progetto → la contromisura segue
-  assert.equal((await A('PATCH', `/api/tickets/${t.ticket_id}`, { start_date: '2026-02-09' })).status, 200);
-  assert.equal((await year()).projects.find(x => x.id === p.id).tasks.find(x => x.id === t.id).start_date, '2026-02-09');
+  assert.equal((await year()).projects.find(x => x.id === p.id).tasks.find(x => x.id === t.id).start_date, '2026-02-02');
 });
 
 test('anni dell’Hoshin Kanri: il 2027 si crea dal 2026 (struttura sì, A3 no) e non nasce da solo', async () => {
@@ -142,13 +139,6 @@ test('fine anno: chiudere, proseguire fuori o entrare nel 2027 (stesse contromis
   assert.equal(y27.functions.find(f => f.id === y27.areas.find(x => x.id === copy.area_id).function_id).name,
     y26.functions.find(f => f.id === y26.areas.find(x => x.id === orig.area_id).function_id).name);
   assert.deepEqual(copy.tasks.map(t => t.ticket_id), orig.tasks.map(t => t.ticket_id));
-  // chiudere la contromisura nel 2027 la chiude anche nel 2026 (e il ticket)
-  const t27 = copy.tasks.find(t => !t.closed_date);
-  if (t27) {
-    await A('PATCH', `/api/strategy/tasks/${t27.id}`, { closed_date: '2027-01-15' });
-    assert.equal((await year(2026)).projects.find(p => p.id === c.id).tasks.find(t => t.ticket_id === t27.ticket_id).closed_date, '2027-01-15');
-    assert.equal((await A('GET', `/api/tickets/${t27.ticket_id}`)).body.status, 'done');
-  }
   // inserito una volta sola; e non si «chiude» più dal 2026
   assert.equal((await A('POST', `/api/strategy/projects/${c.id}/carry`, { decision: 'inserito' })).body.next_id, r.next_id);
   assert.equal((await A('POST', `/api/strategy/projects/${c.id}/carry`, { decision: 'chiuso' })).status, 409);

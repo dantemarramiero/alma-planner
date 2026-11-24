@@ -203,7 +203,6 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
     })).filter(p => p.title || p.tasks.length);
     const g = b.goal || {};
     const goal = { value: num(g.value), probability: num(g.probability, { max: 100 }), margin: num(g.margin, { max: 100 }), hours: num(g.hours, { max: 100000 }), budget: num(g.budget) };
-    const created = [];
     const result = await db.tx(async q => {
       let src, kind, name, color, desc, subjectId = null, step = 0;
       if (signalId) {
@@ -259,21 +258,8 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
       const add = async uid => q.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pid, uid, req.user.id]);
       if (ownerId !== req.user.id) await add(req.user.id);
       for (const uid of memberIds) await add(uid);
-      const { rows: [{ pos }] } = await q.query('SELECT COALESCE(MAX(position), 0) AS pos FROM tickets');
-      let n = 0;
-      for (const [pi, ph] of phases.entries()) {
-        for (const t of ph.tasks) {
-          n += 1;
-          const start = t.due_date && t.due_date < addDays(today, 5) ? (t.due_date < today ? t.due_date : today) : t.due_date ? addDays(t.due_date, -4) : null;
-          const { rows: [tk] } = await q.query(
-            `INSERT INTO tickets (project_id, title, description, status, start_date, due_date, position, created_by, crm_phase)
-             VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7, $8) RETURNING id, title, due_date`,
-            [pid, t.title, ph.title ? `Fase ${pi + 1} · ${ph.title}` : '', start, t.due_date, Number(pos) + n, req.user.id, pi + 1]);
-          await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [tk.id, t.owner_id]);
-          if (t.owner_id !== ownerId) await add(t.owner_id);
-          created.push({ ticket: { id: tk.id, title: tk.title, due_date: iso(tk.due_date) }, user: t.owner_id });
-        }
-      }
+      // ALM2-85: il piano non diventa più ticket da solo; chi ha un compito nel piano entra nella squadra
+      for (const ph of phases) for (const t of ph.tasks) if (t.owner_id !== ownerId) await add(t.owner_id);
       if (subjectId) await q.query("INSERT INTO crm_project_links (project_id, subject_id, linked_by, role) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING", [pid, subjectId, req.user.id, signalId ? (kind === 'trattativa' ? 'cliente' : 'ente') : '']);
       if (signalId) {
         await q.query(`INSERT INTO crm_project_links (project_id, subject_id, contact_id, role, linked_by)
@@ -285,16 +271,11 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
       } else {
         await q.query('UPDATE crm_initiatives SET project_id = $2, launched_at = now(), updated_at = now() WHERE id = $1', [initiativeId, pid]);
       }
-      return { project_id: pid, kind, tasks: n, people: new Set(created.map(c => c.user)).size, subject_id: subjectId, source: src.id };
+      return { project_id: pid, kind, subject_id: subjectId, source: src.id };
     });
     // progetto nato da una email: la conversazione entra nel progetto (ALM2-55)
     if (signalId && posta) result.mail = await posta.afterLaunch(signalId, result.project_id, req.user.id).catch(err => ({ copied: 0, error: err.message }));
     res.status(201).json(result);
-    // dopo la risposta: i compiti arrivano alle persone (campanella, telefono, email)
-    for (const c of created) {
-      if (c.user === req.user.id) continue;
-      (alerts ? alerts.ticketAssigned(c.ticket, [c.user], req.user) : Promise.resolve()).catch(() => {});
-    }
   });
 
   // ── dati di un progetto del CRM (testata della scheda, carte di «I miei progetti», rendiconto) ─────────
