@@ -116,3 +116,22 @@ test('energivori: chi chiamare per primo (motivo e punteggio), risparmio stimato
   assert.ok(!d.top.some(e => e.id === small.id || e.id === cart.id));
   assert.equal(d.elenco.find(e => e.id === small.id).snoozed, true);
 });
+
+test('giro automatico: si fa se oggi non c\'è ancora; energivori dalle notizie anche fuori elenco', async () => {
+  const { isDue } = require('../routes/energy-radar');
+  await db.query('DELETE FROM energy_radar_runs');
+  assert.equal(await isDue(db), true);
+  await db.query("INSERT INTO energy_radar_runs (added, user_id) VALUES ('{}', (SELECT id FROM users LIMIT 1))"); // a mano: non conta
+  assert.equal(await isDue(db), true);
+  await db.query("INSERT INTO energy_radar_runs (added) VALUES ('{}')");
+  assert.equal(await isDue(db), false);
+
+  const s = (await A('POST', '/api/energy/radar', { title: 'Mangimificio Abruzzese apre un nuovo stabilimento', kind: 'energivoro', entity: 'Mangimificio Abruzzese Srl', region: 'Abruzzo' })).body;
+  let d = (await A('GET', '/api/energy/crm/energivori')).body;
+  assert.ok(d.nuovi.some(x => x.id === s.id));
+  const took = (await A('POST', `/api/energy/radar/${s.id}/prendi`)).body;
+  assert.ok(took.analysis_id && took.opportunity_id);
+  d = (await A('GET', '/api/energy/crm/energivori')).body;
+  assert.ok(!d.nuovi.some(x => x.id === s.id));
+  assert.ok(d.elenco.some(e => e.name === 'Mangimificio Abruzzese Srl' && e.status === 'in_contatto'));
+});
