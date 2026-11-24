@@ -434,3 +434,42 @@ a.en-cl-row:hover { background: var(--hover); }
 .en-cl-in { background: var(--blue-soft); color: #23598A; }
 .en-cl-ok { background: var(--green-soft); color: var(--green); }
 @media (max-width: 900px) { .en-cl-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ── Fondi ed energivori come clienti potenziali (ALM2-83 tappa 2, tavole B) ── */
+.en-cl-list { display: grid; gap: var(--ap-space-4); }
+.en-cl-hero h2 { margin: 0; font-size: 30px; font-weight: var(--ap-fw-light); letter-spacing: -.02em; color: var(--ap-text-strong); }
+.en-cl-hero h2 b { font-weight: var(--ap-fw-bold); }
+.en-cl-hero p { margin: var(--ap-space-1) 0 0; max-width: 720px; }
+.en-cl-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.en-cl-kpi { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-card); padding: 16px 18px; }
+.en-cl-kpi.hi { border-top: 4px solid var(--orange); }
+.en-cl-kpi span { display: block; font-size: var(--ap-fs-xs); color: var(--muted); }
+.en-cl-kpi strong { display: block; font-size: 30px; font-weight: var(--ap-fw-light); color: var(--ap-text-strong); line-height: 1.15; font-variant-numeric: tabular-nums; }
+.en-cl-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ap-space-4); }
+.en-cl-card { gap: var(--ap-space-3); align-content: start; }
+.en-cl-card p { margin: 0; line-height: 1.45; }
+.en-cl-who { display: flex; gap: var(--ap-space-3); align-items: center; }
+.en-cl-who > div { display: grid; min-width: 0; }
+.en-cl-who b { font-weight: var(--ap-fw-bold); color: var(--ap-text-strong); }
+.en-cl-who .muted { font-size: var(--ap-fs-xs); }
+.en-cl-av.lg { width: 48px; height: 48px; font-size: var(--ap-fs-md); }
+.en-cl-match { display: flex; align-items: center; gap: var(--ap-space-3); background: var(--ap-grey-100); border-radius: 14px; padding: 12px 14px; font-size: var(--ap-fs-sm); }
+.en-cl-match.hi { background: var(--ap-orange-tint); }
+.en-cl-match.ok { background: var(--green-soft); }
+.en-cl-pct { font-size: 30px; font-weight: var(--ap-fw-light); color: var(--ap-text-strong); line-height: 1; }
+.en-cl-match.hi .en-cl-pct { color: #B35300; }
+.en-cl-match.ok .en-cl-pct { color: var(--green); }
+.en-cl-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.en-cl-tag { background: var(--ap-grey-100); color: var(--ap-text); }
+.en-cl-facts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ap-space-2); }
+.en-cl-facts span { display: block; font-size: var(--ap-fs-xs); color: var(--muted); }
+.en-cl-facts b { display: block; font-size: 20px; font-weight: var(--ap-fw-light); color: var(--ap-text-strong); }
+.en-cl-why { background: var(--ap-orange-tint); border-radius: 14px; padding: 12px 14px; font-size: var(--ap-fs-sm); }
+.en-cl-why b { color: #B35300; font-weight: var(--ap-fw-medium); }
+.en-cl-why.quiet { background: var(--ap-grey-100); color: var(--muted); }
+.en-cl-saving { display: flex; align-items: baseline; gap: var(--ap-space-2); flex-wrap: wrap; }
+.en-cl-saving strong { font-size: 30px; font-weight: var(--ap-fw-light); color: var(--green); line-height: 1; }
+.en-cl-saving .muted { font-size: var(--ap-fs-xs); }
+.en-cl-score { font-weight: var(--ap-fw-medium); font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; }
+.en-cl-todo { background: var(--ap-orange-tint); color: #B35300; }
+@media (max-width: 1000px) { .en-cl-cards { grid-template-columns: 1fr; } .en-cl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

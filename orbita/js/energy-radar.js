@@ -6,7 +6,7 @@ import { get, post, put, qs } from './api.js';
 import { icon } from './icons.js';
 import { num, field, select, ensureMeta } from './energy.js';
 
-const KIND_CLASS = { cessione: 'acq', autorizzazione: 'fv', revamping: 'rev', conto_energia: 'rev', asta_fer: 'ppa', notizia: '' };
+const KIND_CLASS = { cessione: 'acq', autorizzazione: 'fv', revamping: 'rev', conto_energia: 'rev', asta_fer: 'ppa', notizia: '', fondo: 'acq', energivoro: 'ppa' };
 const PARTS = [['coerenza', 'Coerenza', 30], ['valore', 'Valore', 25], ['tempi', 'Tempi', 20], ['rapporto', 'Rapporto', 15], ['zona', 'Zona', 10]];
 const TAKE_TEXT = {
   cessione: 'il venditore entra nel CRM, nasce un\'opportunità nella pipeline Revamping (acquisizione) e una bozza di analisi «Acquisizione» con i MW',
@@ -15,6 +15,8 @@ const TAKE_TEXT = {
   autorizzazione: 'lo sviluppatore entra nel CRM, nasce un\'opportunità FV classico e una bozza di analisi «FV nuovo» con i MW',
   asta_fer: 'lo sviluppatore entra nel CRM, nasce un\'opportunità FV classico e una bozza di analisi «FV nuovo»',
   notizia: 'l\'azienda entra nel CRM, nasce un\'opportunità FV classico e una bozza di analisi',
+  fondo: 'il fondo entra nel CRM centrale come «Fondo o investitore», con un primo mandato letto dalla notizia, e compare in Clienti e contatti → Fondi',
+  energivoro: 'l\'azienda entra nel CRM centrale come energivora, nasce un\'opportunità PPA on-site e una bozza di analisi col tetto',
 };
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '');
 const when = iso => (iso ? new Date(iso).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '');
@@ -106,6 +108,7 @@ export async function radarView(box) {
   }
   async function take(s) {
     const r = await post(`/api/energy/radar/${s.id}/prendi`, {});
+    if (!r.analysis_id) { toast('Fondo aggiunto al CRM centrale'); location.hash = '#/energy/clienti?f=fondi'; return; }
     toast('Preso: opportunità e bozza di analisi create');
     location.hash = `#/energy/analisi/${r.analysis_id}`;
   }

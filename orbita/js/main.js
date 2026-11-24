@@ -64,7 +64,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || section === 'impianti' || section === 'hr' || section === 'alma' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || section === 'impianti' || section === 'procurement' || section === 'hr' || section === 'alma' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -122,6 +122,8 @@ const MODULES = [
   { key: 'crm', label: 'Alma CRM', icon: 'contact', home: '#/crm/settimana', can: () => Boolean(store.me.crm) },
   // Alma Impianti (ALM2-73): la BU Impianti sopra il CRM comune; chi vede il CRM vede anche questo
   { key: 'impianti', label: 'Alma Impianti', icon: 'factory', home: '#/impianti/home', can: () => Boolean(store.me.crm) },
+  // Alma Procurement (ALM2-81): capitolato merci, fornitori, Chiedi ad Alma, richieste di quotazione; sopra il CRM comune
+  { key: 'procurement', label: 'Alma Procurement', icon: 'package', home: '#/procurement/home', can: () => Boolean(store.me.crm) },
   // Alma HR: griglia salary grade, mansionario e il mio percorso per tutti; persone, RAL e pannello solo al team HR
   { key: 'hr', label: 'Alma HR', icon: 'id-card', home: '#/hr/percorso', can: () => Boolean(store.me?.hr_on) }, // nascosto a tutti finché HR_ATTIVO non è 1
 ];
@@ -130,7 +132,7 @@ const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi'
 let lastModule = 'planet';
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
-  : section === 'energy' || section === 'strategy' || section === 'it' || section === 'crm' || section === 'hr' || section === 'impianti' ? section : 'planet');
+  : section === 'energy' || section === 'strategy' || section === 'it' || section === 'crm' || section === 'hr' || section === 'impianti' || section === 'procurement' ? section : 'planet');
 const MOD_KEY = 'alma.modulePages';
 const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
 const availableModules = () => MODULES.filter(m => m.can());
@@ -201,6 +203,7 @@ async function route() {
     : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
     : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
     : section === 'impianti' ? `impianti-${parts[1] || 'home'}`
+    : section === 'procurement' ? `procurement-${parts[1] || 'home'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'hr' ? `hr-${parts[1] === 'persona' ? 'persone' : parts[1] === 'ruolo' ? 'mansionario' : parts[1] === 'candidato' ? 'richieste' : ['incontro', 'fineprova', 'onboarding'].includes(parts[1]) ? (store.me?.hr ? 'onboarding' : 'onboarding-mie') : ['valutazione', 'semestre'].includes(parts[1]) ? 'valutazioni' : parts[1] === 'esito' ? 'percorso' : parts[1] || 'percorso'}`
     : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'
@@ -341,6 +344,11 @@ async function route() {
       else await crmView(view, parts);
       attachHelp(view); // «Come si usa»: il manuale della pagina (ALM2-72)
       break;
+    case 'procurement': { // Alma Procurement (ALM2-81)
+      const { procurementView } = await import('./procurement.js');
+      await procurementView(view, parts);
+      break;
+    }
     case 'impianti': { // Alma Impianti (ALM2-73): Da fare, Radar per settore, Fondi, Progettisti
       const { impiantiView } = await import('./impianti.js');
       await impiantiView(view, parts);
