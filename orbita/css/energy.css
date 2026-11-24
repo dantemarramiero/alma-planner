@@ -342,3 +342,41 @@ button.en-link:hover { border-color: var(--orange); }
 @media (max-width: 720px) {
   .eo-head { align-items: flex-start; }
 }
+/* ── Analisi economico-finanziarie (ALM2-74 tappa 2) ── */
+.en-an-table td:first-child { min-width: 220px; }
+.en-an-table td:nth-child(3) { min-width: 120px; }
+.en-an-table td.num, .en-an-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.en-link-pill { background: var(--ap-grey-200); color: var(--ap-text-strong); text-decoration: none; }
+.en-link-pill.on { background: var(--ap-orange-tint); color: #B35300; }
+.en-an { display: grid; gap: var(--ap-space-4); min-width: 0; }
+.en-an-back { display: inline-flex; align-items: center; gap: 4px; font-size: var(--ap-fs-sm); text-decoration: none; }
+.en-an-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--ap-space-3); flex-wrap: wrap; }
+.en-an-head h1 { margin: var(--ap-space-2) 0 0; }
+.en-an-head p { margin: var(--ap-space-1) 0 0; font-size: var(--ap-fs-sm); }
+.en-an-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--ap-space-3); }
+.en-an-kpi.hi { border-top: 4px solid var(--orange); }
+.en-an-cols { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 1.4fr); gap: var(--ap-space-4); align-items: start; }
+.en-an-right { display: grid; gap: var(--ap-space-4); min-width: 0; }
+.en-an-group { margin-top: var(--ap-space-3); }
+.en-an-h3 { margin: 0 0 var(--ap-space-1); font-size: var(--ap-fs-xs); font-weight: var(--ap-fw-bold); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.en-an-row { display: flex; justify-content: space-between; gap: var(--ap-space-3); padding: 6px 0; border-bottom: 1px solid var(--rule); font-size: var(--ap-fs-sm); }
+.en-an-row b { font-weight: var(--ap-fw-regular); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.en-an-row.set b, .en-an-right .en-an-row b { font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); }
+.en-an-bars { display: flex; align-items: flex-end; gap: 3px; height: 170px; margin-top: var(--ap-space-3); border-bottom: 1px solid var(--rule); }
+.en-an-bars i { flex: 1; min-width: 2px; border-radius: 4px 4px 0 0; background: #FFC48F; }
+.en-an-bars i.inc { background: var(--orange); }
+.en-an-bars i.neg { background: var(--red); opacity: .75; }
+.en-an-legend { display: flex; gap: var(--ap-space-4); flex-wrap: wrap; font-size: var(--ap-fs-xs); margin-top: var(--ap-space-2); }
+.en-an-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #FFC48F; margin-right: 4px; vertical-align: -1px; }
+.en-an-legend i.inc { background: var(--orange); }
+.en-an-legend i.neg { background: var(--red); opacity: .75; }
+.en-an-sens { width: 100%; border-collapse: collapse; font-size: var(--ap-fs-sm); font-variant-numeric: tabular-nums; }
+.en-an-sens th { font-size: var(--ap-fs-xs); color: var(--muted); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+.en-an-sens td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+.en-an-sens th:first-child, .en-an-sens td:first-child { text-align: left; }
+.en-an-kpi-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--ap-space-2); }
+.en-iter-ref { font-weight: var(--ap-fw-medium); color: var(--ap-text-strong); }
+.en-iter-ref-actions { display: flex; gap: var(--ap-space-2); flex-wrap: wrap; margin-top: var(--ap-space-2); }
+.en-sim-back { margin-bottom: var(--ap-space-3); }
+@media (max-width: 1100px) { .en-an-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .en-an-cols { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .en-an-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

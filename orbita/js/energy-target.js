@@ -8,6 +8,7 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { meta, num, select, field, ensureMeta } from './energy.js';
 import { mapView } from './energy-map.js';
+import { newDialog, pickFreeDialog } from './energy-analisi.js';
 
 const TYPE_CLASS = { fv_nuovo: 'fv', acquisizione: 'acq', revamping: 'rev', ppa_onsite: 'ppa' };
 const typeLabel = t => meta?.projectTypes?.[t] || t;
@@ -213,7 +214,7 @@ function renderIter(box, d, ui) {
           h('button.btn.btn-ghost', { type: 'button', on: { click: () => go('scartato') } }, 'Scarta')] : null,
         d.selection === 'scartato' ? h('button.btn.btn-primary', { type: 'button', on: { click: () => go('valutazione') } }, icon('refresh', { size: 15 }), 'Rimetti in valutazione') : null)),
     d.selection === 'scartato' ? h('div.banner', `Scartato il ${day(d.selection_changed_at)}${d.selection_reason ? `: ${d.selection_reason}` : ''}`) : null,
-    analysisBox(d));
+    analysisBox(d, async () => redraw(await get(`/api/energy/opportunities/${d.id}/iter`))));
 
   if (d.selection === 'valutazione' && !phases.length) {
     return fill(box, head, h('section.card.sw-card.en-iter-empty',
@@ -238,15 +239,25 @@ function renderIter(box, d, ui) {
     historyBox(d));
 }
 
-// In testa al progetto: l'analisi di riferimento. Le analisi arrivano con la tappa 2; intanto lo scenario scelto.
-function analysisBox(d) {
+// In testa al progetto: l'analisi di riferimento (ALM2-74 tappa 2) con i suoi numeri, le altre analisi allegate e i
+// pulsanti per allegarne una libera o farne una nuova per il progetto.
+function analysisBox(d, reload) {
   const s = d.scenario;
+  const ref = (d.analyses || []).find(x => x.reference);
+  const others = (d.analyses || []).filter(x => !x.reference);
+  const opp = { id: d.id, title: d.title, kind: d.kind, project_type: d.project_type };
   return h('div.en-iter-analysis',
     h('div', h('div.en-eyebrow', 'Analisi di riferimento'),
-      s ? h('strong', s.name || 'Scenario scelto') : h('span.pill.en-due-soon', 'Da completare'),
-      s ? null : h('div.t-meta', 'Nessuno scenario scelto: allega un\'analisi dal tab «Opportunità».')),
+      ref ? h('a.en-iter-ref', { href: `#/energy/analisi/${ref.id}` }, `${ref.title} · v${ref.n || 1}`)
+        : s ? h('strong', s.name || 'Scenario scelto') : h('span.pill.en-due-soon', 'Da completare'),
+      others.length ? h('div.t-meta', 'Altre: ', others.map((x, i) => [i ? ', ' : '', h('a', { href: `#/energy/analisi/${x.id}` }, `${x.title} v${x.n || 1}`)])) : null,
+      h('div.en-iter-ref-actions',
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => pickFreeDialog(opp, reload) } }, ref ? 'Allega un\'altra analisi' : 'Allega un\'analisi'),
+        h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => newDialog({ source: 'simulatore', opportunity: opp, reference: !ref }) } }, icon('plus', { size: 14 }), 'Nuova analisi'))),
     h('div.en-iter-facts',
       h('span', h('small', 'IRR equity'), h('b', s?.irr !== undefined && s?.irr !== null ? pct(s.irr) : 'manca')),
+      h('span', h('small', 'VAN'), h('b', s?.npv !== undefined && s?.npv !== null ? `${num(s.npv / 1e6, 2)} M€` : '—')),
+      h('span', h('small', 'Payback'), h('b', s?.payback ? `${num(s.payback, 1)} anni` : '—')),
       h('span', h('small', 'MW'), h('b', d.mw ? num(d.mw, 2) : '—')),
       h('span', h('small', 'Capex'), h('b', d.capex ? `${num(d.capex / 1e6, 2)} M€` : '—')),
       h('span', h('small', 'Responsabile'), h('b', d.owner_name || '—'))));

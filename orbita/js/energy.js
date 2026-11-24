@@ -8,12 +8,13 @@ import { icon } from './icons.js';
 import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
 import { simulatorView, scenariosSection } from './energy-simulator.js';
 import { targetsView, openTarget, templatesView } from './energy-target.js';
+import { analysesView, analysisPage } from './energy-analisi.js';
 import { paramsView } from './energy-params.js';
 import { screeningView } from './energy-screening.js';
 import { opportunityPage } from './energy-opportunity.js';
 import { ownerChip, ownerPicker, assignOwners, takeButtons } from './energy-owner.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Analisi economico-finanziarie'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['analisi', 'Analisi economico-finanziarie'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
@@ -51,6 +52,11 @@ export async function energyView(container, parts = []) {
   if (parts[1] === 'vicino') return (await import('./energy-near.js')).nearView(container, new URLSearchParams(location.hash.split('?')[1] || ''));
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
   // la pagina di un'opportunità ha la sua intestazione, come i progetti (ALM2-24)
+  // la scheda di un'analisi ha la sua intestazione (ALM2-74 tappa 2)
+  if (tab === 'analisi' && Number(parts[2])) {
+    await ensureMeta();
+    return analysisPage(container, Number(parts[2]), new URLSearchParams(location.hash.split('?')[1] || ''));
+  }
   if (tab === 'opportunita' && Number(parts[2])) {
     await ensureMeta();
     return opportunityPage(container, Number(parts[2]));
@@ -68,6 +74,7 @@ export async function energyView(container, parts = []) {
   else if (tab === 'database') await databaseView(body);
   else if (tab === 'parametri') await paramsView(body);
   else if (tab === 'modelli') await templatesView(body);
+  else if (tab === 'analisi') await analysesView(body);
   else if (tab === 'screening') await screeningView(body);
   else if (tab === 'simulatore') await simulatorView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);

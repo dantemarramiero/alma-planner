@@ -7,6 +7,7 @@ const { findFunction, orgOidOf, headUserSql } = require('../lib/functions');
 const schedule = require('../lib/schedule');
 const { isWorkday, addWorkdays, workdaysIn } = require('../lib/workdays');
 const { ticketToTask } = require('../lib/strategy-sync');
+const { ticketToStep } = require('../lib/crm-business-progetto');
 
 const STATUSES = ['todo', 'doing', 'review', 'done'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -350,6 +351,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
           [id, ...Object.values(fields)]);
         await ticketToTask(q, id, fields); // Alma Strategy: la contromisura dell'A3 segue stato, titolo e scadenza
       }
+      if (cols.length || assigneeIds) await ticketToStep(q, id, fields, assigneeIds); // Nuovi business: il passo del piano segue il compito (ALM2-79)
       if (assigneeIds) await setAssignees(q, id, assigneeIds);
       const projectId = fields.project_id !== undefined ? fields.project_id : before.project_id;
       if (projectId && (assigneeIds || fields.project_id)) {
