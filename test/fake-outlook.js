@@ -65,7 +65,9 @@ function buildCalendar(seed) {
       isAllDay: false, isCancelled: false,
       location: { displayName: LUOGHI[k % LUOGHI.length] },
       organizer: { emailAddress: { name: 'Ing. Paolo Verdi', address: 'p.verdi@regione.abruzzo.it' } },
-      attendees: [{ emailAddress: { name: 'Team Almacis', address: 'team@almacis.it' } }, { emailAddress: { name: 'Studio Rossi Architetti', address: 'info@studiorossi.it' } }],
+      // il secondo invitato cambia (sempre uguale per lo stesso invito condiviso): serve alle proposte per persona
+      attendees: [{ emailAddress: { name: 'Team Almacis', address: 'team@almacis.it' } },
+        { emailAddress: { name: MITTENTI[1 + (k % 4)][0], address: MITTENTI[1 + (k % 4)][1] } }],
       onlineMeeting: i % 2 ? { joinUrl: `https://teams.microsoft.com/l/meetup-join/finto-${day}` } : null,
       categories: i % 11 === 0 ? ['Alma Planet'] : [],
       bodyPreview: `Ordine del giorno: ${title.toLowerCase()}.`,
@@ -100,7 +102,10 @@ function installFakeOutlook({ auth, mailboxSize = 60, denyMailRead = false } = {
     if ((m = path.match(/^\/me\/(?:mailFolders\/(\w+)\/)?messages$/))) {
       let list = m[1] ? mails.filter(x => x.folder === m[1]) : mails;
       const q = (parsed.searchParams.get('$search') || '').replace(/"/g, '').toLowerCase();
-      if (q) list = list.filter(x => `${x.subject} ${x.from.emailAddress.name} ${x.body.content}`.toLowerCase().includes(q));
+      const who = [...q.matchAll(/participants:(\S+)/g)].map(r => r[1]);
+      const addrs = x => [x.from, ...x.toRecipients, ...(x.ccRecipients || [])].map(r => r.emailAddress.address.toLowerCase());
+      if (who.length) list = list.filter(x => addrs(x).some(a => who.includes(a)));
+      else if (q) list = list.filter(x => `${x.subject} ${x.from.emailAddress.name} ${x.body.content}`.toLowerCase().includes(q));
       const top = Number(parsed.searchParams.get('$top') || 10), skip = Number(parsed.searchParams.get('$skip') || 0);
       const page = list.slice(skip, skip + top).map(({ attachments, body, folder, ...x }) => x);
       const next = skip + top < list.length ? (() => { const n = new URL(u); n.searchParams.set('$skip', String(skip + top)); return n.toString(); })() : undefined;

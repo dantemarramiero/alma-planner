@@ -6,6 +6,7 @@ import { icon } from './icons.js';
 import { api, get, post, del } from './api.js';
 import { store, userById, activeProjects, loadProjects } from './store.js';
 import { withMentions } from './social.js';
+import { proposalSection, syncTwin } from './proposte-persone.js';
 
 const canRemove = (m, p) => m.linked_by === store.me.id || p.my_role === 'owner' || p.my_role === 'admin';
 const FILE_MAX = 20 * 1024 * 1024;
@@ -191,11 +192,16 @@ function linkDialog(p, onDone) {
   const counter = h('span.muted');
   const linkBtn = h('button.btn.btn-primary', { type: 'button', disabled: true }, 'Collega');
   const shift = days => { from = addDays(from, days); reload(); };
+  // in cima: gli incontri con le persone del progetto, già spuntati (ALM2-84)
+  const proposals = proposalSection({
+    url: `/api/projects/${p.id}/meeting-proposals`, listKey: 'events', noun: ['incontro', 'incontri'],
+    pick: ev => picked.add(ev.id), row: ev => row(ev, true), onReady: updateFooter,
+  });
 
   const dlg = modal({
     title: `Collega incontri a «${p.name}»`,
     wide: true,
-    body: [h('div.pe-pick-bar',
+    body: [proposals, h('div.pe-pick-bar',
       h('button.btn.btn-sm', { type: 'button', on: { click: () => shift(-30) } }, '‹ Prima'), range,
       h('button.btn.btn-sm', { type: 'button', on: { click: () => shift(30) } }, 'Dopo ›'), search), listBox],
     left: [counter],
@@ -225,18 +231,20 @@ function linkDialog(p, onDone) {
     }
   }
 
-  function row(ev) {
+  function row(ev, proposed = false) {
     const on = picked.has(ev.id);
-    const box = h('input', { type: 'checkbox', checked: on || ev.linked, disabled: ev.linked, tabIndex: -1 });
+    const box = h('input', { type: 'checkbox', checked: on || ev.linked, disabled: ev.linked, tabIndex: -1, 'data-pid': ev.id });
     const el = h('label.pe-pick', { class: [on ? 'on' : '', ev.linked ? 'done' : ''].join(' ') },
       box,
       h('div.pe-main',
         h('div.pe-line', h('strong.pe-from', ev.subject), h('span.pe-date', meetingWhen(ev))),
+        proposed && ev.with?.length ? h('div.pp-with', icon('users', { size: 13 }), ` con ${ev.with.join(', ')}`) : null,
         h('div.pe-preview', [ev.location, ev.organizer.name ? `organizza ${ev.organizer.name}` : '', ev.attendee_count ? `${ev.attendee_count} invitati` : '', ev.online ? 'Teams' : ''].filter(Boolean).join(' · ') || ' ',
           ev.linked ? h('span.pill.pe-already', 'già nel progetto') : null)));
     box.addEventListener('change', () => {
       if (box.checked) picked.add(ev.id); else picked.delete(ev.id);
       el.classList.toggle('on', box.checked);
+      syncTwin(dlg.box, ev.id, box.checked);
       updateFooter();
     });
     return el;
