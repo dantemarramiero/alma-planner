@@ -172,13 +172,14 @@ export async function progettistiSection(box, { st, tabs, again, bu: fixedBu } =
     const maxCell = Math.max(1, ...r.heat.rows.flatMap(x => aree.map(a => x.by[a.key] || 0)));
     const lvl = n => (!n ? 0 : Math.min(5, Math.ceil((5 * n) / maxCell)));
     const heat = !f.q && aree.length >= 2 && r.heat.rows.length >= 2 ? h('section.cv-card.pg-heat',
-      h('div.pg-sh', h('h2', 'Chi domina ogni area'), h('span', `incarichi${con} per area · clic su un'area per la sua classifica`), h('span.cv-grow'),
+      h('div.pg-sh', h('h2', 'Chi domina ogni area'), h('span', `incarichi${con} per area · clic su un numero per gli incarichi, su un'area per la sua classifica`), h('span.cv-grow'),
         h('span.pg-legend', 'meno', [1, 2, 3, 4, 5].map(i => h('i', { class: `c${i}` })), 'più')),
       h('div.pg-heat-scroll', h('table.pg-hm',
         h('thead', h('tr', h('th.l', 'Progettista'), aree.map(a => h('th', h('button', { type: 'button', class: f.bu === a.key ? 'on' : '', on: { click: () => { f.bu = a.key; reload(); } } }, a.label))), h('th', 'Totale'))),
         h('tbody',
           r.heat.rows.map(x => h('tr', h('td.l', h('button.pg-link', { type: 'button', on: { click: () => openProgettista(x.key, { onChange: reload }) } }, nice(x.name))),
-            aree.map(a => h('td', { class: `c${lvl(x.by[a.key] || 0)}` }, String(x.by[a.key] || 0))), h('td.tot', String(x.tot)))),
+            aree.map(a => h('td', { class: `c${lvl(x.by[a.key] || 0)}` }, x.by[a.key] ? h('button.pg-cell', { type: 'button', 'aria-label': `${nice(x.name)}: ${x.by[a.key]} incarichi in ${a.label}`,
+              on: { click: () => openIncarichi(x.key, { name: x.name, bu: a.key, area: a.label, sa: f.sa, ente: r.ente, regions: r.regions, months: st.months, type: f.type, onChange: reload }) } }, String(x.by[a.key])) : '0')), h('td.tot', String(x.tot)))),
           h('tr.lead', h('td.l', 'Il n. 1 di ogni area'), aree.map(a => { const l = r.heat.leaders[a.key]; return h('td', { class: l ? 'on' : '' }, l ? nice(l.name).split(' ').slice(0, 2).join(' ') : '—'); }), h('td'))))) ) : null;
     // il resto della classifica
     const rest = r.progettisti.slice(podio.length);
@@ -207,6 +208,32 @@ export function progettistiView(box, { bu = '', sa = '', months = 24 } = {}) {
   return again();
 }
 
+
+// ── gli incarichi dietro una casella della mappa di calore (progettista × area, con l'ente scelto) ─────────────
+export async function openIncarichi(key, { name = '', bu = '', area = '', sa = '', ente = null, regions = [], months = 24, type = '', onChange } = {}) {
+  const body = h('div.pg-dr', loading());
+  const m = cvModal({ title: 'Incarichi', body, drawer: true, size: 'lg', onClose: () => onChange?.() });
+  const qs = new URLSearchParams({ key, months, regions: regions.length ? regions.join(',') : 'tutte', ...(bu ? { bu } : {}), ...(sa ? { sa } : {}), ...(type ? { type } : {}) });
+  let d;
+  try { d = await get(`/api/crm/progettisti/incarichi?${qs}`); } catch (err) { fill(body, emptyState('pencil-ruler', err.message || 'Incarichi non disponibili')); return m; }
+  const enteName = ente ? nice(ente.name) : '';
+  fill(body,
+    h('div.pg-dr-top', h('span.pg-ini.or', initials(d.name || name)),
+      h('div.cv-grow', h('h3', nice(d.name || name)), h('small', dots([area ? `area ${area}` : '', enteName ? `con ${enteName}` : '', `ultimi ${months} mesi`]))),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => { m.close(); openProgettista(key, { onChange }); } } }, 'Scheda del progettista')),
+    h('div.pg-nums', [['Incarichi', num(d.totale)], ['Onorari', eur(d.valore)], ['Opere già in gara', num(d.incarichi.filter(o => o.dopo?.stato === 'aggiudicata').length)], ['Da bandire', num(d.incarichi.filter(o => o.dopo?.stato === 'da_bandire').length)]]
+      .map(([l, v]) => h('div', h('b', v), h('small', l)))),
+    d.incarichi.length ? h('section.pg-sec', h('div.pg-lbl', 'Gli incarichi, dal più recente'),
+      d.incarichi.map(o => h('div.pg-op',
+        h('div.cv-grow', h('b', nice(o.object)), h('small', dots([enteName ? '' : nice(o.sa_name), `${o.tipo} ${mese(o.awarded_on)}`, eur(o.amount), o.rtp ? 'in RTP' : '', o.cup ? `CUP ${o.cup}` : '']))),
+        o.dopo?.stato === 'aggiudicata' ? h('span.pg-after.ok', ic('trophy', 12), `gara lavori a ${nice(o.dopo.impresa?.name || '—')}, ${eur(o.dopo.amount)}`)
+          : o.dopo?.stato === 'da_bandire' ? h(o.dopo.signal_id ? 'button.pg-after.or' : 'span.pg-after.or', o.dopo.signal_id ? { type: 'button', on: { click: async () => { m.close(); (await import('./crm-radar.js')).openSignal(o.dopo.signal_id, null, null); } } } : {},
+            ic('hourglass', 12), `lavori non ancora banditi${o.dopo.amount ? ` · stima ${eur(o.dopo.amount)}` : ''}`) : null)),
+      d.totale > d.incarichi.length ? h('p.cv-small.cv-muted', `Mostro i ${d.incarichi.length} più recenti di ${num(d.totale)}.`) : null)
+      : emptyState('search', 'Nessun incarico con questi filtri.'),
+    h('p.cv-hint', "L'area viene dalla gara dei lavori collegata col CUP o, senza, dalle parole dell'oggetto. Fonte: ANAC, dati aperti."));
+  return m;
+}
 
 // ── scheda del progettista (cassetto) ──────────────────────────────────────────────────────────────
 export async function openProgettista(key, { onChange } = {}) {
@@ -256,7 +283,8 @@ export function garaProgettisti(signalId) {
       h('button.btn.btn-sm', { type: 'button', on: { click: () => openProgettista(p.key) } }, r.how === 'cup' ? 'Contatta' : 'Apri'));
     fill(box, h('section.cv-box.pg-gara',
       h('div.cv-row', h('div.cv-lbl.cv-grow.cv-row', { style: { gap: '6px' } }, ic('pencil-ruler', 14), r.how === 'cup' ? 'Chi l\'ha progettata' : 'Progettisti più forti con questo ente'),
-        h('span.cv-small.cv-muted', r.how === 'cup' ? 'ANAC · stesso CUP' : `ANAC · ${r.incarichi} incarichi dell'ente`)),
+        h('span.cv-small.cv-muted', r.how === 'cup' ? 'ANAC · stesso CUP' : `ANAC · ${r.incarichi} incarichi dell'ente`),
+        r.sa ? h('a.pg-link.pg-all', { href: `#/crm/concorrenza/progettisti?sa=${enc(r.sa)}`, title: 'Tutti i progettisti che vincono con questo ente' }, 'Tutti ›') : null), // ALM2-80
       r.progettisti.map(line)));
   }).catch(() => {});
   return box;
