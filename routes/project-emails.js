@@ -3,6 +3,7 @@
 // le toglie chi le ha assegnate, il responsabile del progetto o un amministratore.
 const { HttpError, v } = require('../lib/http');
 const { graph } = require('../lib/graph');
+const proposte = require('../lib/proposte-persone');
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const PAGE = 25;
@@ -97,6 +98,24 @@ function registerProjectEmails(app, { db, auth, access }) {
               (SELECT COUNT(*)::int FROM project_email_attachments a WHERE a.email_id = e.id) AS attachment_count
          FROM project_emails e WHERE e.project_id = $1 ORDER BY e.sent_at DESC NULLS LAST, e.id DESC`, [id]);
     res.json(rows);
+  });
+
+  // Proposte (ALM2-84): email della propria casella con le persone del progetto, non ancora nel progetto
+  app.get('/api/projects/:id/email-proposals', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await access.assertProject(req, id);
+    const people = await proposte.projectPeople(db, id, req.user);
+    if (!people.length) return res.json({ people, messages: [] });
+    const token = await auth.graphToken(req.user.id);
+    let list;
+    try { list = await proposte.mailWith(token, people); } catch (err) {
+      if (err.status === 403) throw new HttpError(403, 'Per leggere la posta serve il permesso «Mail.Read» di Microsoft', 'mail_read');
+      throw err;
+    }
+    const { rows } = await db.query('SELECT internet_message_id FROM project_emails WHERE project_id = $1 AND internet_message_id = ANY($2::text[])',
+      [id, list.map(m => m.internet_message_id)]);
+    const done = new Set(rows.map(r => r.internet_message_id));
+    res.json({ people, messages: list.filter(m => !done.has(m.internet_message_id)) });
   });
 
   app.post('/api/projects/:id/emails', async (req, res) => {
