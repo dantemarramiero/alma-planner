@@ -33,7 +33,7 @@ BEGIN
   INSERT INTO crm_signals (source, external_id, kind, bu, sector, title, summary, why, entity, subject_id, amount, region, place, url,
                            published_on, deadline, score, score_parts, status, discard_reason, cost_eur, created_by)
   VALUES ('energy', 'energy:' || NEW.id, k, 'energy', NEW.kind, NEW.title,
-          NEW.summary || CASE WHEN NEW.mw IS NOT NULL THEN ' (' || trim(to_char(NEW.mw, 'FM9999990.99')) || ' MW)' ELSE '' END,
+          NEW.summary || CASE WHEN NEW.mw IS NOT NULL THEN ' (' || replace(regexp_replace(NEW.mw::text, '\.?0+$', ''), '.', ',') || ' MW)' ELSE '' END,
           NEW.why, NEW.entity, NEW.subject_id, NEW.amount, NEW.region, NEW.place, NEW.url, NEW.published_on, NEW.deadline,
           NEW.score, NEW.score_parts, st, NEW.discard_reason, NEW.cost_eur, NEW.created_by)
   ON CONFLICT DO NOTHING
