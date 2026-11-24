@@ -251,17 +251,27 @@ function registerEnergyRadar(app, { db, radarFetch }) {
     res.json({ settings });
   });
 
-  // ogni ora controlla se è l'ora del giro notturno (una volta al giorno, dopo le 4); spento nei test
-  if (!process.env.NODE_TEST_CONTEXT) {
-    let lastDay = '';
-    setInterval(() => {
-      const now = romeNow();
-      if (now.minute < 4 * 60 || now.day === lastDay) return;
-      lastDay = now.day;
-      runRadar().catch(err => console.warn('[energy-radar] giro non riuscito', err.message));
-    }, 3600 * 1000).unref();
+  // Il giro automatico si fa una volta al giorno. Se oggi non c'è ancora (lo dice il database, così i riavvii dei
+  // deploy non lo fanno slittare), parte 2 minuti dopo l'avvio; poi il controllo si ripete ogni ora. Spento nei test.
+  async function runIfDue() {
+    if (!(await isDue(db))) return false;
+    const out = await runRadar();
+    console.log(`[energy-radar] giro fatto: Database CE ${out.added.database_ce}, Alma Impianti ${out.added.impianti}, web ${out.added.web}, ${out.cost.toFixed(2)} €${out.errors.length ? ` · ${out.errors.join(' · ')}` : ''}`);
+    return true;
   }
-  return { runRadar };
+  if (!process.env.NODE_TEST_CONTEXT) {
+    const tick = () => runIfDue().catch(err => console.warn('[energy-radar] giro non riuscito', err.message));
+    setTimeout(tick, 2 * 60 * 1000).unref();
+    setInterval(tick, 3600 * 1000).unref();
+  }
+  return { runRadar, runIfDue };
 }
 
-module.exports = { registerEnergyRadar };
+// C'è da fare il giro automatico di oggi? Sì se oggi (ora italiana) non c'è un giro automatico (senza persona).
+async function isDue(db) {
+  const { rows: [r] } = await db.query(
+    `SELECT 1 FROM energy_radar_runs WHERE user_id IS NULL AND to_char(at AT TIME ZONE 'Europe/Rome', 'YYYY-MM-DD') = $1 LIMIT 1`, [romeNow().day]);
+  return !r;
+}
+
+module.exports = { registerEnergyRadar, isDue };
