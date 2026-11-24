@@ -388,7 +388,75 @@ function addCompany(e, again) {
 }
 
 // Aggiungi opportunità: Alma legge la conversazione, la scheda corta e «Salva nel Radar» (o tutti i dettagli)
+// ALM2-78: chi è nei membri di Alma Energy sceglie dove salvarla, «CRM · Radar» (come prima) o «Alma Energy · Pipeline».
+let energyOk = null;
 async function addOpportunity(e) {
+  if (energyOk === null) energyOk = await get('/api/crm/posta-energia').then(r => r.can).catch(() => false);
+  if (!energyOk) return addRadarOpportunity(e);
+  return addEnergyOpportunity(e);
+}
+
+async function addEnergyOpportunity(e) {
+  const { ownerPicker, loadMembers } = await import('./energy-owner.js');
+  const dest = h('fieldset.eo-fs', { style: { border: 0, margin: 0, padding: 0 } },
+    h('legend.cv-muted', { style: { fontSize: '12.5px', paddingBottom: '6px' } }, 'Dove la salvo'),
+    h('div.eo-dest',
+      h('label', h('input', { type: 'radio', name: 'eo-dest', value: 'radar', on: { change: () => { m.close(); addRadarOpportunity(e); } } }),
+        h('span', h('b', 'CRM · Radar'), 'edilizia e impianti, come prima')),
+      h('label', h('input', { type: 'radio', name: 'eo-dest', value: 'energy', checked: true }),
+        h('span', h('b', 'Alma Energy · Pipeline'), 'solo per i membri del modulo'))));
+  const form = h('div.dl-form', h('div.pp-wait', loading(), h('p', 'Alma sta leggendo la conversazione…')));
+  const m = cvModal({ title: h('div.pp-title', h('span.pp-k', 'Dalla email'), h('h2', 'Nuova opportunità dalla email')), body: h('div.dl-form', dest, form) });
+  let r;
+  try { [r] = await Promise.all([post('/api/crm/posta-energia/proposta', { message_id: e.id }), loadMembers()]); } catch { m.close(); return; }
+  if (r.already) { m.close(); location.hash = `#/energy/opportunita/${r.already.opportunity_id}`; return; }
+  const f = { ...r.fields, kind: r.fields.kind || '', mw: r.fields.mw === null || r.fields.mw === undefined ? '' : String(r.fields.mw).replace('.', ',') };
+  const inp = (k, attrs = {}) => h('input.input', { value: f[k] ?? '', ...attrs, on: { input: ev => { f[k] = ev.target.value; } } });
+  // «proposto da Alma» accanto ai campi che Alma ha letto dall'email
+  const lab = (text, control, found = true) => h('label.field', h('span', text, found && r.ai ? h('span.eo-ai', ' · proposto da Alma') : null), control);
+  const kindSel = h('select.select', { on: { change: ev => { f.kind = ev.target.value; } } },
+    h('option', { value: '', selected: !f.kind }, 'Scegli il tipo'), Object.entries(r.kinds).map(([k, l]) => h('option', { value: k, selected: k === f.kind }, l)));
+  let ownerId = store.me.id;
+  const ownerBtn = h('button.eo-chip', { type: 'button', 'aria-haspopup': 'dialog', style: { alignSelf: 'flex-start' } });
+  const drawOwner = () => {
+    const name = ownerId === null ? 'Senza responsabile' : ownerId === store.me.id ? `${store.me.name} (tu)` : store.users.find(u => u.id === ownerId)?.name || 'Collega';
+    fill(ownerBtn, h('span', name), ic('chevron-down', 14));
+  };
+  ownerBtn.addEventListener('click', () => ownerPicker(ownerBtn, { current: ownerId, onPick: id => { ownerId = id; drawOwner(); } }));
+  drawOwner();
+  let useCompany = Boolean(r.company), usePerson = Boolean(r.person);
+  let newMode = r.new_mode || 'approva';
+  const check = (on, text, set) => h('label', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } },
+    h('input', { type: 'checkbox', checked: on, on: { change: ev => set(ev.target.checked) } }), h('span', text));
+  const radio = (val, text) => h('label', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+    h('input', { type: 'radio', name: 'eo-risp', checked: newMode === val, on: { change: () => { newMode = val; } } }), text);
+  fill(form,
+    lab('Nome', inp('title', { maxlength: 200 })),
+    h('div.dl-form2', lab('Tipo', kindSel, Boolean(r.fields.kind)), lab('MW', inp('mw', { inputmode: 'decimal' }), r.fields.mw !== null)),
+    h('div.dl-form2', lab('Comune', inp('city'), Boolean(r.fields.city)), lab('Provincia', inp('province'), Boolean(r.fields.province))),
+    h('div.field', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, h('span', 'Responsabile'), ownerBtn),
+    h('div.eo-box',
+      r.company ? check(true, r.company.kind === 'crm' ? `Collega l'azienda «${r.company.name}», già nel CRM di Alma Energy` : `Crea l'azienda «${r.company.name}» nel CRM di Alma Energy`, v => { useCompany = v; }) : h('span.cv-muted', 'Nessuna azienda riconosciuta nell\'email.'),
+      r.person ? check(true, r.person.kind === 'crm' ? `Collega ${r.person.name}, già nel CRM` : `Aggiungi ${r.person.name} (${r.person.email}) tra le persone collegate`, v => { usePerson = v; }) : null,
+      h('span', h('b', 'Email: '), r.messages === 1 ? 'resta attaccata all\'opportunità' : `le ${r.messages} email della conversazione restano attaccate all'opportunità`)),
+    h('fieldset', { style: { border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px' } },
+      h('legend.cv-muted', { style: { fontSize: '12.5px', paddingBottom: '6px' } }, 'Le risposte successive'),
+      radio('auto', 'Entrano da sole nell\'opportunità'), radio('approva', 'Le approvo io una per una')));
+  const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+    if (!String(f.title || '').trim()) return toast('Scrivi il nome', 'err');
+    if (!f.kind) return toast('Scegli il tipo', 'err');
+    save.disabled = true;
+    try {
+      const out = await post('/api/crm/posta-energia/crea', { message_id: r.message_id, title: f.title, kind: f.kind, mw: f.mw, city: f.city, province: f.province, region: f.region,
+        owner_id: ownerId, new_mode: newMode, company: useCompany ? undefined : false, person: usePerson ? undefined : false });
+      m.close(); toast('Opportunità creata nella pipeline di Alma Energy, con l\'email collegata');
+      location.hash = `#/energy/opportunita/${out.id}`;
+    } catch { save.disabled = false; }
+  } } }, 'Crea l\'opportunità');
+  m.box.append(h('div.modal-foot', h('div.left'), h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), save));
+}
+
+async function addRadarOpportunity(e) {
   const body = h('div.dl-form', h('div.pp-wait', loading(), h('p', 'Alma sta leggendo la conversazione…')));
   const m = cvModal({ title: h('div.pp-title', h('span.pp-k', 'Aggiungi opportunità'), h('h2', 'Alma sta leggendo la conversazione')), body });
   let r;

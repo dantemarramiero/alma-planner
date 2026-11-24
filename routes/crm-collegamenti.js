@@ -69,7 +69,21 @@ function registerCrmCollegamenti(app, { db }) {
                       SELECT $1, cl.contact_id, '', $3 FROM crm_contact_links cl WHERE cl.subject_id = $2 AND cl.contact_id = ANY($4::int[])
                       ON CONFLICT (${t.col}, contact_id) WHERE contact_id IS NOT NULL DO NOTHING`, [t.id, w.id, req.user.id, ids]);
     }
-    res.status(201).json({ links: await list(t) });
+    // collegando un'azienda a un progetto si spuntano da sole le sue persone già nelle email o negli incontri del progetto
+    let auto = 0;
+    if (w.col === 'subject_id' && t.col === 'project_id' && b.auto_contacts) {
+      ({ rowCount: auto } = await db.query(
+        `WITH seen AS (
+           SELECT lower(from_address) AS a FROM project_emails WHERE project_id = $1 AND from_address IS NOT NULL
+           UNION SELECT lower(x->>'address') FROM project_emails e, jsonb_array_elements(e.to_list || e.cc_list) x WHERE e.project_id = $1
+           UNION SELECT lower(organizer_address) FROM project_meetings WHERE project_id = $1 AND organizer_address IS NOT NULL
+           UNION SELECT lower(x->>'address') FROM project_meetings m, jsonb_array_elements(m.attendees) x WHERE m.project_id = $1)
+         INSERT INTO crm_project_links (project_id, contact_id, role, linked_by)
+         SELECT $1, c.id, '', $3 FROM crm_contact_links cl JOIN crm_contacts c ON c.id = cl.contact_id
+          WHERE cl.subject_id = $2 AND cl.date_to IS NULL AND c.email <> '' AND lower(c.email) IN (SELECT a FROM seen WHERE a IS NOT NULL)
+         ON CONFLICT (project_id, contact_id) WHERE contact_id IS NOT NULL DO NOTHING`, [t.id, w.id, req.user.id]));
+    }
+    res.status(201).json({ links: await list(t), auto });
   });
 
   // le persone di un'azienda del CRM, per spuntare chi c'entra quando la si collega (ALM2-79)

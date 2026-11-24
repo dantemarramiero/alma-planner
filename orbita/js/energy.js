@@ -13,6 +13,7 @@ import { radarView } from './energy-radar.js';
 import { paramsView } from './energy-params.js';
 import { screeningView } from './energy-screening.js';
 import { opportunityPage } from './energy-opportunity.js';
+import { ownerChip, ownerPicker, assignOwners, takeButtons } from './energy-owner.js';
 
 const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['analisi', 'Analisi economico-finanziarie'], ['radar', 'Radar energia'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
@@ -166,30 +167,69 @@ function historyText(x) {
 }
 
 // ── opportunità ─────────────────────────────────────────────────────────────
+// Elenco delle opportunità con l'assegnazione rapida (ALM2-78): filtri «Le mie» / «Senza responsabile», «Prendo io»
+// sulle righe senza responsabile, clic sul nome per cambiarlo, più righe spuntate → «Assegna a me» / «Assegna a…».
 async function opportunitiesTab(box, openId) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
-  const state = { kind: params.get('kind') || '', q: '' };
+  const state = { kind: params.get('kind') || '', q: '', owner: ['me', 'none'].includes(params.get('owner')) ? params.get('owner') : '' };
+  const selected = new Set();
+  let rows = [];
   const list = h('div', loading());
-  const kindSeg = h('div.seg.en-filter', [['', 'Tutte'], ...Object.entries(meta.kinds)].map(([k, label]) =>
-    h('button', { type: 'button', class: k === state.kind ? 'on' : '', on: { click: e => {
-      state.kind = k;
-      kindSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.currentTarget));
-      load();
-    } } }, label)));
+  const bar = h('div');
+  const seg = (options, key, label) => {
+    const el = h('div.seg.en-filter', { role: 'group', 'aria-label': label }, options.map(([k, text]) =>
+      h('button', { type: 'button', class: k === state[key] ? 'on' : '', 'aria-pressed': String(k === state[key]), on: { click: e => {
+        state[key] = k;
+        el.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b === e.currentTarget); b.setAttribute('aria-pressed', String(b === e.currentTarget)); });
+        selected.clear();
+        load();
+      } } }, text)));
+    return el;
+  };
+  const ownerSeg = seg([['', 'Tutte'], ['me', 'Le mie'], ['none', 'Senza responsabile']], 'owner', 'Di chi');
+  const kindSeg = seg([['', 'Tutti i tipi'], ...Object.entries(meta.kinds)], 'kind', 'Tipo');
   fill(box,
-    h('div.toolbar', kindSeg, h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
+    h('div.toolbar', ownerSeg, kindSeg, h('input.input.grow', { type: 'search', placeholder: 'Cerca per nome…', 'aria-label': 'Cerca per nome', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
       h('button.btn.btn-primary', { type: 'button', on: { click: () => opportunityForm({ kind: state.kind || 'ppa_onsite', onSaved: o => { load(); openOpportunity(o.id, load); } }) } },
         icon('plus', { size: 16 }), 'Nuova opportunità')),
-    list);
+    bar, list);
+
+  const ownersBefore = ids => Object.fromEntries(ids.map(id => [id, rows.find(o => o.id === id)?.owner_id || null]));
+  const bulk = async ownerId => {
+    const ids = [...selected];
+    await assignOwners(ids, ownerId, ownersBefore(ids), () => { selected.clear(); load(); });
+  };
+  function drawBar() {
+    if (!selected.size) return fill(bar);
+    const to = h('button.btn.btn-sm', { type: 'button', 'aria-haspopup': 'dialog', on: { click: () => ownerPicker(to, { current: null, allowNone: true, title: 'Assegna le opportunità spuntate', onPick: bulk }) } },
+      'Assegna a…', icon('chevron-down', { size: 14 }));
+    fill(bar, h('section.eo-bulk', { 'aria-label': 'Opportunità spuntate' },
+      h('b', `${selected.size} ${selected.size === 1 ? 'opportunità selezionata' : 'opportunità selezionate'}`),
+      h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: () => bulk(store.me.id) } }, 'Assegna a me'),
+      to,
+      h('button.btn.btn-sm.eo-bulk-x', { type: 'button', on: { click: () => { selected.clear(); drawBar(); list.querySelectorAll('input.eo-ck').forEach(c => { c.checked = false; c.closest('tr')?.classList.remove('sel'); }); } } }, 'Annulla')));
+  }
+
   async function load() {
-    const { opportunities } = await get(`/api/energy/opportunities${qs({ kind: state.kind, q: state.q })}`);
-    if (!opportunities.length) return fill(list, h('div.card.empty', state.q || state.kind ? 'Nessuna opportunità con questi filtri.' : 'Nessuna opportunità. Creane una con «Nuova opportunità»; gli import dello screening tetti e del Database Conto Energia le porteranno in blocco.'));
-    fill(list, h('div.card.table-wrap', h('table.list',
-      h('thead', h('tr', ['Opportunità', 'Tipo', 'Stadio', 'Priorità', 'MW', 'Luogo', 'Responsabile'].map(t => h('th', t)))),
-      h('tbody', opportunities.map(o => h('tr', { on: { click: () => openOpportunity(o.id, load) } },
+    ({ opportunities: rows } = await get(`/api/energy/opportunities${qs({ kind: state.kind, q: state.q, owner: state.owner })}`));
+    for (const id of [...selected]) if (!rows.some(o => o.id === id)) selected.delete(id);
+    drawBar();
+    if (!rows.length) {
+      return fill(list, h('div.card.empty', state.owner === 'me' ? 'Non segui nessuna opportunità con questi filtri.'
+        : state.owner === 'none' ? 'Tutte le opportunità hanno un responsabile.'
+          : state.q || state.kind ? 'Nessuna opportunità con questi filtri.' : 'Nessuna opportunità. Creane una con «Nuova opportunità»; gli import dello screening tetti e del Database Conto Energia le porteranno in blocco.'));
+    }
+    const all = h('input.eo-ck', { type: 'checkbox', 'aria-label': 'Seleziona tutte', checked: rows.every(o => selected.has(o.id)),
+      on: { change: e => { rows.forEach(o => (e.target.checked ? selected.add(o.id) : selected.delete(o.id))); load(); } } });
+    fill(list, h('div.card.table-wrap', h('table.list.eo-table',
+      h('thead', h('tr', h('th.eo-cktd', all), ['Opportunità', 'Tipo', 'Stadio', 'Priorità', 'MW', 'Luogo', 'Responsabile'].map(t => h('th', t)))),
+      h('tbody', rows.map(o => h('tr', { class: selected.has(o.id) ? 'sel' : '', on: { click: () => openOpportunity(o.id, load) } },
+        h('td.eo-cktd', { on: { click: e => e.stopPropagation() } }, h('input.eo-ck', { type: 'checkbox', checked: selected.has(o.id), 'aria-label': `Seleziona ${o.title}`,
+          on: { change: e => { e.target.checked ? selected.add(o.id) : selected.delete(o.id); e.target.closest('tr').classList.toggle('sel', e.target.checked); all.checked = rows.every(x => selected.has(x.id)); drawBar(); } } })),
         h('td', h('div.t-title', o.title), o.company_name ? h('div.t-meta', o.company_name) : null),
         h('td', kindPill(o.kind)), h('td', stagePill(o.kind, o.stage)), h('td', o.priority || '—'),
-        h('td.num', num(o.mw, 2)), h('td', [o.city, o.province].filter(Boolean).join(', ') || '—'), h('td', o.owner_name || '—')))))));
+        h('td.num', num(o.mw, 2)), h('td', [o.city, o.province].filter(Boolean).join(', ') || '—'),
+        h('td', o.owner_id ? ownerChip(o, load) : takeButtons(o, load))))))));
   }
   await load();
 }
@@ -216,14 +256,16 @@ export async function opportunityForm({ kind, opp = null, onSaved }) {
       field('Regione', input({ 'data-k': 'region', value: opp?.region || '' }))),
     h('div.en-row3',
       field('Priorità', input({ 'data-k': 'priority', value: opp?.priority || '', placeholder: 'A, B, C…' })),
-      field('Responsabile', select(userOptions(), opp ? opp.owner_id : store.me.id, { 'data-k': 'owner_id' }))),
+      // ALM2-78: su un'opportunità che c'è già il responsabile si cambia dal nome in alto, non da qui
+      opp ? null : field('Responsabile', select(userOptions(), store.me.id, { 'data-k': 'owner_id' }))),
     field('Note', textarea(opp?.notes, { 'data-k': 'notes' })));
   const m = modal({
     title: opp ? 'Modifica opportunità' : 'Nuova opportunità', body: form,
     actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
       const f = read(form);
       f.company_id = f.company_id ? Number(f.company_id) : null;
-      f.owner_id = f.owner_id ? Number(f.owner_id) : null;
+      if (opp) delete f.owner_id;
+      else f.owner_id = f.owner_id ? Number(f.owner_id) : null;
       const saved = opp ? await patch(`/api/energy/opportunities/${opp.id}`, f) : await post('/api/energy/opportunities', f);
       m.close();
       toast(opp ? 'Opportunità aggiornata' : 'Opportunità creata');
@@ -270,7 +312,8 @@ export function opportunitySheet(o, refresh) {
       dl([
         ['Tipo', meta.kinds[o.kind]], ['Azienda', o.company_name || '—'], ['MW', num(o.mw, 3)], ['Capex', o.capex ? `${num(o.capex)} €` : '—'],
         ['Probabilità', o.probability !== null ? `${o.probability}%` : '—'], ['Priorità', o.priority || '—'],
-        ['Luogo', [o.city, o.province, o.region].filter(Boolean).join(', ') || '—'], ['Responsabile', o.owner_name || '—'],
+        ['Luogo', [o.city, o.province, o.region].filter(Boolean).join(', ') || '—'],
+        ['Responsabile', h('span', o.owner_name || 'Nessuno', h('span.muted.small', ' · si cambia dal nome in alto'))],
         ...(o.lost_reason && meta.closedStages.includes(o.stage) ? [['Motivo', o.lost_reason]] : []),
       ]), o.notes ? h('p.en-notes', o.notes) : null),
       h('div.card.sw-card', kindDetails(o, refresh)),
@@ -279,14 +322,49 @@ export function opportunitySheet(o, refresh) {
       h('section.card.sw-card.en-sec', h('div.en-sec-head', h('h3', 'Aziende e persone collegate'),
         h('button.btn.btn-sm', { type: 'button', on: { click: () => linkForm(id, async () => drawLinks(await get(`/api/energy/opportunities/${id}`))) } }, icon('plus', { size: 15 }), 'Collega')),
       links),
+      emailsSection(id),
       h('section.card.sw-card.en-sec', h('h3', 'Storico'), h('ul.en-history', o.history.map(x => h('li',
-        h('strong', historyLabel(x.to_stage)), x.from_stage ? h('span.muted', ` da ${historyLabel(x.from_stage)}`) : h('span.muted', ' (creata)'),
-        h('div.t-meta', [new Date(x.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }), x.user_name, x.note].filter(Boolean).join(' · ')))))),
+        // ALM2-78: «Assegnata a Tullio» (to_stage 'owner', il testo sta nella nota)
+        x.to_stage === 'owner' ? h('strong', x.note || 'Responsabile cambiato')
+          : [h('strong', historyLabel(x.to_stage)), x.from_stage ? h('span.muted', ` da ${historyLabel(x.from_stage)}`) : h('span.muted', ' (creata)')],
+        h('div.t-meta', [new Date(x.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }), x.user_name, x.to_stage === 'owner' ? null : x.note].filter(Boolean).join(' · ')))))),
       o.project_id ? null : h('button.btn.btn-ghost.danger', { type: 'button', on: { click: async () => {
         if (!await confirmDialog(`Cancellare l'opportunità «${o.title}»?`, { ok: 'Cancella', danger: true })) return;
         await del(`/api/energy/opportunities/${id}`);
         history.back();
       } } }, 'Cancella l\'opportunità')));
+}
+
+// Email collegate (ALM2-78): dalla Posta «+ Opportunità» → pipeline di Alma Energy. Le risposte nuove entrano da sole
+// o aspettano «Aggiungi» / «Non c'entra» di chi ha collegato la conversazione (le vede solo lui). Senza email: niente riquadro.
+function emailsSection(id) {
+  const box = h('section.card.sw-card.en-sec', { hidden: true });
+  const draw = async () => {
+    let d;
+    try { d = await get(`/api/energy/opportunities/${id}/emails`, { quiet: true }); } catch { return; }
+    if (!d.emails.length && !d.threads.length) return;
+    box.hidden = false;
+    const waiting = d.emails.filter(e => e.status === 'da_approvare');
+    const inside = d.emails.filter(e => e.status === 'in');
+    const item = e => h('li.eo-mail',
+      h('div.eo-mail-h', h('b', e.from_name || e.from_address), h('span.muted.small', e.sent_at ? new Date(e.sent_at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '')),
+      h('div', e.subject), e.preview ? h('div.t-meta.eo-mail-p', e.preview) : null,
+      e.status === 'da_approvare' ? h('div.eo-mail-act',
+        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/energy/opportunities/${id}/emails/${e.id}`, { ok: true }); draw(); } } }, 'Aggiungi'),
+        h('button.btn.btn-sm', { type: 'button', on: { click: async () => { await post(`/api/energy/opportunities/${id}/emails/${e.id}`, { ok: false }); draw(); } } }, 'Non c\'entra'))
+        : e.web_link ? h('a.small', { href: e.web_link, target: '_blank', rel: 'noopener' }, 'Apri in Outlook') : null);
+    const mine = d.mine;
+    fill(box,
+      h('div.en-sec-head', h('h3', `Email (${inside.length})`),
+        mine ? h('select.select.eo-mode', { 'aria-label': 'Le risposte nuove', on: { change: async ev => { await patch(`/api/energy/opportunities/${id}/emails`, { new_mode: ev.target.value }); toast('Scelta salvata'); } } },
+          h('option', { value: 'auto', selected: mine.new_mode === 'auto' }, 'Le risposte entrano da sole'),
+          h('option', { value: 'approva', selected: mine.new_mode === 'approva' }, 'Le risposte le approvo io')) : null),
+      waiting.length ? [h('div.eo-lab', `Da approvare (${waiting.length})`), h('ul.eo-mails', waiting.map(item))] : null,
+      inside.length ? h('ul.eo-mails', inside.map(item)) : h('p.muted.small', 'Nessuna email ancora dentro.'),
+      d.threads.length ? h('p.muted.small', `Conversazione collegata da ${d.threads.map(t => t.owner_name).join(', ')}: si legge solo la sua casella.`) : null);
+  };
+  draw();
+  return box;
 }
 
 function dl(pairs) {

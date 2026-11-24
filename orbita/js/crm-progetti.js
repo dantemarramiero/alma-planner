@@ -372,7 +372,7 @@ export async function crmProjectPage(container, id) {
 }
 
 // ── pezzi della scheda ──────────────────────────────────────────────────────────────────────────────
-function weekStrip(tickets, meetings, p, offset = 0, { compact = false } = {}) {
+function weekStrip(tickets, meetings, p, offset = 0, { compact = false, extra = [] } = {}) {
   const t0 = new Date(`${today()}T12:00:00Z`);
   const monday = addDays(today(), -((t0.getUTCDay() + 6) % 7) + offset * 7);
   const days = Array.from({ length: compact ? 5 : 7 }, (_, i) => addDays(monday, i));
@@ -381,10 +381,12 @@ function weekStrip(tickets, meetings, p, offset = 0, { compact = false } = {}) {
     const items = [
       ...meetings.filter(m => String(m.start_at).slice(0, 10) === d).map(m => ({ k: 'inc', t: `${String(m.start_at).slice(11, 16)} ${m.subject || 'Incontro'}`, on: () => openMeeting(m.id, p) })),
       ...tickets.filter(t => t.due_date === d).map(t => ({ k: t.status === 'done' ? 'done' : t.due_date < today() ? 'sca' : 'tsk', t: t.title, on: () => openTicket(t.id, {}) })),
+      // altre scadenze (ALM2-79: i gate della direzione di Nuovi business)
+      ...extra.filter(x => x.date === d).map(x => ({ k: x.kind || 'gate', t: x.title, on: x.on || (() => {}) })),
     ];
     return h('div.pv-day', { class: d === today() ? 'today' : '' },
       h('div.pv-row', h('b.pv-grow', `${dd.toLocaleDateString('it-IT', { weekday: 'short', timeZone: 'UTC' })} ${dd.getUTCDate()}`), d === today() ? h('small', 'oggi') : null),
-      items.length ? items.map(it => h('button.pv-ev', { type: 'button', class: it.k, on: { click: it.on } }, it.k === 'inc' ? ic('users', 11) : it.k === 'sca' ? ic('flag', 11) : it.k === 'done' ? ic('check', 11) : h('span.pv-evbox'), h('span', it.t))) : null);
+      items.length ? items.map(it => h('button.pv-ev', { type: 'button', class: it.k, on: { click: it.on } }, it.k === 'inc' ? ic('users', 11) : it.k === 'gate' ? ic('flag', 11) : it.k === 'sca' ? ic('flag', 11) : it.k === 'done' ? ic('check', 11) : h('span.pv-evbox'), h('span', it.t))) : null);
   }));
 }
 
@@ -439,7 +441,7 @@ function noteList(list) {
       h('p', (n.title ? `${n.title}: ` : '') + String(n.body || '').slice(0, 220))))));
 }
 
-export async function calendarTab(box, id) {
+export async function calendarTab(box, id, { extra = [] } = {}) {
   let offset = 0;
   const p = { id };
   const [tickets, meetings] = await Promise.all([get(`/api/tickets?project=${id}`), get(`/api/projects/${id}/meetings`, { quiet: true }).catch(() => [])]);
@@ -451,8 +453,8 @@ export async function calendarTab(box, id) {
         h('b.pv-weeklabel', `${fmtDate(monday)} – ${fmtDate(addDays(monday, 6))}`),
         h('button.btn.btn-sm', { type: 'button', 'aria-label': 'Settimana dopo', on: { click: () => { offset += 1; draw(); } } }, ic('chevron-right', 14)),
         offset ? h('button.btn.btn-sm', { type: 'button', on: { click: () => { offset = 0; draw(); } } }, 'Oggi') : null)),
-      h('section.pv-card', weekStrip(tickets, meetings, p, offset)),
-      h('div.pv-legend', h('span.inc', 'incontro'), h('span.tsk', 'compito'), h('span.sca', 'scaduto'), h('span.done', 'fatto')));
+      h('section.pv-card', weekStrip(tickets, meetings, p, offset, { extra })),
+      h('div.pv-legend', h('span.inc', 'incontro'), h('span.tsk', 'compito'), h('span.sca', 'scaduto'), extra.length ? h('span.gate', 'gate della direzione') : null, h('span.done', 'fatto')));
   };
   draw();
 }
@@ -551,7 +553,12 @@ export function relationsBox(projectId, { canEdit = true, onChange } = {}) {
     const people = Array.isArray(contacts) ? contacts : contacts.contacts || [];
     const done = async (links, name) => { toast(`${name} collegato${pickRole.value ? ` come ${roles[pickRole.value]}` : ''}`); search.value = ''; fill(results); draw(links); };
     fill(results,
-      subjects.slice(0, 5).map(s => h('button.pv-res', { type: 'button', on: { click: async () => done(await link({ subject_id: s.id }, { role: pickRole.value }), s.name) } },
+      subjects.slice(0, 5).map(s => h('button.pv-res', { type: 'button', on: { click: async () => {
+        // le sue persone già nelle email o negli incontri del progetto si spuntano da sole
+        const r = await post('/api/crm/collegamenti', { project: projectId, subject_id: s.id, role: pickRole.value, auto_contacts: true });
+        onChange?.();
+        await done(r.links, r.auto ? `${s.name} (con ${r.auto} ${r.auto === 1 ? 'persona già nelle email o negli incontri' : 'persone già nelle email o negli incontri'})` : s.name);
+      } } },
         ic('building', 14), h('b', s.name), h('small', [(s.roles || []).join(', '), s.city].filter(Boolean).join(' · ') || 'azienda'), h('span.rl-act', 'Collega e scegli le persone'))),
       people.slice(0, 5).map(c => h('button.pv-res', { type: 'button', on: { click: async () => done(await link({ contact_id: c.id }, { role: pickRole.value }), fullName(c)) } },
         ic('user', 14), h('b', fullName(c)), h('small', c.subject_name || c.links?.[0]?.subject_name || c.email || 'persona'), h('span.rl-act', 'Collega (entra anche la sua azienda)'))),

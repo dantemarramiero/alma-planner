@@ -20,6 +20,8 @@ const F = require('../lib/firma');
 const { loadSettings } = require('../lib/crm-commerciale');
 const { relationsFor, pathsOf } = require('../lib/crm-relazioni');
 const { addDays } = require('../lib/workdays');
+const E = require('../lib/energy-posta');
+const { KINDS, stageKeys } = require('../lib/energy');
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const PAGE = 30;
@@ -38,7 +40,7 @@ const FOLDER_ID = /^[A-Za-z0-9_\-=+\/.]{1,500}$/;
 const HIDDEN_FOLDERS = new Set(['drafts', 'outbox', 'conversationhistory', 'syncissues', 'scheduled']);
 const EMAIL_RE = /^[^\s"@]+@[^\s"@]+\.[^\s"@]+$/;
 
-function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFake }) {
+function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFake, energyAccess, energyAssign }) {
   const aiKey = () => process.env.OPENAI_API_KEY || '';
   const ai = () => ({ key: aiKey(), fetchImpl: radarFetch || fetch });
   const g = (t, method, path, opts) => (mailFake ? mailFake.graph(t, method, path, opts) : graph(t, method, path, opts));
@@ -1020,6 +1022,45 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
     res.json({ ok: true });
   });
 
+  // Nuovi business (ALM2-79): le email della MIA casella che aspettano il mio sì su questo progetto (solo le mie)
+  app.get('/api/crm/progetti/:id/suggerite', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await project(req, id);
+    const { rows } = await db.query(
+      `SELECT id, kind, subject, from_name, from_address, sent_at, preview, why FROM crm_mail_suggestions
+        WHERE project_id = $1 AND owner_id = $2 AND status = 'nuova' ORDER BY sent_at DESC NULLS LAST LIMIT 30`, [id, req.user.id]);
+    res.json({ suggestions: rows });
+  });
+  // «Cerca nella mia posta»: Alma cerca nella casella di chi chiede le email delle persone collegate (e delle aziende
+  // collegate) e quelle che parlano dell'iniziativa; finiscono fra le suggerite, entrano solo con il suo sì (ALM2-67)
+  app.post('/api/crm/progetti/:id/cerca-email', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    const p = await project(req, id);
+    const { rows: [ini] } = await db.query('SELECT name, description FROM crm_initiatives WHERE project_id = $1', [id]);
+    const themes = P.themesOf(ini?.name || p.name, ini?.description || '').filter(w => w.length >= 6).slice(0, 2);
+    const { rows: people } = await db.query(
+      `SELECT DISTINCT ON (lower(c.email)) lower(c.email) AS email, trim(concat_ws(' ', c.first_name, c.last_name)) AS name, s.name AS company
+         FROM crm_contacts c
+         LEFT JOIN crm_contact_links cl ON cl.contact_id = c.id AND cl.date_to IS NULL
+         LEFT JOIN crm_subjects s ON s.id = cl.subject_id
+        WHERE c.email <> '' AND (c.id IN (SELECT contact_id FROM crm_project_links WHERE project_id = $1 AND contact_id IS NOT NULL)
+           OR cl.subject_id IN (SELECT subject_id FROM crm_project_links WHERE project_id = $1 AND subject_id IS NOT NULL))
+        ORDER BY lower(c.email) LIMIT 12`, [id]);
+    let t;
+    try { t = await token(req.user.id); } catch { throw new HttpError(400, 'Per cercare nella tua posta serve l\'accesso con Microsoft: esci e rientra'); }
+    const search = async q => ((await mail(t, 'GET', `/me/messages?$search=${encodeURIComponent(`"${q}"`)}&$select=${SELECT}&$top=10`).catch(() => ({ value: [] }))).value || [])
+      .filter(m => !m.isDraft).map(P.normMsg);
+    let found = 0;
+    for (const x of people) {
+      const who = `${x.name || x.email}${x.company ? ` (${x.company})` : ''}`;
+      for (const m of await search(`from:${x.email}`)) found += await queue(id, req.user.id, m, 'suggerita', `ti scrive ${who}`);
+      for (const m of await search(`to:${x.email}`)) found += await queue(id, req.user.id, m, 'suggerita', `hai scritto a ${who}`);
+    }
+    for (const w of themes) for (const m of await search(w)) found += await queue(id, req.user.id, m, 'suggerita', `parla di «${w}»`);
+    req.auditDetail = { label: 'Ha cercato nella sua posta le email di un\'iniziativa', target: `progetto #${id}`, before: null, after: { trovate: found } };
+    res.json({ found, people: people.length, themes });
+  });
+
   // «Entrano tutte»: tutte le email della mia casella in attesa su questo progetto
   app.post('/api/crm/progetti/:id/suggerite', async (req, res) => {
     const id = v.int(req.params.id, 'progetto', { min: 1 });
@@ -1152,6 +1193,199 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
   }
 
   // ogni 30 minuti, nei giorni lavorativi dalle 8 alle 19: le email nuove di tutti i progetti nati da una email
+  // ═══ Dalla email alla pipeline di Alma Energy (ALM2-78, tavola «Dalla email») ═══════════════════════════════════
+  // «+ Opportunità» chiede dove salvarla: Radar del CRM (come sopra) o pipeline di Alma Energy, solo per i membri del
+  // modulo. Alma propone nome, tipo, MW e luogo; l'azienda di chi scrive si collega o si crea; la conversazione resta
+  // collegata all'opportunità e le risposte nuove entrano da sole o aspettano il sì di chi l'ha collegata (come ALM2-67).
+  const canEnergy = async req => Boolean(energyAccess && await energyAccess.canUse(req));
+  async function energyOnly(req) {
+    if (!(await canEnergy(req))) throw new HttpError(403, 'La pipeline di Alma Energy è riservata ai membri del modulo');
+  }
+  const ROLE_BY_KIND = { ppa_onsite: 'cliente', revamping: 'proprietario', fv_classico: 'sviluppatore' };
+
+  async function energyFromMail(req, messageId) {
+    const t = await token(req.user.id);
+    const first = P.normMsg(await mail(t, 'GET', `/me/messages/${encodeURIComponent(messageId)}?$select=${FULL}`, { headers: TEXT }));
+    const msgs = first.conversation_id ? await conversation(t, first.conversation_id) : [first];
+    if (!msgs.some(m => m.id === first.id)) msgs.push(first);
+    return { first, msgs };
+  }
+  // chi ha scritto da fuori (l'ultimo) e la sua azienda nel CRM di Alma Energy
+  async function energyPeople(msgs, fields) {
+    const internal = await internalFn();
+    const ext = msgs.slice().reverse().find(m => m.from.address && !internal(m.from.address) && !S.isAuto(m.from.address));
+    if (!ext) return { person: null, company: null };
+    const addr = ext.from.address.toLowerCase();
+    const sig = S.fromSignature(ext.body, { name: ext.from.name, email: addr });
+    const { rows: [known] } = await db.query(
+      `SELECT p.id, trim(concat_ws(' ', p.first_name, p.last_name)) AS name,
+              (SELECT x.company_id FROM energy_person_companies x WHERE x.person_id = p.id LIMIT 1) AS company_id
+         FROM energy_people p WHERE lower(p.email) = $1 LIMIT 1`, [addr]);
+    const person = known ? { kind: 'crm', id: known.id, name: known.name, email: addr }
+      : { kind: 'nuova', email: addr, name: [sig.first_name, sig.last_name].filter(Boolean).join(' ') || ext.from.name || addr,
+        first_name: sig.first_name || '', last_name: sig.last_name || ext.from.name || addr.split('@')[0], title: sig.title || '',
+        phone: sig.phone || '', mobile: sig.mobile || '', job: sig.job || '' };
+    const domain = S.domainOf(addr);
+    const personal = S.isPersonal(domain);
+    const hint = String(sig.company || fields.azienda || '').replace(/\s*·.*$/, '').trim();
+    let row = known?.company_id ? (await db.query('SELECT id, name FROM energy_companies WHERE id = $1', [known.company_id])).rows[0] : null;
+    if (!row && !personal) row = (await db.query('SELECT id, name FROM energy_companies WHERE lower(website) LIKE $1 ORDER BY id LIMIT 1', [`%${domain}%`])).rows[0];
+    if (!row && hint) row = (await db.query('SELECT id, name FROM energy_companies WHERE lower(name) = lower($1) ORDER BY id LIMIT 1', [hint])).rows[0];
+    const company = row ? { kind: 'crm', id: row.id, name: row.name }
+      : hint || !personal ? { kind: 'nuova', name: (hint || S.nameFromDomain(domain) || domain).slice(0, 200), website: personal ? '' : domain } : null;
+    return { person, company };
+  }
+
+  app.get('/api/crm/posta-energia', async (req, res) => {
+    res.json({ can: await canEnergy(req) });
+  });
+
+  app.post('/api/crm/posta-energia/proposta', async (req, res) => {
+    await energyOnly(req);
+    const id = v.text(req.body?.message_id, 'email', { max: 500, required: true });
+    const { first, msgs } = await energyFromMail(req, id);
+    if (first.conversation_id) {
+      const { rows: [th] } = await db.query('SELECT opportunity_id FROM energy_mail_threads WHERE conversation_id = $1 ORDER BY id LIMIT 1', [first.conversation_id]);
+      if (th) return res.json({ already: { opportunity_id: th.opportunity_id } });
+    }
+    const { fields, eur, ai: byAi } = await E.extractEnergy(msgs, ai());
+    await spend(eur);
+    const { person, company } = await energyPeople(msgs, fields);
+    res.json({ message_id: first.id, subject: first.subject, messages: msgs.length, fields, ai: byAi, person, company,
+      new_mode: (await prefsOf(req.user.id)).new_mode, kinds: KINDS });
+  });
+
+  app.post('/api/crm/posta-energia/crea', async (req, res) => {
+    await energyOnly(req);
+    const uid = req.user.id;
+    const b = req.body || {};
+    const id = v.text(b.message_id, 'email', { max: 500, required: true });
+    const kind = v.oneOf(b.kind, 'Tipo', Object.keys(KINDS));
+    if (!kind) throw new HttpError(400, 'Scegli il tipo di opportunità');
+    const title = v.text(b.title, 'Nome', { max: 200, required: true });
+    const mwRaw = b.mw === null || b.mw === '' || b.mw === undefined ? null : Number(String(b.mw).replace(',', '.'));
+    if (mwRaw !== null && (!Number.isFinite(mwRaw) || mwRaw < 0 || mwRaw > 100000)) throw new HttpError(400, 'Il campo «MW» non è valido');
+    const place = { city: v.text(b.city, 'Comune', { max: 100 }) || '', province: v.text(b.province, 'Provincia', { max: 60 }) || '', region: v.text(b.region, 'Regione', { max: 60 }) || '' };
+    const ownerId = b.owner_id === undefined ? uid : v.int(b.owner_id, 'Responsabile', { min: 1, nullable: true }) ?? null;
+    if (ownerId !== uid) await energyAssign.checkOwner(ownerId);
+    const newMode = MODES.includes(b.new_mode) ? b.new_mode : (await prefsOf(uid)).new_mode;
+    const { first, msgs } = await energyFromMail(req, id);
+    const { person, company } = await energyPeople(msgs, { azienda: '' });
+    const useCompany = b.company === false ? null : company;
+    const usePerson = b.person === false ? null : person;
+    const opp = await db.tx(async q => {
+      if (first.conversation_id) {
+        const { rows: [dup] } = await q.query('SELECT opportunity_id FROM energy_mail_threads WHERE conversation_id = $1 LIMIT 1', [first.conversation_id]);
+        if (dup) throw new HttpError(409, 'Questa conversazione è già collegata a un\'opportunità di Alma Energy');
+      }
+      let companyId = null;
+      if (useCompany?.kind === 'crm') companyId = useCompany.id;
+      else if (useCompany?.kind === 'nuova') {
+        const { rows: [c] } = await q.query(`INSERT INTO energy_companies (name, website, city, province, region, source, owner_id, created_by)
+                                               VALUES ($1, $2, '', '', '', 'Email', $3, $4) RETURNING id`, [useCompany.name, useCompany.website || '', ownerId || uid, uid]);
+        companyId = c.id;
+      }
+      const stage = stageKeys(kind)[0];
+      const { rows: [o] } = await q.query(
+        `INSERT INTO energy_opportunities (kind, title, stage, mw, city, province, region, company_id, owner_id, created_by, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        [kind, title, stage, mwRaw, place.city, place.province, place.region, companyId, ownerId, uid, `Dall'email «${first.subject}»`.slice(0, 5000)]);
+      await q.query("INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, NULL, $2, 'creata da una email', $3)", [o.id, stage, uid]);
+      if (companyId) await q.query('INSERT INTO energy_links (opportunity_id, company_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [o.id, companyId, ROLE_BY_KIND[kind]]);
+      if (usePerson) {
+        let personId = usePerson.kind === 'crm' ? usePerson.id : null;
+        if (!personId) {
+          const { rows: [p] } = await q.query(
+            `INSERT INTO energy_people (first_name, last_name, title, email, phone, mobile, channel, owner_id, source, data_source, data_date, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, 'email', $7, 'Email', 'Firma dell''email', CURRENT_DATE, $8) RETURNING id`,
+            [usePerson.first_name.slice(0, 120), (usePerson.last_name || usePerson.email).slice(0, 120), usePerson.title.slice(0, 40), usePerson.email,
+              usePerson.phone.slice(0, 40), usePerson.mobile.slice(0, 40), ownerId || uid, uid]);
+          personId = p.id;
+        }
+        if (companyId) await q.query('INSERT INTO energy_person_companies (person_id, company_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [personId, companyId, (usePerson.job || '').slice(0, 120)]);
+        await q.query("INSERT INTO energy_links (opportunity_id, person_id, role) VALUES ($1, $2, 'referente') ON CONFLICT DO NOTHING", [o.id, personId]);
+      }
+      if (first.conversation_id) {
+        await q.query('INSERT INTO energy_mail_threads (opportunity_id, owner_id, conversation_id, subject, new_mode, checked_at) VALUES ($1, $2, $3, $4, $5, now())',
+          [o.id, uid, first.conversation_id, first.subject.slice(0, 1000), newMode]);
+      }
+      for (const m of msgs) await saveEnergyMail(q, o.id, uid, m, 'in', false);
+      return o;
+    });
+    await energyAssign.notifyAssigned(opp.owner_id, [opp], req.user);
+    res.status(201).json({ id: opp.id });
+  });
+
+  async function saveEnergyMail(q, oppId, ownerId, m, status, auto) {
+    const { rows } = await q.query(
+      `INSERT INTO energy_opportunity_emails (opportunity_id, owner_id, internet_message_id, outlook_id, subject, from_name, from_address, sent_at, body_text, web_link, status, auto_added)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (opportunity_id, internet_message_id) DO NOTHING RETURNING id`,
+      [oppId, ownerId, m.internet_message_id, m.id || '', String(m.subject || '').slice(0, 1000), m.from.name || '', m.from.address || '', m.date || null,
+        String(m.body || '').slice(0, 200000), m.web_link || null, status, auto]);
+    return rows.length;
+  }
+
+  // Risposte nuove nella conversazione collegata: all'apertura della pagina (se non lette da 2 minuti) e ogni 30 minuti.
+  const energySyncing = new Map();
+  function syncEnergy(oppId, { force = false } = {}) {
+    if (energySyncing.has(oppId)) return energySyncing.get(oppId);
+    const job = (async () => {
+      const { rows: threads } = await db.query(
+        'SELECT t.*, o.title FROM energy_mail_threads t JOIN energy_opportunities o ON o.id = t.opportunity_id WHERE t.opportunity_id = $1', [oppId]);
+      for (const th of threads) {
+        if (!force && th.checked_at && Date.now() - new Date(th.checked_at).getTime() < STALE) continue;
+        let t;
+        try { t = await token(th.owner_id); } catch { continue; }
+        try {
+          const auto = th.new_mode === 'auto';
+          let pending = 0;
+          for (const m of await conversation(t, th.conversation_id)) pending += await saveEnergyMail(db, oppId, th.owner_id, m, auto ? 'in' : 'da_approvare', auto);
+          await db.query('UPDATE energy_mail_threads SET checked_at = now() WHERE id = $1', [th.id]);
+          if (pending && !auto) {
+            await notifier.notify({ userIds: [th.owner_id], actorId: null, kind: 'energy', link: `/energy/opportunita/${oppId}`,
+              body: `${pending === 1 ? 'Una risposta nuova' : `${pending} risposte nuove`} da approvare in «${th.title}»` });
+          }
+        } catch (err) { console.warn(`[posta energy] opportunità ${oppId}: email non lette (${err.message})`); }
+      }
+    })().finally(() => energySyncing.delete(oppId));
+    energySyncing.set(oppId, job);
+    return job;
+  }
+
+  app.get('/api/energy/opportunities/:id/emails', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await syncEnergy(id).catch(() => {});
+    const [{ rows: emails }, { rows: threads }] = await Promise.all([
+      db.query(`SELECT id, subject, from_name, from_address, sent_at, status, auto_added, left(body_text, 600) AS preview,
+                       CASE WHEN owner_id = $2 THEN web_link END AS web_link
+                  FROM energy_opportunity_emails WHERE opportunity_id = $1 AND (status = 'in' OR (status = 'da_approvare' AND owner_id = $2))
+                 ORDER BY sent_at DESC NULLS LAST, id DESC LIMIT 200`, [id, req.user.id]),
+      db.query(`SELECT t.owner_id, t.subject, t.new_mode, u.name AS owner_name FROM energy_mail_threads t LEFT JOIN users u ON u.id = t.owner_id
+                 WHERE t.opportunity_id = $1 ORDER BY t.id`, [id]),
+    ]);
+    res.json({ emails, threads, mine: threads.find(th => th.owner_id === req.user.id) || null });
+  });
+
+  // «Aggiungi» / «Non c'entra» su una risposta da approvare: solo chi ha collegato la conversazione
+  app.post('/api/energy/opportunities/:id/emails/:emailId', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const emailId = v.int(req.params.emailId, 'email', { min: 1 });
+    const status = req.body?.ok ? 'in' : 'scartata';
+    const { rowCount } = await db.query("UPDATE energy_opportunity_emails SET status = $4 WHERE id = $1 AND opportunity_id = $2 AND owner_id = $3 AND status = 'da_approvare'",
+      [emailId, id, req.user.id, status]);
+    if (!rowCount) throw new HttpError(404, 'Email non trovata tra quelle da approvare');
+    res.json({ ok: true, status });
+  });
+
+  app.patch('/api/energy/opportunities/:id/emails', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    const mode = v.oneOf(req.body?.new_mode, 'risposte nuove', MODES);
+    if (!mode) throw new HttpError(400, 'Scegli come entrano le risposte nuove');
+    const { rowCount } = await db.query('UPDATE energy_mail_threads SET new_mode = $3 WHERE opportunity_id = $1 AND owner_id = $2', [id, req.user.id, mode]);
+    if (!rowCount) throw new HttpError(404, 'Non hai collegato tu questa conversazione');
+    res.json({ ok: true, new_mode: mode });
+  });
+
   function startSync() {
     if (process.env.NODE_TEST_CONTEXT) return;
     setInterval(async () => {
@@ -1161,6 +1395,10 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
       if (h < 8 || h >= 19 || wd === 'Sat' || wd === 'Sun') return;
       const { rows } = await db.query(`SELECT DISTINCT t.project_id FROM crm_mail_threads t JOIN projects p ON p.id = t.project_id WHERE p.status = 'active'`).catch(() => ({ rows: [] }));
       for (const r of rows) await syncProject(r.project_id, { force: true }).catch(err => console.warn('[posta] sincronizzazione non riuscita', err.message));
+      // ALM2-78: conversazioni collegate alle opportunità di Alma Energy ancora aperte
+      const { rows: opps } = await db.query(`SELECT DISTINCT t.opportunity_id FROM energy_mail_threads t JOIN energy_opportunities o ON o.id = t.opportunity_id
+                                              WHERE o.stage NOT IN ('perso', 'scartato')`).catch(() => ({ rows: [] }));
+      for (const r of opps) await syncEnergy(r.opportunity_id, { force: true }).catch(err => console.warn('[posta energy] sincronizzazione non riuscita', err.message));
     }, SYNC_EVERY).unref();
   }
   startSync();

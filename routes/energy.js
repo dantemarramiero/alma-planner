@@ -152,7 +152,7 @@ const updateSql = (table, f) => `UPDATE ${table} SET ${cols(f).map((c, i) => `${
 const jsonCols = new Set(['extra', 'data']);
 const vals = f => Object.entries(f).map(([k, val]) => (jsonCols.has(k) ? JSON.stringify(val) : val));
 
-function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
+function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening, energyAssign }) {
   app.use('/api/energy', (req, _res, next) => {
     energyAccess.canUse(req).then(ok => next(ok ? undefined : new HttpError(403, 'Alma Energy è riservato alla BU Energy')), next);
   });
@@ -160,8 +160,10 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
   // ── modulo: elenchi per la pagina, membri e numeri delle pipeline ─────────────────────────────
   app.get('/api/energy', async (req, res) => {
     const [{ rows: members }, { rows: counts }, { rows: [crm] }] = await Promise.all([
-      db.query(`SELECT m.email, m.created_at, u.id AS user_id, u.name FROM energy_members m
-                 LEFT JOIN users u ON lower(u.email) = m.email ORDER BY m.created_at`),
+      // «7 aperte» nel riquadro del responsabile (ALM2-78)
+      db.query(`SELECT m.email, m.created_at, u.id AS user_id, u.name,
+                       (SELECT COUNT(*)::int FROM energy_opportunities o WHERE o.owner_id = u.id AND o.stage <> ALL($1::text[])) AS open
+                  FROM energy_members m LEFT JOIN users u ON lower(u.email) = m.email ORDER BY m.created_at`, [[...CLOSED_STAGES, 'target']]),
       db.query('SELECT kind, stage, COUNT(*)::int AS n, COALESCE(SUM(mw), 0)::float AS mw FROM energy_opportunities GROUP BY kind, stage'),
       db.query('SELECT (SELECT COUNT(*)::int FROM energy_companies) AS companies, (SELECT COUNT(*)::int FROM energy_people) AS people'),
     ]);
@@ -399,6 +401,10 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
       where.push(`(o.company_id = $${n} OR EXISTS (SELECT 1 FROM energy_links l WHERE l.opportunity_id = o.id AND l.company_id = $${n}))`);
     }
     if (req.query.q) add('o.title ILIKE ?', `%${String(req.query.q).trim()}%`);
+    // «Le mie» e «Senza responsabile» (ALM2-78)
+    if (req.query.owner === 'me') add('o.owner_id = ?', req.user.id);
+    else if (req.query.owner === 'none') where.push('o.owner_id IS NULL');
+    else if (req.query.owner) add('o.owner_id = ?', v.int(req.query.owner, 'Responsabile', { min: 1 }));
     // «Vicino a me» (app 2.0 sul telefono, 13/11): near=lat,lon e km (massimo 100). Prima un riquadro in SQL,
     // poi la distanza vera e l'ordine dal più vicino.
     let near = null;
@@ -443,7 +449,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     const f = opportunityFields(req.body, { partial: false, kind });
     const stage = req.body.stage === undefined ? stageKeys(kind)[0] : v.oneOf(req.body.stage, 'Stadio', stageKeys(kind));
     if (stage === 'target') throw new HttpError(400, 'Un\'opportunità diventa Impianto target con «Seleziona come target»');
-    Object.assign(f, { stage, created_by: req.user.id, owner_id: f.owner_id ?? req.user.id });
+    Object.assign(f, { stage, created_by: req.user.id, owner_id: f.owner_id === undefined ? req.user.id : f.owner_id });
+    if (f.owner_id !== req.user.id) await energyAssign.checkOwner(f.owner_id);
     const opp = await db.tx(async q => {
       const { rows: [o] } = await q.query(insertSql('energy_opportunities', f), vals(f));
       await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, user_id) VALUES ($1, NULL, $2, $3)', [o.id, stage, req.user.id]);
@@ -454,7 +461,20 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
       }
       return o;
     });
+    await energyAssign.notifyAssigned(opp.owner_id, [opp], req.user);
     res.status(201).json(opp);
+  });
+
+  // Assegna in blocco (ALM2-78): dall'elenco, spuntate più opportunità → «Assegna a me» / «Assegna a…».
+  // Anche una sola: è quello che usano il riquadro del responsabile e «Prendo io». owner_id null = senza responsabile.
+  app.post('/api/energy/opportunities/assign', async (req, res) => {
+    const raw = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const ids = [...new Set(raw.map(x => v.int(x, 'Opportunità', { min: 1 })))];
+    if (!ids.length) throw new HttpError(400, 'Scegli almeno un\'opportunità');
+    if (ids.length > 500) throw new HttpError(400, 'Al massimo 500 opportunità alla volta');
+    const ownerId = req.body.owner_id === 'me' ? req.user.id : v.int(req.body.owner_id, 'Responsabile', { min: 1, nullable: true }) ?? null;
+    const changed = await energyAssign.assign(ids, ownerId, req.user);
+    res.json({ changed: changed.length, ids: changed.map(o => o.id) });
   });
 
   app.get('/api/energy/opportunities/:id', async (req, res) => {
@@ -482,17 +502,14 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     if (f.data) f.data = { ...cur.data, ...f.data };
     // profilo cambiato a mano su un tetto: resta anche quando si rifà l'import o lo screening
     if (f.data && cur.kind === 'ppa_onsite' && req.body.data?.profilo !== undefined && req.body.data.profilo !== (cur.data || {}).profilo) f.data.profilo_manuale = true;
-    if (!Object.keys(f).length) return res.json(cur);
+    // il responsabile passa da energyAssign: progetto, storico e avviso a chi la riceve (ALM2-78)
+    const ownerId = f.owner_id;
+    delete f.owner_id;
+    if (ownerId !== undefined) await energyAssign.assign([id], ownerId, req.user);
+    if (!Object.keys(f).length) return res.json(await opportunityById(id));
     const { rows: [o] } = await db.query(updateSql('energy_opportunities', f), [id, ...vals(f)]);
-    // il progetto dell'opportunità porta il suo nome e il suo responsabile
-    if (o.project_id && (f.title || f.owner_id)) {
-      await db.query('UPDATE projects SET name = $2, owner_id = COALESCE($3, owner_id), updated_at = now() WHERE id = $1', [o.project_id, o.title.slice(0, 200), o.owner_id]);
-      // chi era responsabile resta nel progetto come membro
-      if (cur.owner_id && cur.owner_id !== o.owner_id) {
-        await db.query('INSERT INTO project_members (project_id, user_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [o.project_id, cur.owner_id, req.user.id]);
-      }
-      if (o.owner_id) await db.query('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [o.project_id, o.owner_id]);
-    }
+    // il progetto dell'opportunità porta il suo nome
+    if (o.project_id && f.title) await db.query('UPDATE projects SET name = $2, updated_at = now() WHERE id = $1', [o.project_id, o.title.slice(0, 200)]);
     // profilo di consumo cambiato sulla scheda di un tetto: punteggio e priorità con i parametri in uso
     if (o.kind === 'ppa_onsite' && f.data && f.data.profilo !== (cur.data || {}).profilo) {
       await tiers.rescoreRoof(db, id);
