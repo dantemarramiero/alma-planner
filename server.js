@@ -50,6 +50,8 @@ const { registerCrmScrivo } = require('./routes/crm-scrivo');
 const { createMailFake } = require('./lib/crm-scrivo-fake');
 const { registerImpianti } = require('./routes/impianti');
 const { createImpiantiMailFake } = require('./lib/impianti-fake');
+const { registerProcurement } = require('./routes/procurement');
+const { createProcurementFake } = require('./lib/procurement-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
 const { registerCrmCalendario } = require('./routes/crm-calendario');
@@ -281,6 +283,9 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
   registerCrmScrivo(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createMailFake() : null }); // CRM: «Persone con cui mi scrivo» dalla propria posta
   registerImpianti(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createImpiantiMailFake() : null }); // Alma Impianti (ALM2-73): Da fare, Fondi, Progettisti
+  const procurementFake = !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createProcurementFake({ autoReplyMs: process.env.NODE_TEST_CONTEXT ? 0 : 20000 }) : null;
+  app.locals.procurementFake = procurementFake; // nei test: arrive() per le risposte dei fornitori
+  registerProcurement(app, { ...deps, mailFake: procurementFake }); // Alma Procurement (ALM2-81): capitolato, fornitori, Chiedi ad Alma, quotazioni
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
