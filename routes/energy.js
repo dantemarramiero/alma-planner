@@ -15,6 +15,8 @@ const { writeXlsx } = require('../lib/xlsx');
 const tiers = require('../lib/energy-tiers');
 const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { addWorkdays, romeNow } = require('../lib/workdays');
+const { registerEnergyIter } = require('./energy-iter');
+const { PROJECT_TYPES, SELECTION, typeFromKind } = require('../lib/energy-iter');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
 const duplicate = err => err?.code === '23505';
@@ -165,7 +167,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
       meta: { stages: STAGES, kinds: KINDS, companyTypes: COMPANY_TYPES, linkRoles: LINK_ROLES, relations: RELATIONS,
         companyStatus: COMPANY_STATUS, influence: INFLUENCE, channels: CHANNELS,
         targetSteps: TARGET_STEPS.map(st => ({ key: st.key, label: st.label })), targetOutcomes: TARGET_OUTCOMES,
-        closedStages: CLOSED_STAGES, forwardActions: FORWARD_ACTIONS, regions: REGIONS },
+        closedStages: CLOSED_STAGES, forwardActions: FORWARD_ACTIONS, regions: REGIONS, projectTypes: PROJECT_TYPES, selection: SELECTION },
       members, counts, crm, can_manage_members: true, is_admin: Boolean(isAdmin(req)),
     });
   });
@@ -915,7 +917,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
       db.query(
         `SELECT t.id AS ticket_id, t.title, t.due_date::text AS due_date, t.status, o.id, o.title AS target_title, o.kind
            FROM tickets t JOIN projects p ON p.id = t.project_id AND p.energy JOIN energy_opportunities o ON o.project_id = p.id
-          WHERE t.status <> 'done' AND t.title LIKE 'Step %' AND t.due_date IS NOT NULL AND t.due_date <= CURRENT_DATE + 14
+          WHERE t.status <> 'done' AND (t.title LIKE 'Step %' OR t.title LIKE 'Fase %') AND t.due_date IS NOT NULL AND t.due_date <= CURRENT_DATE + 14
             AND o.target_outcome IS NULL
           ORDER BY t.due_date LIMIT 20`),
       db.query(
@@ -990,36 +992,26 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     return rows.map(r => r.id);
   }
 
+  // «Seleziona come progetto» (ALM2-74): l'opportunità entra fra i Progetti selezionati, colonna «In valutazione», con il
+  // suo progetto di Alma Space riservato alla BU Energy. Le fasi dell'iter (e le righe del Gantt) nascono con «Avvia la
+  // DD tecnica». Il FV nuovo si può selezionare a ogni stadio: l'iter comprende autorizzazione e connessione.
   app.post('/api/energy/opportunities/:id/target', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const o = await opportunityById(id);
-    if (o.target_step) throw new HttpError(400, 'È già un Impianto target');
-    if (CLOSED_STAGES.includes(o.stage)) throw new HttpError(400, 'L\'opportunità è chiusa o in standby: riaprila prima di farne un target');
-    if (o.kind === 'fv_classico' && o.stage !== 'rtb') throw new HttpError(400, 'Un progetto FV classico diventa target solo quando è RTB');
-    const owner = o.owner_id || req.user.id;
+    if (o.target_step || o.selection) throw new HttpError(400, 'È già fra i progetti selezionati');
+    if (CLOSED_STAGES.includes(o.stage)) throw new HttpError(400, 'L\'opportunità è chiusa o in standby: riaprila prima di selezionarla');
+    const type = req.body?.project_type ? v.oneOf(req.body.project_type, 'Tipo di progetto', Object.keys(PROJECT_TYPES)) : typeFromKind(o.kind);
     const projectId = await db.tx(async q => {
-      const today = romeNow().day;
       // lo stesso progetto dell'opportunità (o nuovo, se era ancora al primo stadio)
       const pid = await ensureProject(q, o, req.user.id);
       await q.query("UPDATE projects SET description = CASE WHEN description LIKE 'Opportunità di Alma Energy%' THEN $2 ELSE description END, updated_at = now() WHERE id = $1",
-        [pid, `Impianto target di Alma Energy (${KINDS[o.kind]}).`]);
-      // una riga del Gantt per step, una dopo l'altra, al responsabile dell'impianto
-      let start = today;
-      const { rows: [{ pos }] } = await q.query('SELECT COALESCE(MAX(position), 0) AS pos FROM tickets');
-      for (const [i, st] of TARGET_STEPS.entries()) {
-        const due = addWorkdays(start, st.days - 1);
-        const { rows: [t] } = await q.query(
-          `INSERT INTO tickets (project_id, title, description, status, start_date, due_date, position, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-          [pid, stepTicketTitle(i, st), `Checklist nella scheda dell'impianto (Alma Energy).`, i === 0 ? 'doing' : 'todo', start, due, pos + i + 1, req.user.id]);
-        await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [t.id, owner]);
-        start = addWorkdays(due, 1);
-      }
+        [pid, `Progetto selezionato di Alma Energy (${PROJECT_TYPES[type]}).`]);
       await q.query(
         `UPDATE energy_opportunities SET project_id = $2, stage = 'target', target_step = $3, target_outcome = NULL, target_checklist = '{}',
-                target_step_changed_at = now(), stage_changed_at = now(), updated_at = now() WHERE id = $1`, [id, pid, STEP_KEYS[0]]);
+                project_type = $4, selection = 'valutazione', selection_reason = '', selection_changed_at = now(),
+                target_step_changed_at = now(), stage_changed_at = now(), updated_at = now() WHERE id = $1`, [id, pid, STEP_KEYS[0], type]);
       await q.query('INSERT INTO energy_stage_history (opportunity_id, from_stage, to_stage, note, user_id) VALUES ($1, $2, $3, $4, $5)',
-        [id, o.stage, 'target', 'Selezionata come Impianto target', req.user.id]);
+        [id, o.stage, 'target', 'Selezionata: in valutazione', req.user.id]);
       return pid;
     });
     res.status(201).json({ project_id: projectId });
@@ -1150,6 +1142,8 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
       history,
     };
   }
+
+  registerEnergyIter(app, { db, opportunityById });
 
   // ── simulatore: calcolo senza salvare ─────────────────────────────────────────────────────────
   app.get('/api/energy/simulate/defaults', (_req, res) => res.json({

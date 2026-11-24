@@ -7,12 +7,12 @@ import { store } from './store.js';
 import { icon } from './icons.js';
 import { pipelineView, databaseView, kindDetails, deadlinesCard } from './energy-pipeline.js';
 import { simulatorView, scenariosSection } from './energy-simulator.js';
-import { targetsView, openTarget } from './energy-target.js';
+import { targetsView, openTarget, templatesView } from './energy-target.js';
 import { paramsView } from './energy-params.js';
 import { screeningView } from './energy-screening.js';
 import { opportunityPage } from './energy-opportunity.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Impianti target'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Analisi economico-finanziarie'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
@@ -66,6 +66,7 @@ export async function energyView(container, parts = []) {
   else if (tab === 'target') await targetsView(body);
   else if (tab === 'database') await databaseView(body);
   else if (tab === 'parametri') await paramsView(body);
+  else if (tab === 'modelli') await templatesView(body);
   else if (tab === 'screening') await screeningView(body);
   else if (tab === 'simulatore') await simulatorView(body, new URLSearchParams(location.hash.split('?')[1] || ''));
   else if (tab === 'opportunita') await opportunitiesTab(body, parts[2]);
@@ -108,7 +109,7 @@ async function overview(box, data, days = 30) {
       kpi('MW in pipeline', `${num(d.totals.mw, 1)} MW`, `${num(d.totals.mwWeighted, 1)} MW pesati · ${num(d.totals.count)} opportunità aperte`),
       kpi('Capex in pipeline', eurShort(d.totals.capex), `${eurShort(d.totals.capexWeighted)} pesato`),
       kpi('IRR medio', d.irr.avg === null ? '—' : `${num(d.irr.avg * 100, 1)}%`, d.irr.count ? `su ${num(d.irr.count)} scenari scelti` : 'nessuno scenario scelto'),
-      kpi('Impianti target', num(d.targets.active), `${num(d.targets.mwActive, 1)} MW · ${num(d.targets.acquired)} acquisiti · ${num(d.targets.lost)} persi`, '#/energy/target'),
+      kpi('Progetti selezionati', num(d.targets.active), `${num(d.targets.mwActive, 1)} MW · ${num(d.targets.acquired)} con l'iter completato · ${num(d.targets.lost)} scartati`, '#/energy/target'),
       kpi('CRM', num(data.crm.companies), `aziende · ${num(data.crm.people)} persone`, '#/energy/aziende')),
     h('div.sw-grid',
       Object.keys(meta.kinds).map(kind => {
@@ -148,7 +149,7 @@ async function overview(box, data, days = 30) {
 // «Primo contatto», «Target · Due diligence», «Acquisito»… da una riga dello storico.
 function historyText(x) {
   const s = x.to_stage;
-  if (s === 'target') return 'Impianto target';
+  if (s === 'target') return 'Progetto selezionato';
   if (s.startsWith('step:')) return `Target · ${meta.targetSteps.find(t => t.key === s.slice(5))?.label || s.slice(5)}`;
   if (s === 'esito:riaperto') return 'Iter riaperto';
   if (s.startsWith('esito:')) return meta.targetOutcomes[s.slice(6)] || s;
