@@ -83,3 +83,15 @@
 .mt-warn { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px 14px; margin-bottom: 10px; border-radius: 10px; background: var(--red-soft); color: var(--red); font-size: 13px; }
 .mt-warn .link-btn { color: var(--red); font-weight: var(--ap-fw-medium); text-decoration: underline; }
 .mt-nonotes { display: inline-flex; align-items: center; gap: 4px; color: var(--red); font-weight: var(--ap-fw-medium); }
+
+/* Proposte per persona (ALM2-84): in cima alle finestre «Collega incontro» / «Assegna email» / «Collega email» */
+.pp-box { border: 1px solid var(--orange); background: var(--orange-soft); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 8px; margin-bottom: 12px; }
+.pp-head { display: flex; gap: 8px; align-items: center; color: var(--ink); }
+.pp-head > svg { color: var(--orange); flex: none; }
+.pp-title { flex: 1; min-width: 0; }
+.pp-toggle { border: 0; background: none; color: var(--orange); font: inherit; font-size: var(--ap-fs-sm); font-weight: 600; cursor: pointer; padding: 2px 4px; white-space: nowrap; }
+.pp-toggle:hover { text-decoration: underline; }
+.pp-list { display: grid; gap: 4px; max-height: 30vh; overflow-y: auto; align-content: start; padding: 2px; }
+.pp-list .pe-pick.on { background: var(--card); }
+.pp-with { display: flex; gap: 4px; align-items: center; font-size: var(--ap-fs-xs); color: var(--orange); font-weight: 600; margin: 1px 0 2px; }
+.pp-rest { font-size: var(--ap-fs-xs); color: var(--muted); }

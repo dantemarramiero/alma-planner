@@ -48,7 +48,7 @@ test('sala di lancio → «Lancia il progetto»: progetto, compiti assegnati, en
   const launched = await F('POST', '/api/crm/lancio', { signal_id: sig.id, owner_id: await meId(F), member_ids: [eId], phases, goal: { ...prop.body.goal, probability: 35 } });
   assert.equal(launched.status, 201);
   const pid = launched.body.project_id;
-  assert.equal(launched.body.tasks, 8);
+  assert.equal((await F('GET', `/api/tickets?project=${pid}`)).body.length, 0, 'il piano non diventa ticket da solo (ALM2-85)');
   assert.ok(launched.body.subject_id, 'l\'ente entra nel CRM');
   assert.equal((await F('POST', '/api/crm/lancio', { signal_id: sig.id, phases })).status, 409);
   assert.equal((await F('GET', `/api/crm/lancio/proposta?signal=${sig.id}`)).body.already, pid);
@@ -62,18 +62,16 @@ test('sala di lancio → «Lancia il progetto»: progetto, compiti assegnati, en
   const mine = (await F('GET', '/api/crm/progetti?vista=miei')).body;
   const card = mine.projects.find(p => p.id === pid);
   assert.equal(card.kind, 'gara');
-  assert.equal(card.tasks_total, 8);
+  assert.equal(card.tasks_total, 0);
   assert.equal(card.weighted, 1120000);
   assert.equal(card.source.entity, 'Provincia di Pescara');
-  assert.ok(card.next && card.next.title);
-  assert.ok(mine.tasks.length >= 1);
   assert.ok((await E('GET', '/api/crm/progetti?vista=miei')).body.projects.some(p => p.id === pid));
   assert.ok((await D('GET', '/api/crm/progetti?vista=tutti')).body.projects.some(p => p.id === pid));
 
   // il progetto lo vedono tutti in sola lettura; chi non è dentro non lo cambia
   const other = as(await login('altro@almacis.it'));
   assert.equal((await other('GET', `/api/projects/${pid}`)).body.my_role, 'viewer');
-  assert.ok((await other('GET', `/api/tickets?project=${pid}`)).body.length >= 8);
+  assert.equal((await other('GET', `/api/tickets?project=${pid}`)).status, 200);
   assert.equal((await other('PATCH', `/api/crm/progetti/${pid}`, { step: 2 })).status, 403);
 
   // testata: tappa e obiettivo
@@ -87,8 +85,7 @@ test('sala di lancio → «Lancia il progetto»: progetto, compiti assegnati, en
 
   // rendiconto (anche in CSV)
   const r = (await F('GET', `/api/crm/progetti/${pid}/rendiconto`)).body;
-  assert.equal(r.tasks.length, 8);
-  assert.ok(r.people.length >= 2);
+  assert.equal(r.tasks.length, 0);
   const csv = await fetch(`${base}/api/crm/progetti/${pid}/rendiconto?formato=csv`, { headers: { cookie: await login('facility@almacis.it'), 'X-Alma': '1' } });
   assert.match(csv.headers.get('content-type'), /text\/csv/);
   assert.match(await csv.text(), /Rendiconto · Global service edifici provinciali/);

@@ -118,27 +118,21 @@ export function ticketsView(container, opts = {}) {
           : state.due === 'late' ? t.due_date < today : state.due === 'today' ? t.due_date === today : t.due_date <= week;
       tickets = tickets.filter(keep);
     }
-    if (mobile) return body.append(mobileList(tickets, { onChange: load, hideProject: fixed.project !== undefined, done: state.status === 'done' }));
     // selezione: resta solo su ticket ancora in elenco e cancellabili
     const deletable = tickets.filter(canDeleteTicket);
     for (const id of [...selected]) if (!deletable.some(t => t.id === id)) selected.delete(id);
     if (selected.size) body.append(bulkBar());
+    if (mobile) {
+      if (deletable.length) body.append(pickBar(deletable, { all: true }));
+      return body.append(mobileList(tickets, { onChange: load, hideProject: fixed.project !== undefined, done: state.status === 'done', selected, onPick: render }));
+    }
     if (state.view === 'board') return body.append(board(tickets, { onChange: load, hideProject: fixed.project !== undefined, selected, onPick: render }));
     if (!tickets.length) return body.append(h('div.card.empty', 'Nessun ticket. ', h('a', { href: '#', on: { click: e => { e.preventDefault(); newBtn.click(); } } }, 'Creane uno')));
     const sorted = [...tickets].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.id - b.id);
     const allBox = h('input', { type: 'checkbox', 'aria-label': 'Seleziona tutti quelli che puoi eliminare', disabled: !deletable.length,
       checked: deletable.length > 0 && deletable.every(t => selected.has(t.id)),
       on: { click: e => e.stopPropagation(), change: e => { pickAll(deletable, e.target.checked); render(); } } });
-    // un clic seleziona (o toglie) tutti i ticket di uno stato: Fatto, In revisione…
-    const byStatus = Object.keys(STATUS).map(k => [k, deletable.filter(t => t.status === k)]).filter(([, list]) => list.length);
-    if (byStatus.length) {
-      body.append(h('div.pick-bar', h('span.muted.small', 'Seleziona tutti:'), byStatus.map(([k, list]) => {
-        const on = list.every(t => selected.has(t.id));
-        return h('button.pick-chip', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on),
-          title: on ? `Togli dalla selezione i ticket «${STATUS[k]}»` : `Seleziona i ticket «${STATUS[k]}» che puoi eliminare`,
-          on: { click: () => { pickAll(list, !on); render(); } } }, STATUS[k], h('span.pick-n', String(list.length)));
-      })));
-    }
+    if (deletable.length) body.append(pickBar(deletable));
     body.append(h('div.card.table-wrap', h('table.list',
       h('thead', h('tr', h('th.t-pick-col', allBox), h('th', 'Ticket'), fixed.project === undefined ? h('th', 'Progetto') : null, h('th', 'Assegnati'), h('th', 'Stato'), h('th', 'Priorità'), h('th', 'Scadenza'), h('th.t-act-col', { 'aria-label': 'Azioni' }))),
       h('tbody', sorted.map(t => h('tr', { class: selected.has(t.id) ? 'picked' : '', on: { click: () => openTicket(t.id, { onSaved: load }) } },
@@ -157,6 +151,20 @@ export function ticketsView(container, opts = {}) {
 
   function pickAll(list, on) {
     for (const t of list) { if (on) selected.add(t.id); else selected.delete(t.id); }
+  }
+
+  // un clic seleziona (o toglie) tutti i ticket di uno stato: Fatto, In revisione…; sul telefono anche «Tutti»
+  function pickBar(deletable, { all = false } = {}) {
+    const chip = (label, list) => {
+      const on = list.every(t => selected.has(t.id));
+      return h('button.pick-chip', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on),
+        title: on ? `Togli dalla selezione i ticket «${label}»` : `Seleziona i ticket «${label}» che puoi eliminare`,
+        on: { click: () => { pickAll(list, !on); render(); } } }, label, h('span.pick-n', String(list.length)));
+    };
+    const byStatus = Object.keys(STATUS).map(k => [STATUS[k], deletable.filter(t => t.status === k)]).filter(([, list]) => list.length);
+    return h('div.pick-bar', h('span.muted.small', 'Seleziona tutti:'),
+      all && byStatus.length > 1 ? chip('Tutti', deletable) : null,
+      byStatus.map(([label, list]) => chip(label, list)));
   }
 
   function bulkBar() {
@@ -191,7 +199,7 @@ function dueGroup(t) {
 }
 const GROUP_ORDER = ['In ritardo', 'Oggi', 'Prossimi 7 giorni', 'Più avanti', 'Senza scadenza', 'Fatti'];
 
-function mobileList(tickets, { onChange, hideProject, done }) {
+function mobileList(tickets, { onChange, hideProject, done, selected, onPick }) {
   if (!tickets.length) return h('div.m-empty', done ? 'Ancora nessun ticket fatto.' : 'Niente qui. Bel lavoro.');
   const sorted = [...tickets].sort((a, b) => done
     ? String(b.updated_at).localeCompare(String(a.updated_at))
@@ -203,11 +211,14 @@ function mobileList(tickets, { onChange, hideProject, done }) {
     groups.get(g).push(t);
   }
   return h('div', GROUP_ORDER.filter(g => groups.has(g)).map(g => h('section',
-    h('h2.m-group', g), groups.get(g).map(t => ticketCard(t, { onChange, hideProject })))));
+    h('h2.m-group', g), groups.get(g).map(t => ticketCard(t, { onChange, hideProject, selected, onPick })))));
 }
 
 // Scheda di un ticket per il telefono: il cerchio lo segna come fatto (o lo riapre), il resto apre il dettaglio.
-export function ticketCard(t, { onChange, hideProject = false, trash = true } = {}) {
+// Con la selezione attiva (almeno un ticket scelto) un tocco sulla scheda la sceglie o la toglie invece di aprirla.
+export function ticketCard(t, { onChange, hideProject = false, trash = true, selected = null, onPick = null } = {}) {
+  const picking = Boolean(selected && onPick && canDeleteTicket(t));
+  const toggle = () => { if (selected.has(t.id)) selected.delete(t.id); else selected.add(t.id); onPick(); };
   let isDone = t.status === 'done';
   const mark = h('span.m-check');
   const paint = () => {
@@ -229,7 +240,11 @@ export function ticketCard(t, { onChange, hideProject = false, trash = true } = 
       paint();
     }
   } } }, mark);
-  const card = h('div.m-ticket', { on: { click: () => openTicket(t.id, { onSaved: onChange }) } },
+  const card = h('div.m-ticket', { class: picking && selected.has(t.id) ? 'picked' : '', on: { click: () => {
+    if (picking && selected.size) toggle(); else openTicket(t.id, { onSaved: onChange });
+  } } },
+    picking ? h('label.m-pick', { on: { click: e => e.stopPropagation() } },
+      h('input', { type: 'checkbox', checked: selected.has(t.id), 'aria-label': `Seleziona «${t.title}»`, on: { change: toggle } })) : null,
     btn,
     h('div.grow',
       h('div.m-ticket-title', t.title),
@@ -239,13 +254,14 @@ export function ticketCard(t, { onChange, hideProject = false, trash = true } = 
         t.status === 'doing' || t.status === 'review' ? statusPill(t.status) : null,
         t.due_date && t.status !== 'done' ? h('span.m-due', { class: isLate(t) ? 'late' : '' }, t.due_date === today() ? 'Oggi' : fmtDate(t.due_date)) : null)),
     avatarsFor(t.assignee_ids, 3),
-    trash ? trashButton(t, onChange) : null);
+    trash ? h('div.t-acts', remindButton(t), trashButton(t, onChange)) : null);
   paint();
   return card;
 }
 
-// Il ticket lo cancella solo chi l'ha creato (senza autore: un amministratore), come controlla il server.
-export const canDeleteTicket = t => t.created_by === store.me.id || (t.created_by == null && Boolean(store.me.is_admin));
+// Il ticket lo cancella chi l'ha creato o il responsabile del progetto (senza autore: un amministratore), come controlla il server.
+export const canDeleteTicket = t => t.created_by === store.me.id || (t.project_owner_id != null && t.project_owner_id === store.me.id)
+  || (t.created_by == null && Boolean(store.me.is_admin));
 
 // Cestino nell'elenco, nella bacheca e nelle schede del telefono: cancella il ticket senza aprirlo, dopo la conferma.
 // Per gli altri non compare.
@@ -270,7 +286,7 @@ export function trashButton(t, onDone) {
   }, trashIcon());
 }
 
-// Campanella nell'elenco: con un clic manda il promemoria con il testo già pronto agli assegnati
+// Campanella nell'elenco, nella bacheca e sul telefono: con un clic manda il promemoria con il testo già pronto agli assegnati
 // (se non ce ne sono, a chi ha creato il ticket), senza aprire il ticket. Testo diverso: dal ticket.
 function remindButton(t) {
   if (t.status === 'done') return null;
@@ -278,7 +294,10 @@ function remindButton(t) {
   if (!others.length && (!t.created_by || t.created_by === store.me.id)) return null; // nessuno a cui mandarlo
   const names = (others.length ? others : [t.created_by]).map(id => userById(id)?.name).filter(Boolean);
   const label = `Manda un promemoria${names.length ? ` a ${names.join(', ')}` : ''}`;
-  const btn = h('button.t-remind', { type: 'button', title: label, 'aria-label': `${label} su «${t.title}»`, on: { click: async e => {
+  const stop = e => e.stopPropagation(); // nella bacheca non avvia il trascinamento
+  const btn = h('button.t-remind', { type: 'button', title: label, 'aria-label': `${label} su «${t.title}»`, draggable: false, on: {
+    mousedown: stop, pointerdown: stop, dragstart: e => { e.preventDefault(); stop(e); },
+    click: async e => {
     e.stopPropagation();
     btn.disabled = true;
     try {
@@ -352,7 +371,7 @@ function board(tickets, { onChange, hideProject, selected, onPick }) {
       dragstart: e => { dragged = t; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(t.id)); },
       dragend: () => { el.classList.remove('dragging'); },
     } },
-    h('div.tcard-top', h('div.t-title', t.title), trashButton(t, onChange)),
+    h('div.tcard-top', h('div.t-title', t.title), h('div.t-acts', remindButton(t), trashButton(t, onChange))),
     t.project_name && !hideProject ? projChip(t.project_name, t.project_color) : null,
     rdaChip(t),
     h('div.tcard-foot', avatarsFor(t.assignee_ids, 3),

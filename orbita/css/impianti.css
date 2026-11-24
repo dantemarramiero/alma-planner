@@ -160,6 +160,12 @@ button.im-idea { cursor: pointer; }
 .im-table.nohover tbody tr { cursor: default; }
 .im-table.nohover tbody tr:hover { background: none; }
 
+/* «Trova fondi con Alma»: proposte da spuntare */
+.im-found { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; padding: 12px 4px; border-bottom: 1px solid var(--cv-line-2); cursor: pointer; }
+.im-found input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--cv-orange); }
+.im-found > div { display: grid; gap: 4px; min-width: 0; }
+.im-found b { font-size: 14px; font-weight: 500; color: var(--cv-ink); }
+
 @media (max-width: 760px) {
   .im-tiles, .im-kpis, .im-alerts, .im-sectors-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .im-grid2, .im-tri { grid-template-columns: 1fr; }

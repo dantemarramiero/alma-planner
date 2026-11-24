@@ -6,6 +6,7 @@
 const { HttpError, v } = require('../lib/http');
 const { graph, graphAll, TIMEZONE } = require('../lib/graph');
 const { NOTE_SELECT, ORDER } = require('./notes');
+const proposte = require('../lib/proposte-persone');
 
 const MAX_LINK = 20;            // incontri per richiesta
 const MAX_RANGE_DAYS = 120;     // finestra del calendario in cui scegliere
@@ -107,6 +108,25 @@ function registerProjectMeetings(app, { db, auth, access }) {
     const { rows: [old] } = await db.query('SELECT id FROM project_meetings WHERE project_id = $1 AND ical_uid = $2 AND start_at = $3', [projectId, uid, local(e.start?.dateTime)]);
     return { id: old?.id || null, added: false };
   }
+
+  // Proposte (ALM2-84): incontri del proprio calendario con le persone del progetto, non ancora collegati
+  app.get('/api/projects/:id/meeting-proposals', async (req, res) => {
+    const id = v.int(req.params.id, 'progetto', { min: 1 });
+    await access.assertProject(req, id);
+    const people = await proposte.projectPeople(db, id, req.user);
+    if (!people.length) return res.json({ people, events: [] });
+    const token = await auth.graphToken(req.user.id);
+    let list;
+    try { list = await proposte.meetingsWith(token, people); } catch (err) {
+      if (err.status === 403) throw new HttpError(403, 'Per leggere il calendario serve il permesso di Microsoft sul calendario: chiedi all\'amministratore di approvarlo', 'calendar_read');
+      throw err;
+    }
+    const { rows } = list.length ? await db.query(
+      `SELECT ical_uid || '|' || ${ts('start_at')} AS k FROM project_meetings WHERE project_id = $1 AND ical_uid = ANY($2::text[])`,
+      [id, [...new Set(list.map(e => e.ical_uid))]]) : { rows: [] };
+    const done = new Set(rows.map(r => r.k));
+    res.json({ people, events: list.filter(e => !done.has(`${e.ical_uid}|${e.start}`)) });
+  });
 
   // ── incontri del progetto ──────────────────────────────────────────────────
   app.get('/api/projects/:id/meetings', async (req, res) => {

@@ -150,13 +150,28 @@ async function energivoriView(box, reload) {
     h('div.en-sel-actions', h('button.btn.btn-sm', { type: 'button', on: { click: act(e, 'non-ora', 'Rimandato di un mese') } }, 'Non ora'),
       h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: act(e, 'approccia', 'Opportunità PPA e bozza di analisi create') } }, 'Approccia')));
   const status = e => (e.snoozed ? 'Più avanti' : e.status === 'in_contatto' ? 'In contatto' : e.status === 'non_interessato' ? 'Non interessato' : 'Da chiamare');
+  // energivoro trovato nelle notizie, non ancora nell'elenco: «Approccia» lo aggiunge e apre l'opportunità PPA
+  const newsCard = x => h('article.card.sw-card.en-cl-card',
+    h('div.en-cl-who', h('span.en-cl-av.lg', { style: { background: avColor(x.entity || x.title) } }, initials(x.entity || x.title)),
+      h('div', h('b', x.entity || 'Azienda da identificare'), h('span.muted', [x.place, x.region, `notizia del ${fmtDate(String(x.published_on || x.created_at).slice(0, 10))}`].filter(Boolean).join(' · ')))),
+    h('div.en-cl-why', h('b', 'Perché adesso: '), x.title),
+    x.why || x.summary ? h('p.muted', x.why || x.summary) : null,
+    h('div.en-sel-actions',
+      x.url ? h('a.btn.btn-sm', { href: x.url, target: '_blank', rel: 'noopener' }, 'Fonte') : null,
+      h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: async () => {
+        const r = await post(`/api/energy/radar/${x.id}/prendi`);
+        toast('Opportunità PPA e bozza di analisi create');
+        if (r.analysis_id) location.hash = `#/energy/analisi/${r.analysis_id}`; else reload();
+      } } }, 'Approccia')));
+  const cards = [...d.top.map(card), ...(d.nuovi || []).map(newsCard)].slice(0, 6);
   fill(box,
     h('div.en-cl-hero', h('h2', 'Chi chiamare ', h('b', 'questa settimana')),
       h('p.muted', 'Aziende che consumano molta energia e che possiamo efficientare. Alma mette in alto chi ha un motivo per essere chiamato adesso.')),
     h('div.en-cl-kpis', kpi('Da chiamare adesso', num(d.kpi.da_chiamare), true), kpi('Energivori nel CRM', num(d.kpi.totale)),
       kpi('In contatto', num(d.kpi.in_contatto)), kpi('Risparmio possibile', `${eurShort(d.kpi.risparmio)}/anno`)),
-    d.top.length ? h('div.en-cl-cards', d.top.map(card))
-      : h('div.card.empty', d.kpi.totale ? 'Nessuno da chiamare adesso: chi c\'è è già in contatto o rimandato.' : 'L\'elenco degli energivori è vuoto: si carica da Alma Impianti → Energivori.'),
+    cards.length ? h('div.en-cl-cards', cards)
+      : h('div.card.empty', d.kpi.totale ? 'Nessuno da chiamare adesso: chi c\'è è già in contatto o rimandato.'
+        : 'Ancora nessun energivoro: il radar energia li cerca ogni giorno nelle notizie, e l\'elenco completo si carica da Alma Impianti → Energivori.'),
     h('section.card.sw-card', h('div.en-cl-head', h('h2', 'Tutti gli energivori'), h('a.btn.btn-sm', { href: '#/impianti/energivori' }, 'Carica o aggiorna l\'elenco')),
       d.elenco.length ? d.elenco.map(e => h(e.subject_id ? 'a.en-cl-row' : 'div.en-cl-row', e.subject_id ? { href: `#/crm/scheda/${e.subject_id}` } : {},
         h('span.en-cl-av', { style: { background: avColor(e.name) } }, initials(e.name)),

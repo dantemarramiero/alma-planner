@@ -12,7 +12,7 @@ const I = require('../lib/impianti');
 
 const OPEN = "g.bu = 'impianti' AND (g.status IN ('interessa', 'boss') OR g.imp_stage <> '')";
 
-function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts, openSignals, matchesOf, mandateOut, kindOf }) {
+function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts, openSignals, matchesOf, mandateOut, kindOf, radarFetch }) {
   const raw = express.raw({ type: () => true, limit: '20mb' });
   const num = x => (x != null ? Number(x) : null);
 
@@ -146,7 +146,8 @@ function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts,
   }
   const keyOf = r => (r.vat ? `v:${r.vat}` : `n:${r.name.toLowerCase()}|${r.city}`);
   app.get('/api/crm/impianti/energivori', async (_req, res) => {
-    const { rows } = await db.query(`SELECT e.*, s.name AS subject_name, s.roles AS subject_roles, g.status AS signal_status
+    const { rows } = await db.query(`SELECT e.id, e.name, e.vat, e.city, e.province, e.region, e.sector, e.consumption_gwh, e.roof_m2, e.csea_class, e.source, e.subject_id, e.signal_id,
+             s.name AS subject_name, s.roles AS subject_roles, g.status AS signal_status
       FROM crm_energivori e LEFT JOIN crm_subjects s ON s.id = e.subject_id LEFT JOIN crm_signals g ON g.id = e.signal_id`);
     // collegate al CRM anche senza «Porta nel radar»: stessa P.IVA
     const vats = rows.filter(r => !r.subject_id && r.vat).map(r => r.vat);
@@ -172,16 +173,38 @@ function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts,
     const source = String(req.query.nome || 'elenco').slice(0, 200);
     let added = 0, updated = 0;
     await db.tx(async q => {
-      for (const r of rows) {
-        const vals = [r.name, r.vat, r.city, r.province, r.region, r.sector, r.consumption_gwh, r.roof_m2, source, req.user.id];
+      // con la P.IVA: a blocchi di 300 (una riga per P.IVA, vince l'ultima del file); senza: una alla volta
+      const byVat = new Map();
+      for (const r of rows) if (r.vat) byVat.set(r.vat, r);
+      const withVat = [...byVat.values()];
+      const COLS = 11;
+      for (let i = 0; i < withVat.length; i += 300) {
+        const part = withVat.slice(i, i + 300);
+        const params = [];
+        const values = part.map((r, k) => {
+          params.push(r.name, r.vat, r.city, r.province, r.region, r.sector, r.consumption_gwh, r.roof_m2, source, req.user.id, r.csea_class || '');
+          return `(${Array.from({ length: COLS }, (_, j) => '$' + (k * COLS + j + 1)).join(', ')})`;
+        });
+        const { rows: out } = await q.query(`INSERT INTO crm_energivori (name, vat, city, province, region, sector, consumption_gwh, roof_m2, source, imported_by, csea_class)
+          VALUES ${values.join(', ')}
+          ON CONFLICT (vat) WHERE vat <> '' DO UPDATE SET name = EXCLUDED.name, city = CASE WHEN EXCLUDED.city <> '' THEN EXCLUDED.city ELSE crm_energivori.city END,
+            province = CASE WHEN EXCLUDED.province <> '' THEN EXCLUDED.province ELSE crm_energivori.province END, region = CASE WHEN EXCLUDED.region <> '' THEN EXCLUDED.region ELSE crm_energivori.region END,
+            sector = CASE WHEN EXCLUDED.sector <> '' THEN EXCLUDED.sector ELSE crm_energivori.sector END,
+            consumption_gwh = COALESCE(EXCLUDED.consumption_gwh, crm_energivori.consumption_gwh), roof_m2 = COALESCE(EXCLUDED.roof_m2, crm_energivori.roof_m2),
+            csea_class = CASE WHEN EXCLUDED.csea_class <> '' THEN EXCLUDED.csea_class ELSE crm_energivori.csea_class END, source = EXCLUDED.source, imported_at = now()
+          RETURNING (xmax = 0) AS inserted`, params);
+        for (const x of out) if (x.inserted) added++; else updated++;
+      }
+      for (const r of rows.filter(x => !x.vat)) {
+        const vals = [r.name, r.vat, r.city, r.province, r.region, r.sector, r.consumption_gwh, r.roof_m2, source, req.user.id, r.csea_class || ''];
         const sql = r.vat
-          ? `INSERT INTO crm_energivori (name, vat, city, province, region, sector, consumption_gwh, roof_m2, source, imported_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ? `INSERT INTO crm_energivori (name, vat, city, province, region, sector, consumption_gwh, roof_m2, source, imported_by, csea_class) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT (vat) WHERE vat <> '' DO UPDATE SET name = EXCLUDED.name, city = EXCLUDED.city, province = EXCLUDED.province, region = EXCLUDED.region, sector = EXCLUDED.sector,
-               consumption_gwh = COALESCE(EXCLUDED.consumption_gwh, crm_energivori.consumption_gwh), roof_m2 = COALESCE(EXCLUDED.roof_m2, crm_energivori.roof_m2), source = EXCLUDED.source, imported_at = now()
+               consumption_gwh = COALESCE(EXCLUDED.consumption_gwh, crm_energivori.consumption_gwh), roof_m2 = COALESCE(EXCLUDED.roof_m2, crm_energivori.roof_m2), csea_class = CASE WHEN EXCLUDED.csea_class <> '' THEN EXCLUDED.csea_class ELSE crm_energivori.csea_class END, source = EXCLUDED.source, imported_at = now()
              RETURNING (xmax = 0) AS inserted`
-          : `INSERT INTO crm_energivori (name, vat, city, province, region, sector, consumption_gwh, roof_m2, source, imported_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          : `INSERT INTO crm_energivori (name, vat, city, province, region, sector, consumption_gwh, roof_m2, source, imported_by, csea_class) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT (lower(name), city) WHERE vat = '' DO UPDATE SET province = EXCLUDED.province, region = EXCLUDED.region, sector = EXCLUDED.sector,
-               consumption_gwh = COALESCE(EXCLUDED.consumption_gwh, crm_energivori.consumption_gwh), roof_m2 = COALESCE(EXCLUDED.roof_m2, crm_energivori.roof_m2), source = EXCLUDED.source, imported_at = now()
+               consumption_gwh = COALESCE(EXCLUDED.consumption_gwh, crm_energivori.consumption_gwh), roof_m2 = COALESCE(EXCLUDED.roof_m2, crm_energivori.roof_m2), csea_class = CASE WHEN EXCLUDED.csea_class <> '' THEN EXCLUDED.csea_class ELSE crm_energivori.csea_class END, source = EXCLUDED.source, imported_at = now()
              RETURNING (xmax = 0) AS inserted`;
         const { rows: [x] } = await q.query(sql, vals);
         if (x.inserted) added++; else updated++;
@@ -216,6 +239,60 @@ function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts,
       `Azienda energivora${est.incentives.length ? `; incentivi possibili: ${est.incentives.join(', ')}` : ''}.`, e.name, sid, e.region, e.city, Math.max(40, I.energivoroScore(e)), req.user.id]);
     await db.query('UPDATE crm_energivori SET subject_id = $2, signal_id = $3 WHERE id = $1', [id, sid, g.id]);
     res.status(201).json({ subject_id: sid, signal_id: g.id });
+  });
+
+  // ── «Trova fondi con Alma»: proposte dal web, si aggiungono al CRM solo quelle scelte ──────────
+  const monthNow = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }).slice(0, 7);
+  app.post('/api/crm/impianti/fondi/cerca', async (req, res) => {
+    const apiKey = process.env.OPENAI_API_KEY || (radarFetch ? 'test' : '');
+    if (!apiKey) throw new HttpError(503, 'La ricerca con Alma non è attiva: manca la chiave OpenAI');
+    const sector = I.SECTOR_KEYS.includes(req.body?.sector) ? I.sectorLabel(req.body.sector) : '';
+    const region = v.text(req.body?.region, 'regione', { max: 60 }) || '';
+    const { rows: known } = await db.query(`SELECT s.name FROM crm_subjects s WHERE s.merged_into IS NULL
+      AND (s.segment = $1 OR EXISTS (SELECT 1 FROM crm_fund_mandates m WHERE m.subject_id = s.id)) ORDER BY s.updated_at DESC LIMIT 80`, [I.SEGMENT_FUND]);
+    const { searchFondi } = require('../lib/impianti-fondi-ai');
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const r = await searchFondi({ apiKey, fetchImpl: radarFetch || fetch, sector, region, known: known.map(k => k.name), today });
+    await db.query(`INSERT INTO crm_radar_spend (month, bu, eur) VALUES ($1, 'impianti', $2) ON CONFLICT (month, bu) DO UPDATE SET eur = crm_radar_spend.eur + EXCLUDED.eur`, [monthNow(), r.costEur]);
+    // già nel CRM? stesso nome (senza forma giuridica) o stesso sito
+    const norm = s => String(s || '').toLowerCase().replace(/\b(s\.?p\.?a\.?|s\.?r\.?l\.?|sgr|spa|srl|s\.a\.|ltd|plc|fund|fondo)\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+    const { rows: all } = await db.query(`SELECT id, name, website FROM crm_subjects WHERE merged_into IS NULL`);
+    const funds = r.funds.map(f => {
+      const hit = all.find(s => (norm(s.name) && norm(s.name) === norm(f.name)) || (f.website && s.website && host(s.website) === host(f.website)));
+      return { ...f, existing: hit ? { id: hit.id, name: hit.name } : null };
+    });
+    res.json({ funds, cost_eur: r.costEur });
+  });
+  app.post('/api/crm/impianti/fondi/aggiungi', async (req, res) => {
+    const list = Array.isArray(req.body?.funds) ? req.body.funds.slice(0, 20) : [];
+    if (!list.length) throw new HttpError(400, 'Scegli almeno un fondo');
+    const { parseFondi } = require('../lib/impianti-fondi-ai');
+    const clean = parseFondi(JSON.stringify(list.map(f => ({ ...f, url: f.url || f.website || 'https://alma' }))));
+    const ids = [];
+    for (const f of clean) {
+      const { rows: [dup] } = await db.query(`SELECT id FROM crm_subjects WHERE merged_into IS NULL AND lower(name) = lower($1) LIMIT 1`, [f.name]);
+      let sid = dup?.id;
+      if (sid) await db.query(`UPDATE crm_subjects SET segment = CASE WHEN segment = '' THEN $2 ELSE segment END, asa = CASE WHEN 'impianti' = ANY(asa) THEN asa ELSE array_append(asa, 'impianti') END,
+        website = CASE WHEN website = '' THEN $3 ELSE website END, updated_at = now() WHERE id = $1`, [sid, I.SEGMENT_FUND, f.website]);
+      else {
+        const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, kind, roles, asa, segment, owner_id, origin, created_by, city, website, notes)
+          VALUES ($1, 'impresa', '{lead}', '{impianti}', $2, $3, 'Alma · ricerca fondi', $3, $4, $5, $6) RETURNING id`,
+        [f.name, I.SEGMENT_FUND, req.user.id, f.city, f.website, [f.type, f.why, f.url ? `Fonte: ${f.url}` : ''].filter(Boolean).join('\n')]);
+        sid = s.id;
+      }
+      // mandato: si compila solo se non c'era (quello scritto da una persona vince)
+      await db.query(`INSERT INTO crm_fund_mandates (subject_id, techs, ticket_min, ticket_max, regions, phases, seeks_epc, bus, notes, updated_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, '{impianti}', $8, $9) ON CONFLICT (subject_id) DO UPDATE SET
+          bus = CASE WHEN 'impianti' = ANY(crm_fund_mandates.bus) THEN crm_fund_mandates.bus ELSE array_append(crm_fund_mandates.bus, 'impianti') END,
+          techs = CASE WHEN cardinality(crm_fund_mandates.techs) = 0 THEN EXCLUDED.techs ELSE crm_fund_mandates.techs END,
+          ticket_min = COALESCE(crm_fund_mandates.ticket_min, EXCLUDED.ticket_min), ticket_max = COALESCE(crm_fund_mandates.ticket_max, EXCLUDED.ticket_max),
+          regions = CASE WHEN cardinality(crm_fund_mandates.regions) = 0 THEN EXCLUDED.regions ELSE crm_fund_mandates.regions END,
+          phases = CASE WHEN cardinality(crm_fund_mandates.phases) = 0 THEN EXCLUDED.phases ELSE crm_fund_mandates.phases END`,
+      [sid, f.techs, f.ticket_min, f.ticket_max, f.regions, f.phases, f.seeks_epc, `Proposto da Alma: ${f.why}`.slice(0, 2000), req.user.id]);
+      ids.push(sid);
+    }
+    res.status(201).json({ added: ids.length, ids });
   });
 }
 

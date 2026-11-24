@@ -11,7 +11,6 @@ const { PROJECT_TYPES, SELECTION, DEFAULT_TEMPLATES, typeFromKind, cleanTemplate
 const { addWorkdays, romeNow } = require('../lib/workdays');
 
 const TICKET_RE = /^Fase \d+ · /;
-const ticketTitle = (i, label) => `Fase ${i + 1} · ${label}`.slice(0, 200);
 
 function registerEnergyIter(app, { db, opportunityById }) {
   // ── modelli ────────────────────────────────────────────────────────────────────────────────
@@ -81,38 +80,9 @@ function registerEnergyIter(app, { db, opportunityById }) {
     }
   }
 
-  // Le righe del Gantt: una per fase, numerate in ordine, fatte / in corso / da fare; responsabile della fase.
-  async function syncTickets(q, o, userId) {
-    if (!o.project_id) return;
-    const phases = await phasesOf(q, o.id);
-    const cur = phases.findIndex(p => !p.done_at);
-    const { rows: [{ pos }] } = await q.query('SELECT COALESCE(MAX(position), 0) AS pos FROM tickets');
-    for (const [i, p] of phases.entries()) {
-      const status = p.done_at ? 'done' : i === cur && o.selection === 'avviato' ? 'doing' : 'todo';
-      let ticketId = p.ticket_id;
-      if (ticketId) {
-        const { rowCount } = await q.query('UPDATE tickets SET title = $2, status = $3, due_date = $4, updated_at = now() WHERE id = $1',
-          [ticketId, ticketTitle(i, p.label), status, p.due_date]);
-        if (!rowCount) ticketId = null;
-      }
-      if (!ticketId) {
-        const { rows: [t] } = await q.query(
-          `INSERT INTO tickets (project_id, title, description, status, start_date, due_date, position, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-          [o.project_id, ticketTitle(i, p.label), 'Punti da spuntare nell\'iter del progetto (Alma Energy).', status,
-            p.due_date ? addWorkdays(String(p.due_date).slice(0, 10), -(Math.max(p.days, 1) - 1)) : romeNow().day, p.due_date, pos + i + 1, userId]);
-        ticketId = t.id;
-        await q.query('UPDATE energy_iter_phases SET ticket_id = $2 WHERE id = $1', [p.id, ticketId]);
-      }
-      const assignee = p.owner_id || o.owner_id;
-      if (assignee) {
-        await q.query('DELETE FROM ticket_assignees WHERE ticket_id = $1 AND user_id <> $2', [ticketId, assignee]);
-        await q.query('INSERT INTO ticket_assignees (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ticketId, assignee]);
-      }
-    }
-  }
+  // ALM2-85: le fasi dell'iter non diventano più ticket da sole (prima: una riga del Gantt per fase)
 
-  // Dopo un cambio delle fasi: step dei vecchi target, esito e stato del progetto, righe del Gantt.
+  // Dopo un cambio delle fasi: step dei vecchi target, esito e stato del progetto.
   async function afterChange(q, o, userId) {
     const phases = await phasesOf(q, o.id);
     if (o.selection === 'avviato' && phases.length) {
@@ -122,7 +92,6 @@ function registerEnergyIter(app, { db, opportunityById }) {
         [o.id, legacyStepOf(cur?.key || ''), outcome]);
       if (o.project_id) await q.query('UPDATE projects SET status = $2, updated_at = now() WHERE id = $1', [o.project_id, outcome ? 'done' : 'active']);
     }
-    await syncTickets(q, o, userId);
   }
 
   const history = (q, oppId, from, to, note, userId) => q.query(
@@ -196,7 +165,6 @@ function registerEnergyIter(app, { db, opportunityById }) {
       if (to === 'avviato' && !(await phasesOf(q, id)).length) await createPhases(q, now, req.user.id);
       if (o.project_id) await q.query('UPDATE projects SET status = $2, updated_at = now() WHERE id = $1', [o.project_id, to === 'scartato' ? 'done' : 'active']);
       if (to === 'avviato') await afterChange(q, now, req.user.id);
-      else await syncTickets(q, now, req.user.id);
     });
     res.json(await iterDetail(id, req.user.id));
   });
@@ -279,7 +247,6 @@ function registerEnergyIter(app, { db, opportunityById }) {
         `UPDATE energy_iter_phases SET label = COALESCE($2, label), owner_id = CASE WHEN $3 THEN $4::int ELSE owner_id END,
                 due_date = CASE WHEN $5 THEN $6::date ELSE due_date END WHERE id = $1`,
         [p.id, label || null, owner !== undefined, owner ?? null, due !== undefined, due ?? null]);
-      await syncTickets(q, o, req.user.id);
     });
     res.json(await iterDetail(o.id, req.user.id));
   });
