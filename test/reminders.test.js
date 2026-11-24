@@ -83,7 +83,7 @@ test('eliminare più ticket insieme: solo quelli creati da me; gli altri restano
   assert.equal((await dante('POST', '/api/tickets/delete', { ids: [] })).status, 400);
   const r = (await dante('POST', '/api/tickets/delete', { ids: [mine1.id, other.id, mine2.id, 999999] })).body;
   assert.deepEqual(r.deleted.sort(), [mine1.id, mine2.id].sort());
-  assert.deepEqual(r.skipped.map(s => [s.id, s.reason]), [[other.id, 'lo può cancellare solo chi l\'ha creato'], [999999, 'non trovato']]);
+  assert.deepEqual(r.skipped.map(s => [s.id, s.reason]), [[other.id, 'lo può cancellare solo chi l\'ha creato o il responsabile del progetto'], [999999, 'non trovato']]);
   assert.equal((await dante('GET', `/api/tickets/${mine1.id}`)).status, 404);
   assert.equal((await anna('GET', `/api/tickets/${other.id}`)).status, 200);
 });

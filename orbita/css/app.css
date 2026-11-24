@@ -340,3 +340,14 @@ table.list td.t-pick-col input, table.list th.t-pick-col input { width: 16px; he
 tr:hover .t-remind { opacity: 1; }
 .t-remind.sent { opacity: 1; color: var(--ap-accent); }
 .t-remind:disabled { cursor: progress; }
+
+/* ALM2-85: campanella e cestino anche sulle schede della bacheca e del telefono; selezione sul telefono */
+.tcard-top .t-acts { margin: -4px -4px 0 0; }
+.tcard-top .t-acts .t-trash { margin: 0; }
+.tcard:hover .t-remind { opacity: 1; }
+.m-ticket .t-acts { align-self: center; gap: 0; }
+.m-ticket .t-acts .t-trash, .m-ticket .t-remind { opacity: .6; padding: 10px; margin: -6px 0; }
+.m-ticket .t-acts .t-trash { margin-right: -6px; }
+.m-pick { display: grid; place-items: center; align-self: center; padding: 8px 2px 8px 6px; cursor: pointer; }
+.m-pick input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--ap-accent); }
+.m-ticket.picked { border-color: var(--ap-accent); background: var(--ap-orange-tint); }

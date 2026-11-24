@@ -71,40 +71,20 @@ test('Gestione: si modifica un campo alla volta, si aggiunge e si toglie', async
   assert.equal((await year()).kpis.length, 11);
 });
 
-test('l’A3 si collega al suo progetto con un ticket per contromisura, e chiudere l’uno chiude l’altra', async () => {
-  let s = seismic(await year());
+test('l’A3 si collega al suo progetto, senza ticket automatici per le contromisure (ALM2-85)', async () => {
+  const s = seismic(await year());
   const link = await A('POST', `/api/strategy/projects/${s.id}/link`);
   assert.equal(link.status, 200);
   const pid = link.body.project_id;
   // la seconda volta lo stesso progetto
   assert.equal((await A('POST', `/api/strategy/projects/${s.id}/link`)).body.project_id, pid);
   assert.equal((await A('GET', `/api/strategy/by-project/${pid}`)).body.id, s.id);
-  const tickets = (await A('GET', `/api/tickets?project=${pid}`)).body;
-  assert.equal(tickets.length, 7);
-  assert.equal(tickets.filter(t => t.status === 'done').length, 3); // le tre già chiuse
-  assert.ok(tickets.every(t => t.start_date && t.due_date), 'tutte con le date, per il Gantt');
-
-  s = seismic(await year());
-  const [t4, t5] = [s.tasks[3], s.tasks[4]];
-  // ticket in «Fatto» → contromisura chiusa
-  assert.equal((await A('PATCH', `/api/tickets/${t4.ticket_id}`, { status: 'done' })).status, 200);
-  assert.ok(seismic(await year()).tasks[3].closed_date);
-  // contromisura chiusa nell'A3 → ticket in «Fatto»; riaperta → di nuovo da fare
-  await A('PATCH', `/api/strategy/tasks/${t5.id}`, { closed_date: '2026-11-09' });
-  assert.equal((await A('GET', `/api/tickets/${t5.ticket_id}`)).body.status, 'done');
-  await A('PATCH', `/api/strategy/tasks/${t5.id}`, { closed_date: null });
-  assert.equal((await A('GET', `/api/tickets/${t5.ticket_id}`)).body.status, 'todo');
-  // titolo e scadenza dal ticket all'A3
-  await A('PATCH', `/api/tickets/${t5.ticket_id}`, { title: 'Accettazione firmata dal Committente', due_date: '2027-03-15' });
-  const after5 = seismic(await year()).tasks[4];
-  assert.equal(after5.activity, 'Accettazione firmata dal Committente');
-  assert.equal(after5.due_date, '2027-03-15');
-  // contromisura nuova → ticket nuovo; tolta → via anche il ticket
+  assert.equal((await A('GET', `/api/tickets?project=${pid}`)).body.length, 0);
+  // contromisura nuova: resta nell'A3, nessun ticket
   const added = await A('POST', '/api/strategy/tasks', { project_id: s.id, activity: 'Verifica finale', weight: 0, due_date: '2027-10-15' });
-  assert.ok(added.body.ticket_id);
-  assert.equal((await A('GET', `/api/tickets?project=${pid}`)).body.length, 8);
+  assert.equal(added.body.ticket_id, null);
+  assert.equal((await A('GET', `/api/tickets?project=${pid}`)).body.length, 0);
   await A('DELETE', `/api/strategy/tasks/${added.body.id}`);
-  assert.equal((await A('GET', `/api/tickets?project=${pid}`)).body.length, 7);
   // il nome dell'A3 diventa il nome del progetto
   await A('PATCH', `/api/strategy/projects/${s.id}`, { name: 'Monitoraggio sismico in fibra ottica' });
   assert.equal((await A('GET', '/api/projects')).body.find(p => p.id === pid).name, 'Monitoraggio sismico in fibra ottica');
@@ -157,8 +137,9 @@ test('il progetto di un A3 lo vedono tutti in sola lettura: ticket e Gantt sì, 
   const pr = await O('GET', `/api/projects/${comm.project_id}`);
   assert.equal(pr.status, 200);
   assert.equal(pr.body.my_role, 'viewer');
+  assert.equal((await R('POST', '/api/tickets', { title: 'Mappa dei processi', project_id: comm.project_id })).status, 201);
   const tickets = (await O('GET', `/api/tickets?project=${comm.project_id}`)).body;
-  assert.ok(tickets.length >= 1, 'i ticket delle contromisure si vedono');
+  assert.ok(tickets.length >= 1, 'i ticket del progetto si vedono');
   assert.equal((await O('GET', `/api/tickets/${tickets[0].id}`)).status, 200);
   assert.equal((await O('GET', `/api/projects/${comm.project_id}/members`)).status, 200);
   // ma non si modificano

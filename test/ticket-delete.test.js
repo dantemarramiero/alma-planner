@@ -57,3 +57,13 @@ test('un ticket senza autore (persona uscita) lo cancella solo un amministratore
   assert.equal((await api('luca', 'DELETE', `/api/tickets/${t.id}`)).status, 403);
   assert.equal((await api('capo', 'DELETE', `/api/tickets/${t.id}`)).status, 200);
 });
+
+test('il responsabile del progetto cancella anche i ticket creati da altri nel suo progetto (ALM2-85)', async () => {
+  const p = (await api('anna', 'POST', '/api/projects', { name: 'Progetto di Anna' })).body;
+  await api('anna', 'POST', `/api/projects/${p.id}/members`, { user_ids: [users.luca.id] });
+  const t = (await api('luca', 'POST', '/api/tickets', { title: 'Ticket di Luca', project_id: p.id })).body;
+  assert.ok(t.id, 'Luca crea il ticket nel progetto');
+  assert.equal(t.project_owner_id, users.anna.id);
+  const r = await api('anna', 'POST', '/api/tickets/delete', { ids: [t.id] });
+  assert.deepEqual(r.body.deleted, [t.id]);
+});

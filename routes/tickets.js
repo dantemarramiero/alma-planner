@@ -14,7 +14,7 @@ const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 const STATUS_LABEL = { todo: 'Da fare', doing: 'In corso', review: 'In revisione', done: 'Fatto' };
 
 const SELECT = `
-  SELECT t.*, p.name AS project_name, p.color AS project_color,
+  SELECT t.*, p.name AS project_name, p.color AS project_color, p.owner_id AS project_owner_id,
          COALESCE((SELECT json_agg(a.user_id ORDER BY a.user_id) FROM ticket_assignees a WHERE a.ticket_id = t.id), '[]') AS assignee_ids,
          COALESCE((SELECT json_agg(d.depends_on_id ORDER BY d.depends_on_id) FROM ticket_deps d WHERE d.ticket_id = t.id), '[]') AS depends_on,
          COALESCE((SELECT json_agg(json_build_object('id', d.depends_on_id, 'type', d.type, 'lag', COALESCE(d.lag, 0)) ORDER BY d.depends_on_id)
@@ -378,8 +378,9 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
     if (assigneeIds) { const fresh = assigneeIds.filter(uid => !previous.includes(uid)); (alerts ? alerts.ticketAssigned(updated, fresh, req.user) : ticketMail.notifyAssigned(updated, fresh, req.user)).catch(() => {}); }
   });
 
-  // Lo cancella solo chi l'ha creato; un ticket rimasto senza autore (persona uscita) lo cancella un amministratore.
-  const canDelete = (req, t) => t.created_by === req.user.id || (t.created_by === null && access.isAdmin(req));
+  // Lo cancella chi l'ha creato o il responsabile del suo progetto (ALM2-85); senza autore (persona uscita) anche un amministratore.
+  const canDelete = (req, t) => t.created_by === req.user.id || (t.project_owner_id != null && t.project_owner_id === req.user.id)
+    || (t.created_by === null && access.isAdmin(req));
 
   async function removeTicket(id, t) {
     if (t.outlook_event_id && t.outlook_event_owner) {
@@ -390,6 +391,8 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
         console.warn(`[outlook] ticket ${id}: evento non cancellato (${err.message})`);
       }
     }
+    // il passo di Nuovi business resta anche se si cancella il suo compito (il collegamento è ON DELETE CASCADE)
+    await db.query('UPDATE crm_initiative_tasks SET ticket_id = NULL WHERE ticket_id = $1', [id]);
     await db.query('DELETE FROM tickets WHERE id = $1', [id]);
   }
 
@@ -397,7 +400,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
     const id = v.int(req.params.id, 'id', { min: 1 });
     await access.assertTicket(req, id);
     const t = await getTicket(id);
-    if (!canDelete(req, t)) throw new HttpError(403, 'Può cancellare il ticket solo chi l\'ha creato');
+    if (!canDelete(req, t)) throw new HttpError(403, 'Può cancellare il ticket solo chi l\'ha creato o il responsabile del progetto');
     await removeTicket(id, t);
     res.json({ ok: true });
   });
@@ -418,7 +421,7 @@ function registerTickets(app, { db, auth, baseUrl, access, notifier, alerts }) {
         skipped.push({ id, reason: 'non trovato' });
         continue;
       }
-      if (!canDelete(req, t)) { skipped.push({ id, title: t.title, reason: 'lo può cancellare solo chi l\'ha creato' }); continue; }
+      if (!canDelete(req, t)) { skipped.push({ id, title: t.title, reason: 'lo può cancellare solo chi l\'ha creato o il responsabile del progetto' }); continue; }
       await removeTicket(id, t);
       deleted.push(id);
     }
