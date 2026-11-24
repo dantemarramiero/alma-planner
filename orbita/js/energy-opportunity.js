@@ -32,7 +32,7 @@ export async function opportunityPage(container, id) {
       actions: () => null, // nome e responsabile si cambiano dal tab «Opportunità»
       extraTabs: [
         ['opportunita', 'Opportunità', sheetTab],
-        ...(o.target_step ? [['iter', 'Iter del target', box => targetTab(box, o.project_id)]] : []),
+        ...(o.selection || o.target_step ? [['iter', 'Iter', box => targetTab(box, o.project_id, o.id)]] : []),
       ],
     });
   }
@@ -75,7 +75,7 @@ function stageBar(o, refresh) {
   const actions = [];
   if (isTarget) {
     actions.push(h('span.pill.en-stage.en-target', h('span.dot'),
-      o.target_outcome ? meta.targetOutcomes[o.target_outcome] : `Target · ${meta.targetSteps.find(s => s.key === o.target_step)?.label}`),
+      `Progetto selezionato · ${meta.selection?.[o.selection] || 'in valutazione'}`),
     h('a.btn.btn-primary', { href: `#/energy/opportunita/${o.id}/iter` }, 'Apri l\'iter'));
   } else if (closed) {
     actions.push(stagePill(o.kind, o.stage),
