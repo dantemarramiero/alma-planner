@@ -16,6 +16,7 @@ const tiers = require('../lib/energy-tiers');
 const { REGIONS, PROVINCES } = require('../lib/energy-places');
 const { addWorkdays, romeNow } = require('../lib/workdays');
 const { registerEnergyIter } = require('./energy-iter');
+const { registerEnergyAnalisi } = require('./energy-analisi');
 const { PROJECT_TYPES, SELECTION, typeFromKind } = require('../lib/energy-iter');
 
 const pick = obj => Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
@@ -1144,6 +1145,7 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
   }
 
   registerEnergyIter(app, { db, opportunityById });
+  const analisi = registerEnergyAnalisi(app, { db, opportunityById }); // ALM2-74 tappa 2
 
   // ── simulatore: calcolo senza salvare ─────────────────────────────────────────────────────────
   app.get('/api/energy/simulate/defaults', (_req, res) => res.json({
@@ -1196,7 +1198,11 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     const { rows: [s] } = await db.query(
       `INSERT INTO energy_scenarios (opportunity_id, name, model, input, summary, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [oppId, name, req.body.model, JSON.stringify(input), JSON.stringify(summaryOf(result)), req.user.id]);
-    res.status(201).json(s);
+    // salvato dal simulatore: compare anche fra le Analisi economico-finanziarie (ALM2-74), con una versione
+    const type = (oppId && (await opportunityById(oppId)).project_type) || (req.body.model === 'revamping' ? 'revamping' : req.body.model === 'ppa_onsite' ? 'ppa_onsite' : 'fv_nuovo');
+    const { rows: [an] } = await db.query('INSERT INTO energy_analyses (title, project_type, opportunity_id, created_by) VALUES ($1, $2, $3, $4) RETURNING id', [name.slice(0, 160), type, oppId, req.user.id]);
+    await db.query("INSERT INTO energy_analysis_versions (analysis_id, n, source, scenario_id, created_by) VALUES ($1, 1, 'simulatore', $2, $3)", [an.id, s.id, req.user.id]);
+    res.status(201).json({ ...s, analysis_id: an.id });
   });
 
   app.get('/api/energy/scenarios/:id', async (req, res) => {
@@ -1213,7 +1219,9 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     const { rows: [s] } = await db.query(
       'UPDATE energy_scenarios SET name = $2, input = $3, summary = $4, updated_at = now() WHERE id = $1 RETURNING *',
       [id, name, JSON.stringify(input), JSON.stringify(summary)]);
-    if (s.chosen && s.opportunity_id) await applyChosen(db, s);
+    const { rows: [av] } = await db.query('SELECT analysis_id FROM energy_analysis_versions WHERE scenario_id = $1', [id]);
+    if (av) await analisi.syncReference(db, av.analysis_id);
+    else if (s.chosen && s.opportunity_id) await applyChosen(db, s);
     res.json(s);
   });
 
@@ -1230,6 +1238,16 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const s = await scenarioById(id);
     if (!s.opportunity_id) throw new HttpError(400, 'Collega prima lo scenario a un\'opportunità');
+    const { rows: [av] } = await db.query(
+      'SELECT a.id FROM energy_analysis_versions x JOIN energy_analyses a ON a.id = x.analysis_id WHERE x.scenario_id = $1 AND a.opportunity_id = $2', [id, s.opportunity_id]);
+    if (av) {
+      await db.tx(async q => {
+        await q.query('UPDATE energy_analyses SET reference = false WHERE opportunity_id = $1 AND reference', [s.opportunity_id]);
+        await q.query('UPDATE energy_analyses SET reference = true WHERE id = $1', [av.id]);
+        await analisi.syncReference(q, av.id);
+      });
+      return res.json({ ok: true });
+    }
     await db.tx(async q => {
       await q.query('UPDATE energy_scenarios SET chosen = false WHERE opportunity_id = $1 AND chosen', [s.opportunity_id]);
       await q.query('UPDATE energy_scenarios SET chosen = true WHERE id = $1', [id]);
@@ -1241,6 +1259,12 @@ function registerEnergy(app, { db, energyAccess, isAdmin, energyScreening }) {
   app.delete('/api/energy/scenarios/:id', async (req, res) => {
     const id = v.int(req.params.id, 'id', { min: 1 });
     const s = await scenarioById(id);
+    // uno scenario che è l'unica versione di un'analisi si porta via l'analisi; se l'analisi ha altre versioni si toglie dalla sua scheda
+    const { rows: [av] } = await db.query(
+      `SELECT x.analysis_id, (SELECT COUNT(*)::int FROM energy_analysis_versions y WHERE y.analysis_id = x.analysis_id) AS n
+         FROM energy_analysis_versions x WHERE x.scenario_id = $1`, [id]);
+    if (av && av.n > 1) throw new HttpError(400, 'Lo scenario è una versione di un\'analisi con altre versioni: si toglie dalla scheda dell\'analisi');
+    if (av) await db.query('DELETE FROM energy_analyses WHERE id = $1', [av.analysis_id]);
     await db.tx(async q => {
       await q.query('DELETE FROM energy_scenarios WHERE id = $1', [id]);
       if (s.chosen && s.opportunity_id) await q.query("UPDATE energy_opportunities SET data = data - 'scenario' WHERE id = $1", [s.opportunity_id]);
