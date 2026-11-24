@@ -182,3 +182,83 @@ test('Radar: settore sulle carte e filtri salvati separati per Alma Impianti', a
   assert.equal((await U('GET', '/api/crm/radar/board?scope=impianti')).body.filtri[0].nome, 'Biometano Sud');
   assert.deepEqual((await U('GET', '/api/crm/radar/board')).body.filtri, []);
 });
+
+// ── tappa 2 (ALM2-77): Home, Opportunità col triangolo, Energivori ─────────────────────────────
+test('energivori: lettura del file, unità, regione dalla provincia, punteggio e stime', () => {
+  const { REGIONS } = require('../lib/energy-places');
+  const rows = [['Elenco 2026'], ['Ragione sociale', 'Partita IVA', 'Comune', 'Prov', 'Settore', 'Consumo (MWh)', 'Superficie tetto m2'],
+    ['Cartiera Test Srl', 'IT01234567890', 'Caserta', 'CE', 'Carta', '48.000', '22000'], ['', '', '', '', '', '', ''], ['Pastificio Test', '', 'Fara', 'Chieti', 'Alimentare', '18000', '']];
+  const r = I.readEnergivori(rows, { provinces: REGIONS });
+  assert.equal(r.rows.length, 2);
+  assert.equal(r.rows[0].vat, '01234567890');
+  assert.equal(r.rows[0].consumption_gwh, 48);
+  assert.equal(r.rows[0].region, 'Campania');
+  assert.equal(r.rows[1].province, 'CH');
+  assert.equal(r.rows[1].region, 'Abruzzo');
+  assert.ok(I.energivoroScore(r.rows[0]) > I.energivoroScore(r.rows[1]));
+  const est = I.estimate(r.rows[0]);
+  assert.equal(est.kwp, 3300);
+  assert.ok(est.saving_eur > 800000);
+  assert.ok(est.incentives.includes('certificati bianchi'));
+  assert.deepEqual(I.readEnergivori([['a', 'b']]).missing, ['ragione sociale']);
+});
+
+test('opportunità: fase, triangolo, proposte e Home', async () => {
+  const { rows: [g] } = await db.query("SELECT id FROM crm_signals WHERE title LIKE 'Biometano 500%'");
+  // un segnale nuovo si apre come opportunità e diventa «Interessa» quando si mette un vertice
+  const one = await U('GET', `/api/crm/impianti/opportunita/${g.id}`);
+  assert.equal(one.status, 200, JSON.stringify(one.body));
+  assert.deepEqual(one.body.opportunity.missing, ['fondo', 'progettista', 'sito']);
+  assert.ok(one.body.ideas.funds.some(f => f.name === 'Fondo Verde Test'), 'il fondo col mandato giusto è proposto');
+  const { rows: [fund] } = await db.query("SELECT id FROM crm_subjects WHERE name = 'Fondo Verde Test'");
+  const { rows: [des] } = await db.query("SELECT id FROM crm_subjects WHERE name = 'Hydro Progetti Test'");
+  assert.equal((await U('PUT', `/api/crm/impianti/opportunita/${g.id}`, { imp_stage: 'boh' })).status, 400);
+  const put = await U('PUT', `/api/crm/impianti/opportunita/${g.id}`, { fund_id: fund.id, designer_id: des.id, imp_stage: 'fattibilita' });
+  assert.equal(put.status, 200);
+  const list = await U('GET', '/api/crm/impianti/opportunita');
+  const o = list.body.opportunities.find(x => x.id === g.id);
+  assert.equal(o.status, 'interessa');
+  assert.equal(o.imp_stage, 'fattibilita');
+  assert.deepEqual(o.missing, ['sito']);
+  assert.equal(o.fund_name, 'Fondo Verde Test');
+  const home = await U('GET', '/api/crm/impianti/home');
+  assert.equal(home.status, 200);
+  const bio = home.body.sectors.find(s => s.key === 'biometano');
+  assert.equal(bio.opportunities, 1);
+  assert.equal(bio.value, 7800000);
+  assert.equal(bio.big, 1);
+  assert.ok(home.body.incomplete.some(x => x.id === g.id));
+  const c = await U('GET', '/api/crm/impianti/cerca?q=Hydro');
+  assert.equal(c.body.subjects[0].kind_label, 'Progettista');
+});
+
+test('energivori via API: anteprima, carica, porta nel radar', async () => {
+  const csv = Buffer.from('Ragione sociale;Partita IVA;Comune;Provincia;Settore;Consumo GWh;Tetto m2\nVetreria Test;09876543210;Murano;VE;Vetro;52;6200\nCementeria Test;;Taranto;TA;Cemento;90;5100\n');
+  const up = async (path) => {
+    const cookie = await login(USER);
+    const r = await fetch(base + path, { method: 'POST', headers: { cookie, 'X-Alma': '1', 'Content-Type': 'application/octet-stream' }, body: csv });
+    return { status: r.status, body: await r.json() };
+  };
+  const pre = await up('/api/crm/impianti/energivori/anteprima');
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.equal(pre.body.total, 2);
+  assert.equal(pre.body.fresh, 2);
+  const load = await up('/api/crm/impianti/energivori?nome=test.csv');
+  assert.equal(load.body.added, 2);
+  assert.equal((await up('/api/crm/impianti/energivori?nome=test.csv')).body.updated, 2, 'ricaricare non fa doppioni');
+  const list = await U('GET', '/api/crm/impianti/energivori');
+  const vet = list.body.energivori.find(e => e.name === 'Vetreria Test');
+  assert.equal(vet.region, 'Veneto');
+  assert.ok(vet.score > 0 && vet.saving_eur > 0);
+  assert.equal(list.body.regions.Puglia, 1);
+  const go = await U('POST', `/api/crm/impianti/energivori/${vet.id}/radar`);
+  assert.equal(go.status, 201);
+  const { rows: [s] } = await db.query('SELECT segment, roles, asa, vat FROM crm_subjects WHERE id = $1', [go.body.subject_id]);
+  assert.equal(s.segment, I.SEGMENT_ENERGIVORA);
+  assert.equal(s.vat, '09876543210');
+  const { rows: [sig] } = await db.query('SELECT sector, bu, subject_id FROM crm_signals WHERE id = $1', [go.body.signal_id]);
+  assert.equal(sig.sector, 'efficientamento');
+  assert.equal(sig.bu, 'impianti');
+  const again = await U('POST', `/api/crm/impianti/energivori/${vet.id}/radar`);
+  assert.equal(again.body.signal_id, go.body.signal_id, 'niente segnale doppio');
+});

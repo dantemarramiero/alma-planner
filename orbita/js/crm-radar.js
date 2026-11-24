@@ -480,7 +480,7 @@ const SRC_INFO = [
   ['bollettini', 'Bollettini regionali', 'Finanziamenti e graduatorie per i comuni', 'finanziata', 'ogni settimana'],
 ];
 // mappa d'Italia a tessere (colonna, riga, sigla)
-const TILES = { 'Valle d\'Aosta': [0, 0, 'VdA'], Piemonte: [1, 0, 'Pie'], Lombardia: [2, 0, 'Lom'], 'Trentino-Alto Adige': [3, 0, 'TAA'], Veneto: [4, 0, 'Ven'], 'Friuli-Venezia Giulia': [5, 0, 'FVG'],
+export const TILES = { 'Valle d\'Aosta': [0, 0, 'VdA'], Piemonte: [1, 0, 'Pie'], Lombardia: [2, 0, 'Lom'], 'Trentino-Alto Adige': [3, 0, 'TAA'], Veneto: [4, 0, 'Ven'], 'Friuli-Venezia Giulia': [5, 0, 'FVG'],
   Liguria: [1, 1, 'Lig'], 'Emilia-Romagna': [3, 1, 'EmR'], Toscana: [2, 2, 'Tos'], Umbria: [3, 2, 'Umb'], Marche: [4, 2, 'Mar'], Lazio: [3, 3, 'Laz'], Abruzzo: [4, 3, 'Abr'],
   Molise: [5, 3, 'Mol'], Campania: [4, 4, 'Cam'], Puglia: [5, 4, 'Pug'], Basilicata: [5, 5, 'Bas'], Calabria: [5, 6, 'Cal'], Sicilia: [4, 7, 'Sic'], Sardegna: [1, 5, 'Sar'] };
 const TINTS = ['#5A6B7A', '#7A5A6B', '#6B7A5A', '#C25E0E', '#4B6B8A', '#5A7A6B', '#7A6B5A', '#6B5A7A'];

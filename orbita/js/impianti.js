@@ -3,11 +3,12 @@
 // Progettisti e dare/avere (tavola 5). Le aziende e i contatti sono quelli del CRM: «Scheda» apre la scheda del CRM.
 // Stili in css/impianti.css (classi im-*), sopra i pezzi del design v2 del CRM (cv-*).
 import { h, fill, toast, fmtDate, loading, confirmDialog } from './ui.js';
-import { get, post, put, del } from './api.js';
+import { get, post, put, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, choiceChips, toggle } from './crm-v2.js';
 import { stepDialog, doneDialog } from './crm-commerciale.js';
-import { radarTab, openSignal } from './crm-radar.js';
+import { radarTab, openSignal, newSignalDialog, TILES } from './crm-radar.js';
+import { garaProgettisti } from './crm-progettisti.js';
 
 const SECTORS = [['depurazione', 'Depurazione', '#0057B8'], ['fotovoltaico', 'Fotovoltaico', '#E0A400'], ['biometano', 'Biometano', '#2E8B57'], ['edilizia', 'Impianti in edilizia', '#7A5AF8'], ['efficientamento', 'Efficientamento', '#FF8A26']];
 const PHASES = [['greenfield', 'Da sviluppare'], ['autorizzato', 'Autorizzato (RTB)'], ['costruzione', 'In costruzione'], ['esercizio', 'In esercizio']];
@@ -25,10 +26,13 @@ const mailHref = e => `mailto:${encodeURIComponent(e)}`;
 const schedaHref = id => `#/crm/scheda/${id}`;
 
 export async function impiantiView(container, parts = []) {
-  const page = parts[1] || 'dafare';
+  const page = parts[1] || 'home';
   const body = h('div.cv.im', loading());
   fill(container, body);
   if (page === 'radar') { const data = store.crmData || await get('/api/crm'); store.crmData = data; return radarTab(body, data, '', { scope: 'impianti' }); }
+  if (page === 'home') return homePage(body);
+  if (page === 'opportunita') return Number(parts[2]) ? oppPage(body, Number(parts[2])) : oppListPage(body);
+  if (page === 'energivori') return energivoriPage(body);
   if (page === 'fondi') return fondiPage(body, Number(parts[2]) || null);
   if (page === 'progettisti') return progettistiPage(body, Number(parts[2]) || null);
   return daFarePage(body);
@@ -267,4 +271,233 @@ function exchangeDialog(p, onSaved) {
         m.close(); toast('Scambio registrato'); onSaved?.();
       } } }, 'Salva')] });
   setTimeout(() => what.focus(), 50);
+}
+
+// ════ tappa 2 (ALM2-77) ════════════════════════════════════════════════════════════════════════
+const STAGES = [['origination', 'Origination'], ['fattibilita', 'Fattibilità'], ['offerta', 'Offerta EPC'], ['negoziazione', 'Negoziazione'], ['firmato', 'Firmato']];
+const stageName = k => (k === 'persa' ? 'Persa' : STAGES.find(s => s[0] === k)?.[1] || k);
+const VERTEX = { fondo: 'Fondo', progettista: 'Progettista', sito: 'Sito' };
+const secDot = k => h('span.im-dot', { style: { background: SECTORS.find(s => s[0] === k)?.[2] || 'var(--cv-muted)' }, 'aria-hidden': 'true' });
+const triPills = o => h('div.im-tags', [['fondo', o.fund_name], ['progettista', o.designer_name], ['sito', o.site_name]].map(([k, name]) =>
+  pill(`${VERTEX[k]}: ${name || 'da trovare'}`, name ? 'gr' : 'am')));
+
+// ── Home (tavola 1) ─────────────────────────────────────────────────────────────────────────────
+async function homePage(box) {
+  const r = await get('/api/crm/impianti/home');
+  const t = r.totals;
+  const parts = [t.fresh ? `${t.fresh} ${t.fresh === 1 ? 'segnale nuovo' : 'segnali nuovi'} da guardare` : 'nessun segnale nuovo questa settimana',
+    t.incomplete ? `${t.incomplete} ${t.incomplete === 1 ? 'opportunità' : 'opportunità'} a cui manca un pezzo` : null,
+    t.funds_late ? `${t.funds_late} ${t.funds_late === 1 ? 'fondo da risentire' : 'fondi da risentire'}` : null].filter(Boolean).join(', ');
+  const data = store.crmData || await get('/api/crm');
+  store.crmData = data;
+  fill(box,
+    pageTop({ eyebrow: 'Alma Impianti · Home', heading: title('La settimana di', 'Alma Impianti'), sub: `${parts[0].toUpperCase()}${parts.slice(1)}.`,
+      actions: [h('a.btn', { href: '#/impianti/radar' }, 'Apri il radar'), h('button.btn.btn-primary', { type: 'button', on: { click: () => newSignalDialog(data, () => homePage(box)) } }, ic('plus', 15), 'Segnala un\'opportunità')] }),
+    h('section.im-sectors-row', r.sectors.map(s => h('a.im-sector', { href: '#/impianti/radar' },
+      h('div.im-sector-h', h('span.im-dot', { style: { background: s.color } }), h('b', s.label)),
+      h('div.im-sector-v', h('span', s.value ? eur(s.value) : '—'), h('small', 'in pipeline')),
+      h('div.im-tags', pill(`${s.fresh} ${s.fresh === 1 ? 'segnale nuovo' : 'segnali nuovi'}`, s.fresh ? 'or' : ''), pill(`${s.big} oltre ${eur(r.settings.big_amount)}`, s.big ? 'dark' : ''))))),
+    h('p.im-sub.im-note', `«Oltre ${eur(r.settings.big_amount)}» è la fascia che preferiamo: nel radar la trovi tra gli importi.`),
+    h('div.im-grid2',
+      card({ title: 'Opportunità da completare', icon: 'triangle', count: t.incomplete, right: link('Tutte le opportunità', { href: '#/impianti/opportunita' }) },
+        h('p.im-sub.im-pad', 'Un lavoro si vince quando conosciamo chi paga, chi progetta e dove si fa. Qui i progetti e le opportunità a cui manca uno dei tre.'),
+        r.incomplete.length ? r.incomplete.map(o => h('a.im-opp', { href: `#/impianti/opportunita/${o.id}` },
+          h('div', h('div.im-row-top', h('b', o.title), pill(sectorName(o.sector) || 'Senza settore', 'line'), h('span.im-sub', eur(o.amount))), triPills(o)),
+          h('span.im-or.im-nw', `Trova ${o.missing[0] === 'fondo' ? 'un fondo' : o.missing[0] === 'progettista' ? 'il progettista' : 'il sito'} ›`)))
+          : emptyState('check', 'Tutte le opportunità hanno chi paga, chi progetta e dove si fa.')),
+      card({ title: 'Segnali caldi della settimana', icon: 'flame', right: link('Radar', { href: '#/impianti/radar' }) },
+        r.hot.length ? r.hot.map(g => h('button.im-hot', { type: 'button', on: { click: () => openSignal(g.id, () => homePage(box), data) } },
+          h('span.im-hot-s', String(g.score)), h('span', h('b', g.title), h('small', dots([sectorName(g.sector), g.entity, g.amount ? eur(g.amount) : '', g.region])))))
+          : emptyState('radar', 'Nessun segnale nuovo negli ultimi 14 giorni.'))),
+    h('div.im-grid2',
+      card({ title: 'Fondi da risentire', icon: 'landmark', right: link('Fondi', { href: '#/impianti/fondi' }) },
+        r.funds.length ? r.funds.map(f => h('div.im-li', h('div', h('b', f.name), h('div.im-sub', dots([(f.techs || []).map(sectorName).join(', '), f.days === null ? 'mai sentito' : `ultimo contatto ${f.days} giorni fa`, f.matches ? `${f.matches} progetti abbinati` : '']))),
+          h('a.btn.btn-sm', { href: `#/impianti/fondi/${f.id}` }, f.matches ? 'Mostra abbinamenti' : 'Apri')))
+          : emptyState('landmark', 'Tutti i fondi sentiti di recente.')),
+      card({ title: 'Progettisti: dare e avere', icon: 'ruler', right: link('Progettisti', { href: '#/impianti/progettisti' }) },
+        r.progettisti.length ? r.progettisti.map(p => { const tot = p.dato + p.ricevuto || 1; return h('a.im-li', { href: `#/impianti/progettisti/${p.id}` }, h('div', h('b', p.name), h('div.im-sub', p.city || '')),
+          h('div.im-recip', { style: { width: '170px' } }, h('span.im-recip-bar', h('i.dato', { style: { width: `${Math.round(p.dato / tot * 100)}%` } }), h('i.ric', { style: { width: `${Math.round(p.ricevuto / tot * 100)}%` } })),
+            h('span.im-sub', `${p.dato} dati · ${p.ricevuto} ricevuti${p.ricevuto > p.dato ? ' · ricambia' : ''}`))); })
+          : emptyState('ruler', 'Nessuno scambio registrato coi progettisti.'))));
+}
+
+// ── Opportunità: elenco e scheda col triangolo (tavola 3) ───────────────────────────────────────
+let oppState = { st: '' };
+async function oppListPage(box) {
+  const r = await get('/api/crm/impianti/opportunita');
+  const again = () => oppListPage(box);
+  const all = r.opportunities;
+  const shown = all.filter(o => (oppState.st ? o.imp_stage === oppState.st : o.imp_stage !== 'persa'));
+  const chip = (k, l, n) => h('button.im-alert', { type: 'button', class: oppState.st === k ? 'on' : '', 'aria-pressed': String(oppState.st === k), on: { click: () => { oppState.st = k; again(); } } }, h('b', String(n)), l);
+  const go = id => { location.hash = `#/impianti/opportunita/${id}`; };
+  fill(box,
+    pageTop({ eyebrow: 'Alma Impianti · Opportunità', heading: title('Le opportunità', 'della BU'),
+      sub: 'Quelle con «Interessa» dal radar o già su BOSS, con la fase e chi paga, chi progetta, dove si fa. Le offerte restano in BOSS.',
+      actions: [h('a.btn', { href: '#/impianti/radar' }, 'Trovane altre nel radar')] }),
+    h('section.im-stages', chip('', 'aperte', all.filter(o => o.imp_stage !== 'persa').length), STAGES.map(([k, l]) => chip(k, l, all.filter(o => o.imp_stage === k).length)), chip('persa', 'perse', all.filter(o => o.imp_stage === 'persa').length)),
+    h('section.cv-card.im-list', shown.length ? h('div.im-table-box', h('table.im-table',
+      h('thead', h('tr', ['Opportunità', 'Settore', 'Valore', 'Fase', 'Paga · progetta · sito', ''].map(x => h('th', x)))),
+      h('tbody', shown.map(o => h('tr', { tabIndex: 0, on: { click: () => go(o.id), keydown: e => { if (e.key === 'Enter') go(o.id); } } },
+        h('td', h('b', o.title), h('div.im-sub', dots([o.site_name || o.entity, o.region, o.owner_name]))),
+        h('td.im-nw', o.sector ? [secDot(o.sector), sectorName(o.sector)] : h('span.im-sub', '—')),
+        h('td.im-nw', eur(o.amount)),
+        h('td', pill(stageName(o.imp_stage), o.imp_stage === 'firmato' ? 'gr' : o.imp_stage === 'persa' ? 'rd' : 'bl')),
+        h('td', h('div.im-tri-mini', [['fondo', o.fund_name], ['progettista', o.designer_name], ['sito', o.site_name]].map(([k, n]) => h('span', { class: n ? 'ok' : '', title: `${VERTEX[k]}: ${n || 'da trovare'}` }, VERTEX[k][0])))),
+        h('td.im-or.im-nw', o.missing.length ? `manca ${o.missing.map(m => VERTEX[m].toLowerCase()).join(' e ')}` : ''))))))
+      : emptyState('triangle', oppState.st ? 'Nessuna opportunità in questa fase.' : 'Nessuna opportunità ancora: premi «Interessa» su un segnale del radar.')));
+}
+
+async function oppPage(box, id) {
+  const r = await get(`/api/crm/impianti/opportunita/${id}`);
+  const o = r.opportunity;
+  const again = () => oppPage(box, id);
+  const save = async body => { await put(`/api/crm/impianti/opportunita/${id}`, body); again(); };
+  const stepIdx = STAGES.findIndex(s => s[0] === o.imp_stage);
+  const big = o.amount >= r.settings.big_amount;
+  const header = h('header.im-hero',
+    h('div.im-hero-top',
+      h('div.cv-grow', h('div.im-tags', o.sector ? h('span.cv-pill.dark', secDot(o.sector), sectorName(o.sector)) : null, big ? pill(`Oltre ${eur(r.settings.big_amount)}`, 'or') : null, o.source ? pill(`dal radar · ${o.source}`, 'line') : null),
+        h('h1', o.title), h('p', dots([o.site_name || o.entity, o.place || o.region, o.amount ? `valore stimato ${eur(o.amount)}` : '', o.owner_name ? `segue ${o.owner_name}` : '']))),
+      h('div.im-acts', h('button.btn', { type: 'button', on: { click: () => openSignal(o.id, again, store.crmData || {}) } }, 'Apri nel radar'),
+        o.subject_id ? h('button.btn.btn-primary', { type: 'button', on: { click: () => stepDialog({ subjectId: o.subject_id, subjectName: o.site_name, onSaved: again }) } }, ic('plus', 14), 'Nuovo compito') : null)),
+    h('ol.im-stepper', { 'aria-label': 'Fase' }, STAGES.map(([k, l], i) => h('li', h('button', { type: 'button', class: o.imp_stage === 'persa' ? '' : i < stepIdx ? 'done' : i === stepIdx ? 'on' : '', 'aria-current': i === stepIdx ? 'step' : null,
+      on: { click: () => save({ imp_stage: k }) } }, l)))),
+    h('div.im-hero-ft', o.imp_stage === 'persa' ? [pill('Persa', 'rd'), link('Riapri', { on: { click: () => save({ imp_stage: 'origination' }) } })]
+      : link('Segna come persa', { on: { click: async () => { if (await confirmDialog('Segnare l\'opportunità come persa?', { ok: 'Persa', danger: true })) save({ imp_stage: 'persa' }); } } })));
+
+  const lastTxt = w => (w?.last_contact ? `ultimo contatto ${ago(w.last_contact)}` : 'mai sentito');
+  const known = (label, w, name, key) => h('div.im-node.ok',
+    h('div.im-node-h', h('span.cv-eyebrow', label), pill(w?.last_contact ? 'lo conosciamo' : 'nel CRM', 'gr')),
+    h('b', name), w?.contact ? h('span.im-sub', dots([w.contact.name, w.contact.job])) : null, h('span.im-sub', lastTxt(w)),
+    h('div.im-acts.im-left', h('a.btn.btn-sm', { href: schedaHref(w.id) }, 'Scheda'), w?.contact?.mobile || w?.contact?.phone ? h('a.btn.btn-sm', { href: telHref(w.contact.mobile || w.contact.phone) }, 'Chiama') : null,
+      w?.contact?.email ? h('a.btn.btn-sm', { href: mailHref(w.contact.email) }, 'Scrivi') : null,
+      h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: () => pickSubject(label, s => save({ [key]: s.id })) } }, 'Cambia')));
+  const fundNode = o.fund_id ? known('Chi finanzia', o.fund, o.fund_name, 'fund_id')
+    : h('div.im-node.miss', h('div.im-node-h', h('span.cv-eyebrow', 'Chi finanzia'), pill('da trovare', 'am')),
+      r.ideas.funds.length ? [h('b', `${r.ideas.funds.length} ${r.ideas.funds.length === 1 ? 'fondo ha un mandato che combacia' : 'fondi hanno un mandato che combacia'}`),
+        r.ideas.funds.map(f => h('div.im-idea', h('div', h('b', f.name), h('div.im-sub', dots([f.reasons.join(', '), f.known ? 'lo conosciamo' : 'nessun contatto']))),
+          h('button.btn.btn-sm', { type: 'button', on: { click: () => save({ fund_id: f.id }) } }, 'Scegli')))]
+        : h('p.im-sub', 'Nessun fondo col mandato giusto: compila i mandati in «Fondi e investitori», o cercane uno nel CRM.'),
+      h('div.im-acts.im-left', h('button.btn.btn-sm', { type: 'button', on: { click: () => pickSubject('Chi finanzia', s => save({ fund_id: s.id })) } }, ic('search', 13), 'Cerca nel CRM'), h('a.btn.btn-ghost.btn-sm', { href: '#/impianti/fondi' }, 'Fondi')));
+  const desNode = o.designer_id ? known('Chi progetta', o.designer, o.designer_name, 'designer_id')
+    : h('div.im-node.miss', h('div.im-node-h', h('span.cv-eyebrow', 'Chi progetta'), pill('da trovare', 'am')),
+      garaProgettisti(o.id),
+      r.ideas.designers.length ? [h('span.im-sub', 'Progettisti del CRM'), r.ideas.designers.map(d => h('div.im-idea', h('div', h('b', d.name), h('div.im-sub', dots([d.city, d.ricevuto || d.dato ? `${d.dato} dati · ${d.ricevuto} ricevuti` : '']))),
+        h('button.btn.btn-sm', { type: 'button', on: { click: () => save({ designer_id: d.id }) } }, 'Scegli')))] : null,
+      h('div.im-acts.im-left', h('button.btn.btn-sm', { type: 'button', on: { click: () => pickSubject('Chi progetta', s => save({ designer_id: s.id })) } }, ic('search', 13), 'Cerca nel CRM')));
+  const siteNode = o.subject_id ? known('Dove si fa', o.site, o.site_name, 'subject_id')
+    : h('div.im-node.miss', h('div.im-node-h', h('span.cv-eyebrow', 'Dove si fa'), pill('da trovare', 'am')),
+      h('p.im-sub', o.entity ? `Nel segnale: «${o.entity}». Collegalo all'azienda del CRM.` : 'L\'azienda o l\'ente proprietario del sito.'),
+      h('div.im-acts.im-left', h('button.btn.btn-sm', { type: 'button', on: { click: () => pickSubject('Dove si fa', s => save({ subject_id: s.id }), o.entity || '') } }, ic('search', 13), 'Cerca nel CRM')));
+  const nOk = 3 - o.missing.length;
+
+  fill(box,
+    h('a.im-crumb', { href: '#/impianti/opportunita' }, '‹ Opportunità', o.sector ? ` · ${sectorName(o.sector)}` : ''),
+    header,
+    h('div.im-main',
+      h('section.cv-card.im-tri-card',
+        h('div.im-row-top', h('div.cv-grow', h('h2', 'Chi paga, chi progetta, dove si fa'), h('p.im-sub', nOk === 3 ? 'Li conosciamo tutti e tre.' : `${['Nessuno', 'Uno', 'Due'][nOk]} su tre li conosciamo.`)),
+          o.missing.length ? pill(`Manca ${o.missing.map(m => VERTEX[m].toLowerCase()).join(' e ')}`, 'am') : pill('Completo', 'gr')),
+        h('div.im-tri', h('div.im-tri-top', fundNode), desNode, siteNode),
+        h('p.im-sub', 'I fondi si abbinano dal loro mandato: settore, taglia del ticket, regione e fase del progetto.')),
+      h('aside.im-side',
+        card({ title: 'Prossimo compito', icon: 'alarm-clock' },
+          r.steps.length ? r.steps.map(s => h('div.im-li', h('div', h('b', s.title), h('div.im-sub', dots([s.subject_name, s.owner_name, `entro ${fmtDate(s.due_date)}`])))))
+            : h('p.im-sub', 'Nessun compito aperto su queste aziende.')),
+        card({ title: 'Numeri', icon: 'banknote' }, h('dl.im-dl', h('dt', 'Valore stimato'), h('dd', eur(o.amount)), h('dt', 'Punteggio del radar'), h('dd', String(o.score ?? '—')), h('dt', 'Fase'), h('dd', stageName(o.imp_stage)),
+          h('dt', 'Offerta e margine'), h('dd', 'in BOSS'))),
+        card({ title: 'Storia', icon: 'history' }, r.history.length ? h('div.im-ledger', r.history.map(x => h('div.im-hist', h('span.im-sub.im-nw', x.at ? fmtDate(String(x.at).slice(0, 10)) : ''), h('span', x.text)))) : h('p.im-sub', '—')))));
+}
+// scegli un'azienda del CRM per un vertice del triangolo
+function pickSubject(label, onPick, start = '') {
+  const q = input({ type: 'search', value: start, placeholder: 'Nome dell\'azienda o dello studio', 'aria-label': 'Cerca' });
+  const out = h('div.im-pick');
+  let t;
+  const run = async () => {
+    const val = q.value.trim();
+    if (val.length < 2) return fill(out, h('p.im-sub', 'Scrivi almeno due lettere.'));
+    const r = await get(`/api/crm/impianti/cerca?q=${encodeURIComponent(val)}`);
+    fill(out, r.subjects.length ? r.subjects.map(s => h('button.im-idea', { type: 'button', on: { click: () => { m.close(); onPick(s); } } },
+      h('div', h('b', s.name), h('div.im-sub', dots([s.kind_label, s.city]))), h('span.im-or', 'Scegli')))
+      : h('p.im-sub', 'Nessuna azienda con questo nome nel CRM. Aggiungila dal CRM e torna qui.'));
+  };
+  q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 250); });
+  const m = cvModal({ size: 'sm', title: h('h2', label), body: h('div.en-form', q, out), actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')] });
+  setTimeout(() => { q.focus(); if (start) run(); }, 50);
+}
+
+// ── Energivori (tavola 6) ───────────────────────────────────────────────────────────────────────
+let enState = { region: '', roof: false, nocrm: false };
+async function energivoriPage(box) {
+  const r = await get('/api/crm/impianti/energivori');
+  const again = () => energivoriPage(box);
+  const regions = Object.keys(r.regions).sort((a, b) => a.localeCompare(b, 'it'));
+  const shown = r.energivori.filter(e => (!enState.region || e.region === enState.region) && (!enState.roof || e.roof_m2 >= 5000) && (!enState.nocrm || !e.subject_id));
+  const reg = h('select.select', { 'aria-label': 'Regione' }, [['', 'Tutta Italia'], ...regions.map(x => [x, `${x} · ${r.regions[x]}`])].map(([k, l]) => h('option', { value: k, selected: k === enState.region }, l)));
+  reg.addEventListener('change', () => { enState.region = reg.value; again(); });
+  const roof = toggle(enState.roof, 'Tetto libero oltre 5.000 m²'); roof.input.addEventListener('change', () => { enState.roof = roof.input.checked; again(); });
+  const nocrm = toggle(enState.nocrm, 'Solo chi non è nel CRM'); nocrm.input.addEventListener('change', () => { enState.nocrm = nocrm.input.checked; again(); });
+  const max = Math.max(1, ...Object.values(r.regions));
+  const map = h('section.cv-card.im-map', h('div.im-sec-l', 'Dove sono · Italia'),
+    h('div.im-map-grid', Object.entries(TILES).map(([name, [c, row, short]]) => {
+      const n = r.regions[name] || 0;
+      const lvl = !n ? '' : n / max > 0.66 ? 'h3' : n / max > 0.33 ? 'h2' : 'h1';
+      return h('button.im-tile2', { type: 'button', class: [lvl, enState.region === name ? 'sel' : ''].join(' '), style: { gridColumn: String(c + 1), gridRow: String(row + 1) },
+        title: `${name}: ${n} ${n === 1 ? 'azienda' : 'aziende'}`, 'aria-pressed': String(enState.region === name), on: { click: () => { enState.region = enState.region === name ? '' : name; again(); } } }, short);
+    })),
+    h('p.im-sub', 'Più arancio = più aziende energivore. Tocca una regione per filtrare.'));
+  const bring = async e => { const out = await post(`/api/crm/impianti/energivori/${e.id}/radar`); toast('Nel radar, settore Efficientamento'); location.hash = `#/impianti/opportunita/${out.signal_id}`; };
+  const table = shown.length ? h('div.im-table-box', h('table.im-table.nohover',
+    h('thead', h('tr', ['Punteggio', 'Azienda', 'Consumo', 'Tetto libero', 'Risparmio stimato', 'Incentivi', ''].map(x => h('th', x)))),
+    h('tbody', shown.slice(0, 300).map(e => h('tr',
+      h('td', h('span.im-hot-s', String(e.score))),
+      h('td', h('b', e.name), h('div.im-sub', dots([e.sector, [e.city, e.province].filter(Boolean).join(' '), e.region])), e.subject_id ? pill(`nel CRM${(e.subject_roles || []).includes('cliente') ? ' · cliente' : ''}`, 'line') : null),
+      h('td.im-nw', e.consumption_gwh != null ? `${Number(e.consumption_gwh).toLocaleString('it-IT')} GWh/anno` : '—'),
+      h('td.im-nw', e.roof_m2 ? `${Number(e.roof_m2).toLocaleString('it-IT')} m²` : '—'),
+      h('td.im-nw', e.saving_eur ? h('b.im-gr', `≈ ${eur(e.saving_eur)}/anno`) : '—'),
+      h('td.im-sub', e.incentives.join(', ') || '—'),
+      h('td', e.signal_id ? h('a.btn.btn-sm', { href: `#/impianti/opportunita/${e.signal_id}` }, 'Apri') : h('button.btn.btn-sm', { type: 'button', on: { click: () => bring(e) } }, 'Porta nel radar')))))))
+    : emptyState('factory', r.energivori.length ? 'Nessuna azienda con questi filtri.' : 'L\'elenco è vuoto: carica il file delle aziende energivore (per esempio l\'elenco pubblicato dalla CSEA) con «Carica l\'elenco».');
+  fill(box,
+    pageTop({ eyebrow: 'Clienti · Energivori', heading: title('Chi consuma tanto e', 'spreca'),
+      sub: 'L\'elenco delle aziende energivore caricato da file, con il punteggio che unisce consumo e tetto libero. Il risparmio è una stima: si conferma con la diagnosi.',
+      actions: [h('button.btn', { type: 'button', on: { click: () => howDialog(r.estimate) } }, 'Come si calcola'), h('button.btn.btn-primary', { type: 'button', on: { click: () => uploadDialog(again) } }, ic('upload', 15), 'Carica l\'elenco')] }),
+    h('div.im-filters', reg, roof.el, nocrm.el, h('span.im-sub', `${shown.length} di ${r.energivori.length} aziende${r.sources.length ? ` · da ${r.sources.join(', ')}` : ''}`)),
+    h('div.im-main', map, h('section.cv-card.im-list', table)));
+}
+function howDialog(est) {
+  const m = cvModal({ size: 'sm', title: h('h2', 'Come si calcola'),
+    body: h('div.en-form',
+      h('p', h('b', 'Punteggio (0–100): '), 'consumo di energia fino a 60 punti (pieno da circa 100 GWh l\'anno) e tetto libero fino a 40 punti (pieno da 20.000 m²).'),
+      h('p', h('b', 'Risparmio stimato: '), `il ${Math.round(est.efficiency * 100)}% del consumo con l'efficienza, più l'energia del fotovoltaico sul tetto (${est.kwp_per_m2} kWp per m², ${est.mwh_per_kwp} MWh per kWp l'anno), a ${est.price_mwh} € per MWh.`),
+      h('p', h('b', 'Incentivi: '), 'Transizione 5.0 se c\'è un consumo, certificati bianchi oltre 10 GWh, autoconsumo se c\'è il tetto. Da verificare caso per caso.'),
+      h('p.im-sub', 'Sono stime per scegliere chi chiamare prima: i numeri veri vengono dalla diagnosi energetica.')),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: () => m.close() } }, 'Ho capito')] });
+}
+function uploadDialog(onDone) {
+  const file = h('input', { type: 'file', accept: '.xlsx,.csv,.txt', 'aria-label': 'Elenco delle aziende energivore' });
+  const out = h('div');
+  const drop = h('label.cv-drop', file, h('span.cv-ib.or', ic('upload', 18)), h('span.cv-t5', 'Scegli o trascina qui l\'elenco'),
+    h('span.cv-small.cv-muted', 'Excel o CSV. Colonne riconosciute: ragione sociale, partita IVA, comune, provincia, regione, settore o ATECO, consumo (GWh, MWh o kWh), tetto (m²).'));
+  let buf = null, name = '';
+  const go = h('button.btn.btn-primary', { type: 'button', disabled: true, on: { click: async () => {
+    const r = await api('POST', `/api/crm/impianti/energivori?nome=${encodeURIComponent(name)}`, buf, { raw: true, headers: { 'Content-Type': 'application/octet-stream' } });
+    m.close(); toast(`${r.added} aziende nuove, ${r.updated} aggiornate`); onDone?.();
+  } } }, 'Carica');
+  file.addEventListener('change', async () => {
+    const f = file.files[0];
+    if (!f) return;
+    name = f.name; buf = await f.arrayBuffer();
+    fill(out, loading());
+    try {
+      const pre = await api('POST', '/api/crm/impianti/energivori/anteprima', buf, { raw: true, quiet: true, headers: { 'Content-Type': 'application/octet-stream' } });
+      fill(out, h('div.cv-box.big', h('div.cv-t5', `${pre.total} aziende nel file · ${pre.fresh} nuove`),
+        h('div.cv-small.cv-muted', `Colonne riconosciute: ${Object.values(pre.columns).join(', ')}`),
+        h('div.im-ledger', pre.sample.map(s => h('div.im-hist', h('b', s.name), h('span.im-sub', dots([s.city, s.region, s.consumption_gwh != null ? `${s.consumption_gwh} GWh` : '', s.roof_m2 ? `${s.roof_m2} m²` : '', `punteggio ${s.score}`])))))));
+      go.disabled = false;
+    } catch (err) { fill(out, h('p.im-warn', err.message || 'Il file non si legge')); go.disabled = true; }
+  });
+  const m = cvModal({ size: 'md', title: h('h2', 'Carica l\'elenco degli energivori'), body: h('div.en-form', drop, out,
+    h('p.cv-hint', 'Le aziende già caricate (stessa partita IVA, o stesso nome e comune) si aggiornano, non si doppiano.')),
+  actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), go] });
 }
