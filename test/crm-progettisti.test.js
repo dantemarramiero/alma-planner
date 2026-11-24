@@ -131,7 +131,7 @@ test('API: pagina, ente, gara col CUP e senza, progettista nel CRM', async () =>
   assert.equal((await D('POST', '/api/crm/progettisti/crm', { cf: '01111111111', name: 'Alfa' })).body.created, false);
   const { rows: [rs] } = await db.query('SELECT tax_code, roles FROM crm_subjects WHERE id = $1', [b.body.id]);
   assert.equal(rs.tax_code, 'RSSMRA70A01A345B');
-  assert.deepEqual(rs.roles, ['progettista']);
+  assert.deepEqual(rs.roles, ['progettista', 'fornitore']); // ALM2-80: anche fornitore
   assert.equal((await D('GET', '/api/crm/progettisti?regions=tutte')).body.progettisti[0].subject.id, a.body.id);
   // l'ente nel CRM: i suoi progettisti
   const { rows: [ente] } = await db.query("INSERT INTO crm_subjects (name, vat, roles, asa) VALUES ('Provincia di Chieti', $1, '{cliente}', '{}') RETURNING id", [SA]);
@@ -151,4 +151,62 @@ test('API: pagina, ente, gara col CUP e senza, progettista nel CRM', async () =>
   // chiedere a un collega di presentarci
   const uid = (await D('GET', '/api/me')).body.id;
   assert.equal((await D('POST', '/api/crm/progettisti/presentaci', { subject_id: a.body.id, user_id: uid })).status, 201);
+});
+
+// ── ALM2-80: area (BU), committente, Anagrafiche › Progettisti, nuovo progettista ──────────────────────
+test("area dell'incarico: categoria della gara lavori col CUP, poi le parole", () => {
+  const rules = P.areaRules({ profiles: {
+    edilizia: { soa: ['OG1', 'OG8'] }, restauro: { soa: ['OG2', 'OG1'] }, reti_ap: { soa: ['OG6', 'OS35'] }, reti_mp_bp: { soa: ['OG6'] }, impianti: { soa: ['OG6', 'OS22'] } } });
+  assert.deepEqual(P.areasOf('Lavori scuola', 'OG1', rules), ['edilizia']);
+  assert.deepEqual(P.areasOf('Progettazione rete idrica e fognature', 'OG6', rules), ['reti_mp_bp']);
+  assert.deepEqual(P.areasOf('Restauro della chiesa madre', '', rules), ['restauro']);
+  assert.deepEqual(P.areasOf('Rilievo topografico', '', rules), []);
+  assert.equal(P.quarterOf(new Date().toISOString()), 7);
+  assert.equal(P.quarterOf('2000-01-01'), -1);
+});
+
+test('API: area, committente (anche per sigla), anagrafica e nuovo progettista', async () => {
+  const all = await D('GET', '/api/crm/progettisti?regions=tutte');
+  assert.ok(all.body.area_labels.some(a => a.key === 'edilizia' && a.label === 'Edilizia'));
+  assert.equal(all.body.aree.edilizia, 1); // la scuola di Vasto: lavori OG1 collegati col CUP
+  assert.equal(all.body.aree.nessuna, 2);
+  assert.equal(all.body.quota.total, 3);
+  assert.equal(all.body.heat.leaders.edilizia.name, 'STUDIO INGEGNERIA ALFA S.R.L.');
+  const ed = await D('GET', '/api/crm/progettisti?regions=tutte&bu=edilizia');
+  assert.equal(ed.body.kpi.incarichi, 1);
+  assert.deepEqual(ed.body.progettisti.map(p => p.cf), ['01111111111']);
+  assert.equal(ed.body.progettisti[0].serie.length, 8);
+  // committente: cerca e filtra; accanto il totale su tutti gli enti
+  const en = await D('GET', '/api/crm/progettisti/enti?q=provincia chieti');
+  assert.equal(en.body.enti[0].cf, SA);
+  assert.equal(en.body.enti[0].incarichi, 3);
+  assert.equal(en.body.enti[0].progettisti, 2);
+  const sa = await D('GET', `/api/crm/progettisti?regions=tutte&sa=${SA}`);
+  assert.equal(sa.body.ente.name, 'PROVINCIA DI CHIETI');
+  assert.equal(sa.body.progettisti[0].tutti.incarichi, 2);
+  // Anagrafiche › Progettisti: chi è nel CRM, con l'ente e le sue aree
+  const an = await D('GET', `/api/crm/progettisti/anagrafica?sa=${SA}`);
+  assert.equal(an.status, 200, JSON.stringify(an.body));
+  assert.equal(an.body.progettisti.length, 2);
+  assert.equal(an.body.ente.incarichi, 3);
+  const alfa = an.body.progettisti.find(p => p.cf === '01111111111');
+  assert.equal(alfa.con_sa, 2);
+  assert.ok(alfa.aree.includes('edilizia'));
+  assert.equal(an.body.suggeriti.list.length, 0); // tutti e due già nel CRM
+  // nuovo progettista: cerca in ANAC, poi crea (anche fornitore) o completa chi c'è già
+  const ce = await D('GET', `/api/crm/progettisti/cerca?q=alfa&sa=${SA}`);
+  assert.equal(ce.body.trovati[0].con_sa, 2);
+  const nu = await D('POST', '/api/crm/progettisti/nuovo', { name: 'Ing. Paolo Verdi', cf: 'VRDPLA70A01H501X', tipo: 'libero', aree: ['reti_mp_bp', 'non_esiste'] });
+  assert.equal(nu.status, 201, JSON.stringify(nu.body));
+  const { rows: [v] } = await db.query('SELECT roles, kind, legal_form, asa, supplier_categories, supplier_subcategories FROM crm_subjects WHERE id = $1', [nu.body.id]);
+  assert.deepEqual(v.roles, ['progettista', 'fornitore']);
+  assert.equal(v.kind, 'professionista');
+  assert.equal(v.legal_form, 'Libero professionista');
+  assert.deepEqual(v.asa, ['reti_mp_bp']);
+  assert.deepEqual([v.supplier_categories, v.supplier_subcategories], [['professionisti'], ['Progettista']]);
+  assert.equal((await D('POST', '/api/crm/progettisti/nuovo', { name: 'Verdi', cf: 'VRDPLA70A01H501X' })).body.created, false);
+  assert.equal((await D('POST', '/api/crm/progettisti/nuovo', { name: 'X', cf: '123' })).status, 400);
+  const tutti = await D('GET', '/api/crm/progettisti/anagrafica?bu=reti_mp_bp');
+  assert.deepEqual(tutti.body.progettisti.map(p => p.name), ['Ing. Paolo Verdi']);
+  assert.equal(tutti.body.tiles.tutti, 3);
 });

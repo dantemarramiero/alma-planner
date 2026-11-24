@@ -19,7 +19,7 @@ import { gareTab, belowTab, radarTab, plansTab, openSignal } from './crm-radar.j
 import { launchRoom, mieiProgetti, crmProjectPage, touchBadges } from './crm-progetti.js';
 import { gareHub } from './crm-gare.js';
 import { soaCard, soaShort } from './crm-soa-card.js';
-import { progettistaCard, enteProgettistiCard, progettistaOpportunita } from './crm-progettisti.js';
+import { progettistaCard, enteProgettistiCard, progettistaOpportunita, progettistiAnagrafica } from './crm-progettisti.js';
 import { doppioniPage, dupBanner, dupLine, mergeDialog, conflictBox } from './crm-doppioni.js'; // canvas v15
 import { businessView } from './crm-business.js';
 import { esitiTab, relazioniTab } from './crm-esiti.js';
@@ -29,7 +29,7 @@ const TABS = [['settimana', 'La mia settimana'], ['lead', 'Lead'], ['clienti', '
 const ADMIN_TABS = ['asa', 'impostazioni'];
 const NO_FILTER_TABS = ['asa', 'impostazioni', 'settimana', 'gare', 'sottosoglia', 'radar', 'esiti', 'relazioni', 'prima', 'concorrenza'];
 const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' };
-const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner' };
+const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner', progettista: 'partner' };
 
 let data = null; // meta, ASA, le mie ASA, numeri
 // Tutti vedono tutto (13/11); i filtri partono dalle cose di ognuno e restano ricordati su questo computer.
@@ -448,14 +448,17 @@ const LIST_TITLE = { clienti: 'Clienti', fornitori: 'Fornitori', partner: 'Partn
 const PAGE = 50;
 async function subjectsTab(box, tab, again) {
   const role = ROLE_OF_TAB[tab] || '';
-  const sub = location.hash.split('/')[3] === 'concorrenti' && tab === 'partner' ? 'concorrenti' : tab; // «Partner e concorrenti»: due viste
+  const seg3 = (location.hash.split('/')[3] || '').split('?')[0];
+  const sub = tab === 'partner' && ['concorrenti', 'progettisti'].includes(seg3) ? seg3 : tab; // «Partner e concorrenti»: tre viste (ALM2-80: Progettisti)
   const state = { q: '', owner: ownerDefault(), fn: '', key: false, cat: '', role: '', soaCat: '', soaCls: '', soaValid: false, page: 0 };
   const list = h('div', loading());
   const lead = h('p.cv-sub');
   const newRole = sub === 'concorrenti' ? 'concorrente' : sub === 'partner' ? 'partner' : role;
   const c = data.counts;
   const switcher = seg([['clienti', 'Clienti', c.cliente || 0], ['lead', 'Lead', c.lead || 0], ['fornitori', 'Fornitori', c.fornitore || 0], ['partner', 'Partner', c.partner || 0],
-    ['concorrenti', 'Concorrenti', c.concorrente || 0], ['tutte', 'Tutte']], sub, k => { location.hash = k === 'concorrenti' ? '#/crm/partner/concorrenti' : `#/crm/${k}`; }, { label: 'Anagrafiche' });
+    ['concorrenti', 'Concorrenti', c.concorrente || 0], ['progettisti', 'Progettisti', c.progettista || 0], ['tutte', 'Tutte']], sub,
+    k => { location.hash = ['concorrenti', 'progettisti'].includes(k) ? `#/crm/partner/${k}` : `#/crm/${k}`; }, { label: 'Anagrafiche' });
+  if (sub === 'progettisti') return progettistiAnagrafica(box, { switcher }); // tavola Q: schede, «Vincono per…», nuovo progettista
   const extra = tab === 'fornitori' ? [select([['', 'Categoria'], ...Object.entries(data.meta.supplierCategories)], '', { 'aria-label': 'Categoria', on: { change: e => { state.cat = e.target.value; e.target.classList.toggle('on', Boolean(state.cat)); load(); } } })]
     : tab === 'partner' ? [ // canvas v14: SOA da ANAC e a mano
       select([['', 'Categoria SOA'], ...data.meta.soaCategories.map(([k]) => [k, k])], '', { 'aria-label': 'Categoria SOA', on: { change: e => { state.soaCat = e.target.value; e.target.classList.toggle('on', Boolean(state.soaCat)); state.page = 0; load(); } } }),
