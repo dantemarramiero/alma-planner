@@ -611,3 +611,6 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .rl-form { display: grid; gap: 10px; }
 .pv-tag.rl-from { justify-self: start; background: var(--cv-or-t); color: var(--cv-or-ink); }
 @media (max-width: 760px) { .rl-ppl { margin-left: 0; } .rl-mail { display: none; } }
+/* gate della direzione nel calendario (ALM2-79) */
+.pv-ev.gate { background: var(--cv-bl-t); border-color: transparent; color: var(--cv-bl); }
+.pv-legend .gate::before { background: var(--cv-bl-t); border-color: var(--cv-bl-t); }
