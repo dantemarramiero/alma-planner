@@ -795,23 +795,48 @@ function inlineField({ label, has, shown, control, save, full }) {
   const view = () => { if (closeInline === view) closeInline = null; fill(box, has
     ? h('span.an-val', shown, h('button.an-pen', { type: 'button', title: `Modifica ${name}`, 'aria-label': `Modifica ${name}`, on: { click: open } }, ic('pencil', 12)))
     : h('button.an-add', { type: 'button', 'aria-label': `Aggiungi ${name}`, on: { click: open } }, '+ Aggiungi')); };
-  function open() {
+  async function open() {
     if (full) return full();
     if (closeInline && closeInline !== view) closeInline();
     closeInline = view;
-    const el = control();
+    // control() dà un campo, oppure { el, get, focus } per i campi composti (es. elenco con ricerca)
+    const c = await control();
+    const ctl = c instanceof Element ? { el: c, get: () => c.value, focus: () => c.focus() } : c;
+    const long = ctl.el.tagName === 'TEXTAREA';
     const ok = h('button.btn.btn-primary.btn-sm', { type: 'button' }, 'Salva');
     const go = async () => {
       ok.disabled = true;
-      try { await save(el.value.trim()); } catch (err) { ok.disabled = false; if (err?.message) toast(err.message, 'err'); }
+      try { await save(String(ctl.get() ?? '').trim()); } catch (err) { ok.disabled = false; if (err?.message) toast(err.message, 'err'); }
     };
     ok.addEventListener('click', go);
-    el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } else if (e.key === 'Escape') { e.preventDefault(); view(); } });
-    fill(box, h('span.an-edit', el, ok, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: view } }, 'Annulla')));
-    el.focus();
+    ctl.el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (!long || e.ctrlKey || e.metaKey)) { e.preventDefault(); go(); } else if (e.key === 'Escape') { e.preventDefault(); view(); }
+    });
+    fill(box, h('span.an-edit', { class: long ? 'long' : '' }, ctl.el, ok, h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: view } }, 'Annulla')));
+    ctl.focus();
   }
   view();
   return box;
+}
+// Solo le SOA scritte a mano, in una finestra piccola (ALM2-88): quelle di ANAC arrivano da sole con la P.IVA
+function soaDialog(s, onSaved) {
+  const ed = soaEditor(s.soa?.length ? s.soa : [{}]); // vuota: una riga già pronta da compilare
+  const m = cvModal({
+    title: `SOA di ${s.short_name || s.name}`,
+    body: h('div', h('p.cv-small.cv-muted', { style: { margin: '0 0 10px' } }, 'Quelle di ANAC arrivano da sole con la P.IVA: qui scrivi solo quelle che ANAC non ha (es. un\'attestazione appena rilasciata).'), ed.el),
+    actions: [h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+      await patch(`/api/crm/subjects/${s.id}`, { soa: ed.value() });
+      m.close(); toast('SOA salvate'); onSaved?.();
+    } } }, 'Salva')],
+  });
+}
+// Elenco con ricerca (input + datalist): restituisce il valore della voce scelta, o '' se il testo non è nell'elenco
+function pickList(options, { label, placeholder, current = '' } = {}) {
+  const id = `pl-${Math.random().toString(36).slice(2, 8)}`;
+  const byText = new Map(options.map(([v, t]) => [t.toLowerCase(), v]));
+  const inp = input({ list: id, 'aria-label': label, placeholder: placeholder || 'Scrivi per cercare…', value: current });
+  const el = h('span.an-pick', inp, h('datalist', { id }, options.map(([, t]) => h('option', { value: t }))));
+  return { el, focus: () => inp.focus(), get: () => { const t = inp.value.trim(); return byText.get(t.toLowerCase()) ?? (t ? `\u0000${t}` : ''); } };
 }
 function anagraficaSections(s, refresh) {
   const web = s.web_fields || {};
@@ -843,7 +868,7 @@ function anagraficaSections(s, refresh) {
   };
   const val = (k, v) => {
     const w = web[k];
-    return inlineField({ label: LABEL[k] || k, has: Boolean(v), control: () => control(k), save: value => saveOne(k, value), full: k === 'soa' ? edit : null,
+    return inlineField({ label: LABEL[k] || k, has: Boolean(v), control: () => control(k), save: value => saveOne(k, value), full: k === 'soa' ? () => soaDialog(s, refresh) : null,
       shown: [h('b', v), w ? h('button.an-web', { type: 'button', title: `Preso da internet${w.source ? ` (${w.source})` : ''}: tocca per confermarlo`,
         on: { click: async () => { await post(`/api/crm/subjects/${s.id}/da-web/conferma`, { key: k }); toast('Dato confermato'); refresh(); } } }, 'da internet') : null] });
   };
@@ -1018,10 +1043,28 @@ function contactSections(c, primary, refresh) {
     const addr = [s.address, [s.zip, s.city].filter(Boolean).join(' '), s.province && `(${s.province})`].filter(Boolean).join(', ');
     fill(work, addr ? h('b', addr) : h('a.an-add', { href: `#/crm/scheda/${s.id}`, title: 'L’indirizzo è quello dell’azienda: completalo nella sua scheda' }, '+ Aggiungi nell’azienda'));
   }).catch(() => fill(work, h('b', '—')));
-  const workSec = sec('briefcase', 'Lavoro', [
-    ['Azienda', primary ? h('a', { href: `#/crm/scheda/${primary.subject_id}` }, primary.name) : ''],
-    ['Qualifica', primary?.job || ''],
-  ]);
+  // Azienda e qualifica stanno nei collegamenti del contatto: si riscrivono tutti, cambiando solo quello principale
+  const linkRows = () => (c.links || []).map(l => ({ subject_id: l.subject_id, job: l.job || '', is_primary: Boolean(l.is_primary), date_to: l.date_to || null }));
+  const saveLinks = async (links, what) => { await patch(`/api/crm/contacts/${c.id}`, { links }, { quiet: true }); toast(`Salvato: ${what}`); refresh(); };
+  controls.subject = async () => {
+    const { subjects } = await get('/api/crm/subjects');
+    return pickList(subjects.map(x => [x.id, x.city ? `${x.name} · ${x.city}` : x.name]), { label: 'Azienda', placeholder: 'Scrivi il nome dell’azienda…' });
+  };
+  controls.job = () => pickList(data.meta.contactJobs.map(j => [j, j]), { label: 'Qualifica', placeholder: 'Es. Titolare, Ufficio acquisti…', current: primary?.job || '' });
+  const saveWork = async (k, value) => {
+    if (k === 'subject') {
+      if (!value || value.startsWith('\u0000')) throw new Error('Scegli l’azienda dall’elenco (se non c’è, creala prima nel CRM)');
+      const rows = linkRows().filter(l => String(l.subject_id) !== String(value)).map(l => ({ ...l, is_primary: false }));
+      return saveLinks([{ subject_id: Number(value), job: '', is_primary: true, date_to: null }, ...rows], 'Azienda');
+    }
+    const job = value.replace(/^\u0000/, '');
+    return saveLinks(linkRows().map(l => (l.subject_id === primary.subject_id ? { ...l, job } : l)), 'Qualifica');
+  };
+  const workField = (label, v, k) => inlineField({ label, has: Boolean(v), shown: h('b', v), control: controls[k], save: value => saveWork(k, value),
+    full: k === 'subject' && primary ? edit : k === 'job' && !primary ? () => toast('Prima scegli l’azienda: la qualifica è il suo ruolo lì') : null });
+  const workSec = h('section.an-sec', h('div.an-sec-h', h('span.an-ic', ic('briefcase', 15)), h('b', 'Lavoro')), h('div.an-dl',
+    h('div', h('span', 'Azienda'), workField('Azienda', primary ? h('a', { href: `#/crm/scheda/${primary.subject_id}` }, primary.name) : '', 'subject')),
+    h('div', h('span', 'Qualifica'), workField('Qualifica', primary?.job || '', 'job'))));
   if (workRow) workSec.querySelector('.an-dl').append(workRow);
   return h('div.an-wrap', h('div.an-grid.c3',
     workSec,
@@ -1069,10 +1112,14 @@ async function overviewTab(box, s, base, go, people, refresh) {
   const r = s.roles;
   const kv = pairs => h('dl.cv-kv', pairs.filter(p => p && p[1] !== null && p[1] !== undefined && p[1] !== '' && p[1] !== '—').flatMap(([k, val]) => [h('dt', k), h('dd', val)]));
   const left = [await timelineCard(base, { onOpenTab: go })];
-  const soaBox = soaCard(s, { meta: data.meta, refresh, onEdit: () => subjectForm({ subject: s, onSaved: () => refresh() }) }); // canvas v14: SOA da ANAC
+  const soaBox = soaCard(s, { meta: data.meta, refresh, onEdit: () => soaDialog(s, () => refresh()) }); // canvas v14: SOA da ANAC; ALM2-88: solo le SOA
   if (soaBox) left.unshift(soaBox);
   if (r.includes('lead')) {
-    left.push(h('section.cv-card.pad', h('div.cv-lbl', 'Perché ci interessa'), s.lead_why ? h('p', s.lead_why) : emptyState('target', 'Due righe su cosa fa e cosa potremmo fare per lui.', link('Scrivile', { on: { click: () => subjectForm({ subject: s, onSaved: refresh }) } })),
+    // ALM2-88: «Perché ci interessa» si scrive sul posto, senza il modulo completo (Ctrl+Invio salva)
+    const why = inlineField({ label: 'Perché ci interessa', has: Boolean(s.lead_why), shown: h('p.an-why', s.lead_why),
+      control: () => textarea(s.lead_why, { 'aria-label': 'Perché ci interessa', rows: 3, maxlength: 1000, placeholder: 'Due righe su cosa fa e cosa potremmo fare per lui' }),
+      save: async value => { await patch(`/api/crm/subjects/${s.id}`, { lead_why: value }, { quiet: true }); toast('Salvato: Perché ci interessa'); refresh(); } });
+    left.push(h('section.cv-card.pad', h('div.cv-lbl', 'Perché ci interessa'), s.lead_why ? null : h('p.cv-small.cv-muted', { style: { margin: '0 0 6px' } }, 'Due righe su cosa fa e cosa potremmo fare per lui.'), why,
       kv([['Valore potenziale', s.potential_value ? `${eur(s.potential_value)} l'anno` : ''], ['Priorità', s.priority ? data.meta.priorities[s.priority] : ''], ['Segmento', s.segment], ['Origine', s.origin], ['Segnalato da', s.referred_by]])));
   }
   if (r.includes('cliente')) left.push(card({ title: 'Commesse e opportunità', right: pill('da BOSS', 'bl') }, emptyState('folder', 'Arriveranno da BOSS con il collegamento: commesse aperte e chiuse, opportunità e gare di questo cliente.')));

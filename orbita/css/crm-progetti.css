@@ -400,10 +400,16 @@ a.rk-run:hover { text-decoration: underline; }
 /* ALM2-88: campo singolo sul posto */
 .an-inl { display: block; min-width: 0; }
 .an-pen { border: 0; background: none; padding: 2px; border-radius: 6px; color: var(--cv-faint); cursor: pointer; opacity: 0; transition: opacity .12s; line-height: 0; }
-.an-dl > div:hover .an-pen, .an-pen:focus-visible { opacity: 1; }
+.an-dl > div:hover .an-pen, .an-inl:hover .an-pen, .an-pen:focus-visible { opacity: 1; }
 .an-pen:hover { color: #C25E0E; background: #FFF1E5; }
 @media (hover: none) { .an-pen { opacity: .7; } }
 .an-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.an-edit.long { align-items: flex-end; }
+.an-edit textarea.input { flex: 1 1 100%; height: auto; min-height: 72px; }
+.an-pick { display: flex; flex: 1 1 200px; min-width: 0; }
+.an-pick .input { flex: 1; }
+.an-why { margin: 0; white-space: pre-wrap; }
+.an-val .an-why + .an-pen { align-self: flex-start; }
 .an-edit .input, .an-edit .select { flex: 1 1 160px; min-width: 0; height: 32px; padding-top: 4px; padding-bottom: 4px; font-size: 13.5px; }
 .an-web { border: 0; border-radius: 999px; padding: 1px 8px; background: var(--cv-gr-t); color: var(--cv-gr); font: inherit; font-size: 11px; cursor: pointer; }
 .an-web:hover { box-shadow: inset 0 0 0 1px var(--cv-gr); }
