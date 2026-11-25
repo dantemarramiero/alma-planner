@@ -512,7 +512,8 @@ async function roleListTab(box, tab, again) {
   const sup = tab === 'fornitori';
   const role = sup ? 'fornitore' : 'cliente';
   const noun = sup ? 'fornitori' : 'clienti';
-  const state = { q: '', owner: ownerDefault(), fn: '', key: false, tile: '', alert: '', page: 0 };
+  const tipo = new URLSearchParams(location.hash.split('?')[1] || '').get('tipo') || ''; // dai menu di Alma Impianti
+  const state = { q: '', owner: ownerDefault(), fn: '', key: false, tile: !sup && CLIENT_GROUPS.some(([k]) => k === tipo) ? tipo : '', alert: '', page: 0 };
   const hero = h('div');
   const alerts = h('div');
   const content = h('div', loading());
