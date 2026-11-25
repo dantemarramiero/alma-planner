@@ -40,6 +40,8 @@ const { registerEnergy } = require('./routes/energy');
 const { registerBiglietti } = require('./routes/biglietti');
 const { registerCantieri, syncFromBoss } = require('./routes/cantieri');
 const { registerCrm } = require('./routes/crm');
+const { registerCondividi } = require('./routes/condividi');
+const { createFakeSender } = require('./lib/condividi');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmFonti } = require('./routes/crm-fonti');
 const { registerCrmSoa } = require('./routes/crm-soa');
@@ -118,7 +120,7 @@ function readConfig(env = process.env) {
   };
 }
 
-async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, triennaliFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, calendarioFake, postaVoceFake, postaVoceRealtime } = {}) {
+async function createApp(config, { db, confirmAccount, energyFetch, pushSender, crmFetchEvents, radarFetch, anacFetch, tedFetch, cupFetch, triennaliFetch, assistantClient, assistantRouter, almaMailer, almaMailReader, almaTranscriber, almaSpeaker, almaRealtime, postaFake, calendarioFake, postaVoceFake, postaVoceRealtime, condividiSender } = {}) {
   db = db || await createDb({ url: config.databaseUrl, dataDir: config.dataDir });
   await migrate(db);
   await backfillLags(db); // collegamenti del Gantt di prima della 016: prendono lo scarto che hanno oggi
@@ -281,6 +283,8 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerFleet(app, deps);
   registerEnergy(app, deps);
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
+  // «Condividi» ovunque (ALM2-87): avviso in Alma + Teams/email; in locale senza Microsoft l'invio è finto (nel terminale)
+  registerCondividi(app, { ...deps, sender: condividiSender || (!auth.msConfigured && config.devLogin && !process.env.NODE_TEST_CONTEXT ? createFakeSender() : null) });
   registerCrmScrivo(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createMailFake() : null }); // CRM: «Persone con cui mi scrivo» dalla propria posta
   registerImpianti(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createImpiantiMailFake() : null }); // Alma Impianti (ALM2-73): Da fare, Fondi, Progettisti
   const procurementFake = !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createProcurementFake({ autoReplyMs: process.env.NODE_TEST_CONTEXT ? 0 : 20000 }) : null;

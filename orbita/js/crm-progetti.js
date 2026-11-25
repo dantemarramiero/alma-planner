@@ -6,6 +6,7 @@ import { h, fill, toast, loading, fmtDate, initials, debounce, today, addDays, m
 import { get, post, api, del } from './api.js';
 import { store } from './store.js';
 import { ic } from './crm-v2.js';
+import { shareDialog } from './condividi.js';
 import { openTicket } from './tickets.js';
 import { projectDetail, editProject } from './projects.js';
 import { openMeeting, meetingWhen } from './project-meetings.js';
@@ -293,6 +294,7 @@ export async function crmProjectPage(container, id) {
     }, h('i'), h('span', label))));
     const actions = [
       h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
+      h('button.pv-ghost', { type: 'button', on: { click: () => shareDialog({ kind: 'projects', id }) } }, ic('share-2', 13), 'Condividi'), // ALM2-87
       canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, again) } }, ic('pencil', 13), 'Modifica') : null,
       member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: again }) } }, ic('plus', 13), 'Nuovo compito') : null];
     return dealHero({ info, deal, p, member, stepper, actions, reload: again, id });
@@ -330,6 +332,7 @@ export async function crmProjectPage(container, id) {
           inis(info.team.map(t => t.name), 5),
           h('div.pv-hero-act',
             h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
+            h('button.pv-ghost', { type: 'button', on: { click: () => shareDialog({ kind: 'projects', id }) } }, ic('share-2', 13), 'Condividi'), // ALM2-87
             canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, reload) } }, ic('pencil', 13), 'Modifica') : null,
             member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => { refreshInfo().then(reload); } }) } }, ic('plus', 13), 'Nuovo compito') : null))),
       stepper,

@@ -45,7 +45,7 @@ function registerCrmCompiti(app, { db, gov, notifier, subjectById, contactById, 
     if (blocked.length && !req.body?.anche_senza_crm) {
       throw Object.assign(new HttpError(409, `${blocked.map(u => u.name).join(', ')} non ${blocked.length === 1 ? 'vede' : 'vedono'} il CRM: ${blocked.length === 1 ? 'toglila' : 'toglile'} o chiedi alla direzione di dare il CRM`, 'senza_crm'), { extra: { blocked: blocked.map(u => u.id) } });
     }
-    await db.query(`INSERT INTO crm_shares (${t.col}, from_user, to_user, message) SELECT $1, $2, unnest($3::int[]), $4`, [t.id, req.user.id, ids, message]);
+    await db.query(`INSERT INTO crm_shares (${t.col}, kind, ref_id, from_user, to_user, message) SELECT $1, $5, $1, $2, unnest($3::int[]), $4`, [t.id, req.user.id, ids, message, req.params.target]); // schede aperte prima di ALM2-87
     res.status(201).json({ sent: ids.length });
     if (notifier) {
       notifier.notify({ userIds: ids, actorId: req.user.id, kind: 'crm', body: `ti ha condiviso ${t.name}${message ? `: «${message.slice(0, 160)}»` : ''}`, link: t.link })
