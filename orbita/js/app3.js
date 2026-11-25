@@ -214,6 +214,7 @@ export function openPlus() {
   const close = sheet(h('div.a3-plus',
     h('div.a3-sheet-head', h('h2', 'Cosa vuoi fare?'), h('button.a3-round', { type: 'button', 'aria-label': 'Chiudi', on: { click: () => close() } }, ic('x', 20))),
     h('a.a3-cfoto', { href: '#/cantieri/foto', on: { click: () => close() } }, h('span.a3-cfoto-ico', ic('camera', 22)), h('span.a3-cfoto-t', h('strong', 'Foto dal cantiere'), h('small', 'Va nella storia e nel diario del cantiere')), h('span', { 'aria-hidden': 'true' }, '›')),
+    contactOk ? h('button.a3-cfoto.rs-opp', { type: 'button', on: { click: async () => { close(); (await import('./radar-segnala.js')).newSignalDialog(null, null, { open: true }); } } }, h('span.a3-cfoto-ico', ic('radar', 22)), h('span.a3-cfoto-t', h('strong', 'Opportunità per il Radar'), h('small', 'Con foto e allegati, anche da far decidere a un collega')), h('span', { 'aria-hidden': 'true' }, '›')) : null,
     h('div.a3-grid2',
       contactOk ? big('Contatto o lead', 'Nome, azienda, telefono', 'user-plus', 'dark', () => contactSheet()) : null,
       contactOk ? big('Scansiona biglietto', 'Alma lo legge per te', 'scan-line', 'tint', () => { location.hash = '#/crm/scansiona'; }) : null,

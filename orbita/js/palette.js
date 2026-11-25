@@ -15,6 +15,7 @@ const ROLE = { lead: 'Lead', cliente: 'Cliente', fornitore: 'Fornitore', partner
 
 // azioni «Crea»: lettera, testo, chi le vede, cosa fanno
 const ACTIONS = [
+  { key: 'o', label: 'Nuova opportunità', sub: 'Nel Radar, con screenshot e allegati; puoi farla decidere a un collega', icon: 'radar', tone: 'o', crm: true, run: async () => (await import('./radar-segnala.js')).newSignalDialog(null, null, { open: true }) },
   { key: 'c', label: 'Nuovo contatto', sub: 'Nel CRM, con la sua azienda', icon: 'user-plus', tone: 'c', crm: true, run: async () => (await import('./crm.js')).newContact() },
   { key: 'm', label: 'Contatto dalla mia posta', sub: 'Persone con cui mi scrivo e non sono nel CRM', icon: 'mail', tone: 'c', crm: true, run: () => { location.hash = '#/crm/contatti/scrivo'; } },
   { key: 'a', label: 'Nuova azienda', sub: 'Lead, cliente, fornitore o partner', icon: 'building', tone: 'a', crm: true, run: async () => (await import('./crm.js')).newSubject() },

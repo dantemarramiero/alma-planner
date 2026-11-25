@@ -315,6 +315,7 @@ function registerCrmCommerciale(app, { db, subjectById, notifier, adminEmails, r
 
   const esiti = registerCrmEsiti(app, { db, subjectById }); // vinte e perse, chi conosciamo (16/11)
   const radar = registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmails, radarFetch, esiti });
+  app.locals.crmRadar = radar; // ALM2-94: promemoria di chi deve decidere (anche nei test)
   const concorrenza = registerCrmConcorrenza(app, { db, radar, anacFetch }); // concorrenza ANAC e prima del bando (17/11)
   app.locals.crmRadar = radar; // per chi crea segnali da fuori (OpenCUP, v16)
   return { syncNext, concorrenza };

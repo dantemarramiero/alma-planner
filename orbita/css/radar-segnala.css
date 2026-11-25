@@ -1,0 +1,87 @@
+/* ALM2-94 «Segnala un'opportunità» (canvas approvato da Dante il 25/11/2026, tavole S1–S4). Variabili --cv-* di crm-v2.css. */
+.modal.rs-dlg { max-width: 760px; }
+.rs-dlg.rs-drop { outline: 2px dashed var(--cv-orange); outline-offset: -8px; }
+.rs-eyebrow { color: var(--cv-or-ink); margin-bottom: 2px; }
+.modal.rs-dlg h2, .modal.rs-light h2 { font-weight: 300; }
+.modal.rs-dlg h2 b, .modal.rs-light h2 b { font-weight: 700; }
+.rs-form { gap: 18px; }
+
+/* «Cosa è successo»: testo e screenshot nello stesso riquadro */
+.rs-cosa { border: 1px solid var(--cv-line-strong); border-radius: 14px; padding: 12px 14px; display: grid; gap: 12px; background: var(--cv-card); transition: border-color .15s; }
+.rs-cosa:focus-within { border-color: var(--cv-orange); box-shadow: 0 0 0 1px var(--cv-orange); }
+.rs-cosa-in { border: 0; outline: none; resize: vertical; font: inherit; font-size: 15px; line-height: 1.45; color: var(--cv-text); padding: 0; background: transparent; min-height: 64px; }
+.rs-cosa .rs-cosa-in, .rs-cosa .rs-cosa-in:focus, .rs-cosa .rs-cosa-in:focus-visible { border: 0; box-shadow: none; outline: none; background: transparent; }
+.rs-shots { display: flex; gap: 10px; flex-wrap: wrap; }
+.rs-shot { margin: 0; width: 200px; border-radius: 10px; border: 1px solid var(--cv-line); overflow: hidden; background: var(--cv-card); }
+.rs-shot img { display: block; width: 100%; height: 112px; object-fit: cover; object-position: top; background: var(--cv-soft); }
+.rs-shot figcaption { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 10px; font-size: 12px; color: var(--cv-muted); }
+.rs-shot figcaption span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-shot figcaption button, .rs-doc button, .rs-x { border: 0; background: transparent; color: var(--cv-muted); padding: 4px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+.rs-shot figcaption button:hover, .rs-doc button:hover, .rs-x:hover { background: var(--cv-soft); color: var(--cv-text); }
+.rs-shot-hint { width: 200px; min-height: 140px; border-radius: 10px; border: 1.5px dashed var(--cv-line-strong); display: grid; place-items: center; align-content: center; gap: 6px;
+  color: var(--cv-muted); font-size: 12px; text-align: center; padding: 10px; box-sizing: border-box; }
+.rs-shot-hint b { color: var(--cv-text); font-weight: 500; }
+
+.rs-ent { display: flex; align-items: center; gap: 8px; }
+.rs-ent .input { flex: 1; min-width: 0; }
+
+/* allegati */
+.rs-docs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.rs-doc { height: 36px; padding: 0 4px 0 10px; border-radius: 10px; border: 1px solid var(--cv-line); background: var(--cv-card); display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cv-text); max-width: 100%; }
+.rs-doc small { color: var(--cv-muted); font-size: 12px; }
+.rs-doc-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.rs-ext { font-size: 10px; font-weight: 700; color: #fff; border-radius: 4px; padding: 2px 4px; letter-spacing: .02em; flex: none; }
+.rs-ext.rd { background: #C0392B; } .rs-ext.gr { background: #1F6A41; } .rs-ext.bl { background: #2F6FA3; } .rs-ext.pu { background: #6A4A96; } .rs-ext.gy { background: #6B6B6B; }
+.rs-attach { height: 36px; padding: 0 12px; border-radius: 10px; border: 1.5px dashed var(--cv-line-strong); background: var(--cv-card); color: var(--cv-or-ink); font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.rs-attach:hover { border-color: var(--cv-orange); }
+
+/* dettagli chiusi */
+.rs-det { border-radius: 12px; background: var(--cv-bg); padding: 10px 14px; }
+.rs-det summary { font-size: 13px; color: var(--cv-text-2); font-weight: 500; cursor: pointer; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.rs-det-sum { font-weight: 400; color: var(--cv-muted); }
+.rs-det-body { display: grid; gap: 14px; margin-top: 12px; }
+.rs-hr { border: 0; height: 1px; background: var(--cv-line); margin: 0; }
+
+/* chi deve decidere */
+.rs-ask { display: grid; gap: 10px; }
+.rs-ask-head, .rs-asks-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rs-ask-head b, .rs-asks-head b { font-size: 15px; font-weight: 500; color: var(--cv-ink); }
+.rs-ask-rest { display: grid; gap: 12px; }
+.rs-ask-rest[hidden] { display: none; }
+.rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rs-chan { height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--cv-line-strong); background: var(--cv-card); display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cv-text); cursor: pointer; }
+.rs-chan.on { border: 2px solid var(--cv-orange); background: var(--cv-or-t); padding: 0 11px; }
+.rs-chan input { width: 16px; height: 16px; accent-color: var(--cv-orange); margin: 0; }
+
+/* nel riquadro della segnalazione */
+.rs-mine { border-radius: 16px; background: var(--cv-or-t); padding: 14px 16px; display: grid; gap: 10px; }
+.rs-mine-t { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rs-mine-t b { font-weight: 500; color: var(--cv-ink); }
+.rs-mine-acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.rs-mine.done { display: flex; align-items: center; gap: 8px; background: var(--cv-bg); font-size: 13px; color: var(--cv-text-2); }
+.rs-quote { font-size: 13px; color: var(--cv-text-2); padding: 8px 10px; border-radius: 10px; background: var(--cv-bg); }
+.rs-mine .rs-quote { background: var(--cv-card); }
+.rs-asks, .rs-files { border-radius: 16px; border: 1px solid var(--cv-line); padding: 14px 16px; display: grid; gap: 12px; }
+.rs-asks .cv-lnk, .rs-files .cv-lnk { border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; font-size: 13px; display: inline-flex; gap: 4px; align-items: center; }
+.rs-who { display: flex; align-items: flex-start; gap: 10px; }
+.rs-who-b { flex: 1; min-width: 0; display: grid; gap: 6px; font-size: 14px; color: var(--cv-ink); }
+.rs-who-b small { font-size: 12px; }
+.rs-av { width: 30px; height: 30px; border-radius: 15px; color: #fff; font-size: 11px; display: grid; place-items: center; flex: none; }
+.rs-pill-dark { height: 26px; padding: 0 10px; border-radius: 999px; background: var(--cv-ink); color: var(--cv-card); font-size: 12px; display: inline-flex; align-items: center; flex: none; }
+.btn.rs-dark { background: var(--cv-ink); color: var(--cv-card); border-color: var(--cv-ink); }
+.rs-shots.big .rs-shot-v { position: relative; }
+.rs-shot-v img { display: block; width: 180px; height: 104px; object-fit: cover; object-position: top; border-radius: 10px; border: 1px solid var(--cv-line); background: var(--cv-soft); }
+.rs-shot-v .rs-x { position: absolute; top: 4px; right: 4px; background: var(--cv-card); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.rs-file { display: flex; align-items: center; gap: 6px; }
+.rs-file a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--cv-line); text-decoration: none; color: var(--cv-text); font-size: 14px; }
+.rs-file a:hover { border-color: var(--cv-line-strong); }
+
+/* «+ Nuovo»: Nuova opportunità in arancio pieno; nel «+» del telefono la riga in grafite (sotto «Foto dal cantiere») */
+.pal-plus.t-o { background: var(--cv-orange, #FF8A26); color: #fff; }
+.a3-cfoto.rs-opp { background: #2C2C2C; border: 0; width: 100%; text-align: left; font: inherit; cursor: pointer; }
+.a3-cfoto.rs-opp .a3-cfoto-t { flex: 1; min-width: 0; }
+
+@media (max-width: 760px) {
+  .rs-shot, .rs-shot-hint { width: calc(50% - 5px); }
+  .rs-dlg .cv-grid2 { grid-template-columns: minmax(0, 1fr); }
+}

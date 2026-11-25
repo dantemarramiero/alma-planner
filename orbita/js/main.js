@@ -355,6 +355,12 @@ async function route() {
       else if (isMobile() && parts[1] === 'scansiona') cleanup = (await scanPage(view, params)) || null;
       else if (parts[1] === 'persona') location.replace(`#/crm/contatti/${Number(parts[2]) || ''}`); // link del telefono aperto dal computer
       else if (parts[1] === 'scansiona') location.replace('#/crm/contatti/biglietti');
+      else if (parts[1] === 'segnale') { // ALM2-94: link da Teams, email e avvisi; ?decidi=tieni|scarta = la scelta già fatta
+        const id = Number(parts[2]) || 0;
+        const decideOpt = params.get('decidi');
+        location.replace('#/crm/radar');
+        if (id) setTimeout(async () => (await import('./crm-radar.js')).openSignal(id, null, store.crmData || null, [], { decide: decideOpt }), 400);
+      }
       else await crmView(view, parts);
       attachHelp(view); // «Come si usa»: il manuale della pagina (ALM2-72)
       break;

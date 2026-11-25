@@ -14,6 +14,7 @@ const { getSetting, saveSetting } = require('../lib/settings');
 const { draftTemplate, draftAI, moveFrom } = require('../lib/crm-primo-passo');
 const SEGUI = require('../lib/crm-segui-progettista');
 const IMP = require('../lib/impianti');
+const RS = require('../lib/radar-segnala'); // ALM2-94: messaggi Teams/email a chi deve decidere
 // filtri preferiti: quelli del Radar del CRM e quelli del Radar di Alma Impianti sono separati
 const filtriKey = (req, scope) => (scope === 'impianti' ? `crm.radar_filtri.impianti.${req.user.id}` : `crm.radar_filtri.${req.user.id}`);
 
@@ -60,7 +61,9 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
         bu === 'impianti' ? (IMP.SECTOR_KEYS.includes(sig.sector) ? sig.sector : IMP.sectorOf(sig.title, sig.summary, sig.why)) : '']);
     return row || null;
   }
-  const SELECT = `SELECT g.*, s.name AS subject_name, s.roles AS subject_roles, a.label AS bu_label, u.name AS decided_by_name
+  const SELECT = `SELECT g.*, s.name AS subject_name, s.roles AS subject_roles, a.label AS bu_label, u.name AS decided_by_name,
+                         (SELECT count(*)::int FROM crm_signal_asks k WHERE k.signal_id = g.id) AS asks_total,
+                         (SELECT count(*)::int FROM crm_signal_asks k WHERE k.signal_id = g.id AND k.decision <> '') AS asks_done
                     FROM crm_signals g LEFT JOIN crm_subjects s ON s.id = g.subject_id LEFT JOIN crm_asa a ON a.key = g.bu
                     LEFT JOIN users u ON u.id = g.decided_by`;
   async function signalById(id) {
@@ -213,7 +216,19 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       const { rows: subs } = ids.length ? await db.query('SELECT id, name FROM crm_subjects WHERE id = ANY($1::int[])', [ids]) : { rows: [] };
       g.designer.team = g.designer.team.map(w => ({ ...w, name: subs.find(x => x.id === w.subject_id)?.name || w.name }));
     }
-    res.json({ ...g, design, works, weights: c.settings.scoring.weights, discardReasons: c.settings.rules.discard_reasons });
+    // ALM2-94: screenshot e allegati, chi deve decidere; chi la apre e doveva decidere risulta «aperta»
+    await db.query(`UPDATE crm_signal_asks SET opened_at = now() WHERE signal_id = $1 AND user_id = $2 AND opened_at IS NULL`, [g.id, req.user.id]);
+    const [{ rows: files }, { rows: asks }] = await Promise.all([
+      db.query(`SELECT f.id, f.name, f.content_type, f.size, f.screenshot, f.added_by, u.name AS added_by_name, f.created_at
+                  FROM crm_signal_files f LEFT JOIN users u ON u.id = f.added_by WHERE f.signal_id = $1 ORDER BY f.id`, [g.id]),
+      db.query(`SELECT k.id, k.user_id, u.name, k.asked_by, b.name AS asked_by_name, k.message, k.due_on, k.teams, k.mail, k.error, k.decision, k.reason, k.note,
+                       k.opened_at, k.decided_at, k.reminded_at, k.created_at
+                  FROM crm_signal_asks k JOIN users u ON u.id = k.user_id LEFT JOIN users b ON b.id = k.asked_by WHERE k.signal_id = $1 ORDER BY k.id`, [g.id]),
+    ]);
+    const myAsk = asks.find(k => k.user_id === req.user.id) || null;
+    res.json({ ...g, design, works, weights: c.settings.scoring.weights, discardReasons: c.settings.rules.discard_reasons,
+      files, asks, my_ask: myAsk, can_decide: g.status === 'nuovo' && !g.to_gare && (req.crm.admin || c.myBus.includes(g.bu)),
+      can_ask: req.crm.admin || g.created_by === req.user.id || c.myBus.includes(g.bu) || Boolean(myAsk) });
   });
   // segnalazione a mano (anche dal telefono): passa dal punteggio come le altre
   app.post('/api/crm/radar/signals', async (req, res) => {
@@ -399,8 +414,12 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
     const c = await ctx(req);
     await decideCheck(req, g, c);
+    res.json(await doInteressa(req, g, c));
+  });
+  // Interessa: l'azienda nel CRM (nuovo lead se manca) e il piano proposto. Anche da «Tienila» di chi deve decidere (ALM2-94).
+  async function doInteressa(req, g, c, { subjectCheck = true } = {}) {
     let subjectId = g.subject_id || (req.body.subject_id ? v.int(req.body.subject_id, 'Azienda', { min: 1 }) : null);
-    if (subjectId) await subjectById(req, subjectId, { forWrite: true });
+    if (subjectId && subjectCheck) await subjectById(req, subjectId, { forWrite: true });
     else { // l'azienda non c'è: nuovo lead della BU, owner il responsabile
       const name = v.text(req.body.name || g.entity || g.title, 'Nome dell\'azienda', { max: 200, required: true });
       const { rows: [s] } = await db.query(
@@ -415,8 +434,8 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     if (move) await db.query('UPDATE crm_signals SET first_move = $2 WHERE id = $1', [g.id, JSON.stringify(move)]);
     let plan = await makePlan(subjectId, { signal: { ...g, subject_id: subjectId }, c, userId: req.user.id, move });
     if (req.body.approve) plan = await acceptPlan(plan, plan.steps, req.user.id);
-    res.json({ subject_id: subjectId, plan });
-  });
+    return { subject_id: subjectId, plan };
+  }
   app.post('/api/crm/radar/signals/:id/scarta', async (req, res) => {
     const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
     const c = await ctx(req);
@@ -426,6 +445,189 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
       [g.id, reason, v.text(req.body.note, 'Nota', { max: 2000 }) || '', req.user.id]);
     res.json({ ok: true });
   });
+  // ── ALM2-94 «Segnala un'opportunità»: screenshot e allegati, «Chi deve decidere» (Tienila / Scartala) ─────────────
+  const FILE_MAX = 20 * 1024 * 1024;
+  const FILES_PER_SIGNAL = 30;
+  const toBuffer = d => (Buffer.isBuffer(d) ? d : Buffer.from(d.buffer, d.byteOffset, d.byteLength));
+  const safeFilename = s => String(s || 'file').replace(/[\r\n"\\/]/g, '_').slice(0, 200);
+  app.post('/api/crm/radar/signals/:id/files', express.raw({ type: () => true, limit: FILE_MAX }), async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const name = v.text(String(req.query.name || ''), 'nome del file', { max: 200, required: true });
+    const type = String(req.query.type || 'application/octet-stream').toLowerCase().slice(0, 200);
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'File vuoto');
+    const { rows: [{ n }] } = await db.query('SELECT count(*)::int AS n FROM crm_signal_files WHERE signal_id = $1', [g.id]);
+    if (n >= FILES_PER_SIGNAL) throw new HttpError(400, `Al massimo ${FILES_PER_SIGNAL} file per segnalazione`);
+    const screenshot = req.query.screenshot === '1' && RS.INLINE_TYPES.includes(type);
+    const { rows: [f] } = await db.query(
+      `INSERT INTO crm_signal_files (signal_id, name, content_type, size, data, screenshot, added_by) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, content_type, size, screenshot, added_by, created_at`, [g.id, name, type, req.body.length, req.body, screenshot, req.user.id]);
+    res.status(201).json(f);
+  });
+  app.get('/api/crm/radar/files/:id', async (req, res) => {
+    const { rows: [f] } = await db.query('SELECT name, content_type, data FROM crm_signal_files WHERE id = $1', [v.int(req.params.id, 'file', { min: 1 })]);
+    if (!f) throw new HttpError(404, 'File non trovato');
+    const name = safeFilename(f.name);
+    // le immagini si vedono come anteprima (solo i tipi sicuri, mai svg); il resto si scarica
+    const inline = req.query.inline === '1' && RS.INLINE_TYPES.includes(f.content_type);
+    res.set({ 'Content-Type': inline ? f.content_type : 'application/octet-stream', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}` });
+    res.send(toBuffer(f.data));
+  });
+  app.delete('/api/crm/radar/files/:id', async (req, res) => {
+    const { rows: [f] } = await db.query('SELECT f.id, f.added_by, g.created_by FROM crm_signal_files f JOIN crm_signals g ON g.id = f.signal_id WHERE f.id = $1', [v.int(req.params.id, 'file', { min: 1 })]);
+    if (!f) throw new HttpError(404, 'File non trovato');
+    if (!req.crm.admin && f.added_by !== req.user.id && f.created_by !== req.user.id) throw new HttpError(403, 'Lo toglie chi l\'ha aggiunto');
+    await db.query('DELETE FROM crm_signal_files WHERE id = $1', [f.id]);
+    res.json({ ok: true });
+  });
+
+  const usersById = async ids => (await db.query('SELECT id, name, email, oid, suspended_at FROM users WHERE id = ANY($1::int[]) ORDER BY name', [ids])).rows;
+  const signalFiles = async id => (await db.query('SELECT id, name, content_type, size, screenshot, data FROM crm_signal_files WHERE signal_id = $1 ORDER BY id', [id])).rows;
+  // Teams ed email a un collega, a nome di chi chiede: un errore non ferma gli altri e resta scritto nella riga
+  async function sendAsk(req, { g, from, to, askId, message, dueOn, files, teams, mail }) {
+    const sender = req.app.locals.radarSender;
+    const baseUrl = req.app.locals.baseUrl || '';
+    const out = { teams: '', mail: '', errors: [] };
+    if (teams) {
+      try {
+        if (!sender) throw new HttpError(503, 'Microsoft 365 non è collegato ad Alma', 'ms_not_configured');
+        const t = RS.teamsMessage({ g, message, dueOn, files, baseUrl });
+        await sender.teams(from, to, t.html, { hosted: t.hosted, fallbackHtml: t.textOnly });
+        out.teams = 'ok';
+      } catch (err) { out.teams = 'errore'; out.errors.push(`Teams: ${reason(err)}`); }
+    }
+    if (mail) {
+      try {
+        if (!sender) throw new HttpError(503, 'Microsoft 365 non è collegato ad Alma', 'ms_not_configured');
+        const m = RS.mailMessage({ g, from, message, dueOn, files, baseUrl });
+        await sender.mail(from, to, m.subject, m.html, { attachments: m.attachments });
+        out.mail = 'ok';
+      } catch (err) { out.mail = 'errore'; out.errors.push(`Email: ${reason(err)}`); }
+    }
+    await db.query('UPDATE crm_signal_asks SET teams = $2, mail = $3, error = $4 WHERE id = $1', [askId, out.teams, out.mail, out.errors.join(' · ')]);
+    return out;
+  }
+  const reason = err => {
+    if (err?.code === 'reauth' || err?.status === 401) return 'Microsoft chiede di rientrare';
+    if (err?.code === 'ms_not_configured' || err?.status === 503) return 'Microsoft 365 non è collegato ad Alma';
+    return String(err?.message || 'errore di Microsoft 365').slice(0, 200);
+  };
+
+  // «Chi deve decidere»: uno o più colleghi; avviso in Alma sempre, Teams e/o email se scelti
+  app.post('/api/crm/radar/signals/:id/chiedi', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const c = await ctx(req);
+    const { rows: [mine] } = await db.query('SELECT id FROM crm_signal_asks WHERE signal_id = $1 AND user_id = $2', [g.id, req.user.id]);
+    if (!req.crm.admin && g.created_by !== req.user.id && !c.myBus.includes(g.bu) && !mine) throw new HttpError(403, 'Chiede chi l\'ha segnalata, chi deve decidere o il responsabile della BU');
+    const b = req.body || {};
+    const ids = [...new Set((Array.isArray(b.user_ids) ? b.user_ids : []).map(x => v.int(x, 'Collega', { min: 1 })))].filter(x => x !== req.user.id);
+    if (!ids.length) throw new HttpError(400, 'Scegli almeno un collega');
+    if (ids.length > 20) throw new HttpError(400, 'Al massimo 20 colleghi alla volta');
+    const message = v.text(b.message, 'Messaggio', { max: 1000 }) || '';
+    const dueOn = v.date(b.due_on || null, 'Rispondi entro');
+    const users = await usersById(ids);
+    if (users.length !== ids.length || users.some(u => u.suspended_at)) throw new HttpError(400, 'Collega non trovato');
+    const canSee = req.app.locals.radarCanSeeCrm || (async () => true);
+    const ok = await Promise.all(users.map(u => canSee(u)));
+    const blocked = users.filter((_, i) => !ok[i]);
+    if (blocked.length) {
+      const one = blocked.length === 1;
+      throw Object.assign(new HttpError(409, `${blocked.map(u => u.name).join(', ')} non ${one ? 'vede' : 'vedono'} il CRM e non ${one ? 'potrebbe' : 'potrebbero'} aprire la segnalazione: ${one ? 'toglilo' : 'toglili'} prima di mandarla`, 'senza_accesso'),
+        { extra: { blocked: blocked.map(u => u.id) } });
+    }
+    const [from] = await usersById([req.user.id]);
+    const files = await signalFiles(g.id);
+    const out = { sent: users.length, teams: { ok: 0, failed: [] }, mail: { ok: 0, failed: [] } };
+    for (const u of users) {
+      // chiesto di nuovo: messaggio e scadenza nuovi, la risposta già data resta
+      const { rows: [k] } = await db.query(
+        `INSERT INTO crm_signal_asks (signal_id, user_id, asked_by, message, due_on) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (signal_id, user_id) DO UPDATE SET asked_by = EXCLUDED.asked_by, message = EXCLUDED.message, due_on = EXCLUDED.due_on, reminded_at = NULL
+         RETURNING id`, [g.id, u.id, req.user.id, message, dueOn]);
+      if (notifier) {
+        await notifier.notify({ userIds: [u.id], actorId: req.user.id, kind: 'crm', body: `ti chiede di decidere: «${g.title.slice(0, 160)}»${message ? ` — ${message.slice(0, 160)}` : ''}`, link: `/crm/segnale/${g.id}` })
+          .catch(err => console.warn('[radar] avviso non inviato', err.message));
+      }
+      const r = await sendAsk(req, { g, from, to: u, askId: k.id, message, dueOn, files, teams: Boolean(b.teams), mail: Boolean(b.mail) });
+      if (r.teams === 'ok') out.teams.ok++; else if (r.teams) out.teams.failed.push({ id: u.id, name: u.name, error: r.errors.find(e => e.startsWith('Teams')) });
+      if (r.mail === 'ok') out.mail.ok++; else if (r.mail) out.mail.failed.push({ id: u.id, name: u.name, error: r.errors.find(e => e.startsWith('Email')) });
+    }
+    res.json(out);
+  });
+
+  // La risposta di chi deve decidere. Regola approvata (tavola S4): basta un «Tienila» → Interessa nella BU di chi la tiene;
+  // tutti «Scartala» → Scartate con i motivi; nessuno scarto automatico per chi non risponde.
+  app.post('/api/crm/radar/signals/:id/decidi', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const c = await ctx(req);
+    const { rows: [ask] } = await db.query('SELECT * FROM crm_signal_asks WHERE signal_id = $1 AND user_id = $2', [g.id, req.user.id]);
+    if (!ask) throw new HttpError(403, 'Non ti è stato chiesto di decidere su questa segnalazione');
+    const decision = v.oneOf(req.body.decision, 'Scelta', ['tieni', 'scarta']);
+    const why = decision === 'scarta' ? v.text(req.body.reason, 'Perché', { max: 120, required: true }) : '';
+    const note = v.text(req.body.note, 'Nota', { max: 2000 }) || '';
+    await db.query(`UPDATE crm_signal_asks SET decision = $2, reason = $3, note = $4, decided_at = now(), opened_at = COALESCE(opened_at, now()) WHERE id = $1`, [ask.id, decision, why, note]);
+    let outcome = 'registrata';
+    let plan = null;
+    let bu = g.bu;
+    if (g.status === 'nuovo' && !g.to_gare) {
+      if (decision === 'tieni') {
+        // la BU di chi la tiene (se ne guida una), altrimenti resta quella del radar
+        bu = c.myBus.includes(g.bu) ? g.bu : (c.myBus[0] || g.bu);
+        if (bu !== g.bu) await db.query('UPDATE crm_signals SET bu = $2 WHERE id = $1', [g.id, bu]);
+        req.body = { note };
+        plan = (await doInteressa(req, { ...g, bu }, c, { subjectCheck: false })).plan;
+        outcome = 'interessa';
+      } else {
+        const { rows: all } = await db.query(`SELECT k.decision, k.reason, k.note, u.name FROM crm_signal_asks k JOIN users u ON u.id = k.user_id WHERE k.signal_id = $1`, [g.id]);
+        if (all.every(k => k.decision === 'scarta')) {
+          await db.query(`UPDATE crm_signals SET status = 'scartato', discard_reason = $2, note = $3, decided_by = $4, decided_at = now() WHERE id = $1`,
+            [g.id, all[0].reason.slice(0, 120), all.filter(k => k.note).map(k => `${k.name}: ${k.note}`).join('\n').slice(0, 2000), req.user.id]);
+          outcome = 'scartata';
+        } else outcome = all.some(k => k.decision === 'tieni') ? 'registrata' : 'in_attesa';
+      }
+    }
+    if (notifier && ask.asked_by && ask.asked_by !== req.user.id) {
+      const verb = decision === 'tieni' ? 'ha tenuto' : 'ha scartato';
+      await notifier.notify({ userIds: [ask.asked_by], actorId: req.user.id, kind: 'crm',
+        body: `${verb} «${g.title.slice(0, 140)}»${why ? ` (${why})` : ''}${note ? `: «${note.slice(0, 160)}»` : ''}`, link: `/crm/segnale/${g.id}` })
+        .catch(err => console.warn('[radar] avviso non inviato', err.message));
+    }
+    const buLabel = bu ? (await db.query('SELECT label FROM crm_asa WHERE key = $1', [bu])).rows[0]?.label || bu : '';
+    res.json({ outcome, plan_id: plan?.id || null, bu: buLabel, was_decided: g.status !== 'nuovo' });
+  });
+
+  // «Ricordaglielo»: un avviso in più (e Teams, se la prima volta era partito su Teams)
+  app.post('/api/crm/radar/signals/:id/ricorda', async (req, res) => {
+    const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
+    const c = await ctx(req);
+    const userId = v.int(req.body.user_id, 'Collega', { min: 1 });
+    const { rows: [k] } = await db.query('SELECT * FROM crm_signal_asks WHERE signal_id = $1 AND user_id = $2', [g.id, userId]);
+    if (!k) throw new HttpError(404, 'A questo collega non è stato chiesto');
+    if (k.decision) throw new HttpError(409, 'Ha già risposto');
+    if (!req.crm.admin && k.asked_by !== req.user.id && g.created_by !== req.user.id && !c.myBus.includes(g.bu)) throw new HttpError(403, 'Lo ricorda chi ha chiesto');
+    await remindOne(req, g, k, req.user.id);
+    res.json({ ok: true });
+  });
+  async function remindOne(req, g, k, actorId) {
+    if (notifier) await notifier.notify({ userIds: [k.user_id], actorId, kind: 'crm', body: `promemoria: decidi su «${g.title.slice(0, 160)}»`, link: `/crm/segnale/${g.id}` }).catch(() => {});
+    if (req && k.teams === 'ok') {
+      const [from] = await usersById([actorId]);
+      const [to] = await usersById([k.user_id]);
+      await sendAsk(req, { g, from, to, askId: k.id, message: `Promemoria: ${k.message || 'ti chiedo di decidere su questa opportunità.'}`, dueOn: k.due_on, files: [], teams: true, mail: false })
+        .catch(() => {});
+      await db.query('UPDATE crm_signal_asks SET mail = $2 WHERE id = $1', [k.id, k.mail]); // sendAsk riscrive mail: si tiene quella della prima volta
+    }
+    await db.query('UPDATE crm_signal_asks SET reminded_at = now() WHERE id = $1', [k.id]);
+  }
+  // scaduta la data: un promemoria solo nell'avviso di Alma a chi non ha risposto (una volta)
+  async function remindDue() {
+    const { rows } = await db.query(
+      `SELECT k.*, g.title FROM crm_signal_asks k JOIN crm_signals g ON g.id = k.signal_id
+        WHERE k.decision = '' AND k.reminded_at IS NULL AND k.due_on IS NOT NULL AND k.due_on < $1::date AND g.status = 'nuovo' LIMIT 200`, [todayRome()]);
+    for (const k of rows) await remindOne(null, { id: k.signal_id, title: k.title }, k, k.asked_by);
+    return rows.length;
+  }
+
   app.post('/api/crm/radar/signals/:id/bu', async (req, res) => { // «Manda a un'altra BU»: punteggio rifatto con il suo profilo
     const g = await signalById(v.int(req.params.id, 'id', { min: 1 }));
     const c = await ctx(req);
@@ -701,6 +903,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     const t = setInterval(async () => {
       try {
         const hour = Number(new Date().toLocaleString('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }));
+        await remindDue().catch(err => console.warn('[radar] promemoria', err.message)); // ALM2-94: chi non ha risposto entro la data
         const settings = await loadSettings(db);
         if (hour !== settings.radar.run_hour || lastDay === todayRome()) return;
         lastDay = todayRome();
@@ -714,7 +917,7 @@ function registerCrmRadar(app, { db, subjectById, syncNext, notifier, adminEmail
     t.unref?.();
   }
 
-  return { addSignal, runRadar, runWatches: opts => SEGUI.runWatches(db, opts) };
+  return { addSignal, runRadar, remindDue, runWatches: opts => SEGUI.runWatches(db, opts) };
 }
 
 module.exports = { registerCrmRadar };

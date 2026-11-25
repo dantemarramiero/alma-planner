@@ -10,6 +10,7 @@ import { garaBox } from './crm-concorrenza.js';
 import { garaProgettisti } from './crm-progettisti.js';
 import { linksBox, touchBox, touchBadges } from './crm-progetti.js';
 import { regionPicker } from './crm-regioni-pick.js';
+import { newSignalDialog, askBanner, asksBox, filesBox, asksPill, decide } from './radar-segnala.js';
 const STAGE_LABEL = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Determina o avviso', vinta_altri: 'Vinta da altri' };
 
 const CHANNELS = { telefonata: 'Telefonata', email: 'Email', incontro: 'Incontro', sopralluogo: 'Sopralluogo', altro: 'Altro' };
@@ -62,8 +63,11 @@ export async function interessa(sig, onDone, { move = null, approve = false } = 
 }
 // Il segnale nel riquadro a destra: punteggio grande, titolo, fonte; tre fatti; il punteggio spiegato; chi conosciamo.
 // Le frecce passano al segnale prima e dopo dell'elenco da cui si è aperto.
-export async function openSignal(id, onDone, data, list = []) {
+export async function openSignal(id, onDone, data, list = [], opts = {}) {
   const g = await get(`/api/crm/radar/signals/${id}`);
+  // ALM2-94: dopo una risposta o un allegato il riquadro si riapre aggiornato (e l'elenco dietro anche)
+  const reopen = () => { m.close(); onDone?.(); openSignal(id, onDone, data, list); };
+  const pendingAsk = g.my_ask && !g.my_ask.decision && g.status === 'nuovo' && !g.to_gare;
   const parts = g.score_parts || {};
   let m;
   const done = () => { m.close(); onDone?.(); };
@@ -100,9 +104,12 @@ export async function openSignal(id, onDone, data, list = []) {
         h('button.btn.btn-sm.btn-ghost.cv-ico', { type: 'button', 'aria-label': 'Segnale prima', disabled: idx <= 0 || undefined, on: { click: () => move(-1) } }, ic('chevron-left', 15)),
         h('button.btn.btn-sm.btn-ghost.cv-ico', { type: 'button', 'aria-label': 'Segnale dopo', disabled: idx < 0 || idx >= list.length - 1 || undefined, on: { click: () => move(1) } }, ic('chevron-right', 15))) : null),
     body: h('div', { style: { display: 'grid', gap: '20px' } },
+      askBanner(g, reopen), // «X ti chiede di decidere»: Tienila / Scartala (ALM2-94)
       h('div.cv-facts', facts.map(([l, val, i]) => h('div.cv-fact', h('div.cv-row.cv-small.cv-muted', { style: { gap: '6px' } }, ic(i, 14), l), h('div.cv-t5', val)))),
       designTrail(g, () => m.close(), onDone), // dalla progettazione ai lavori (ALM2-76)
       g.summary ? h('div', h('div.cv-lbl', 'Cosa dice la notizia'), h('p', { style: { margin: '6px 0 0' } }, g.summary)) : null,
+      asksBox(g, reopen), // chi deve decidere, con le risposte (tavola S4)
+      filesBox(g, reopen), // screenshot e allegati
       h('div.cv-box.big', h('div.cv-row', h('div.cv-lbl.cv-grow', `Come si arriva a ${g.score}`), h('span.cv-small.cv-muted', 'pesi in Impostazioni')),
         PARTS.map(([k, l]) => [h('div.cv-part', h('span', l), h('span.cv-bar', h('i', { style: { width: `${g.weights?.[k] ? Math.round((100 * (parts[k] || 0)) / g.weights[k]) : 0}%` } })), h('b', `${parts[k] ?? 0}/${g.weights?.[k] ?? '—'}`)),
           why[k] ? h('div.cv-part-why.cv-small.cv-muted', why[k]) : null])),
@@ -113,16 +120,20 @@ export async function openSignal(id, onDone, data, list = []) {
       known,
       (() => { const wrap = h('div', { style: { display: 'grid', gap: '14px' } }); const lb = () => linksBox({ signal: g.id }, { title: 'Collegati a questa opportunità' }); let cur = lb(); wrap.append(touchBox({ signal: g.id }, { onChange: () => { const n = lb(); cur.replaceWith(n); cur = n; } }), cur); return wrap; })(),
       decided ? h('div.cv-soft.cv-small', `Deciso: ${({ interessa: 'Interessa', scartato: `scartato (${g.discard_reason})`, boss: 'portato su BOSS', gara_scartata: `gara scartata (${g.discard_reason})` })[g.status]} · ${dots([g.decided_by_name, day(g.decided_at)])}`) : null),
-    left: decided ? [] : g.to_gare ? [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta')]
+    left: decided ? [] : pendingAsk && !g.can_decide ? [] : g.to_gare ? [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta')]
       : [h('button.btn', { type: 'button', on: { click: () => discardDialog(g, g.discardReasons, done) } }, ic('x', 15), 'Scarta'), buSel],
     actions: decided ? [['interessa', 'boss'].includes(g.status) ? h('button.btn', { type: 'button', on: { click: () => { m.close(); registraEsito({ signal_id: g.id }, onDone); } } }, ic('trophy', 15), 'Registra esito') : null,
       g.project_id ? h('a.btn', { href: `#/crm/progetto/${g.project_id}`, on: { click: () => m.close() } }, ic('folder', 15), 'Apri il progetto')
         : g.status === 'interessa' ? h('a.btn.btn-primary', { href: `#/crm/lancio/s/${g.id}`, on: { click: () => m.close() } }, ic('rocket', 15), 'Porta avanti') : null,
       h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')]
+      : pendingAsk && !g.can_decide ? [h('button.btn', { type: 'button', on: { click: () => decide(g, 'scarta', reopen) } }, 'Scartala'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => decide(g, 'tieni', reopen) } }, ic('check', 15), 'Tienila')]
       : g.to_gare ? [h('button.btn.btn-primary', { type: 'button', on: { click: async () => { await post(`/api/crm/radar/signals/${g.id}/gare`, { action: 'boss' }); toast('Da portare su BOSS'); done(); } } }, 'Porta su BOSS')]
         : [h('button.btn', { type: 'button', on: { click: () => { const move = fm?.value(); m.close(); interessa(g, onDone, { move }); } } }, fm?.el ? 'Solo interessa' : [ic('check', 15), 'Interessa']),
           h('button.btn.btn-primary', { type: 'button', 'data-approve': '', hidden: true, on: { click: () => { const move = fm?.value(); m.close(); interessa(g, onDone, { move, approve: true }); } } }, ic('check', 15), 'Interessa e approva')],
   });
+  // dal messaggio Teams o dall'email: la scelta è già fatta, un passo solo (tavola S3)
+  if (pendingAsk && ['tieni', 'scarta'].includes(opts.decide)) setTimeout(() => decide(g, opts.decide, reopen), 150);
   const keys = e => { if (e.target.closest('input, textarea, select')) return; if (e.key === 'ArrowLeft') move(-1); if (e.key === 'ArrowRight') move(1); };
   m.box.addEventListener('keydown', keys);
   // probabilità di vittoria, chi conosciamo (strade calde) e primo passo pronto (canvas «v3 · Segnale», 16/11)
@@ -219,44 +230,14 @@ export function signalRow(sig, { highlight = 70, reasons, onChange, data, list =
     h('button.cv-sig-main', { type: 'button', on: { click: () => openSignal(sig.id, onChange, data, list) } },
       h('div.cv-sig-t.cv-clamp', sig.title),
       h('div.cv-sig-m', [sig.subject_name || sig.entity, sig.amount ? eur(sig.amount) : null, KIND_SHORT[sig.kind]].filter(Boolean).flatMap((x, i) => (i ? [h('i', '·'), x] : [x])),
-        weak ? [h('i', '·'), weak] : bu ? [h('i', '·'), pill(bu, 'line')] : null, dateFlag(sig))),
+        weak ? [h('i', '·'), weak] : bu ? [h('i', '·'), pill(bu, 'line')] : null, dateFlag(sig), sig.asks_total ? [h('i', '·'), asksPill(sig)] : null)),
     sig.status === 'nuovo' && !sig.to_gare ? h('div.cv-acts',
       h('button.btn.btn-sm.btn-ghost', { type: 'button', on: { click: () => discardDialog({ ...sig, to_gare: false }, reasons, onChange) } }, 'Scarta'),
       h('button.btn.btn-sm', { type: 'button', on: { click: () => interessa(sig, onChange) } }, ic('check', 14), weak ? 'Interessa lo stesso' : 'Interessa')) : null);
 }
 
-// Segnala un'occasione: tre campi; tipo, BU, importo e data si aprono con «Aggiungi dettagli»
-export function newSignalDialog(data, onDone) {
-  const titleIn = input({ placeholder: '«Rossi Logistica ottiene 8 M€ per un polo a San Salvo»', maxlength: 500, 'aria-label': 'Cosa è successo' });
-  const entity = input({ placeholder: 'Ente o azienda', maxlength: 300, 'aria-label': 'Ente o azienda', list: 'cv-subjects' });
-  const names = h('datalist', { id: 'cv-subjects' });
-  get('/api/crm/subjects').then(r => fill(names, r.subjects.slice(0, 2000).map(s => h('option', { value: s.name })))).catch(() => {});
-  const inCrm = h('span');
-  entity.addEventListener('input', () => fill(inCrm, [...names.children].some(o => o.value.toLowerCase() === entity.value.trim().toLowerCase()) ? pill('nel CRM', 'gr') : null));
-  const url = input({ type: 'url', placeholder: 'https://…', 'aria-label': 'Link alla fonte' });
-  const kind = select(Object.entries(KINDS).filter(([k]) => k !== 'gara'), 'notizia', { 'aria-label': 'Tipo' });
-  const bu = select([['', 'La sceglie il radar dal profilo'], ...data.asa.map(a => [a.key, a.label])], '', { 'aria-label': 'BU' });
-  const amount = input({ placeholder: 'es. 1.200.000', inputmode: 'decimal', 'aria-label': 'Importo (€)' });
-  const deadline = input({ type: 'date', 'aria-label': 'Quando' });
-  const summary = textarea('', { rows: 3, placeholder: 'Dettagli (facoltativi)', 'aria-label': 'Dettagli' });
-  const more = h('div', { hidden: true, style: { display: 'grid', gap: '16px' } }, h('div.cv-grid2', { style: { gap: '10px' } }, fld('Tipo', kind), fld('BU', bu)),
-    h('div.cv-grid2', { style: { gap: '10px' } }, fld('Importo (€)', amount), fld('Quando (gara o lavori)', deadline)), fld('Dettagli', summary));
-  const moreLink = link([ic('plus', 14), 'Aggiungi dettagli (tipo, BU, importo, data)'], { on: { click: () => { more.hidden = false; moreLink.hidden = true; } } });
-  const m = cvModal({
-    size: 'sm',
-    title: h('div', h('h2', 'Segnala un\'occasione'), h('div.cv-subh', 'Il radar sceglie la BU e calcola il punteggio.')),
-    body: h('div.en-form', fld('Cosa è successo', titleIn), h('label.cv-fld', h('span', 'Ente o azienda'), h('div.cv-row', { style: { gap: '8px' } }, entity, inCrm), names), fld('Link alla fonte', url), moreLink, more),
-    actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Annulla'),
-      h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
-        if (!titleIn.value.trim()) return toast('Scrivi cosa è successo', 'err');
-        const g = await post('/api/crm/radar/signals', { title: titleIn.value, entity: entity.value, kind: kind.value, bu: bu.value || null, amount: amount.value || null, deadline: deadline.value || null, url: url.value, summary: summary.value });
-        m.close();
-        toast(`Segnale salvato: punteggio ${g.score}${g.bu ? '' : ' (nessuna BU adatta)'}`);
-        onDone?.();
-      } } }, 'Salva il segnale')],
-  });
-  setTimeout(() => titleIn.focus(), 50);
-}
+// Segnala un'opportunità: rifatta con screenshot, allegati e «Chi deve decidere» (ALM2-94) in radar-segnala.js
+export { newSignalDialog };
 
 // ── piano d'azione (artboard «Piano»), nel riquadro laterale ─────────────────────────────────
 // Proposto: linea del tempo, referenze come pillole, passi come schede compatte (chi, come, con chi, data), bozza con

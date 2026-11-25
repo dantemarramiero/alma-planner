@@ -41,7 +41,7 @@ const { registerBiglietti } = require('./routes/biglietti');
 const { registerCantieri, syncFromBoss } = require('./routes/cantieri');
 const { registerCrm } = require('./routes/crm');
 const { registerCondividi } = require('./routes/condividi');
-const { createFakeSender } = require('./lib/condividi');
+const { createFakeSender, createGraphSender } = require('./lib/condividi');
 const { registerCrmBusiness } = require('./routes/crm-business');
 const { registerCrmFonti } = require('./routes/crm-fonti');
 const { registerCrmSoa } = require('./routes/crm-soa');
@@ -285,6 +285,10 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerCrm(app, deps); // CRM: lead, clienti, fornitori, partner, concorrenti e contatti, per ASA
   // «Condividi» ovunque (ALM2-87): avviso in Alma + Teams/email; in locale senza Microsoft l'invio è finto (nel terminale)
   registerCondividi(app, { ...deps, sender: condividiSender || (!auth.msConfigured && config.devLogin && !process.env.NODE_TEST_CONTEXT ? createFakeSender() : null) });
+  // «Segnala un'opportunità» (ALM2-94): stesso invio di Condividi, per chiedere «Tienila / Scartala» ai colleghi
+  app.locals.radarSender = auth.msConfigured ? createGraphSender({ auth }) : (condividiSender || (config.devLogin && !process.env.NODE_TEST_CONTEXT ? createFakeSender() : null));
+  app.locals.baseUrl = config.baseUrl;
+  app.locals.radarCanSeeCrm = async u => !u.suspended_at && (!deps.crmAccess || deps.crmAccess.canUse({ user: { id: u.id, email: u.email }, privacy: gov ? gov.levelsFor(u.email) : {}, method: 'GET' }));
   registerCrmScrivo(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createMailFake() : null }); // CRM: «Persone con cui mi scrivo» dalla propria posta
   registerImpianti(app, { ...deps, mailFake: !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createImpiantiMailFake() : null }); // Alma Impianti (ALM2-73): Da fare, Fondi, Progettisti
   const procurementFake = !auth.msConfigured && (config.devLogin || process.env.NODE_TEST_CONTEXT) ? createProcurementFake({ autoReplyMs: process.env.NODE_TEST_CONTEXT ? 0 : 20000 }) : null;
