@@ -123,7 +123,7 @@ const MODULES = [
   // Alma Impianti (ALM2-73): la BU Impianti sopra il CRM comune; chi vede il CRM vede anche questo
   { key: 'impianti', label: 'Alma Impianti', icon: 'factory', home: '#/impianti/home', can: () => Boolean(store.me.crm) },
   // Alma Procurement (ALM2-81): capitolato merci, fornitori, Chiedi ad Alma, richieste di quotazione; sopra il CRM comune
-  { key: 'procurement', label: 'Alma Procurement', icon: 'package', home: '#/procurement/home', can: () => Boolean(store.me.crm) },
+  { key: 'procurement', label: 'Alma Procurement', icon: 'package', home: '#/procurement/home', can: () => Boolean(store.me.procurement) },
   // Alma HR: griglia salary grade, mansionario e il mio percorso per tutti; persone, RAL e pannello solo al team HR
   { key: 'hr', label: 'Alma HR', icon: 'id-card', home: '#/hr/percorso', can: () => Boolean(store.me?.hr_on) }, // nascosto a tutti finché HR_ATTIVO non è 1
 ];

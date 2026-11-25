@@ -204,3 +204,16 @@ test('DDT di BOSS da file: merci proposte, aggiunte con i fornitori per P.IVA, o
   r = await U('GET', `${B}/fornitori?q=stradaioli`);
   assert.equal(r.body.suppliers[0].ddt.n, 1);
 });
+
+test('chi vede Alma Procurement: la lista di PROCUREMENT_UTENTI, di serie solo Dante', () => {
+  const old = { u: process.env.PROCUREMENT_UTENTI, t: process.env.NODE_TEST_CONTEXT, d: process.env.DEV_LOGIN };
+  try {
+    delete process.env.PROCUREMENT_UTENTI; delete process.env.NODE_TEST_CONTEXT; delete process.env.DEV_LOGIN;
+    assert.equal(R.canSee('Dante.Marramiero@almacis.it'), true);
+    assert.equal(R.canSee('acquisti@almacis.it'), false);
+    process.env.PROCUREMENT_UTENTI = 'dante.marramiero@almacis.it, acquisti@almacis.it';
+    assert.equal(R.canSee('acquisti@almacis.it'), true);
+  } finally {
+    for (const [k, val] of [['PROCUREMENT_UTENTI', old.u], ['NODE_TEST_CONTEXT', old.t], ['DEV_LOGIN', old.d]]) { if (val === undefined) delete process.env[k]; else process.env[k] = val; }
+  }
+});
