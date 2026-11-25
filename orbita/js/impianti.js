@@ -9,7 +9,7 @@ import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, choice
 import { stepDialog, doneDialog } from './crm-commerciale.js';
 import { shareDialog, markShareOpened, shareStrip } from './condividi.js';
 import { radarTab, openSignal, newSignalDialog, TILES } from './crm-radar.js';
-import { garaProgettisti } from './crm-progettisti.js';
+import { garaProgettisti, progettistaCard } from './crm-progettisti.js';
 
 const SECTORS = [['depurazione', 'Depurazione', '#0057B8'], ['fotovoltaico', 'Fotovoltaico', '#E0A400'], ['biometano', 'Biometano', '#2E8B57'], ['edilizia', 'Impianti in edilizia', '#7A5AF8'], ['efficientamento', 'Efficientamento', '#FF8A26']];
 const PHASES = [['greenfield', 'Da sviluppare'], ['autorizzato', 'Autorizzato (RTB)'], ['costruzione', 'In costruzione'], ['esercizio', 'In esercizio']];
@@ -55,7 +55,7 @@ async function daFarePage(box, { fresh = false } = {}) {
   const actionsOf = x => {
     const call = x.phone ? h('a.btn.btn-primary.btn-sm', { href: telHref(x.phone) }, ic('phone', 14), 'Chiama') : null;
     const write = x.email ? h('a.btn.btn-sm', { href: mailHref(x.email) }, ic('mail', 14), 'Scrivi') : null;
-    if (x.group === 'attesa') return [call, x.web_link ? h('a.btn.btn-sm', { href: x.web_link, target: '_blank', rel: 'noopener' }, ic('reply', 14), 'Riscrivi') : write,
+    if (x.group === 'attesa') return [call, h('button.btn.btn-sm', { type: 'button', on: { click: () => rewrite(x, () => again()) } }, ic('sparkles', 14), 'Riscrivi con Alma'),
       h('button.btn.btn-ghost.btn-sm', { type: 'button', on: { click: async () => { await post('/api/crm/impianti/dafare/ignora', { message_id: x.message_id }); toast('Non te lo ricordo più'); again(); } } }, 'Lascia stare')];
     if (x.group === 'oggi' || x.group === 'ritardo') return [call || write,
       h('button.btn.btn-sm', { type: 'button', on: { click: () => doneDialog({ id: x.step_id, title: x.title, subject_name: x.subject_name }, { onSaved: () => again() }) } }, ic('check', 14), 'Fatto'),
@@ -160,6 +160,10 @@ async function fundDrawer(box, id, refresh) {
       h('div', h('b', x.title), h('div.im-sub', dots([x.entity, eur(x.amount), x.region, x.reasons.join(', ')]))),
       h('button.btn.btn-sm', { type: 'button', on: { click: () => openSignal(x.id, refresh, store.crmData || {}) } }, 'Apri'))))
       : h('p.im-sub', m ? 'Nessun progetto del radar Impianti combacia adesso.' : '—'),
+    h('div.im-sec-l', 'Cosa ha fatto di recente'),
+    r.recent?.length ? h('div.im-ledger', r.recent.map(x => h('div.im-hist', h('span.im-sub.im-nw', fmtDate(String(x.created_at).slice(0, 10))),
+      h('span', x.url ? h('a', { href: x.url, target: '_blank', rel: 'noopener' }, x.title) : x.title, x.bu === 'energy' ? h('span.im-sub', ' · Alma Energy') : null))))
+      : h('p.im-sub', 'Nessuna notizia nel radar su questo fondo. Le portano i giri notturni del radar e di Alma Energy.'),
     h('div.im-dr-acts',
       h('button.btn.btn-primary', { type: 'button', on: { click: () => mandateDialog(id, m, refresh) } }, m ? 'Modifica il mandato' : 'Compila il mandato'),
       h('button.btn', { type: 'button', on: { click: () => stepDialog({ subjectId: id, subjectName: f.name, onSaved: refresh }) } }, 'Nuovo compito'),
@@ -221,7 +225,8 @@ async function progettistiPage(box, openId) {
   const rows = shown.length ? shown.map(p => {
     const tot = p.dato + p.ricevuto || 1;
     return h('div.im-pr', { class: p.id === sel ? 'on' : '', tabIndex: 0, on: { click: () => again(p.id), keydown: e => { if (e.key === 'Enter') again(p.id); } } },
-      h('div', h('b', p.name), h('div.im-sub', dots([p.city || p.province, p.contact?.name, `ultimo contatto ${ago(p.last_contact)}`]))),
+      h('div', h('b', p.name), h('div.im-sub', dots([p.city || p.province, p.contact?.name, `ultimo contatto ${ago(p.last_contact)}`])),
+        p.sectors?.length ? h('div.im-tags', p.sectors.map(k => h('span.cv-pill.line', secDot(k), sectorName(k)))) : null),
       h('div.im-recip', h('span.im-recip-bar', h('i.dato', { style: { width: `${Math.round(p.dato / tot * 100)}%` } }), h('i.ric', { style: { width: `${Math.round(p.ricevuto / tot * 100)}%` } })),
         h('span.im-sub', `${p.dato} dati · ${p.ricevuto} ricevuti`)),
       pill(p.state_label, EX_TONE[p.state]));
@@ -251,6 +256,7 @@ async function progDrawer(box, p, refresh) {
       h('span', h('b', x.title), x.note ? h('div.im-sub', x.note) : null), h('span.im-sub.im-nw', fmtDate(x.happened_on)),
       h('button.btn.btn-ghost.btn-sm.cv-ico', { type: 'button', 'aria-label': 'Togli', title: 'Togli', on: { click: async () => { if (await confirmDialog('Togliere questo scambio?', { ok: 'Togli', danger: true })) { await del(`/api/crm/impianti/scambi/${x.id}`); refresh(); } } } }, ic('x', 14)))))
       : h('p.im-sub', 'Nessuno scambio registrato. Quando ci porta un lavoro, o glielo portiamo noi, scrivilo qui.'),
+    progettistaCard({ vat: p.vat, tax_code: p.tax_code }),
     h('div.im-dr-acts',
       h('button.btn.btn-primary', { type: 'button', on: { click: () => exchangeDialog(p, refresh) } }, ic('plus', 14), 'Registra uno scambio'),
       h('button.btn', { type: 'button', on: { click: () => stepDialog({ subjectId: p.id, subjectName: p.name, onSaved: refresh }) } }, 'Nuovo compito'),
@@ -550,4 +556,15 @@ function findFundsDialog(onDone) {
     body: h('div.en-form', h('div.cv-row', { style: { gap: '8px', flexWrap: 'wrap' } }, sector, region, go), out,
       h('p.cv-hint', 'Alma propone, tu scegli: si aggiungono solo quelli spuntati, come lead col tipo «Fondo o investitore» e il mandato che ha trovato (poi lo correggi). Ogni ricerca costa pochi centesimi sul budget del radar Impianti.')),
     actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'), add] });
+}
+
+// «Riscrivi con Alma»: apre l'email senza risposta nel riquadro di scrittura della Posta, in risposta; «Scrivi con Alma» lì
+// prepara il sollecito col tono che usi con quella persona (ALM2-61). Mandata o chiusa, la lista si aggiorna.
+async function rewrite(x, onDone) {
+  const e = await get(`/api/crm/posta/${encodeURIComponent(x.message_id)}`).catch(() => null);
+  if (!e) return toast('Non riesco ad aprire l\'email: prova da Posta', 'err');
+  const { openComposer } = await import('./crm-posta-scrivi.js');
+  const box = h('div.im-compose');
+  const m = cvModal({ size: 'md', drawer: true, title: h('div', h('h2', 'Riscrivi con Alma'), h('div.cv-subh', dots([x.who, x.org, `«${x.mail_subject}»`]))), body: box, actions: [] });
+  await openComposer(box, { mode: 'rispondi', e, onClose: () => m.close(), onSent: () => { m.close(); toast('Mandata: te lo ricordo solo se non risponde di nuovo'); onDone?.(); } });
 }

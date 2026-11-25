@@ -16,7 +16,7 @@ import { screeningView } from './energy-screening.js';
 import { opportunityPage } from './energy-opportunity.js';
 import { ownerChip, ownerPicker, assignOwners, takeButtons } from './energy-owner.js';
 
-const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['analisi', 'Analisi economico-finanziarie'], ['radar', 'Radar energia'], ['clienti', 'Clienti e contatti'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
+const TABS = [['panoramica', 'Panoramica'], ['ppa', 'PPA on-site'], ['revamping', 'Revamping'], ['fv', 'FV classico'], ['target', 'Progetti selezionati'], ['database', 'Database CE'], ['simulatore', 'Simulatore'], ['analisi', 'Analisi economico-finanziarie'], ['radar', 'Radar energia'], ['clienti', 'Fondi, energivori, progettisti'], ['modelli', 'Modelli di iter'], ['parametri', 'Parametri dei tier'], ['screening', 'Screening per provincia'],
   ['opportunita', 'Tutte le opportunità'], ['aziende', 'Aziende'], ['persone', 'Persone'], ['membri', 'Membri']];
 const PIPELINE_TABS = { ppa: 'ppa_onsite', revamping: 'revamping', fv: 'fv_classico' };
 
@@ -52,6 +52,11 @@ export async function energyView(container, parts = []) {
   if (!store.me.energy) return fill(container, h('div.card.empty', 'Alma Energy è riservato alla BU Energy.'));
   // «Vicino a me» sul telefono (app 2.0, 13/11): mappa e opportunità intorno a dove sei
   if (parts[1] === 'vicino') return (await import('./energy-near.js')).nearView(container, new URLSearchParams(location.hash.split('?')[1] || ''));
+  // ALM2-89: CRM Energy = le pagine del CRM centrale (Posta, Lead, Clienti, Partner, Contatti, schede) con l'area fissa su Energy
+  if (parts[1] === 'crm' || parts[1] === 'posta') {
+    const { crmView } = await import('./crm.js');
+    return crmView(container, parts[1] === 'posta' ? ['crm', 'posta', ...parts.slice(2)] : ['crm', ...parts.slice(2)], { lock: { asa: 'energy', label: 'Alma Energy', eyebrow: 'CRM Energy' } });
+  }
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
   // la pagina di un'opportunità ha la sua intestazione, come i progetti (ALM2-24)
   // la scheda di un'analisi ha la sua intestazione (ALM2-74 tappa 2)

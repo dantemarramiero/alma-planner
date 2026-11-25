@@ -245,7 +245,10 @@ function registerImpianti(app, { db, auth, mailFake, radarFetch }) {
     const matches = m ? matchesOf(m, signals).slice(0, 12).map(({ g, fit }) => ({ id: g.id, title: g.title, entity: g.subject_name || g.entity, amount: g.amount, region: g.region,
       sector: g.sector, sector_label: I.sectorLabel(g.sector), status: g.status, score: fit.score, reasons: fit.reasons })) : [];
     const [contacts, last] = await Promise.all([mainContacts([id]), lastContacts([id])]);
-    res.json({ fund: { ...s, contact: contacts[id] || null, last_contact: last[id] || null }, mandate: mandateOut(m), matches });
+    // cosa ha fatto di recente: segnali del radar (anche quelli «fondo» di Alma Energy) legati al fondo
+    const { rows: recent } = await db.query(`SELECT id, title, url, source, bu, created_at FROM crm_signals
+      WHERE (subject_id = $1 OR fund_id = $1) AND status <> 'scartato' ORDER BY COALESCE(published_on, created_at::date) DESC, id DESC LIMIT 5`, [id]);
+    res.json({ fund: { ...s, contact: contacts[id] || null, last_contact: last[id] || null }, mandate: mandateOut(m), matches, recent });
   });
   app.put('/api/crm/impianti/fondi/:id/mandato', async (req, res) => {
     const id = v.int(req.params.id, 'fondo', { min: 1 });
@@ -286,7 +289,10 @@ function registerImpianti(app, { db, auth, mailFake, radarFetch }) {
   app.get('/api/crm/impianti/progettisti', async (req, res) => {
     const cfg = await settings();
     const { rows } = await db.query(`
-      SELECT s.id, s.name, s.city, s.province, s.region, s.asa, u.name AS owner_name,
+      SELECT s.id, s.name, s.city, s.province, s.region, s.asa, s.vat, s.tax_code, u.name AS owner_name,
+             -- settori: dalle opportunità in cui progetta e dai segnali degli scambi
+             ARRAY(SELECT DISTINCT g.sector FROM crm_signals g WHERE g.sector <> '' AND (g.designer_id = s.id
+                     OR g.id IN (SELECT x2.signal_id FROM crm_exchanges x2 WHERE x2.subject_id = s.id AND x2.signal_id IS NOT NULL))) AS sectors,
              COALESCE(x.dato, 0)::int AS dato, COALESCE(x.ricevuto, 0)::int AS ricevuto
         FROM crm_subjects s LEFT JOIN users u ON u.id = s.owner_id
         LEFT JOIN (SELECT subject_id, COUNT(*) FILTER (WHERE direction = 'dato') AS dato, COUNT(*) FILTER (WHERE direction = 'ricevuto') AS ricevuto

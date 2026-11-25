@@ -288,7 +288,7 @@ export function trashButton(t, onDone) {
 
 // Campanella nell'elenco, nella bacheca e sul telefono: con un clic manda il promemoria con il testo già pronto agli assegnati
 // (se non ce ne sono, a chi ha creato il ticket), senza aprire il ticket. Testo diverso: dal ticket.
-function remindButton(t) {
+export function remindButton(t) {
   if (t.status === 'done') return null;
   const others = (t.assignee_ids || []).filter(id => id !== store.me.id);
   if (!others.length && (!t.created_by || t.created_by === store.me.id)) return null; // nessuno a cui mandarlo

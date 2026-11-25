@@ -2,12 +2,12 @@
 // «Porta avanti», «I miei progetti», «Il progetto»). Il progetto è un progetto vero di Alma Space: la scheda usa
 // projectDetail con la testata scura del CRM e i tab Panoramica · Compiti · Relazioni · Incontri · Calendario · Note ·
 // Gantt · Rendiconto · Documenti (più Email e Membri in fondo).
-import { h, fill, toast, loading, fmtDate, initials, debounce, today, addDays, modal } from './ui.js';
+import { h, fill, toast, loading, fmtDate, initials, debounce, today, addDays, modal, confirmDialog } from './ui.js';
 import { get, post, api, del } from './api.js';
 import { store } from './store.js';
 import { ic } from './crm-v2.js';
 import { shareDialog } from './condividi.js';
-import { openTicket } from './tickets.js';
+import { openTicket, trashButton, remindButton, canDeleteTicket } from './tickets.js';
 import { projectDetail, editProject } from './projects.js';
 import { openMeeting, meetingWhen } from './project-meetings.js';
 import { loadDeal, dealHero, dealOverview } from './crm-posta.js';
@@ -399,19 +399,60 @@ function weekStrip(tickets, meetings, p, offset = 0, { compact = false, extra = 
   }));
 }
 
+// Bacheca dei compiti del progetto. Nella versione intera (senza max, ALM2-85): campanella e cestino su ogni scheda,
+// casella «seleziona tutti» in testa a ogni colonna e barra «Elimina selezionati» (solo i compiti che posso cancellare).
 export function taskBoard(tickets, p, onChange, { max = 0, drag = false, origin = false } = {}) {
   const cols = [['todo', 'Da fare', t => t.status === 'todo'], ['doing', 'In corso', t => t.status === 'doing' || t.status === 'review'], ['done', 'Fatti', t => t.status === 'done']];
-  return h('div.pv-board', cols.map(([k, label, f]) => {
+  const tools = !max;
+  const picked = new Set();
+  const boxes = []; // [ticket, casella] per ridisegnare lo stato senza rifare la bacheca
+  const colBoxes = [];
+  const bar = h('div.bulk-bar.pv-bulk', { hidden: true });
+  const paintPick = () => {
+    for (const [t, b] of boxes) { b.checked = picked.has(t.id); b.closest('.pv-bcard')?.classList.toggle('picked', b.checked); }
+    for (const [list, b] of colBoxes) b.checked = list.length > 0 && list.every(t => picked.has(t.id));
+    bar.hidden = !picked.size;
+    fill(bar, h('strong', `${picked.size} ${picked.size === 1 ? 'compito selezionato' : 'compiti selezionati'}`), h('span.grow'),
+      h('button.btn.btn-sm', { type: 'button', on: { click: () => { picked.clear(); paintPick(); } } }, 'Annulla selezione'),
+      h('button.btn.btn-danger.btn-sm', { type: 'button', on: { click: deletePicked } }, ic('trash', 15), 'Elimina selezionati'));
+  };
+  async function deletePicked() {
+    const n = picked.size;
+    if (!await confirmDialog(`Eliminare ${n} ${n === 1 ? 'compito' : 'compiti'}? Non si può annullare.`, { ok: 'Elimina', danger: true })) return;
+    const r = await post('/api/tickets/delete', { ids: [...picked] });
+    picked.clear();
+    toast(`${r.deleted.length} ${r.deleted.length === 1 ? 'compito eliminato' : 'compiti eliminati'}${r.skipped.length ? `, ${r.skipped.length} non eliminabili` : ''}`, r.skipped.length ? 'err' : 'ok');
+    onChange?.();
+  }
+  const board = h('div.pv-board', cols.map(([k, label, f]) => {
     const list = tickets.filter(f).sort((a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')));
     const shown = max ? (k === 'done' ? list.slice().reverse().slice(0, max - 1) : list.slice(0, max)) : list;
+    const pickable = tools ? list.filter(canDeleteTicket) : [];
+    let colBox = null;
+    if (pickable.length) {
+      colBox = h('input', { type: 'checkbox', 'aria-label': `Seleziona tutti i compiti «${label}» che puoi eliminare`, title: `Seleziona tutti i compiti «${label}»`,
+        on: { change: e => { for (const t of pickable) { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); } paintPick(); } } });
+      colBoxes.push([pickable, colBox]);
+    }
     const col = h('div.pv-bcol', { class: k },
-      h('div.pv-row', h('b.pv-grow', label), h('small', String(list.length))),
-      shown.map(t => h('button.pv-bcard', { type: 'button', draggable: drag ? 'true' : undefined, 'data-id': String(t.id),
-        on: { click: () => openTicket(t.id, { onSaved: onChange }), dragstart: e => { e.dataTransfer.setData('text/plain', String(t.id)); e.currentTarget.classList.add('drag'); }, dragend: e => e.currentTarget.classList.remove('drag') } },
-        h('span.pv-bcard-t', t.title),
+      h('div.pv-row', colBox ? h('label.pv-colpick', colBox, h('b', label)) : h('b', label), h('span.pv-grow'), h('small', String(list.length))),
+      shown.map(t => {
+        const open = () => openTicket(t.id, { onSaved: onChange });
+        let box = null;
+        if (tools && canDeleteTicket(t)) {
+          box = h('input.pv-pick', { type: 'checkbox', 'aria-label': `Seleziona «${t.title}»`,
+            on: { click: e => e.stopPropagation(), change: e => { if (e.target.checked) picked.add(t.id); else picked.delete(t.id); paintPick(); } } });
+          boxes.push([t, box]);
+        }
+        const acts = tools ? h('span.t-acts', remindButton(t), trashButton(t, onChange)) : null;
+        return h('div.pv-bcard', { role: 'button', tabindex: '0', draggable: drag ? 'true' : undefined, 'data-id': String(t.id),
+          on: { click: open, keydown: e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } },
+            dragstart: e => { e.dataTransfer.setData('text/plain', String(t.id)); e.currentTarget.classList.add('drag'); }, dragend: e => e.currentTarget.classList.remove('drag') } },
+        tools ? h('span.pv-bcard-top', box, h('span.pv-bcard-t', t.title), acts) : h('span.pv-bcard-t', t.title),
         origin && /^Piano · /.test(t.description || '') ? h('span.pv-tag.rl-from', 'Piano') : origin && /^Fase \d/.test(t.description || '') ? h('span.pv-tag.rl-from', 'Lancio') : null,
         h('span.pv-row', inis((t.assignee_ids || []).map(userName).filter(Boolean), 3), h('span.pv-grow'),
-          t.due_date ? h('small', { class: t.status !== 'done' && t.due_date < today() ? 'late' : '' }, day(t.due_date)) : null))),
+          t.due_date ? h('small', { class: t.status !== 'done' && t.due_date < today() ? 'late' : '' }, day(t.due_date)) : null));
+      }),
       max && list.length > shown.length ? h('small.pv-more', `e altri ${list.length - shown.length}`) : null,
       !list.length ? h('p.pv-empty', k === 'done' ? 'Ancora niente.' : 'Niente qui.') : null);
     if (drag) {
@@ -428,6 +469,9 @@ export function taskBoard(tickets, p, onChange, { max = 0, drag = false, origin 
     }
     return col;
   }));
+  if (!tools) return board;
+  paintPick();
+  return h('div.pv-boardwrap', bar, board);
 }
 
 function meetingList(list, p, onChange) {

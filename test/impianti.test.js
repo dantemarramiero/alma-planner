@@ -305,3 +305,14 @@ test("Trova fondi con Alma: proposte, già nel CRM, aggiungi solo i scelti col m
   const { rows: [sp] } = await db.query("SELECT eur FROM crm_radar_spend WHERE bu = $1", ["impianti"]);
   assert.ok(Number(sp.eur) > 0, "la ricerca si conta sul budget del radar Impianti");
 });
+
+test("rifiniture: settori del progettista dalle opportunità, novità del fondo", async () => {
+  const { rows: [des] } = await db.query("SELECT id FROM crm_subjects WHERE name = 'Hydro Progetti Test'");
+  const list = await U("GET", "/api/crm/impianti/progettisti");
+  const row = list.body.progettisti.find(x => x.id === des.id);
+  assert.deepEqual(row.sectors, ["biometano"], "progetta il biometano di Lucera");
+  assert.ok("vat" in row && "tax_code" in row);
+  const { rows: [fund] } = await db.query("SELECT id FROM crm_subjects WHERE name = 'Fondo Verde Test'");
+  const one = await U("GET", `/api/crm/impianti/fondi/${fund.id}`);
+  assert.ok(one.body.recent.some(x => x.title.startsWith("Biometano 500")), "l opportunità in cui finanzia è tra le novità");
+});
