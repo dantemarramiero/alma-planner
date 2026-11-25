@@ -132,7 +132,9 @@ test('email suggerite da Alma (solo mie, entrano col mio sì) e persone spuntate
   assert.ok(emails.some(e => e.subject === 'Preventivo raffrescamento'));
   // ricollegando l'azienda, Rossi (che è nelle email del progetto) si spunta da solo
   await D('DELETE', '/api/crm/collegamenti', { project: pid, subject_id: studio.id });
-  const out = (await D('POST', '/api/crm/collegamenti', { project: pid, subject_id: studio.id, auto_contacts: true })).body;
+  // nella ricerca di Relazioni si vede già quante sue persone sono nelle email (ALM2-86)
+  assert.deepEqual((await D('GET', `/api/crm/collegamenti/nelle-email?project=${pid}&subjects=${studio.id}`)).body.counts, { [studio.id]: 1 });
+  const out =(await D('POST', '/api/crm/collegamenti', { project: pid, subject_id: studio.id, auto_contacts: true })).body;
   assert.equal(out.auto, 1);
   assert.ok(out.links.some(l => l.contact_id === rossi.id));
 });
