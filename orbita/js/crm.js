@@ -225,13 +225,15 @@ async function leadTab(box, mode, again) {
   const hero = h('div');
   const alerts = h('div');
   const content = h('div', loading());
-  const go = m => { state.mode = m; history.replaceState(null, '', `#/crm/lead${m === 'elenco' ? '' : `/${m}`}`); load(); };
+  const go = m => { state.mode = m; history.replaceState(null, '', `${lock?.leadBase || '#/crm/lead'}${m === 'elenco' ? '' : `/${m}`}`); load(); };
   const prio = select([['', 'Priorità'], ...Object.entries(data.meta.priorities).map(([k, l]) => [k, `Priorità ${l.toLowerCase()}`])], '', { 'aria-label': 'Priorità',
     on: { change: e => { state.prio = e.target.value; e.target.classList.toggle('on', Boolean(state.prio)); state.page = 0; load(); } } });
   const stageSel = select([['', 'Fase: tutte'], ...data.meta.leadStages.filter(([k]) => k !== 'non_interessato').map(([k, l]) => [k, `Fase: ${l}`])], '', { 'aria-label': 'Fase',
     on: { change: e => { state.stage = e.target.value; e.target.classList.toggle('on', Boolean(state.stage)); state.page = 0; load(); } } });
   const modes = h('div');
-  fill(box, hero, dupBanner('subject', 'lead'), alerts, filterRow(state, () => { state.page = 0; load(); }, { again, extra: [stageSel, prio, modes] }), content);
+  // ALM2-92: un'area può aggiungere la sua sezione «Trova nuovi lead» (Alma Impianti: energivori e fondi)
+  const find = lock?.findLeads ? h('a.btn.btn-primary.btn-sm.crm-find-leads', { href: lock.findLeads }, ic('sparkles', 14), 'Trova nuovi lead') : null;
+  fill(box, hero, dupBanner('subject', 'lead'), alerts, filterRow(state, () => { state.page = 0; load(); }, { again, extra: [stageSel, prio, modes, find].filter(Boolean) }), content);
   let all = [];
   async function load() {
     all = (await get(`/api/crm/subjects${qs({ role: 'lead', asa: asaQuery(), q: state.q, owner: state.owner, function: state.fn })}`)).subjects;

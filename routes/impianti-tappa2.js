@@ -212,6 +212,37 @@ function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts,
     });
     res.status(201).json({ added, updated });
   });
+  // «Fai diventare lead» (Dante 25/11, ALM2-92): l'azienda entra nel CRM come lead col tipo «Azienda energivora» e l'ASA
+  // Impianti, senza segnale nel radar; si segue poi dalla pagina Lead. Una o più alla volta.
+  async function energivoroToLead(e, userId) {
+    let sid = e.subject_id;
+    if (!sid) {
+      const { rows: [s] } = await db.query(`SELECT id FROM crm_subjects WHERE merged_into IS NULL AND ((vat <> '' AND vat = $1) OR lower(name) = lower($2)) ORDER BY (vat = $1) DESC LIMIT 1`, [e.vat, e.name]);
+      sid = s?.id || null;
+    }
+    let created = false;
+    if (sid) {
+      await db.query(`UPDATE crm_subjects SET segment = CASE WHEN segment = '' THEN $2 ELSE segment END, asa = CASE WHEN 'impianti' = ANY(asa) THEN asa ELSE array_append(asa, 'impianti') END,
+        roles = CASE WHEN roles && ARRAY['lead', 'cliente']::text[] THEN roles ELSE array_append(roles, 'lead') END, updated_at = now() WHERE id = $1`, [sid, I.SEGMENT_ENERGIVORA]);
+    } else {
+      const { rows: [s] } = await db.query(`INSERT INTO crm_subjects (name, vat, city, province, region, kind, roles, asa, segment, owner_id, origin, created_by, ateco, notes)
+        VALUES ($1, $2, $3, $4, $5, 'impresa', '{lead}', '{impianti}', $6, $7, 'Alma Impianti · energivori', $7, $8, $9) RETURNING id`,
+      [e.name, e.vat, e.city, e.province, e.region, I.SEGMENT_ENERGIVORA, userId, /^\d{2}(\.\d+)*$/.test(e.sector) ? e.sector : '',
+        e.csea_class ? `Elenco CSEA delle imprese energivore, classe ${e.csea_class}.` : 'Elenco delle aziende energivore.']);
+      sid = s.id;
+      created = true;
+    }
+    await db.query('UPDATE crm_energivori SET subject_id = $2 WHERE id = $1', [e.id, sid]);
+    return { subject_id: sid, created };
+  }
+  app.post('/api/crm/impianti/energivori/lead', async (req, res) => {
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 200);
+    if (!ids.length) throw new HttpError(400, 'Scegli almeno un\'azienda');
+    const { rows } = await db.query('SELECT * FROM crm_energivori WHERE id = ANY($1::int[])', [ids]);
+    const out = [];
+    for (const e of rows) out.push(await energivoroToLead(e, req.user.id));
+    res.status(201).json({ leads: out.length, created: out.filter(x => x.created).length, ids: out.map(x => x.subject_id) });
+  });
   // «Porta nel radar»: l'azienda entra nel CRM (lead col tipo «Azienda energivora») e nasce un segnale Efficientamento
   app.post('/api/crm/impianti/energivori/:id/radar', async (req, res) => {
     const id = v.int(req.params.id, 'azienda', { min: 1 });

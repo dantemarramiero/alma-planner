@@ -199,6 +199,12 @@ async function route() {
   const section = parts[0] || 'home';
   // ALM2-89: da Alma Energy le schede e gli elenchi del CRM si aprono dentro Energy (stesse pagine, area fissa);
   // «?centrale=1» apre il CRM generale
+  // ALM2-92: lo stesso per Alma Impianti
+  if (section === 'crm' && lastModule === 'impianti' && ENERGY_CRM.has(parts[1]) && !params.has('centrale')) {
+    const to = parts[1] === 'posta' ? ['impianti', 'posta', ...parts.slice(2)] : ['impianti', 'crm', ...parts.slice(1)];
+    location.replace(`#/${to.join('/')}${query ? `?${query}` : ''}`);
+    return;
+  }
   if (section === 'crm' && lastModule === 'energy' && ENERGY_CRM.has(parts[1]) && !params.has('centrale')) {
     const to = parts[1] === 'posta' ? ['energy', 'posta', ...parts.slice(2)] : ['energy', 'crm', ...parts.slice(1)];
     location.replace(`#/${to.join('/')}${query ? `?${query}` : ''}`);
@@ -210,7 +216,7 @@ async function route() {
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
     : section === 'energy' ? (parts[1] === 'crm' ? `energy-crm-${parts[2] === 'partner' ? 'partner' : parts[2] || 'lead'}` : `energy-${parts[1] || 'panoramica'}`)
     : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
-    : section === 'impianti' ? `impianti-${parts[1] || 'home'}`
+    : section === 'impianti' ? (parts[1] === 'crm' ? `impianti-crm-${parts[2] || 'lead'}` : parts[1] === 'nuovi-lead' ? 'impianti-crm-lead' : parts[1] === 'dare-avere' ? 'impianti-progettisti' : `impianti-${parts[1] || 'home'}`)
     : section === 'procurement' ? `procurement-${parts[1] || 'home'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'hr' ? `hr-${parts[1] === 'persona' ? 'persone' : parts[1] === 'ruolo' ? 'mansionario' : parts[1] === 'candidato' ? 'richieste' : ['incontro', 'fineprova', 'onboarding'].includes(parts[1]) ? (store.me?.hr ? 'onboarding' : 'onboarding-mie') : ['valutazione', 'semestre'].includes(parts[1]) ? 'valutazioni' : parts[1] === 'esito' ? 'percorso' : parts[1] || 'percorso'}`
