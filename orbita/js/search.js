@@ -5,7 +5,7 @@ import { icon } from './icons.js';
 import { get } from './api.js';
 import { setupTopbar } from './palette.js';
 
-const ICON = { ticket: 'square-check', project: 'folder', note: 'file-text', email: 'mail', person: 'user', post: 'image' };
+const ICON = { ticket: 'square-check', project: 'folder', note: 'file-text', email: 'mail', person: 'user', post: 'image', radar: 'radar' };
 
 // Il testo con la parola cercata evidenziata (nodi, niente HTML).
 function highlight(text, q) {
@@ -31,13 +31,14 @@ async function openResult(type, it) {
   }
   if (type === 'email') { location.hash = `#/projects/${it.project_id}/email`; return; }
   if (type === 'person') { location.hash = it.id ? `#/u/${it.id}` : '#/org'; return; }
-  if (type === 'post') location.hash = `#/p/${it.id}`;
+  if (type === 'post') { location.hash = `#/p/${it.id}`; return; }
+  if (type === 'radar') return (await import('./crm-radar.js')).openSignal(it.id, null, null);
 }
 
 export function searchView(view, params) {
   let q = (params.get('q') || '').trim();
   let seq = 0;
-  const input = h('input.input.search-big', { type: 'search', value: q, placeholder: 'Cerca ticket, progetti, note, email, persone…', autofocus: true, 'aria-label': 'Cerca' });
+  const input = h('input.input.search-big', { type: 'search', value: q, placeholder: 'Cerca ticket, progetti, note, email, persone, opportunità…', autofocus: true, 'aria-label': 'Cerca' });
   const results = h('div.search-results');
   fill(view, h('div.search-page',
     h('div.page-head', h('h1', 'Cerca')),
@@ -48,7 +49,7 @@ export function searchView(view, params) {
   async function run() {
     const mine = ++seq;
     if (q.length < 2) {
-      fill(results, h('p.muted.search-hint', 'Scrivi almeno 2 lettere. Cerca nei ticket, nei progetti, nelle note, nelle email dei progetti, tra le persone e nei post.'));
+      fill(results, h('p.muted.search-hint', 'Scrivi almeno 2 lettere. Cerca nei ticket, nei progetti, nelle note, nelle email dei progetti, tra le persone, nei post e nelle opportunità del Radar.'));
       return;
     }
     fill(results, loading());
