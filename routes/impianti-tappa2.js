@@ -55,7 +55,7 @@ function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts,
     const { rows: prog } = await db.query(`SELECT s.id, s.name, s.city, COUNT(*) FILTER (WHERE x.direction = 'dato')::int AS dato, COUNT(*) FILTER (WHERE x.direction = 'ricevuto')::int AS ricevuto
       FROM crm_exchanges x JOIN crm_subjects s ON s.id = x.subject_id WHERE s.merged_into IS NULL GROUP BY s.id ORDER BY abs(COUNT(*) FILTER (WHERE x.direction = 'ricevuto') - COUNT(*) FILTER (WHERE x.direction = 'dato')) DESC, COUNT(*) DESC LIMIT 4`);
     res.json({ sectors, incomplete, hot: freshS.slice(0, 5), funds: fundsLate, progettisti: prog, settings: cfg,
-      totals: { fresh: freshS.filter(x => new Date(x.created_at) > week).length, incomplete: opps.filter(o => o.missing.length).length, funds_late: fundsLate.length, opportunities: opps.length } });
+      totals: { funds_all: funds.length, fresh: freshS.filter(x => new Date(x.created_at) > week).length, incomplete: opps.filter(o => o.missing.length).length, funds_late: fundsLate.length, opportunities: opps.length } });
   });
 
   // ── Opportunità (tavola 3) ──────────────────────────────────────────────────────────────────
@@ -262,7 +262,8 @@ function registerImpiantiTappa2(app, { db, settings, lastContacts, mainContacts,
       const hit = all.find(s => (norm(s.name) && norm(s.name) === norm(f.name)) || (f.website && s.website && host(s.website) === host(f.website)));
       return { ...f, existing: hit ? { id: hit.id, name: hit.name } : null };
     });
-    res.json({ funds, cost_eur: r.costEur });
+    // senza proposte, alla direzione un estratto della risposta di Alma (per capire cosa non torna)
+    res.json({ funds, cost_eur: r.costEur, ...(funds.length || !req.crm.admin ? {} : { note: r.raw }) });
   });
   app.post('/api/crm/impianti/fondi/aggiungi', async (req, res) => {
     const list = Array.isArray(req.body?.funds) ? req.body.funds.slice(0, 20) : [];

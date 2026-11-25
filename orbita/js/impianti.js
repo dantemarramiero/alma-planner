@@ -314,7 +314,7 @@ async function homePage(box) {
       card({ title: 'Fondi da risentire', icon: 'landmark', right: link('Fondi', { href: '#/impianti/fondi' }) },
         r.funds.length ? r.funds.map(f => h('div.im-li', h('div', h('b', f.name), h('div.im-sub', dots([(f.techs || []).map(sectorName).join(', '), f.days === null ? 'mai sentito' : `ultimo contatto ${f.days} giorni fa`, f.matches ? `${f.matches} progetti abbinati` : '']))),
           h('a.btn.btn-sm', { href: `#/impianti/fondi/${f.id}` }, f.matches ? 'Mostra abbinamenti' : 'Apri')))
-          : emptyState('landmark', 'Tutti i fondi sentiti di recente.')),
+          : emptyState('landmark', t.funds_all ? 'Tutti i fondi sentiti di recente.' : 'Nessun fondo ancora: aggiungili da «Fondi e investitori» o con «Trova fondi con Alma».')),
       card({ title: 'Progettisti: dare e avere', icon: 'ruler', right: link('Progettisti', { href: '#/impianti/progettisti' }) },
         r.progettisti.length ? r.progettisti.map(p => { const tot = p.dato + p.ricevuto || 1; return h('a.im-li', { href: `#/impianti/progettisti/${p.id}` }, h('div', h('b', p.name), h('div.im-sub', p.city || '')),
           h('div.im-recip', { style: { width: '170px' } }, h('span.im-recip-bar', h('i.dato', { style: { width: `${Math.round(p.dato / tot * 100)}%` } }), h('i.ric', { style: { width: `${Math.round(p.ricevuto / tot * 100)}%` } })),
