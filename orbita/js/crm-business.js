@@ -9,7 +9,7 @@ import { warmPill, pathsBox, registraEsito } from './crm-esiti.js'; // forza dei
 import { mercatoTab, soaDialog, marketCard } from './crm-business-mercato.js'; // mappa del mercato (20/11)
 // ALM2-79: i tab del progetto dell'iniziativa, con gli stessi pezzi dei progetti
 import { openTicket } from './tickets.js';
-import { taskBoard, calendarTab, relationsBox, touchBox } from './crm-progetti.js';
+import { taskBoard, calendarTab, relationsBox, touchBox, cardMenu } from './crm-progetti.js';
 import { projectMeetings } from './project-meetings.js';
 import { projectEmails } from './project-emails.js';
 import { notesPanel } from './notes.js';
@@ -150,7 +150,7 @@ export async function businessView(container, parts = [], crmData = {}) {
     const rows = d.initiatives.filter(i => (filter === 'abbandonate' ? i.phase === 'abbandonata' : i.phase !== 'abbandonata')
       && (filter !== 'mie' || i.owner_id === store.me.id) && (filter !== 'decidere' || i.gate?.late)
       && (!q || `${i.name} ${i.description}`.toLowerCase().includes(q)));
-    grid.replaceChildren(...(rows.length ? rows.map(initiativeCard) : [empty('Nessuna iniziativa con questo filtro.', 'search')]));
+    grid.replaceChildren(...(rows.length ? rows.map(i => initiativeCard(i, ctx)) : [empty('Nessuna iniziativa con questo filtro.', 'search')]));
   };
   const chipBar = h('div');
   const redrawChips = () => chipBar.replaceChildren(chips([['aperte', `Aperte ${counts.aperte}`], ['mie', `Le mie ${counts.mie}`], ['decidere', `Da decidere ${counts.decidere}`], ['abbandonate', `Abbandonate ${counts.abbandonate}`]], filter, x => { filter = x; redrawChips(); draw(); }));
@@ -304,9 +304,21 @@ function riepilogoPrint(d, stamp) {
       d.abandoned.length ? ` · Abbandonate: ${d.abandoned.map(a => `${a.name}${a.abandoned_on ? ` (${dm(a.abandoned_on)})` : ''}`).join(', ')}` : ''));
 }
 
-function initiativeCard(i) {
+// Elimina un'iniziativa con il suo progetto (ALM2-90). true se eliminata.
+async function deleteInitiative(i) {
+  const proj = i.project_id ? (i.launched_at ? ' e il suo progetto in «I miei progetti»' : ' e il suo progetto') : '';
+  if (!await confirmDialog(`Eliminare «${i.name}»${proj}, con chat, clienti target, gap e riflessioni? I compiti restano, senza progetto. Per chiuderla tenendone la storia usa «Abbandona» al gate.`, { ok: 'Elimina', danger: true })) return false;
+  await del(`/api/crm/business/${i.id}`);
+  toast('Iniziativa eliminata');
+  return true;
+}
+
+function initiativeCard(i, ctx = {}) {
   const reason = i.light.reasons.find(r => r.c === i.light.color && r.c !== 'g');
   const next = i.nextTask;
+  const menu = cardMenu([ // ALM2-90: Modifica / Elimina senza aprire l'iniziativa
+    i.canEdit ? ['Modifica', async () => { const full = await get(`/api/crm/business/${i.id}`); editForm(full, ctx.crmData?.asa || [], ctx.refresh, ctx.crmData?.meta || full.meta || {}); }, false, 'pencil'] : null,
+    i.canDelete ? ['Elimina', async () => { if (await deleteInitiative(i)) ctx.refresh?.(); }, true, 'trash'] : null], `Altro su «${i.name}»`);
   return h('a.nb-card.nb-ini', { href: `#/crm/business/${i.id}` },
     h('div.nb-row-sb.top', h('div.nb-min0', h('div.nb-t16', i.name), i.description ? h('div.nb-small.muted.nb-clip2', i.description) : null),
       i.phase === 'abbandonata' ? pill('Abbandonata', 'off') : lightPill(i.light.color, LIGHT[i.light.color])),
@@ -317,7 +329,7 @@ function initiativeCard(i) {
       h('div', h('div.nb-lbl', 'Clienti contattati'), h('div.nb-n18', `${i.funnel.contattati} / ${i.funnel.individuati}`)),
       h('div', h('div.nb-lbl', 'Ultima attività'), h('div.nb-small.strong', relDay(i.lastActivity)))),
     h('div.nb-row-sb.foot', h('span.nb-who', av(i.owner_name), i.owner_name || '—'),
-      i.phase === 'abbandonata' ? h('span.nb-small.muted', i.abandoned_reason || '') : reason ? h('span.nb-small.warn-t', reason.t) : h('span.nb-small.muted', next ? `Prossimo: ${next}` : 'Tutto in regola')));
+      h('span.nb-row', i.phase === 'abbandonata' ? h('span.nb-small.muted', i.abandoned_reason || '') : reason ? h('span.nb-small.warn-t', reason.t) : h('span.nb-small.muted', next ? `Prossimo: ${next}` : 'Tutto in regola'), menu)));
 }
 
 function emptyState(ctx) {
@@ -465,10 +477,8 @@ async function initiativePage(container, id, tabKey, crmData) {
   const body = h('div.nb-body', loading());
   const toolbar = h('div.nb-tb-r');
   const more = h('div.nb-menu-list');
-  if (crmData.admin) more.append(h('button.nb-menu-i.danger', { type: 'button', on: { click: async () => {
-    if (!await confirmDialog(`Eliminare «${i.name}» con chat, clienti target, gap e riflessioni? Per chiuderla e tenerne la storia usa «Abbandona» al gate.`, { ok: 'Elimina', danger: true })) return;
-    await del(`/api/crm/business/${id}`);
-    location.hash = '#/crm/business';
+  if (i.canDelete) more.append(h('button.nb-menu-i.danger', { type: 'button', on: { click: async () => { // ALM2-90: anche il responsabile
+    if (await deleteInitiative(i)) location.hash = '#/crm/business';
   } } }, 'Elimina l\'iniziativa'));
   more.append(h('button.nb-menu-i', { type: 'button', on: { click: () => go('analisi', { print: true }) } }, 'Esporta per la riunione'));
   const reason = i.light.reasons.find(r => r.c === i.light.color && r.c !== 'g');

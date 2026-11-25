@@ -510,6 +510,11 @@ export function editProject(p, onSaved, defaults = {}) {
   } } })));
 
   const left = isNew ? [] : [h('button.btn.btn-danger', { type: 'button', on: { click: async () => {
+    if (p.crm_kind) { // ALM2-90: i progetti del CRM si eliminano con la loro iniziativa e si torna a «I miei progetti»
+      const { deleteCrmProject } = await import('./crm-progetti.js');
+      if (await deleteCrmProject(p)) { m.close(); location.hash = '#/crm/progetti'; }
+      return;
+    }
     if (!await confirmDialog(`Cancellare il progetto «${p.name}»? I suoi ticket restano, senza progetto.`, { ok: 'Cancella', danger: true })) return;
     await del(`/api/projects/${p.id}`);
     m.close();

@@ -749,3 +749,16 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .an-qnew { display: grid; gap: 6px; margin-top: 8px; }
 .an-edit:has(.an-company) { align-items: flex-start; }
 .an-company .input { flex: none; width: 100%; }
+
+/* Menu «⋯» sulle card di «I miei progetti» e di Nuovi business: Modifica / Elimina (ALM2-90) */
+.cm-menu { position: relative; flex: none; }
+.cm-menu > summary { list-style: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; color: var(--muted); cursor: pointer; }
+.cm-menu > summary::-webkit-details-marker { display: none; }
+.cm-menu > summary:hover, .cm-menu[open] > summary { background: var(--cv-soft, #F1EFEB); color: var(--ink); }
+.cm-menu > summary:focus-visible { outline: none; box-shadow: var(--ap-focus); }
+.cm-list { display: none; position: absolute; z-index: 30; right: 0; top: calc(100% + 4px); min-width: 160px; padding: 6px; background: var(--card); border: 1px solid var(--rule); border-radius: 14px; box-shadow: var(--shadow); }
+.cm-menu[open] > .cm-list { display: grid; }
+.cm-item { display: flex; align-items: center; gap: 8px; border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 10px; font: inherit; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+.cm-item:hover { background: var(--cv-soft, #F1EFEB); }
+.cm-item.danger { color: var(--red); }
+.pv-tile:has(.cm-menu[open]), .nb-ini:has(.cm-menu[open]) { overflow: visible; z-index: 5; position: relative; }

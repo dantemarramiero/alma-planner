@@ -350,7 +350,8 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
       ({ rows: ids } = await db.query(`SELECT p.id FROM projects p WHERE p.crm_kind <> '' AND p.status <> 'archived'
         AND NOT EXISTS (SELECT 1 FROM crm_initiatives ni WHERE ni.project_id = p.id AND ni.launched_at IS NULL)`));
     }
-    const list = await summaries(ids.map(r => r.id), users);
+    // can_manage (ALM2-90): il menu «⋯» delle card (Modifica / Elimina) solo per il responsabile e la direzione
+    const list = (await summaries(ids.map(r => r.id), users)).map(p => ({ ...p, can_manage: Boolean(req.crm.admin || p.owner_id === me) }));
     const today = todayRome();
     const weekEnd = addDays(today, 7);
     // i miei compiti dei progetti del CRM: in ritardo, oggi e questa settimana
@@ -404,6 +405,21 @@ function registerCrmProgetti(app, { db, alerts, notifier, posta }) {
     }
     const [s] = await summaries([id], await people());
     res.json(s);
+  });
+
+  // Elimina il progetto del CRM (ALM2-90): responsabile e direzione. Se nasce da un Nuovo business se ne va anche
+  // l'iniziativa (altrimenti alla riapertura se ne creerebbe un altro); una gara resta nel Radar, i compiti senza progetto.
+  app.delete('/api/crm/progetti/:id', async (req, res) => {
+    const id = v.int(req.params.id, 'id', { min: 1 });
+    await crmProject(req, id);
+    const { rows: [p] } = await db.query('SELECT owner_id FROM projects WHERE id = $1', [id]);
+    if (!req.crm.admin && p.owner_id !== req.user.id) throw new HttpError(403, 'Solo il responsabile del progetto o la direzione lo eliminano');
+    const initiative = await db.tx(async q => {
+      const { rowCount } = await q.query('DELETE FROM crm_initiatives WHERE project_id = $1', [id]);
+      await q.query('DELETE FROM projects WHERE id = $1', [id]);
+      return rowCount > 0;
+    });
+    res.json({ ok: true, initiative });
   });
 
   // rendiconto: obiettivo contro fatto, compiti per fase e ore per persona (anche in CSV)
