@@ -96,9 +96,23 @@ export async function shareDialog({ kind, id, onSent }) {
         h('p', `L'avviso in Alma è arrivato a ${plural(r.sent, 'collega', 'colleghi')}. Non è partito:`),
         failed.map(f => h('div.cm-warn', h('span.cm-bang', '!'), h('span', h('b', `${f.via} a ${f.name}`), ` · ${f.error}.`))),
         reauth ? h('p.cv-small.cv-muted', 'Rientra con Microsoft e condividi di nuovo: il collega ha già l\'avviso in Alma.') : null));
-      send.replaceWith(reauth
+      // «Mandalo per email»: a chi non ha ricevuto Teams (e non ha già l'email). Con «rientrare» non serve: anche la posta
+      // passa da Microsoft, quindi prima si rientra.
+      const retry = [...new Set([...r.teams.failed.filter(f => !f.mail || r.mail.failed.some(x => x.share_id === f.share_id)), ...r.mail.failed].map(f => f.share_id))];
+      const byMail = !reauth && retry.length ? h('button.btn', { type: 'button', on: { click: async () => {
+        byMail.disabled = true;
+        try {
+          const again = await post('/api/condividi/email-di-nuovo', { share_ids: retry });
+          onSent?.(again);
+          if (!again.failed.length) { m.close(); return toast(`Mandata per email a ${plural(again.ok, 'collega', 'colleghi')}`); }
+          fill(body, h('div.sh-done', h('p', 'Neanche l\'email è partita:'),
+            again.failed.map(f => h('div.cm-warn', h('span.cm-bang', '!'), h('span', h('b', `Email a ${f.name}`), ` · ${f.error}.`)))));
+          byMail.remove();
+        } catch { byMail.disabled = false; }
+      } } }, icon('mail', { size: 15 }), 'Mandalo per email') : null;
+      send.replaceWith(...[byMail, reauth
         ? h('a.btn.btn-primary', { href: `/auth/login?returnTo=${encodeURIComponent(`/app${location.hash}`)}` }, 'Rientra con Microsoft')
-        : h('button.btn.btn-primary', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'));
+        : h('button.btn.btn-primary', { type: 'button', on: { click: () => m.close() } }, 'Chiudi')].filter(Boolean));
     } catch { send.disabled = false; }
   });
 
@@ -126,6 +140,22 @@ export function sharePersonText(p) {
 export function sharePeople(to) {
   return h('span.sh-people', to.map(p => h('span.sh-pp', { class: p.opened ? 'open' : '' }, sharePersonText(p),
     p.error ? h('span.cm-bang', { title: p.error, role: 'img', 'aria-label': `Non partito: ${p.error}` }, '!') : null)));
+}
+
+// Riquadro «Condivisioni» per le pagine senza «Ultimi aggiornamenti» (nuovo business, opportunità Impianti, Energy al
+// primo stadio): compare solo se la scheda è stata condivisa; chi, con chi, il canale e se l'hanno aperta.
+export function shareStrip(kind, id) {
+  const box = h('div.sh-strip');
+  shareHistory(kind, id).then(items => {
+    if (!items.length) return;
+    fill(box, h('section.cv-card.sh-card',
+      h('div.cv-ch', h('h3.cv-t', icon('share-2', { size: 17 }), h('span', 'Condivisioni'), h('span.cv-c', String(items.length)))),
+      items.slice(0, 5).map(x => h('div.sh-row',
+        h('div.sh-row-t', h('b', x.from_name || 'Qualcuno'), ` ha condiviso con ${x.to.map(t => t.name).join(', ')}`),
+        h('small.cv-muted', [x.message ? `«${x.message.length > 120 ? `${x.message.slice(0, 120)}…` : x.message}»` : null, `${fmtDate(String(x.date).slice(0, 10))} alle ${time(x.date)}`].filter(Boolean).join(' · ')),
+        sharePeople(x.to)))));
+  });
+  return box;
 }
 
 // Le condivisioni di una scheda per «Ultimi aggiornamenti» delle pagine che non hanno la cronologia del CRM
