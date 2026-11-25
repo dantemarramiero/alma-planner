@@ -212,7 +212,9 @@ function registerCrm(app, { db, auth, gov, notifier, crmAccess, crmSync, adminEm
   // ── pagina: elenchi e numeri ───────────────────────────────────────────────────────────────
   app.get('/api/crm', async (req, res) => {
     const params = [];
-    const see = seeSql(req, 's', params);
+    let see = seeSql(req, 's', params);
+    // ALM2-89: visto da un'area (Alma Energy) i numeri contano solo le anagrafiche di quell'area
+    if (req.query.asa) { params.push(String(req.query.asa).split(',').filter(Boolean)); see = `(${see}) AND s.asa && $${params.length}::text[]`; }
     const [asa, { rows: counts }, { rows: stages }, functions, commerciale] = await Promise.all([
       allAsa(),
       db.query(`SELECT r AS role, COUNT(*)::int AS n FROM crm_subjects s, unnest(s.roles) r WHERE s.merged_into IS NULL AND ${see} GROUP BY r`, params),
@@ -651,7 +653,9 @@ function registerCrm(app, { db, auth, gov, notifier, crmAccess, crmSync, adminEm
     }
     if (req.query.asa) {
       params.push(String(req.query.asa).split(',').filter(Boolean));
-      where.push(`EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = c.id AND s.asa && $${params.length}::text[])`);
+      // ALM2-89: per l'area Energy contano anche le persone di Alma Energy ancora senza azienda
+      where.push(`(EXISTS (SELECT 1 FROM crm_contact_links l JOIN crm_subjects s ON s.id = l.subject_id WHERE l.contact_id = c.id AND s.asa && $${params.length}::text[])
+                   OR ('energy' = ANY($${params.length}::text[]) AND EXISTS (SELECT 1 FROM energy_people p WHERE p.contact_id = c.id)))`);
     }
     if (req.query.owner) {
       params.push(Number(req.query.owner) || 0);

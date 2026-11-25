@@ -32,12 +32,15 @@ const ROLE_OF_TAB = { lead: 'lead', clienti: 'cliente', fornitori: 'fornitore' }
 const TAB_OF_ROLE = { lead: 'lead', cliente: 'clienti', fornitore: 'fornitori', partner: 'partner', concorrente: 'partner', progettista: 'partner' };
 
 let data = null; // meta, ASA, le mie ASA, numeri
+// ALM2-89: il CRM visto da un'area (es. Alma Energy): stesse pagine, ASA fissa. { asa: 'energy', label: 'Alma Energy' }
+let lock = null;
+export const crmLock = () => lock;
 // Tutti vedono tutto (13/11); i filtri partono dalle cose di ognuno e restano ricordati su questo computer.
 const FILTER_KEY = () => `alma.crmFilters.${store.me.id}`;
 const readFilters = () => { try { return JSON.parse(localStorage.getItem(FILTER_KEY())) || {}; } catch { return {}; } };
 const saveFilter = (k, val) => { try { localStorage.setItem(FILTER_KEY(), JSON.stringify({ ...readFilters(), [k]: val })); } catch { /* niente */ } };
 // ASA scelta: 'mine' = le mie ASA, '' = tutte, oppure una sola
-const asaChoice = () => { const f = readFilters(); if ('asa' in f && (f.asa === '' || f.asa === 'mine' || data.asa.some(a => a.key === f.asa))) return f.asa; return data.myAsa.length && !data.admin ? 'mine' : ''; }; // la direzione parte da tutto
+const asaChoice = () => { if (lock) return lock.asa; const f = readFilters(); if ('asa' in f && (f.asa === '' || f.asa === 'mine' || data.asa.some(a => a.key === f.asa))) return f.asa; return data.myAsa.length && !data.admin ? 'mine' : ''; }; // la direzione parte da tutto
 const asaQuery = () => { const c = asaChoice(); return c === 'mine' ? data.myAsa.join(',') : c; };
 // ASA da proporre su una scheda nuova
 const currentAsa = () => { const c = asaChoice(); return c && c !== 'mine' ? c : data.myAsa.length === 1 ? data.myAsa[0] : ''; };
@@ -132,15 +135,16 @@ function soaEditor(list) {
 }
 const soaText = soa => (soa?.length ? soa.map(x => `${x.cat} ${x.cls}`).join(' · ') : '—');
 
-export async function crmView(container, parts = []) {
-  data = await get('/api/crm');
+export async function crmView(container, parts = [], opts = {}) {
+  lock = opts.lock || null;
+  data = await get(lock ? `/api/crm${qs({ asa: lock.asa })}` : '/api/crm');
   store.crmData = data; // BU e ASA per «Registra esito» aperto da altre pagine
   if (parts[1] === 'business') return businessView(container, parts.slice(2), data); // Nuovi business
   // «Porta avanti» e «I miei progetti» (canvas v9): sala di lancio, portafoglio e scheda del progetto
   if (parts[1] === 'lancio' && ['s', 'i'].includes(parts[2]) && Number(parts[3])) return launchRoom(container, parts[2], Number(parts[3]));
   if (parts[1] === 'progetti') return mieiProgetti(container);
   if (parts[1] === 'calendario') return calendarioPage(container); // il proprio Outlook coi colori del CRM (ALM2-65)
-  if (parts[1] === 'posta') return postaPage(container, parts[2]); // la propria casella: da un'email nasce un progetto (ALM2-55); /approvare = Da approvare (ALM2-67)
+  if (parts[1] === 'posta') return postaPage(container, parts[2], { energy: lock?.asa === 'energy' }); // la propria casella: da un'email nasce un progetto (ALM2-55); /approvare = Da approvare (ALM2-67)
   if (parts[1] === 'progetto' && Number(parts[2])) return crmProjectPage(container, Number(parts[2]));
   if (parts[1] === 'scheda' && Number(parts[2])) return subjectPage(container, Number(parts[2]), parts[3]);
   if (parts[1] === 'contatti' && parts[2] === 'scrivo') { const body = h('div.cv'); fill(container, body); return scrivoTab(body); } // persone con cui mi scrivo (canvas v10, ALM2-46)
@@ -155,7 +159,7 @@ export async function crmView(container, parts = []) {
   // design v2: ogni pagina disegna la sua intestazione (titolo Light + parola chiave Bold) e i suoi filtri a pillola
   const body = h('div.cv', loading());
   fill(container, body);
-  const again = () => crmView(container, parts);
+  const again = () => crmView(container, parts, opts);
   if (tab === 'settimana') await weekTab(body, data);
   else if (tab === 'impostazioni') await settingsTab(body, data, parts[2], { asaTab, importCard });
   else if (tab === 'asa') await settingsTab(body, data, 'asa', { asaTab, importCard }); // ASA e accessi ora stanno nelle Impostazioni (artboard «Imp-asa»)
@@ -171,12 +175,20 @@ export async function crmView(container, parts = []) {
   else if (tab === 'contatti') await contactsTab(body, again);
   else if (tab === 'clienti' || tab === 'fornitori') await roleListTab(body, tab, again); // stesso disegno dei Lead (21/11)
   else await subjectsTab(body, tab, again);
+  if (lock) relabel(body);
+}
+// ALM2-89: dentro un'area le intestazioni dicono «CRM Energy» al posto di «Alma CRM»
+function relabel(box) {
+  for (const el of box.querySelectorAll('.cv-eyebrow, .cg-kicker, .en-eyebrow')) {
+    const t = [...el.childNodes].find(n => n.nodeType === 3 && n.nodeValue.includes('Alma CRM'));
+    if (t) t.nodeValue = t.nodeValue.replace('Alma CRM', lock.eyebrow || `CRM ${lock.label}`);
+  }
 }
 
 // ── filtri delle liste, come pillole sopra la tabella (artboard «Elenchi») ─────────────────────
 // Restano ricordati su questo computer; quelli attivi si vedono in arancione, con «Mostra tutto».
 function filterRow(state, load, { search = 'Cerca per nome, P.IVA o città', owner = true, fn = true, key = false, again, extra = [] } = {}) {
-  const asaSel = select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, `ASA: ${a.label}`])], asaChoice(),
+  const asaSel = lock ? h('span.cv-pill.or.big.crm-lock', { title: `In ${lock.label} l'area è fissa` }, ic('lock', 13), `Area: ${lock.label}`) : select([['', 'Tutte le ASA'], ...(data.myAsa.length ? [['mine', data.myAsa.length === 1 ? `La mia ASA (${asaLabel(data.myAsa[0])})` : 'Le mie ASA']] : []), ...data.asa.map(a => [a.key, `ASA: ${a.label}`])], asaChoice(),
     { 'aria-label': 'ASA', class: asaChoice() ? 'on' : '', on: { change: e => { saveFilter('asa', e.target.value); again ? again() : load(); } } });
   const [ownerSel, fnSel] = ownerFunctionFilters(state, () => load());
   if (ownerSel && state.owner) ownerSel.classList.add('on');
@@ -191,7 +203,7 @@ function filterRow(state, load, { search = 'Cerca per nome, P.IVA o città', own
     load();
   } } }, ic('star', 13), 'Key account') : null;
   if (keyBtn && state.key) keyBtn.classList.remove('line');
-  const anyOn = () => Boolean(asaChoice() || state.owner || state.fn || state.key);
+  const anyOn = () => Boolean((!lock && asaChoice()) || state.owner || state.fn || state.key);
   const reset = link('Mostra tutto', { on: { click: () => { saveFilter('asa', ''); saveFilter('owner', ''); state.owner = ''; state.fn = ''; state.key = false; again ? again() : load(); } } });
   const sync = () => { reset.hidden = !anyOn(); };
   [ownerSel, fnSel, keyBtn].filter(Boolean).forEach(el => el.addEventListener(el === keyBtn ? 'click' : 'change', sync));

@@ -130,6 +130,7 @@ const MODULES = [
 // sezioni del planner: vanno in Alma Project. La ricerca resta nel modulo in cui si è.
 const PROJECT_SECTIONS = new Set(['settimana', 'mine', 'tickets', 'rda', 'mezzi', 'projects', 'gantt', 'calendar']); // OneDrive è in Alma Agorà
 let lastModule = 'planet';
+const ENERGY_CRM = new Set(['scheda', 'contatti', 'lead', 'clienti', 'fornitori', 'partner', 'tutte', 'progetto', 'posta', 'doppioni']);
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
   : section === 'energy' || section === 'strategy' || section === 'it' || section === 'crm' || section === 'hr' || section === 'impianti' || section === 'procurement' ? section : 'planet');
@@ -196,11 +197,18 @@ async function route() {
   const params = new URLSearchParams(query);
   const parts = path.split('/').filter(Boolean);
   const section = parts[0] || 'home';
+  // ALM2-89: da Alma Energy le schede e gli elenchi del CRM si aprono dentro Energy (stesse pagine, area fissa);
+  // «?centrale=1» apre il CRM generale
+  if (section === 'crm' && lastModule === 'energy' && ENERGY_CRM.has(parts[1]) && !params.has('centrale')) {
+    const to = parts[1] === 'posta' ? ['energy', 'posta', ...parts.slice(2)] : ['energy', 'crm', ...parts.slice(1)];
+    location.replace(`#/${to.join('/')}${query ? `?${query}` : ''}`);
+    return;
+  }
 
   closeOverlays();
   // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
-    : section === 'energy' ? `energy-${parts[1] || 'panoramica'}`
+    : section === 'energy' ? (parts[1] === 'crm' ? `energy-crm-${parts[2] === 'partner' ? 'partner' : parts[2] || 'lead'}` : `energy-${parts[1] || 'panoramica'}`)
     : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
     : section === 'impianti' ? `impianti-${parts[1] || 'home'}`
     : section === 'procurement' ? `procurement-${parts[1] || 'home'}`
