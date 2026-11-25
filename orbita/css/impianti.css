@@ -166,6 +166,11 @@ button.im-idea { cursor: pointer; }
 .im-found > div { display: grid; gap: 4px; min-width: 0; }
 .im-found b { font-size: 14px; font-weight: 500; color: var(--cv-ink); }
 
+/* «Trova nuovi lead» (ALM2-92): le linguette sono link, con lo stesso aspetto del selettore a pillola del CRM */
+.im .cv-seg a { padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--cv-muted); text-decoration: none; white-space: nowrap; line-height: 18px; }
+.im .cv-seg a.on { background: var(--cv-card); color: var(--cv-ink); box-shadow: 0 1px 3px rgba(28,24,20,.12); }
+.im-table th:first-child input, .im-table td:first-child input { width: 16px; height: 16px; accent-color: var(--cv-orange); }
+
 @media (max-width: 760px) {
   .im-tiles, .im-kpis, .im-alerts, .im-sectors-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .im-grid2, .im-tri { grid-template-columns: 1fr; }

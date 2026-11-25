@@ -9,7 +9,10 @@ import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, choice
 import { stepDialog, doneDialog } from './crm-commerciale.js';
 import { shareDialog, markShareOpened, shareStrip } from './condividi.js';
 import { radarTab, openSignal, newSignalDialog, TILES } from './crm-radar.js';
-import { garaProgettisti, progettistaCard } from './crm-progettisti.js';
+import { garaProgettisti, progettistaCard, progettistiView } from './crm-progettisti.js';
+
+// ALM2-92: il CRM di Alma Impianti = le pagine del CRM centrale con l'area fissa su Impianti (come Alma Energy, ALM2-89)
+const LOCK = { asa: 'impianti', label: 'Alma Impianti', eyebrow: 'CRM Impianti', findLeads: '#/impianti/nuovi-lead', leadBase: '#/impianti/crm/lead' };
 
 const SECTORS = [['depurazione', 'Depurazione', '#0057B8'], ['fotovoltaico', 'Fotovoltaico', '#E0A400'], ['biometano', 'Biometano', '#2E8B57'], ['edilizia', 'Impianti in edilizia', '#7A5AF8'], ['efficientamento', 'Efficientamento', '#FF8A26']];
 const PHASES = [['greenfield', 'Da sviluppare'], ['autorizzato', 'Autorizzato (RTB)'], ['costruzione', 'In costruzione'], ['esercizio', 'In esercizio']];
@@ -28,14 +31,25 @@ const schedaHref = id => `#/crm/scheda/${id}`;
 
 export async function impiantiView(container, parts = []) {
   const page = parts[1] || 'home';
+  if (page === 'crm' || page === 'posta') {
+    const { crmView } = await import('./crm.js');
+    return crmView(container, page === 'posta' ? ['crm', 'posta', ...parts.slice(2)] : ['crm', ...parts.slice(2)], { lock: LOCK });
+  }
+  if (page === 'energivori') return location.replace('#/impianti/nuovi-lead/energivori'); // ora sta dentro i Lead
   const body = h('div.cv.im', loading());
   fill(container, body);
   if (page === 'radar') { const data = store.crmData || await get('/api/crm'); store.crmData = data; return radarTab(body, data, '', { scope: 'impianti' }); }
   if (page === 'home') return homePage(body);
   if (page === 'opportunita') return Number(parts[2]) ? oppPage(body, Number(parts[2])) : oppListPage(body);
-  if (page === 'energivori') return energivoriPage(body);
+  if (page === 'nuovi-lead') return nuoviLeadPage(body, parts[2] === 'fondi' ? 'fondi' : 'energivori');
   if (page === 'fondi') return fondiPage(body, Number(parts[2]) || null);
-  if (page === 'progettisti') return progettistiPage(body, Number(parts[2]) || null);
+  // Progettisti: la vista del CRM per BU (ALM2-80) come in Alma Energy; il dare e avere resta a parte
+  if (page === 'progettisti') {
+    fill(body, pageTop({ eyebrow: 'CRM Impianti · Progettisti', heading: title('Chi progetta', 'gli impianti'), sub: 'Chi vince gli incarichi di progettazione nei settori della BU, da ANAC, e chi conosciamo.',
+      actions: [h('a.btn', { href: '#/impianti/dare-avere' }, ic('repeat', 14), 'Dare e avere')] }), h('div.im-prog-crm'));
+    return progettistiView(body.querySelector('.im-prog-crm'), { bu: 'impianti' });
+  }
+  if (page === 'dare-avere') return progettistiPage(body, Number(parts[2]) || null);
   return daFarePage(body);
 }
 
@@ -131,7 +145,7 @@ async function fondiPage(box, openId) {
   fill(box,
     pageTop({ eyebrow: 'Clienti · Fondi e investitori', heading: title('Chi', 'finanzia', 'gli impianti'),
       sub: 'Un fondo vale dieci clienti: ogni impianto del suo portafoglio è un lavoro da costruire. Gli stessi fondi li vede Alma Energy, con la sua etichetta.',
-      actions: [h('button.btn', { type: 'button', on: { click: () => findFundsDialog(id => again(id)) } }, ic('sparkles', 15), 'Trova fondi con Alma'), h('button.btn.btn-primary', { type: 'button', on: { click: () => newFundDialog(id => again(id)) } }, ic('plus', 15), 'Nuovo fondo')] }),
+      actions: [h('a.btn', { href: '#/impianti/nuovi-lead/fondi' }, ic('sparkles', 15), 'Trova fondi con Alma'), h('button.btn.btn-primary', { type: 'button', on: { click: () => newFundDialog(id => again(id)) } }, ic('plus', 15), 'Nuovo fondo')] }),
     kpis,
     h('div.im-main', h('section.cv-card.im-list', rows), aside));
   if (sel) fundDrawer(aside, sel, () => again(sel));
@@ -321,8 +335,8 @@ async function homePage(box) {
         r.funds.length ? r.funds.map(f => h('div.im-li', h('div', h('b', f.name), h('div.im-sub', dots([(f.techs || []).map(sectorName).join(', '), f.days === null ? 'mai sentito' : `ultimo contatto ${f.days} giorni fa`, f.matches ? `${f.matches} progetti abbinati` : '']))),
           h('a.btn.btn-sm', { href: `#/impianti/fondi/${f.id}` }, f.matches ? 'Mostra abbinamenti' : 'Apri')))
           : emptyState('landmark', t.funds_all ? 'Tutti i fondi sentiti di recente.' : 'Nessun fondo ancora: aggiungili da «Fondi e investitori» o con «Trova fondi con Alma».')),
-      card({ title: 'Progettisti: dare e avere', icon: 'ruler', right: link('Progettisti', { href: '#/impianti/progettisti' }) },
-        r.progettisti.length ? r.progettisti.map(p => { const tot = p.dato + p.ricevuto || 1; return h('a.im-li', { href: `#/impianti/progettisti/${p.id}` }, h('div', h('b', p.name), h('div.im-sub', p.city || '')),
+      card({ title: 'Progettisti: dare e avere', icon: 'ruler', right: link('Dare e avere', { href: '#/impianti/dare-avere' }) },
+        r.progettisti.length ? r.progettisti.map(p => { const tot = p.dato + p.ricevuto || 1; return h('a.im-li', { href: `#/impianti/dare-avere/${p.id}` }, h('div', h('b', p.name), h('div.im-sub', p.city || '')),
           h('div.im-recip', { style: { width: '170px' } }, h('span.im-recip-bar', h('i.dato', { style: { width: `${Math.round(p.dato / tot * 100)}%` } }), h('i.ric', { style: { width: `${Math.round(p.ricevuto / tot * 100)}%` } })),
             h('span.im-sub', `${p.dato} dati · ${p.ricevuto} ricevuti${p.ricevuto > p.dato ? ' · ricambia' : ''}`))); })
           : emptyState('ruler', 'Nessuno scambio registrato coi progettisti.'))));
@@ -438,9 +452,16 @@ function pickSubject(label, onPick, start = '') {
 
 // ── Energivori (tavola 6) ───────────────────────────────────────────────────────────────────────
 let enState = { region: '', roof: false, nocrm: false, q: '', cls: '' };
+const enPicked = new Set();
 async function energivoriPage(box) {
   const r = await get('/api/crm/impianti/energivori');
   const again = () => energivoriPage(box);
+  const toLeads = async ids => {
+    const out = await post('/api/crm/impianti/energivori/lead', { ids });
+    ids.forEach(id => enPicked.delete(id));
+    toast(`${out.leads} ${out.leads === 1 ? 'azienda è ora un lead' : 'aziende sono ora lead'} di Alma Impianti${out.created < out.leads ? ` (${out.leads - out.created} già nel CRM)` : ''}: le trovi in Lead`);
+    again();
+  };
   const regions = Object.keys(r.regions).sort((a, b) => a.localeCompare(b, 'it'));
   const qn = enState.q.trim().toLowerCase();
   const shown = r.energivori.filter(e => (!enState.region || e.region === enState.region) && (!enState.roof || e.roof_m2 >= 5000) && (!enState.nocrm || !e.subject_id)
@@ -465,30 +486,33 @@ async function energivoriPage(box) {
         title: `${name}: ${n} ${n === 1 ? 'azienda' : 'aziende'}`, 'aria-pressed': String(enState.region === name), on: { click: () => { enState.region = enState.region === name ? '' : name; again(); } } }, short);
     })),
     h('p.im-sub', 'Più arancio = più aziende energivore. Tocca una regione per filtrare.'));
-  const bring = async e => { const out = await post(`/api/crm/impianti/energivori/${e.id}/radar`); toast('Nel radar, settore Efficientamento'); location.hash = `#/impianti/opportunita/${out.signal_id}`; };
+  const visible = shown.slice(0, 300);
+  const free = visible.filter(e => !e.subject_id);
+  const bulk = h('button.btn.btn-primary.btn-sm', { type: 'button', disabled: !enPicked.size, on: { click: () => toLeads([...enPicked]) } }, ic('target', 14), enPicked.size ? `Fai diventare lead (${enPicked.size})` : 'Fai diventare lead');
+  const all = h('input', { type: 'checkbox', 'aria-label': 'Scegli tutte quelle visibili', checked: free.length > 0 && free.every(e => enPicked.has(e.id)) });
+  all.addEventListener('change', () => { free.forEach(e => (all.checked ? enPicked.add(e.id) : enPicked.delete(e.id))); again(); });
   const table = shown.length ? h('div.im-table-box', h('table.im-table.nohover',
-    h('thead', h('tr', ['Punteggio', 'Azienda', 'Consumo', 'Tetto libero', 'Risparmio stimato', 'Incentivi', ''].map(x => h('th', x)))),
-    h('tbody', shown.slice(0, 300).map(e => h('tr',
+    h('thead', h('tr', h('th', all), ['Punteggio', 'Azienda', 'Consumo', 'Tetto libero', 'Risparmio stimato', 'Incentivi', ''].map(x => h('th', x)))),
+    h('tbody', visible.map(e => h('tr',
+      h('td', e.subject_id ? null : (() => { const cb = h('input', { type: 'checkbox', checked: enPicked.has(e.id), 'aria-label': `Scegli ${e.name}` }); cb.addEventListener('change', () => { cb.checked ? enPicked.add(e.id) : enPicked.delete(e.id); bulk.disabled = !enPicked.size; bulk.textContent = enPicked.size ? `Fai diventare lead (${enPicked.size})` : 'Fai diventare lead'; }); return cb; })()),
       h('td', h('span.im-hot-s', String(e.score))),
       h('td', h('b', e.name), h('div.im-sub', dots([e.sector, [e.city, e.province].filter(Boolean).join(' '), e.region])), h('div.im-tags', e.csea_class ? pill(`CSEA ${e.csea_class}`, 'bl') : null, e.subject_id ? pill(`nel CRM${(e.subject_roles || []).includes('cliente') ? ' · cliente' : ''}`, 'line') : null)),
       h('td.im-nw', e.consumption_gwh != null ? `${Number(e.consumption_gwh).toLocaleString('it-IT')} GWh/anno` : '—'),
       h('td.im-nw', e.roof_m2 ? `${Number(e.roof_m2).toLocaleString('it-IT')} m²` : '—'),
       h('td.im-nw', e.saving_eur ? h('b.im-gr', `≈ ${eur(e.saving_eur)}/anno`) : '—'),
       h('td.im-sub', e.incentives.join(', ') || '—'),
-      h('td', e.signal_id ? h('a.btn.btn-sm', { href: `#/impianti/opportunita/${e.signal_id}` }, 'Apri') : h('button.btn.btn-sm', { type: 'button', on: { click: () => bring(e) } }, 'Porta nel radar')))))))
+      h('td', e.subject_id ? h('a.btn.btn-sm', { href: `#/impianti/crm/scheda/${e.subject_id}` }, 'Apri il lead') : h('button.btn.btn-sm', { type: 'button', on: { click: () => toLeads([e.id]) } }, 'Fai diventare lead')))))))
     : emptyState('factory', r.energivori.length ? 'Nessuna azienda con questi filtri.' : 'L\'elenco è vuoto: carica il file delle aziende energivore (per esempio l\'elenco pubblicato dalla CSEA) con «Carica l\'elenco».');
   fill(box,
-    pageTop({ eyebrow: 'Clienti · Energivori', heading: title('Chi consuma tanto e', 'spreca'),
-      sub: 'L\'elenco delle aziende energivore caricato da file, con il punteggio che unisce consumo e tetto libero. Il risparmio è una stima: si conferma con la diagnosi.',
-      actions: [h('button.btn', { type: 'button', on: { click: () => howDialog(r.estimate) } }, 'Come si calcola'), h('button.btn.btn-primary', { type: 'button', on: { click: () => uploadDialog(again) } }, ic('upload', 15), 'Carica l\'elenco')] }),
-    h('div.im-filters', q, reg, classes.length ? cls : null, roof.el, nocrm.el, h('span.im-sub', `${shown.length} di ${r.energivori.length} aziende${r.sources.length ? ` · da ${r.sources.join(', ')}` : ''}`)),
+    h('div.im-filters', q, reg, classes.length ? cls : null, roof.el, nocrm.el, h('span.im-sub', `${shown.length} di ${r.energivori.length} aziende${r.sources.length ? ` · da ${r.sources.join(', ')}` : ''}`),
+      h('span.cv-grow'), h('button.btn.btn-sm', { type: 'button', on: { click: () => howDialog(r.estimate) } }, 'Come si calcola'), h('button.btn.btn-sm', { type: 'button', on: { click: () => uploadDialog(again) } }, ic('upload', 14), 'Carica l\'elenco'), bulk),
     h('div.im-main', map, h('section.cv-card.im-list', table)));
 }
 function howDialog(est) {
   const m = cvModal({ size: 'sm', title: h('h2', 'Come si calcola'),
     body: h('div.en-form',
       h('p', h('b', 'Punteggio (0–100): '), 'consumo di energia fino a 60 punti (pieno da circa 100 GWh l\'anno) e tetto libero fino a 40 punti (pieno da 20.000 m²).'),
-      h('p', h('b', 'Elenco CSEA: '), 'riporta solo P. IVA, ragione sociale e classe di agevolazione, senza consumi né comune. Queste aziende partono da 40 punti perché sono certificate energivore; la classe si vede e si filtra ma non pesa sul punteggio. Con «Porta nel radar» entrano nel CRM, dove «Cerca su internet» completa sede e settore.'),
+      h('p', h('b', 'Elenco CSEA: '), 'riporta solo P. IVA, ragione sociale e classe di agevolazione, senza consumi né comune. Queste aziende partono da 40 punti perché sono certificate energivore; la classe si vede e si filtra ma non pesa sul punteggio. Con «Fai diventare lead» entrano nel CRM come lead di Alma Impianti, dove «Cerca su internet» completa sede e settore.'),
       h('p', h('b', 'Risparmio stimato: '), `il ${Math.round(est.efficiency * 100)}% del consumo con l'efficienza, più l'energia del fotovoltaico sul tetto (${est.kwp_per_m2} kWp per m², ${est.mwh_per_kwp} MWh per kWp l'anno), a ${est.price_mwh} € per MWh.`),
       h('p', h('b', 'Incentivi: '), 'Transizione 5.0 se c\'è un consumo, certificati bianchi oltre 10 GWh, autoconsumo se c\'è il tetto. Da verificare caso per caso.'),
       h('p.im-sub', 'Sono stime per scegliere chi chiamare prima: i numeri veri vengono dalla diagnosi energetica.')),
@@ -523,7 +547,7 @@ function uploadDialog(onDone) {
 }
 
 // «Trova fondi con Alma»: Alma propone fondi reali dal web; si aggiungono al CRM solo quelli spuntati
-function findFundsDialog(onDone) {
+function fundsFinder(box) {
   const sector = h('select.select', { 'aria-label': 'Settore' }, [['', 'Tutti i settori'], ...SECTORS.map(([k, l]) => [k, l])].map(([k, l]) => h('option', { value: k }, l)));
   const region = h('select.select', { 'aria-label': 'Regione' }, [['', 'Tutta Italia'], ...REGIONS.map(x => [x, x])].map(([k, l]) => h('option', { value: k }, l)));
   const out = h('div.im-pick');
@@ -531,11 +555,12 @@ function findFundsDialog(onDone) {
   const picked = new Set();
   const add = h('button.btn.btn-primary', { type: 'button', disabled: true, on: { click: async () => {
     const r = await post('/api/crm/impianti/fondi/aggiungi', { funds: found.filter((_, i) => picked.has(i)) });
-    m.close(); toast(`${r.added} ${r.added === 1 ? 'fondo aggiunto' : 'fondi aggiunti'} al CRM, col mandato proposto da Alma`); onDone?.(r.ids[0]);
-  } } }, 'Aggiungi i selezionati');
+    toast(`${r.added} ${r.added === 1 ? 'fondo è ora un lead' : 'fondi sono ora lead'} di Alma Impianti, col mandato proposto da Alma: li trovi in Lead`);
+    found = found.map((f, i) => (picked.has(i) ? { ...f, existing: { id: r.ids[[...picked].indexOf(i)] || 0, name: f.name } } : f)); picked.clear(); draw();
+  } } }, 'Fai diventare lead');
   const draw = () => {
     add.disabled = !picked.size;
-    add.textContent = picked.size ? `Aggiungi ${picked.size} al CRM` : 'Aggiungi i selezionati';
+    add.textContent = picked.size ? `Fai diventare lead (${picked.size})` : 'Fai diventare lead';
     fill(out, found.length ? found.map((f, i) => {
       const cb = h('input', { type: 'checkbox', checked: picked.has(i), disabled: Boolean(f.existing), 'aria-label': `Scegli ${f.name}` });
       cb.addEventListener('change', () => { cb.checked ? picked.add(i) : picked.delete(i); draw(); });
@@ -552,10 +577,23 @@ function findFundsDialog(onDone) {
     catch (err) { fill(out, h('p.im-warn', err.message || 'La ricerca non è riuscita: riprova')); }
     go.disabled = false;
   } } }, ic('search', 14), 'Cerca');
-  const m = cvModal({ size: 'md', title: h('div', h('h2', 'Trova fondi con Alma'), h('div.cv-subh', 'Fondi e investitori che finanziano impianti in Italia e cercano un costruttore')),
-    body: h('div.en-form', h('div.cv-row', { style: { gap: '8px', flexWrap: 'wrap' } }, sector, region, go), out,
-      h('p.cv-hint', 'Alma propone, tu scegli: si aggiungono solo quelli spuntati, come lead col tipo «Fondo o investitore» e il mandato che ha trovato (poi lo correggi). Ogni ricerca costa pochi centesimi sul budget del radar Impianti.')),
-    actions: [h('button.btn.btn-ghost', { type: 'button', on: { click: () => m.close() } }, 'Chiudi'), add] });
+  fill(box, h('section.cv-card.pad', h('div.im-filters', sector, region, go, h('span.cv-grow'), h('a.btn.btn-sm', { href: '#/impianti/fondi' }, 'Mandati dei fondi'), add),
+    h('p.cv-hint', 'Alma cerca in rete fondi e investitori che finanziano impianti in Italia e cercano un costruttore. Tu scegli: quelli spuntati diventano lead di Alma Impianti col tipo «Fondo o investitore» e il mandato trovato (poi lo correggi). Ogni ricerca costa pochi centesimi sul budget del radar Impianti.'),
+    out));
+}
+
+// ── Trova nuovi lead (ALM2-92): dentro i Lead, energivori e fondi da trasformare in lead da seguire ─────────────
+async function nuoviLeadPage(box, tab) {
+  const inner = h('div');
+  fill(box,
+    h('a.im-crumb', { href: '#/impianti/crm/lead' }, '‹ Lead'),
+    pageTop({ eyebrow: 'CRM Impianti · Lead', heading: title('Trova', 'nuovi lead'),
+      sub: 'Aziende energivore dall\'elenco CSEA e fondi d\'investimento trovati da Alma: quelli che scegli diventano lead di Alma Impianti e li segui dalla pagina Lead.' }),
+    h('div.im-filters', h('div.cv-seg', { role: 'tablist', 'aria-label': 'Dove cercare' },
+      [['energivori', 'Aziende energivore'], ['fondi', 'Fondi d\'investimento']].map(([k, l]) => h('a', { href: `#/impianti/nuovi-lead/${k}`, role: 'tab', class: k === tab ? 'on' : '', 'aria-selected': String(k === tab) }, l)))),
+    inner);
+  if (tab === 'fondi') return fundsFinder(inner);
+  return energivoriPage(inner);
 }
 
 // «Riscrivi con Alma»: apre l'email senza risposta nel riquadro di scrittura della Posta, in risposta; «Scrivi con Alma» lì

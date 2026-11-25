@@ -316,3 +316,20 @@ test("rifiniture: settori del progettista dalle opportunità, novità del fondo"
   const one = await U("GET", `/api/crm/impianti/fondi/${fund.id}`);
   assert.ok(one.body.recent.some(x => x.title.startsWith("Biometano 500")), "l opportunità in cui finanzia è tra le novità");
 });
+
+test("ALM2-92: energivori → lead di Alma Impianti, senza segnale, anche più alla volta", async () => {
+  const { rows } = await db.query("SELECT id, name FROM crm_energivori WHERE name IN ('Vetreria Test', 'Cementeria Test') ORDER BY name");
+  assert.equal((await U("POST", "/api/crm/impianti/energivori/lead", { ids: [] })).status, 400);
+  const before = (await db.query("SELECT COUNT(*)::int AS n FROM crm_signals")).rows[0].n;
+  const r = await U("POST", "/api/crm/impianti/energivori/lead", { ids: rows.map(x => x.id) });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.leads, 2);
+  const after = (await db.query("SELECT COUNT(*)::int AS n FROM crm_signals")).rows[0].n;
+  assert.equal(after, before, "nessun segnale nel radar");
+  const { rows: subs } = await db.query("SELECT s.roles, s.asa, s.segment FROM crm_energivori e JOIN crm_subjects s ON s.id = e.subject_id WHERE e.id = ANY($1::int[])", [rows.map(x => x.id)]);
+  assert.equal(subs.length, 2);
+  for (const s of subs) { assert.ok(s.roles.includes("lead")); assert.ok(s.asa.includes("impianti")); assert.equal(s.segment, I.SEGMENT_ENERGIVORA); }
+  // i lead dell'area Impianti si vedono nella lista del CRM filtrata per ASA
+  const leads = await U("GET", "/api/crm/subjects?role=lead&asa=impianti");
+  assert.ok(leads.body.subjects.some(s => s.name === "Cementeria Test"));
+});
