@@ -838,6 +838,54 @@ function pickList(options, { label, placeholder, current = '' } = {}) {
   const el = h('span.an-pick', inp, h('datalist', { id }, options.map(([, t]) => h('option', { value: t }))));
   return { el, focus: () => inp.focus(), get: () => { const t = inp.value.trim(); return byText.get(t.toLowerCase()) ?? (t ? `\u0000${t}` : ''); } };
 }
+// Azienda del contatto (ALM2-88, Dante 25/11): cerca nel CRM mentre scrivi; se non c'è, «Crea «Nome»» con la categoria
+// (lead se non scegli). get() → id dell'azienda scelta, oppure «new:ruoli:Nome» per crearla; scegliere una voce salva subito.
+function companyPicker() {
+  let chosen = null; // { id, name } | { create: 'Nome' }
+  const roles = new Set(['lead']);
+  const inp = input({ 'aria-label': 'Azienda', placeholder: 'Scrivi il nome dell’azienda o dell’ente…', autocomplete: 'off' });
+  const list = h('div.crm-qlist.an-qlist', { hidden: true });
+  const extra = h('div.an-qnew', { hidden: true });
+  const el = h('div.an-company', inp, list, extra);
+  const submit = () => inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const drawNew = () => {
+    extra.hidden = !chosen?.create;
+    if (!chosen?.create) return;
+    fill(extra, h('span.cv-small.cv-muted', `Nuova nel CRM: «${chosen.create}» è`), h('div.en-chips', Object.entries(data.meta.roles).map(([k, label]) => h('button.pill.en-chip', {
+      type: 'button', class: roles.has(k) ? 'on' : '', 'aria-pressed': String(roles.has(k)),
+      on: { click: () => {
+        if (roles.has(k)) roles.delete(k); else { roles.add(k); if (k === 'lead') roles.delete('cliente'); if (k === 'cliente') roles.delete('lead'); }
+        if (!roles.size) roles.add('lead');
+        drawNew();
+      } } }, label))), h('span.cv-small.cv-muted', 'Owner tu; P.IVA e città le aggiungi dopo. Premi «Salva».'));
+  };
+  const opt = (title, sub, pick, cls = '') => h(`button.crm-qopt${cls}`, { type: 'button', on: { click: () => { pick(); list.hidden = true; drawNew(); if (!chosen?.create) submit(); else inp.focus(); } } },
+    h('span.cv-t5', title), sub ? h('span.cv-small.cv-muted', sub) : null);
+  let found = [];
+  const search = debounce(async () => {
+    const q = inp.value.trim();
+    chosen = null; drawNew();
+    if (q.length < 2) { list.hidden = true; return; }
+    ({ subjects: found = [] } = await get(`/api/crm/subjects${qs({ q })}`, { quiet: true }).catch(() => ({})));
+    const same = found.some(s => s.name.toLowerCase() === q.toLowerCase());
+    fill(list, found.slice(0, 6).map(s => opt(s.name, [(s.roles || []).map(r => data.meta.roles[r] || r).join(', '), s.city].filter(Boolean).join(' · '), () => { chosen = { id: s.id, name: s.name }; inp.value = s.name; })),
+      same ? null : opt(`Crea «${q}» nel CRM`, 'Non c’è: la crei adesso e scegli se è lead, cliente, fornitore, partner o concorrente', () => { chosen = { create: q }; }, '.new'));
+    list.hidden = false;
+  }, 250);
+  inp.addEventListener('input', search);
+  return {
+    el, focus: () => inp.focus(),
+    get: () => {
+      if (chosen?.id) return String(chosen.id);
+      const q = inp.value.replace(/\s+/g, ' ').trim();
+      if (!q) return '';
+      const hit = found.find(s => s.name.toLowerCase() === q.toLowerCase());
+      if (hit) return String(hit.id);
+      if (!chosen?.create && found.length) return '?'; // ci sono aziende simili: si sceglie dall'elenco o si tocca «Crea»
+      return `new:${[...roles].join(',')}:${chosen?.create || q}`; // scritta e non scelta: si crea (come nel «Nuovo contatto»)
+    },
+  };
+}
 function anagraficaSections(s, refresh) {
   const web = s.web_fields || {};
   const edit = () => subjectForm({ subject: s, onSaved: refresh });
@@ -1046,22 +1094,31 @@ function contactSections(c, primary, refresh) {
   // Azienda e qualifica stanno nei collegamenti del contatto: si riscrivono tutti, cambiando solo quello principale
   const linkRows = () => (c.links || []).map(l => ({ subject_id: l.subject_id, job: l.job || '', is_primary: Boolean(l.is_primary), date_to: l.date_to || null }));
   const saveLinks = async (links, what) => { await patch(`/api/crm/contacts/${c.id}`, { links }, { quiet: true }); toast(`Salvato: ${what}`); refresh(); };
-  controls.subject = async () => {
-    const { subjects } = await get('/api/crm/subjects');
-    return pickList(subjects.map(x => [x.id, x.city ? `${x.name} · ${x.city}` : x.name]), { label: 'Azienda', placeholder: 'Scrivi il nome dell’azienda…' });
-  };
+  controls.subject = () => companyPicker();
   controls.job = () => pickList(data.meta.contactJobs.map(j => [j, j]), { label: 'Qualifica', placeholder: 'Es. Titolare, Ufficio acquisti…', current: primary?.job || '' });
   const saveWork = async (k, value) => {
     if (k === 'subject') {
-      if (!value || value.startsWith('\u0000')) throw new Error('Scegli l’azienda dall’elenco (se non c’è, creala prima nel CRM)');
-      const rows = linkRows().filter(l => String(l.subject_id) !== String(value)).map(l => ({ ...l, is_primary: false }));
-      return saveLinks([{ subject_id: Number(value), job: '', is_primary: true, date_to: null }, ...rows], 'Azienda');
+      if (!value) throw new Error('Scrivi il nome dell’azienda');
+      if (value === '?') throw new Error('Ci sono aziende con un nome simile: scegline una dall’elenco o tocca «Crea»');
+      // «new:ruoli:Nome» = azienda che non c'è: si crea al volo (come nel «Nuovo contatto»), poi si collega
+      let id = Number(value), made = null;
+      if (value.startsWith('new:')) {
+        const [, roles, ...rest] = value.split(':');
+        made = await post('/api/crm/subjects/rapida', { name: rest.join(':'), roles: roles.split(',').filter(Boolean) });
+        id = made.id;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      // cambio di azienda: la vecchia resta nella storia con «fino a oggi» (come dice il modulo), la qualifica passa alla nuova
+      const rows = linkRows().filter(l => l.subject_id !== id).map(l => (primary && l.subject_id === primary.subject_id && !l.date_to ? { ...l, is_primary: false, date_to: today } : { ...l, is_primary: false }));
+      await saveLinks([{ subject_id: id, job: primary?.job || '', is_primary: true, date_to: null }, ...rows], 'Azienda');
+      if (made) toast(made.existing ? `Collegato a «${made.name}», che era già nel CRM` : `«${made.name}» creata nel CRM e collegata (da completare)`);
+      return;
     }
     const job = value.replace(/^\u0000/, '');
     return saveLinks(linkRows().map(l => (l.subject_id === primary.subject_id ? { ...l, job } : l)), 'Qualifica');
   };
   const workField = (label, v, k) => inlineField({ label, has: Boolean(v), shown: h('b', v), control: controls[k], save: value => saveWork(k, value),
-    full: k === 'subject' && primary ? edit : k === 'job' && !primary ? () => toast('Prima scegli l’azienda: la qualifica è il suo ruolo lì') : null });
+    full: k === 'job' && !primary ? () => toast('Prima scegli l’azienda: la qualifica è il suo ruolo lì') : null });
   const workSec = h('section.an-sec', h('div.an-sec-h', h('span.an-ic', ic('briefcase', 15)), h('b', 'Lavoro')), h('div.an-dl',
     h('div', h('span', 'Azienda'), workField('Azienda', primary ? h('a', { href: `#/crm/scheda/${primary.subject_id}` }, primary.name) : '', 'subject')),
     h('div', h('span', 'Qualifica'), workField('Qualifica', primary?.job || '', 'job'))));

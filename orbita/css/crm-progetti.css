@@ -743,3 +743,9 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 .pv-bcard:hover .t-remind, .pv-bcard:hover .t-trash { opacity: 1; }
 .pv-bcard:focus-visible { outline: 2px solid var(--ap-accent); outline-offset: 1px; }
 .pv-bcard.picked { box-shadow: inset 0 0 0 1.5px var(--ap-accent); background: var(--ap-orange-tint); }
+/* ALM2-88: azienda del contatto sul posto (cerca o crea) */
+.an-company { display: flex; flex-direction: column; gap: 0; flex: 1 1 100%; min-width: 0; }
+.an-company .crm-qlist { position: static; max-height: 260px; overflow: auto; }
+.an-qnew { display: grid; gap: 6px; margin-top: 8px; }
+.an-edit:has(.an-company) { align-items: flex-start; }
+.an-company .input { flex: none; width: 100%; }
