@@ -116,3 +116,22 @@ test('fonti: Database CE e radar di Alma Impianti; a mano; prendi crea azienda, 
   const s = (await A('PUT', '/api/energy/radar/impostazioni', { quota_eur: 30, regions: ['Abruzzo', 'Puglia'], mw_min: 1, mw_max: 10 })).body.settings;
   assert.deepEqual([s.quota_eur, s.regions, s.mw_max], [30, ['Abruzzo', 'Puglia'], 10]);
 });
+
+test('ALM2-93: radar IPP: numeri in testa, filtro per pipeline, «In pipeline» con la scelta della pipeline', async () => {
+  const a = (await A('POST', '/api/energy/radar', { title: 'Progetto agrivoltaico 24 MW autorizzato a Foggia', kind: 'autorizzazione', entity: 'Sviluppo Dauno Srl', region: 'Puglia', mw: '24' })).body;
+  const b = (await A('POST', '/api/energy/radar', { title: 'Asta FER-X: chiusura iscrizioni', kind: 'asta_fer', entity: 'GSE' })).body;
+  const n = (await A('GET', '/api/energy/radar/numeri')).body;
+  assert.ok(n.da_guardare.total >= 2 && n.scadenze >= 1);
+  assert.deepEqual(Object.keys(n.pipeline), ['revamping', 'fv_classico', 'ppa_onsite']);
+  // più tipi insieme
+  const fv = (await A('GET', '/api/energy/radar?kind=autorizzazione,notizia')).body.signals;
+  assert.ok(fv.some(s => s.id === a.id) && !fv.some(s => s.id === b.id));
+  // l'autorizzazione andrebbe in FV classico: la mettiamo in PPA on-site
+  const took = (await A('POST', `/api/energy/radar/${a.id}/prendi`, { kind: 'ppa_onsite' })).body;
+  const o = (await A('GET', `/api/energy/opportunities/${took.opportunity_id}`)).body;
+  assert.equal(o.kind, 'ppa_onsite');
+  assert.equal((await A('GET', `/api/energy/analyses/${took.analysis_id}`)).body.project_type, 'ppa_onsite');
+  const after = (await A('GET', '/api/energy/radar/numeri')).body;
+  assert.equal(after.pipeline.ppa_onsite.n, n.pipeline.ppa_onsite.n + 1);
+  assert.equal((await A('POST', `/api/energy/radar/${b.id}/prendi`, { kind: 'eolico' })).status, 400);
+});

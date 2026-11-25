@@ -57,6 +57,23 @@ export async function energyView(container, parts = []) {
     const { crmView } = await import('./crm.js');
     return crmView(container, parts[1] === 'posta' ? ['crm', 'posta', ...parts.slice(2)] : ['crm', ...parts.slice(2)], { lock: { asa: 'energy', label: 'Alma Energy', eyebrow: 'CRM Energy' } });
   }
+  // ALM2-93: le pipeline, il Database CE, lo screening e l'elenco delle opportunità stanno dentro il Radar
+  const MOVED = { revamping: 'pipeline/revamping', fv: 'pipeline/fv', ppa: 'pipeline/ppa', database: 'impianti/ce', screening: 'impianti/tetti' };
+  if (MOVED[parts[1]] || (parts[1] === 'opportunita' && !Number(parts[2]))) {
+    const q = location.hash.split('?')[1];
+    location.replace(`#/energy/radar/${MOVED[parts[1]] || 'pipeline'}${q ? `?${q}` : ''}`);
+    return;
+  }
+  if (parts[1] === 'radar') {
+    await ensureMeta();
+    return (await import('./energy-radar-ipp.js')).radarHub(container, parts);
+  }
+  // Progettisti: la vista del CRM filtrata sulla BU Energy (ALM2-80), ora voce a sé
+  if (parts[1] === 'progettisti') {
+    const box = h('div', loading());
+    fill(container, box);
+    return (await import('./crm-progettisti.js')).progettistiView(box, { bu: 'energy' });
+  }
   const tab = TABS.some(([k]) => k === parts[1]) ? parts[1] : 'panoramica';
   // la pagina di un'opportunità ha la sua intestazione, come i progetti (ALM2-24)
   // la scheda di un'analisi ha la sua intestazione (ALM2-74 tappa 2)

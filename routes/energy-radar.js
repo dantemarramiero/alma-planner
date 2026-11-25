@@ -5,6 +5,7 @@
 // l'opportunità nella pipeline giusta e la bozza di analisi; «Scarta» chiede il motivo.
 const { HttpError, v } = require('../lib/http');
 const R = require('../lib/energy-radar');
+const { stageKeys, CLOSED_STAGES } = require('../lib/energy');
 const { OWNER_KEY_SQL, ownersToPipeline, companyByName, SIGNALS } = require('../lib/energy-import');
 const { runScenario, summaryOf } = require('../lib/energy-scenarios');
 const { romeNow } = require('../lib/workdays');
@@ -13,6 +14,7 @@ const { addFundFromSignal, approachEnergivoro, reasonForEnergivoro } = require('
 
 const SIGNAL_LABEL = Object.fromEntries(SIGNALS);
 const STRONG = ['sottoperformance', 'in_liquidazione', 'erogazioni_azzerate', 'cambio_proprieta', 'acquistato_di_recente', 'non_strategico'];
+const TYPE_OF_KIND = { revamping: 'revamping', fv_classico: 'fv_nuovo', ppa_onsite: 'ppa_onsite' };
 const MODEL_OF_TYPE = { fv_nuovo: 'fv_classico', acquisizione: 'revamping', revamping: 'revamping', ppa_onsite: 'ppa_onsite' };
 const eur = n => `${Math.round(Number(n) || 0).toLocaleString('it-IT')} €`;
 const month = () => romeNow().day.slice(0, 7);
@@ -124,7 +126,8 @@ function registerEnergyRadar(app, { db, radarFetch }) {
     const status = v.oneOf(req.query.status || 'nuovo', 'Stato', ['nuovo', 'preso', 'scartato']);
     const params = [status];
     let where = 's.status = $1';
-    if (req.query.kind) { params.push(v.oneOf(String(req.query.kind), 'Tipo', Object.keys(R.KINDS))); where += ` AND s.kind = $${params.length}`; }
+    // ALM2-93: più tipi insieme (le pillole Revamping, FV classico, PPA, Aste del radar IPP)
+    if (req.query.kind) { params.push(String(req.query.kind).split(',').map(k => v.oneOf(k, 'Tipo', Object.keys(R.KINDS)))); where += ` AND s.kind = ANY($${params.length}::text[])`; }
     if (req.query.q) { params.push(`%${String(req.query.q).trim()}%`); where += ` AND (s.title ILIKE $${params.length} OR s.entity ILIKE $${params.length})`; }
     const [{ rows }, { rows: counts }, { rows: byStatus }, { rows: [last] }] = await Promise.all([
       db.query(
@@ -203,7 +206,10 @@ function registerEnergyRadar(app, { db, radarFetch }) {
       });
       return res.json(out);
     }
-    const t = R.TAKE[s.kind];
+    // ALM2-93: «In pipeline» lascia scegliere la pipeline (Revamping, FV classico, PPA on-site); senza scelta vale quella del tipo
+    const want = req.body?.kind ? v.oneOf(req.body.kind, 'Pipeline', Object.keys(TYPE_OF_KIND)) : null;
+    const base = R.TAKE[s.kind] || R.TAKE.notizia;
+    const t = want && want !== base.kind ? { ...base, kind: want, type: TYPE_OF_KIND[want] } : base;
     const out = await db.tx(async q => {
       let oppId;
       if (s.source === 'database_ce' && s.data?.owner_key) {
@@ -215,7 +221,7 @@ function registerEnergyRadar(app, { db, radarFetch }) {
       if (!oppId) {
         const entity = s.entity || s.title.slice(0, 120);
         const company = await companyByName(q, entity.slice(0, 200), { type: t.companyType, region: s.region, city: s.place, source: `Radar energia (${R.SOURCES[s.source]})` }, req.user.id);
-        const stage = t.kind === 'revamping' ? 'da_analizzare' : 'proposta';
+        const stage = t === base ? (t.kind === 'revamping' ? 'da_analizzare' : 'proposta') : stageKeys(t.kind)[0];
         const { rows: [o] } = await q.query(
           `INSERT INTO energy_opportunities (kind, title, stage, mw, city, region, company_id, owner_id, created_by, source_key, data, notes)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11) RETURNING id`,
@@ -242,6 +248,23 @@ function registerEnergyRadar(app, { db, radarFetch }) {
       return { opportunity_id: oppId, analysis_id: a.id };
     });
     res.json(out);
+  });
+
+  // ALM2-93: i numeri in testa al radar IPP (tavola F) e quelli dei tab
+  app.get('/api/energy/radar/numeri', async (_req, res) => {
+    const [{ rows: sig }, { rows: pipe }, { rows: [ce] }, { rows: [due] }, { rows: [imp] }] = await Promise.all([
+      db.query("SELECT source, kind, COUNT(*)::int AS n FROM energy_signals WHERE status = 'nuovo' GROUP BY source, kind"),
+      db.query('SELECT kind, COUNT(*)::int AS n, COALESCE(SUM(mw), 0)::float AS mw FROM energy_opportunities WHERE NOT (stage = ANY($1::text[])) GROUP BY kind', [CLOSED_STAGES]),
+      db.query("SELECT COALESCE(SUM(lost_per_year), 0)::float AS lost FROM energy_conventions WHERE priority = 'A'"),
+      db.query("SELECT COUNT(*)::int AS n FROM energy_signals WHERE status = 'nuovo' AND (kind = 'asta_fer' OR (deadline IS NOT NULL AND deadline <= CURRENT_DATE + 60))"),
+      db.query('SELECT COUNT(*)::int AS n FROM energy_conventions'),
+    ]);
+    const by = k => sig.filter(x => x.source === k).reduce((a, x) => a + x.n, 0);
+    res.json({
+      da_guardare: { total: sig.reduce((a, x) => a + x.n, 0), web: by('web'), database_ce: by('database_ce'), impianti: by('impianti'), manuale: by('manuale') },
+      pipeline: Object.fromEntries(['revamping', 'fv_classico', 'ppa_onsite'].map(k => { const p = pipe.find(x => x.kind === k); return [k, { n: p?.n || 0, mw: p?.mw || 0 }]; })),
+      lost_a: ce.lost, scadenze: due.n, impianti: imp.n,
+    });
   });
 
   app.get('/api/energy/radar/impostazioni', async (_req, res) => res.json({ settings: await settingsOf(), defaults: R.DEFAULTS, spent: await spentThisMonth() }));

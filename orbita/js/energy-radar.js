@@ -18,12 +18,17 @@ const TAKE_TEXT = {
   fondo: 'il fondo entra nel CRM centrale come «Fondo o investitore», con un primo mandato letto dalla notizia, e compare in Clienti e contatti → Fondi',
   energivoro: 'l\'azienda entra nel CRM centrale come energivora, nasce un\'opportunità PPA on-site e una bozza di analisi col tetto',
 };
+// ALM2-93: il radar IPP filtra per pipeline e «In pipeline» chiede solo dove metterla (proposta quella del tipo)
+const PIPE_FILTERS = [['', 'Tutti', ''], ['revamping', 'Revamping', 'revamping,conto_energia,cessione'], ['fv', 'FV classico', 'autorizzazione,notizia'],
+  ['ppa', 'PPA on-site', 'energivoro'], ['aste', 'Aste e bandi', 'asta_fer']];
+const PIPE_OF = { cessione: 'revamping', revamping: 'revamping', conto_energia: 'revamping', autorizzazione: 'fv_classico', asta_fer: 'fv_classico', notizia: 'fv_classico', energivoro: 'ppa_onsite' };
+const PIPE_LABEL = { revamping: 'Revamping', fv_classico: 'FV classico', ppa_onsite: 'PPA on-site' };
 const day = d => (d ? fmtDate(String(d).slice(0, 10), { year: true }) : '');
 const when = iso => (iso ? new Date(iso).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '');
 
-export async function radarView(box) {
+export async function radarView(box, opts = {}) {
   await ensureMeta();
-  const state = { status: 'nuovo', kind: '', q: '', open: null };
+  const state = { status: 'nuovo', kind: opts.kinds || '', pipe: '', q: '', open: null };
   const kinds = h('div.seg.en-filter', { role: 'group', 'aria-label': 'Tipo di segnale' });
   const statuses = h('div.seg.en-filter', { role: 'group', 'aria-label': 'Stato' });
   const body = h('div', loading());
@@ -39,18 +44,25 @@ export async function radarView(box) {
     } finally { searchBtn.disabled = false; }
   } } }, icon('radar', { size: 15 }), 'Cerca segnali nuovi');
   fill(box,
-    h('p.muted.en-lead', 'Solo segnali per chi possiede e sviluppa impianti: cessioni, autorizzazioni da comprare, convenzioni in calo, aste. Il radar del CRM edilizia resta separato.'),
+    opts.note ? h('p.muted.en-lead', opts.note) : opts.pipes ? null : h('p.muted.en-lead', 'Solo segnali per chi possiede e sviluppa impianti: cessioni, autorizzazioni da comprare, convenzioni in calo, aste. Il radar del CRM edilizia resta separato.'),
     h('div.toolbar.en-sel-toolbar', kinds, statuses,
       h('input.input.grow', { type: 'search', placeholder: 'Cerca nel titolo o per azienda…', on: { input: debounce(e => { state.q = e.target.value; load(); }) } }),
-      h('button.btn', { type: 'button', on: { click: () => addDialog(load) } }, icon('plus', { size: 15 }), 'Aggiungi un segnale'),
-      h('button.btn.btn-ghost', { type: 'button', 'aria-label': 'Impostazioni del radar', on: { click: () => settingsDialog(load) } }, icon('settings', { size: 16 })),
+      opts.pipes ? null : h('button.btn', { type: 'button', on: { click: () => addDialog(load) } }, icon('plus', { size: 15 }), 'Aggiungi un segnale'),
+      opts.pipes ? null : h('button.btn.btn-ghost', { type: 'button', 'aria-label': 'Impostazioni del radar', on: { click: () => settingsDialog(load) } }, icon('settings', { size: 16 })),
       searchBtn),
     body, foot);
 
   async function load() {
     const d = await get(`/api/energy/radar${qs({ status: state.status, kind: state.kind, q: state.q })}`);
     const total = Object.values(d.counts).reduce((a, b) => a + b, 0);
-    fill(kinds, [['', `Tutti ${total}`], ...Object.entries(d.kinds).filter(([k]) => d.counts[k] || k === state.kind).map(([k, l]) => [k, `${l} ${d.counts[k] || 0}`])].map(([k, label]) =>
+    if (opts.kinds) kinds.hidden = true;
+    else if (opts.pipes) {
+      // i conteggi per pipeline arrivano dal giro senza filtro
+      const all = state.kind ? (await get(`/api/energy/radar${qs({ status: state.status })}`)).counts : d.counts;
+      fill(kinds, PIPE_FILTERS.map(([k, label, ks]) => h('button', { type: 'button', class: state.pipe === k ? 'on' : '',
+        on: { click: () => { state.pipe = k; state.kind = ks; state.open = null; load(); } } },
+        `${label} ${ks ? ks.split(',').reduce((a, x) => a + (all[x] || 0), 0) : Object.values(all).reduce((a, b) => a + b, 0)}`)));
+    } else fill(kinds, [['', `Tutti ${total}`], ...Object.entries(d.kinds).filter(([k]) => d.counts[k] || k === state.kind).map(([k, l]) => [k, `${l} ${d.counts[k] || 0}`])].map(([k, label]) =>
       h('button', { type: 'button', class: state.kind === k ? 'on' : '', on: { click: () => { state.kind = k; state.open = null; load(); } } }, label)));
     fill(statuses, [['nuovo', 'Da decidere'], ['preso', 'Presi'], ['scartato', 'Scartati']].map(([k, label]) =>
       h('button', { type: 'button', class: state.status === k ? 'on' : '', on: { click: () => { state.status = k; state.open = null; load(); } } }, `${label}${d.byStatus[k] ? ` ${d.byStatus[k]}` : ''}`)));
@@ -67,13 +79,13 @@ export async function radarView(box) {
         on: { click: () => { state.open = s.id; load(); }, keydown: e => { if (e.key === 'Enter') { state.open = s.id; load(); } } } },
       h('div.en-rd-score', { class: s.score >= 70 ? 'hi' : '' }, String(s.score)),
       h('div.en-rd-main',
-        h('div.en-rd-title', h('strong', s.title), h('span.pill.en-pt', { class: `en-pt-${KIND_CLASS[s.kind] || ''}` }, d.kinds[s.kind])),
+        h('div.en-rd-title', h('strong', s.title), h('span.pill.en-pt', { class: `en-pt-${KIND_CLASS[s.kind] || ''}` }, PIPE_OF[s.kind] ? `${d.kinds[s.kind]} → ${PIPE_LABEL[PIPE_OF[s.kind]]}` : d.kinds[s.kind])),
         h('div.t-meta', [s.region, s.place, s.mw ? `${num(s.mw, 2)} MW` : null, d.sources[s.source], s.published_on ? day(s.published_on) : day(s.created_at)].filter(Boolean).join(' · ')),
         s.status === 'scartato' && s.discard_reason ? h('div.t-meta', `Scartato: ${s.discard_reason}`) : null,
         s.status === 'preso' && s.opportunity_id ? h('div.t-meta', 'Preso: ', h('a', { href: `#/energy/opportunita/${s.opportunity_id}`, on: { click: e => e.stopPropagation() } }, s.opportunity_title || 'opportunità')) : null),
       s.status === 'nuovo' ? h('div.en-sel-actions',
         h('button.btn.btn-sm', { type: 'button', on: { click: e => { e.stopPropagation(); discard(s); } } }, 'Scarta'),
-        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: e => { e.stopPropagation(); take(s); } } }, 'Prendi')) : null))),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', on: { click: e => { e.stopPropagation(); take(s); } } }, opts.pipes || opts.kinds ? 'In pipeline' : 'Prendi')) : null))),
       open ? panel(open, d) : null));
   }
 
@@ -91,7 +103,7 @@ export async function radarView(box) {
       s.status === 'nuovo' ? [
         h('div.en-rd-take', h('b', 'Cosa succede con «Prendi»'), h('p', TAKE_TEXT[s.kind] || TAKE_TEXT.notizia, '.')),
         h('div.en-stage-row', h('button.btn', { type: 'button', on: { click: () => discard(s) } }, 'Scarta con motivo'),
-          h('button.btn.btn-primary', { type: 'button', on: { click: () => take(s) } }, 'Prendi e crea l\'analisi'))] : null,
+          h('button.btn.btn-primary', { type: 'button', on: { click: () => take(s) } }, 'In pipeline e crea l\'analisi'))] : null,
       s.status === 'preso' ? h('div.en-stage-row',
         s.opportunity_id ? h('a.btn', { href: `#/energy/opportunita/${s.opportunity_id}` }, 'Apri l\'opportunità') : null,
         s.analysis_id ? h('a.btn.btn-primary', { href: `#/energy/analisi/${s.analysis_id}` }, 'Apri l\'analisi') : null) : null,
@@ -107,15 +119,33 @@ export async function radarView(box) {
     load();
   }
   async function take(s) {
-    const r = await post(`/api/energy/radar/${s.id}/prendi`, {});
-    if (!r.analysis_id) { toast('Fondo aggiunto al CRM centrale'); location.hash = '#/energy/clienti?f=fondi'; return; }
+    const kind = PIPE_OF[s.kind] && s.kind !== 'energivoro' && s.source !== 'database_ce' ? await pickPipe(s) : null;
+    if (kind === false) return;
+    const r = await post(`/api/energy/radar/${s.id}/prendi`, kind ? { kind } : {});
+    if (!r.analysis_id) { toast('Fondo aggiunto al CRM centrale'); location.hash = r.subject_id ? `#/energy/crm/scheda/${r.subject_id}` : '#/energy/crm/lead'; return; }
     toast('Preso: opportunità e bozza di analisi create');
     location.hash = `#/energy/analisi/${r.analysis_id}`;
   }
   await load();
 }
 
-function addDialog(onDone) {
+// «In pipeline»: una domanda sola, la pipeline; proposta quella del tipo di segnale
+function pickPipe(s) {
+  return new Promise(resolve => {
+    let done = false;
+    const choice = { v: PIPE_OF[s.kind] };
+    const opts = Object.entries(PIPE_LABEL).map(([k, label]) => h('label.en-check', h('input', { type: 'radio', name: 'rx-pipe', value: k, checked: k === choice.v, on: { change: () => { choice.v = k; } } }), label));
+    const m = modal({
+      title: 'In quale pipeline?',
+      body: h('div.en-form', h('p.muted', s.title), h('div.en-rx-pick', opts), h('p.muted.en-iter-note', 'Nasce l\'opportunità con l\'azienda nel CRM centrale e una bozza di analisi.')),
+      actions: [h('button.btn', { type: 'button', on: { click: () => { done = true; m.close(); resolve(false); } } }, 'Annulla'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: () => { done = true; m.close(); resolve(choice.v); } } }, 'Metti in pipeline')],
+      onClose: () => { if (!done) resolve(false); },
+    });
+  });
+}
+
+export function addDialog(onDone) {
   const title = h('input.input', { maxlength: 500, autofocus: true, placeholder: 'es. Impianto 3,4 MW in vendita a Brindisi' });
   const kind = select([['cessione', 'Cessione'], ['autorizzazione', 'Autorizzazione'], ['revamping', 'Revamping'], ['conto_energia', 'Conto Energia'], ['asta_fer', 'Asta FER'], ['notizia', 'Notizia']], 'cessione');
   const entity = h('input.input', { maxlength: 300 });
@@ -139,7 +169,7 @@ function addDialog(onDone) {
   });
 }
 
-async function settingsDialog(onDone) {
+export async function settingsDialog(onDone) {
   const { settings: s, spent } = await get('/api/energy/radar/impostazioni');
   const web = h('input', { type: 'checkbox', checked: s.web });
   const quota = h('input.input', { type: 'number', min: 0, max: 500, value: s.quota_eur });

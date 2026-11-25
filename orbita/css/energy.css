@@ -473,3 +473,23 @@ a.en-cl-row:hover { background: var(--hover); }
 .en-cl-score { font-weight: var(--ap-fw-medium); font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; }
 .en-cl-todo { background: var(--ap-orange-tint); color: #B35300; }
 @media (max-width: 1000px) { .en-cl-cards { grid-template-columns: 1fr; } .en-cl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ALM2-93 · Radar da produttore indipendente (tavole F, G, H): numeri, tab e sotto-tab a pillola */
+.en-rx-head { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; }
+.en-rx-head h1 { font-weight: 300; }
+.en-rx-head h1 b { font-weight: 700; }
+.en-rx-head .en-lead { max-width: 720px; margin: 6px 0 0; }
+.en-rx-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.en-rx-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.en-rx-kpi { display: flex; flex-direction: column; gap: 4px; padding: 18px 20px; text-decoration: none; color: inherit; }
+.en-rx-kpi strong { font-size: 30px; font-weight: 300; line-height: 1.1; color: var(--ink); }
+.en-rx-kpi b { font-weight: 500; color: var(--ink); }
+.en-rx-kpi span { font-size: 12.5px; color: var(--muted, #6B6B6B); }
+.en-rx-kpi:hover { border-color: var(--rule); }
+.en-rx-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.en-rx-bar .seg a { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 14px; border-radius: 999px; color: inherit; text-decoration: none; font-size: 14px; }
+.en-rx-bar .seg a.on { background: #fff; font-weight: 500; box-shadow: 0 1px 3px rgba(28, 24, 20, .12); }
+.en-rx-bar .seg a small { color: var(--muted, #6B6B6B); font-size: 12px; }
+.en-rx-bar .en-filter a.on { background: var(--orange); color: #fff; box-shadow: none; }
+.en-rx-pick { display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 900px) { .en-rx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
