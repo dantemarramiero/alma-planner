@@ -1,6 +1,7 @@
 // Progetti: griglia raggruppata nelle macro aree personali (ognuno ha le sue), scheda del progetto (tab Panoramica, Gantt, Ticket, Documenti, Email, Note, Membri), creazione e modifica.
 // Ognuno vede solo i progetti di cui è responsabile o membro (lib/access.js lato server).
 // Le date del progetto non si scrivono a mano: sono l'arco delle sue attività (ticket con date + attività).
+import { shareButton, shareDialog, markShareOpened, shareHistory, sharePeople } from './condividi.js';
 import { h, clear, fill, modal, confirmDialog, promptDialog, toast, fmtDate, avatar, loading, today, isMobile, PROJECT_STATUS, PROJECT_COLORS } from './ui.js';
 import { icon } from './icons.js';
 import { get, post, put, patch, del } from './api.js';
@@ -199,6 +200,7 @@ export async function projectDetail(container, id, opts = {}) {
   const viewer = p?.my_role === 'viewer';
   const area = areaById(p?.area_id);
   if (!p) return clear(container).append(h('div.card.empty', 'Progetto non trovato, oppure non sei tra i suoi membri. ', h('a', { href: '#/projects' }, 'Torna ai progetti')));
+  markShareOpened('projects', id); // chi apre un progetto condiviso con lui: «aperta» nella cronologia (ALM2-87)
   // il progetto di un'opportunità di Alma Energy si apre nella pagina dell'opportunità
   if (p.energy && !opts.base) {
     const t = location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[2] || '';
@@ -254,10 +256,12 @@ export async function projectDetail(container, id, opts = {}) {
           p.my_role === 'member' ? 'sei membro' : p.my_role === 'admin' ? 'vedi come amministratore' : viewer ? 'non sei nel progetto: lo vedi in sola lettura' : null].filter(Boolean).join('  ·  '))),
       h('div.pj-actions',
         opts.actions ? opts.actions() : canManage(p) ? h('button.btn', { type: 'button', on: { click: () => editProject(p, reload) } }, icon('pencil', { size: 16 }), 'Modifica') : null,
+        shareButton(opts.share?.kind || 'projects', opts.share?.id || p.id), // ALM2-87: Condividi con un collega (Alma, Teams, email)
         viewer ? null : h('button.btn.btn-primary', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => show(tab) }) } }, icon('plus', { size: 16 }), 'Nuovo ticket'),
         moreMenu(
           viewer ? null : [h('span.pj-menu-label', 'La tua macro area'), areaPicker(p, reload), h('span.pj-menu-sep')],
           p.claude_url ? h('a.pj-menu-item', { href: p.claude_url, target: '_blank', rel: 'noopener', role: 'menuitem' }, icon('external', { size: 16 }), 'Apri in Claude') : null,
+          h('button.pj-menu-item', { type: 'button', role: 'menuitem', on: { click: () => shareDialog({ kind: opts.share?.kind || 'projects', id: opts.share?.id || p.id }) } }, icon('share-2', { size: 16 }), 'Condividi con un collega'),
           h('a.pj-menu-item', { href: `#/gantt?project=${p.id}`, role: 'menuitem' }, icon('gantt', { size: 16 }), 'Apri il Gantt a tutta pagina')))),
     h('div.pj-facts',
       fact('Durata', dates(p), h('span.pj-fact-note', 'dalle attività del Gantt')),
@@ -356,6 +360,7 @@ export async function projectDetail(container, id, opts = {}) {
       get(`/api/projects/${p.id}/emails`, { quiet: true }).catch(() => []), get(`/api/projects/${p.id}/notes`, { quiet: true }).catch(() => []),
       get(`/api/projects/${p.id}/meetings`, { quiet: true }).catch(() => []),
     ]);
+    const shares = await shareHistory(opts.share?.kind || 'projects', opts.share?.id || p.id); // ALM2-87: chi l'ha condiviso, con chi e se l'hanno aperto
 
     // il prossimo incontro collegato al progetto (oggi o dopo)
     const next = meetings.filter(m => String(m.start_at).slice(0, 10) >= today()).sort((a, b) => String(a.start_at).localeCompare(String(b.start_at)))[0];
@@ -381,12 +386,15 @@ export async function projectDetail(container, id, opts = {}) {
       ...emails.slice(0, 3).map(e => ({ when: e.sent_at || '', ico: 'mail', title: e.subject || '(senza oggetto)', sub: ['Email', e.from_name, e.sent_at ? fmtDate(e.sent_at.slice(0, 10)) : null], k: 'email' })),
       ...notes.slice().sort((a, b) => (b.note_date || '').localeCompare(a.note_date || '') || b.id - a.id).slice(0, 3)
         .map(n => ({ when: n.note_date || '', ico: 'file-text', title: n.title || n.body.split('\n')[0], sub: ['Nota', userById(n.author_id)?.name, n.note_date ? fmtDate(n.note_date.slice(0, 10)) : null], k: 'note' })),
+      // ALM2-87: le condivisioni, con canale e «aperta» persona per persona
+      ...shares.slice(0, 3).map(x => ({ when: String(x.date || ''), ico: 'share-2', title: `${x.from_name || 'Qualcuno'} ha condiviso ${opts.share ? 'l’opportunità' : 'il progetto'}`,
+        sub: [x.message ? `«${x.message.length > 80 ? `${x.message.slice(0, 80)}…` : x.message}»` : null, fmtDate(String(x.date).slice(0, 10))], people: x.to })),
     ].sort((a, b) => b.when.localeCompare(a.when)).slice(0, 4);
     news.lastChild.replaceWith(items.length
-      ? h('div.pj-list', items.map(it => h('button.pj-news', { type: 'button', on: { click: () => show(it.k) } },
+      ? h('div.pj-list', items.map(it => h(it.k ? 'button.pj-news' : 'div.pj-news', { type: it.k ? 'button' : undefined, on: it.k ? { click: () => show(it.k) } : undefined },
         h('span.pj-news-ico', icon(it.ico, { size: 17 })),
-        h('span.pj-news-text', h('span.pj-news-title', it.title), h('small', it.sub.filter(Boolean).join(' · '))))))
-      : h('p.muted', 'Ancora nessuna email o nota nel progetto.'));
+        h('span.pj-news-text', h('span.pj-news-title', it.title), h('small', it.sub.filter(Boolean).join(' · ')), it.people ? sharePeople(it.people) : null))))
+      : h('p.muted', 'Ancora nessuna email, nota o condivisione nel progetto.'));
   }
 
   // ── Membri: chi vede e lavora al progetto ────────────────────────────────────

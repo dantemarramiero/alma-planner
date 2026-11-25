@@ -95,6 +95,23 @@ function registerCrmCollegamenti(app, { db }) {
         WHERE cl.subject_id = $1 ORDER BY (cl.date_to IS NOT NULL), cl.is_primary DESC NULLS LAST, c.last_name, c.first_name LIMIT 200`, [sid]);
     res.json({ people: rows.map(r => ({ id: r.id, name: r.name || r.email || 'Senza nome', email: r.email || '', job: r.job || '', former: r.former })) });
   });
+  // nella ricerca di Relazioni (ALM2-86): per ogni azienda trovata, quante sue persone sono già nelle email o negli
+  // incontri del progetto (sono quelle che si spuntano da sole collegandola)
+  app.get('/api/crm/collegamenti/nelle-email', async (req, res) => {
+    const pid = v.int(req.query.project, 'progetto', { min: 1 });
+    const ids = String(req.query.subjects || '').split(',').map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 20);
+    if (!ids.length) return res.json({ counts: {} });
+    const { rows } = await db.query(
+      `WITH seen AS (
+         SELECT lower(from_address) AS a FROM project_emails WHERE project_id = $1 AND from_address IS NOT NULL
+         UNION SELECT lower(x->>'address') FROM project_emails e, jsonb_array_elements(e.to_list || e.cc_list) x WHERE e.project_id = $1
+         UNION SELECT lower(organizer_address) FROM project_meetings WHERE project_id = $1 AND organizer_address IS NOT NULL
+         UNION SELECT lower(x->>'address') FROM project_meetings m, jsonb_array_elements(m.attendees) x WHERE m.project_id = $1)
+       SELECT cl.subject_id, count(DISTINCT c.id)::int AS n FROM crm_contact_links cl JOIN crm_contacts c ON c.id = cl.contact_id
+        WHERE cl.subject_id = ANY($2::int[]) AND cl.date_to IS NULL AND c.email <> '' AND lower(c.email) IN (SELECT a FROM seen WHERE a IS NOT NULL)
+        GROUP BY cl.subject_id`, [pid, ids]);
+    res.json({ counts: Object.fromEntries(rows.map(r => [r.subject_id, r.n])) });
+  });
   app.delete('/api/crm/collegamenti', async (req, res) => {
     const b = req.body || {};
     const t = target(b);

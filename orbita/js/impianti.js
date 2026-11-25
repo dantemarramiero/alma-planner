@@ -7,6 +7,7 @@ import { get, post, put, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, choiceChips, toggle } from './crm-v2.js';
 import { stepDialog, doneDialog } from './crm-commerciale.js';
+import { shareDialog, markShareOpened } from './condividi.js';
 import { radarTab, openSignal, newSignalDialog, TILES } from './crm-radar.js';
 import { garaProgettisti } from './crm-progettisti.js';
 
@@ -313,7 +314,7 @@ async function homePage(box) {
       card({ title: 'Fondi da risentire', icon: 'landmark', right: link('Fondi', { href: '#/impianti/fondi' }) },
         r.funds.length ? r.funds.map(f => h('div.im-li', h('div', h('b', f.name), h('div.im-sub', dots([(f.techs || []).map(sectorName).join(', '), f.days === null ? 'mai sentito' : `ultimo contatto ${f.days} giorni fa`, f.matches ? `${f.matches} progetti abbinati` : '']))),
           h('a.btn.btn-sm', { href: `#/impianti/fondi/${f.id}` }, f.matches ? 'Mostra abbinamenti' : 'Apri')))
-          : emptyState('landmark', 'Tutti i fondi sentiti di recente.')),
+          : emptyState('landmark', t.funds_all ? 'Tutti i fondi sentiti di recente.' : 'Nessun fondo ancora: aggiungili da «Fondi e investitori» o con «Trova fondi con Alma».')),
       card({ title: 'Progettisti: dare e avere', icon: 'ruler', right: link('Progettisti', { href: '#/impianti/progettisti' }) },
         r.progettisti.length ? r.progettisti.map(p => { const tot = p.dato + p.ricevuto || 1; return h('a.im-li', { href: `#/impianti/progettisti/${p.id}` }, h('div', h('b', p.name), h('div.im-sub', p.city || '')),
           h('div.im-recip', { style: { width: '170px' } }, h('span.im-recip-bar', h('i.dato', { style: { width: `${Math.round(p.dato / tot * 100)}%` } }), h('i.ric', { style: { width: `${Math.round(p.ricevuto / tot * 100)}%` } })),
@@ -351,6 +352,7 @@ async function oppPage(box, id) {
   const r = await get(`/api/crm/impianti/opportunita/${id}`);
   const o = r.opportunity;
   const again = () => oppPage(box, id);
+  markShareOpened('impianti', id); // ALM2-87: «aperta» per chi l'ha ricevuta con Condividi
   const save = async body => { await put(`/api/crm/impianti/opportunita/${id}`, body); again(); };
   const stepIdx = STAGES.findIndex(s => s[0] === o.imp_stage);
   const big = o.amount >= r.settings.big_amount;
@@ -359,6 +361,7 @@ async function oppPage(box, id) {
       h('div.cv-grow', h('div.im-tags', o.sector ? h('span.cv-pill.dark', secDot(o.sector), sectorName(o.sector)) : null, big ? pill(`Oltre ${eur(r.settings.big_amount)}`, 'or') : null, o.source ? pill(`dal radar · ${o.source}`, 'line') : null),
         h('h1', o.title), h('p', dots([o.site_name || o.entity, o.place || o.region, o.amount ? `valore stimato ${eur(o.amount)}` : '', o.owner_name ? `segue ${o.owner_name}` : '']))),
       h('div.im-acts', h('button.btn', { type: 'button', on: { click: () => openSignal(o.id, again, store.crmData || {}) } }, 'Apri nel radar'),
+        h('button.btn.sh-btn', { type: 'button', on: { click: () => shareDialog({ kind: 'impianti', id }) } }, ic('share-2', 14), 'Condividi'), // ALM2-87
         o.subject_id ? h('button.btn.btn-primary', { type: 'button', on: { click: () => stepDialog({ subjectId: o.subject_id, subjectName: o.site_name, onSaved: again }) } }, ic('plus', 14), 'Nuovo compito') : null)),
     h('ol.im-stepper', { 'aria-label': 'Fase' }, STAGES.map(([k, l], i) => h('li', h('button', { type: 'button', class: o.imp_stage === 'persa' ? '' : i < stepIdx ? 'done' : i === stepIdx ? 'on' : '', 'aria-current': i === stepIdx ? 'step' : null,
       on: { click: () => save({ imp_stage: k }) } }, l)))),

@@ -27,6 +27,37 @@
 .cm-what .cv-mono { width: 36px; height: 36px; font-size: 12px; }
 .btn.cm-share { border-color: var(--cv-orange); }
 
+/* Condividi ovunque (ALM2-87, canvas C1–C4): come glielo mandi, cronologia con il canale */
+.btn.sh-btn { border-color: var(--cv-orange); }
+.sh-pick { position: relative; }
+.sh-pick .picker { position: static; }
+.sh-pick .picker-menu { left: 0; right: 0; min-width: 0; }
+button.pj-menu-item { border: 0; background: transparent; font: inherit; width: 100%; text-align: left; cursor: pointer; }
+.sh-chs { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.sh-chs legend { font-size: 13px; font-weight: 500; color: var(--cv-text-2); padding: 0; margin-bottom: 8px; }
+.sh-ch-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sh-ch { border: 1px solid var(--cv-line-strong); border-radius: 14px; background: var(--cv-card); padding: 12px; display: grid; gap: 6px; cursor: pointer; min-width: 0; }
+.sh-ch.on { border: 2px solid var(--cv-orange); background: var(--cv-or-t); padding: 11px; }
+.sh-ch.locked { border: 1px solid var(--cv-line-strong); background: var(--cv-soft); padding: 12px; cursor: default; }
+.sh-ch-top { display: flex; align-items: center; justify-content: space-between; color: var(--cv-ink); }
+.sh-ch input { width: 18px; height: 18px; accent-color: var(--cv-orange); margin: 0; }
+.sh-ch.locked input { accent-color: var(--cv-muted); }
+.sh-ch b { font-size: 14px; color: var(--cv-ink); }
+.sh-ch small, .sh-note { font-size: 12px; color: var(--cv-muted); }
+.sh-done { display: grid; gap: 8px; }
+.sh-done p { margin: 0; }
+.sh-people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.sh-pp { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 10px; border-radius: 999px; background: var(--cv-soft); color: var(--cv-text-2); font-size: 12px; }
+.sh-pp.open { background: var(--cv-gr-t); color: var(--cv-gr); }
+.sh-pp .cm-bang { width: 16px; height: 16px; font-size: 11px; }
+@media (max-width: 760px) {
+  .sh-ch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .sh-ch { padding: 10px 8px; text-align: center; }
+  .sh-ch.on { padding: 9px 7px; }
+  .sh-ch small { display: none; }
+  .sh-ch-top { justify-content: center; gap: 8px; }
+}
+
 @media (max-width: 760px) {
   .cm-person { margin: 8px 12px 0; }
   .cm-foot { padding: 12px 14px 16px; }

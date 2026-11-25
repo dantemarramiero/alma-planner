@@ -40,6 +40,9 @@ function registerProcurement(app, { db, auth, config, radarFetch, mailFake }) {
   }
   const eurToUsd = eur => (Number(eur) || 0) / R.USD_EUR;
 
+  // solo le persone di PROCUREMENT_UTENTI (oggi Dante); le altre ricevono 403 anche dalle API
+  app.use(BASE, (req, _res, next) => next(req.user && R.canSee(req.user.email) ? undefined : new HttpError(403, 'Alma Procurement non è ancora aperto a te')));
+
   // ── pezzi comuni ───────────────────────────────────────────────────────────────────────────────
   async function tagsOf(ids) {
     if (!ids.length) return {};

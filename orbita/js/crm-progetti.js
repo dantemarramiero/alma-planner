@@ -6,6 +6,7 @@ import { h, fill, toast, loading, fmtDate, initials, debounce, today, addDays, m
 import { get, post, api, del } from './api.js';
 import { store } from './store.js';
 import { ic } from './crm-v2.js';
+import { shareDialog } from './condividi.js';
 import { openTicket } from './tickets.js';
 import { projectDetail, editProject } from './projects.js';
 import { openMeeting, meetingWhen } from './project-meetings.js';
@@ -293,6 +294,7 @@ export async function crmProjectPage(container, id) {
     }, h('i'), h('span', label))));
     const actions = [
       h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
+      h('button.pv-ghost', { type: 'button', on: { click: () => shareDialog({ kind: 'projects', id }) } }, ic('share-2', 13), 'Condividi'), // ALM2-87
       canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, again) } }, ic('pencil', 13), 'Modifica') : null,
       member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: again }) } }, ic('plus', 13), 'Nuovo compito') : null];
     return dealHero({ info, deal, p, member, stepper, actions, reload: again, id });
@@ -330,6 +332,7 @@ export async function crmProjectPage(container, id) {
           inis(info.team.map(t => t.name), 5),
           h('div.pv-hero-act',
             h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
+            h('button.pv-ghost', { type: 'button', on: { click: () => shareDialog({ kind: 'projects', id }) } }, ic('share-2', 13), 'Condividi'), // ALM2-87
             canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, reload) } }, ic('pencil', 13), 'Modifica') : null,
             member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => { refreshInfo().then(reload); } }) } }, ic('plus', 13), 'Nuovo compito') : null))),
       stepper,
@@ -362,7 +365,15 @@ export async function crmProjectPage(container, id) {
         taskBoard(await get(`/api/tickets?project=${id}`), { id }, changed, { drag: true }));
       fill(box, loading()); await draw();
     }],
-    ['relazioni', 'Relazioni', async box => { fill(box, h('div.pv-tabhead', h('div', h('h3', 'Relazioni'), h('p', 'Aziende ed enti collegati al progetto, ognuno con le sue persone, con il loro ruolo. Si vedono anche nella loro scheda del CRM.'))), (() => { const rb = relationsBox(id, { onChange: refreshInfo }); return [touchBox({ project: id }, { onChange: () => { refreshInfo(); rb.replaceWith(relationsBox(id, { onChange: refreshInfo })); } }), rb]; })()); }],
+    ['relazioni', 'Relazioni', async box => {
+      // ALM2-86: la testata (titolo e numeri) la disegna relationsBox; i punti di contatto stanno tra la testata e la ricerca
+      const make = () => {
+        const tb = touchBox({ project: id }, { onChange: () => { refreshInfo(); rb.replaceWith(make()); } });
+        const rb = relationsBox(id, { onChange: () => { refreshInfo(); tb.refresh?.(); }, header: true, before: tb });
+        return rb;
+      };
+      fill(box, make());
+    }],
     ['calendario', 'Calendario', async box => calendarTab(box, id)],
     ['rendiconto', 'Rendiconto', async box => reportTab(box, id)],
   ];
@@ -528,42 +539,93 @@ export function linksBox(target, { title = 'Collegati', onChange } = {}) {
   return box;
 }
 
-// ═══ Relazioni a gruppi (ALM2-79, canvas «Nuovi business come progetto», tavola 5) ═══════════════════════════════
-// Le aziende collegate al progetto, ognuna con le sue persone del CRM da spuntare; una persona collegata porta con sé
-// la sua azienda (lo fa il server); «+ nuovo contatto» lo crea già dentro l'azienda e collegato.
-export function relationsBox(projectId, { canEdit = true, onChange } = {}) {
+// ═══ Relazioni (ALM2-86, canvas «Alma Space · Relazioni del progetto»; prima ALM2-79) ════════════════════════════
+// Le aziende collegate al progetto in schede, ognuna con il bollino del suo ruolo e le sue persone del CRM
+// («Nel progetto» / «+ Aggiungi»); una persona collegata porta con sé la sua azienda (lo fa il server).
+// Ricerca unica con il ruolo dentro: frecce + Invio o «Collega» collegano il risultato evidenziato.
+const RL_TONE = { ente: 'bl', rup: 'bl', dl: 'bl', progettista: 'bl', ati: 'gr', partner: 'gr', subappalto: 'gr', fornitore: 'gr', sviluppatore: 'gr',
+  cliente_target: 'or', cliente: 'or', referente: 'or', concorrente: 'rd', altro: 'gy' };
+const rlAv = name => ['or', 'bl', 'gr'][[...(name || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % 3];
+export function relationsBox(projectId, { canEdit = true, onChange, header = false, before = null } = {}) {
   const box = h('div.rl');
+  const head = header ? h('div.rl-top') : null;
   const list = h('div.rl-list', loading());
   let roles = {};
-  const roleSel = (value, attrs = {}) => h('select.pv-sel.lk-role', attrs, h('option', { value: '' }, 'ruolo…'), Object.entries(roles).map(([k, l]) => h('option', { value: k, selected: k === value }, l)));
   const link = async (who, extra = {}) => { const r = await post('/api/crm/collegamenti', { project: projectId, ...who, ...extra }); onChange?.(); return r.links; };
   const unlink = async who => { const r = await api('DELETE', '/api/crm/collegamenti', { project: projectId, ...who }); onChange?.(); return r.links; };
   const fullName = c => [c.title, c.first_name, c.last_name].filter(Boolean).join(' ');
 
-  // ricerca: un campo per aziende e persone del CRM; «Crea al volo» se non c'è
-  const search = h('input.input', { type: 'search', placeholder: 'Cerca un\'azienda, un ente o una persona del CRM…', 'aria-label': 'Cerca nel CRM' });
-  const pickRole = roleSel('', { 'aria-label': 'Come' });
-  const results = h('div.pv-results');
+  // ── ricerca: un campo per aziende e persone del CRM, il ruolo dentro la stessa barra; «Crea al volo» se non c'è
+  const narrow = window.matchMedia?.('(max-width: 760px)').matches;
+  const search = h('input.rl-q', { type: 'search', placeholder: narrow ? 'Collega dal CRM…' : 'Collega un\'azienda, un ente o una persona del CRM…', 'aria-label': 'Cerca nel CRM', autocomplete: 'off' });
+  const pickRole = h('select.rl-pick', { 'aria-label': 'Ruolo di chi colleghi' }, h('option', { value: '' }, 'Scegli il ruolo'));
+  const goBtn = h('button.rl-go', { type: 'button', disabled: true }, 'Collega');
+  const results = h('div.rl-res', { role: 'listbox', 'aria-label': 'Risultati', hidden: true });
+  const hint = h('p.rl-hint', { hidden: true }, 'Frecce ↑ ↓ per scegliere, Invio per collegare. Il ruolo scelto vale per quello che colleghi; si cambia poi dal bollino sulla scheda.');
+  let opts = []; let hi = 0;
+  const setHi = k => {
+    hi = Math.max(0, Math.min(opts.length - 1, k));
+    opts.forEach((o, i) => { o.el.classList.toggle('hi', i === hi); o.el.setAttribute('aria-selected', i === hi ? 'true' : 'false'); });
+  };
+  const close = () => { opts = []; fill(results); results.hidden = true; hint.hidden = true; goBtn.disabled = true; };
+  const done = async (links, name) => { toast(`${name} collegato${pickRole.value ? ` come ${roles[pickRole.value]}` : ''}`); search.value = ''; close(); draw(links); };
+  const goLabel = () => pickRole.value ? `Collega come ${roles[pickRole.value]} ↵` : 'Collega ↵';
+  const option = (icon, title, sub, run) => {
+    const el = h('button.rl-opt', { type: 'button', role: 'option' }, icon, h('span.rl-opt-t', h('b', title), h('small', sub)), h('span.rl-opt-go', goLabel()));
+    const o = { el, run };
+    el.addEventListener('click', () => run());
+    el.addEventListener('mouseenter', () => setHi(opts.indexOf(o)));
+    return o;
+  };
   search.addEventListener('input', debounce(async () => {
     const q = search.value.trim();
-    if (q.length < 2) { fill(results); return; }
+    if (q.length < 2) { close(); return; }
     const [{ subjects = [] }, contacts] = await Promise.all([get(`/api/crm/subjects?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => ({})), get(`/api/crm/contacts?q=${encodeURIComponent(q)}`, { quiet: true }).catch(() => [])]);
-    const people = Array.isArray(contacts) ? contacts : contacts.contacts || [];
-    const done = async (links, name) => { toast(`${name} collegato${pickRole.value ? ` come ${roles[pickRole.value]}` : ''}`); search.value = ''; fill(results); draw(links); };
-    fill(results,
-      subjects.slice(0, 5).map(s => h('button.pv-res', { type: 'button', on: { click: async () => {
+    if (search.value.trim() !== q) return;
+    const people = (Array.isArray(contacts) ? contacts : contacts.contacts || []).slice(0, 5);
+    const subs = subjects.slice(0, 5);
+    const seen = subs.length ? await get(`/api/crm/collegamenti/nelle-email?project=${projectId}&subjects=${subs.map(s => s.id).join(',')}`, { quiet: true }).then(r => r.counts).catch(() => ({})) : {};
+    const subOpts = subs.map(s => {
+      const n = s.contacts ?? null; const k = seen[s.id] || 0;
+      const sub = [(s.roles || []).join(', '), s.city, n != null ? `${n} ${n === 1 ? 'persona' : 'persone'}` : '', k ? `${k} già nelle email del progetto` : ''].filter(Boolean).join(' · ') || 'azienda';
+      return option(h('span.rl-ic', { class: `t-${rlAv(s.name)}` }, initials(s.name || '?')), s.name, sub, async () => {
         // le sue persone già nelle email o negli incontri del progetto si spuntano da sole
         const r = await post('/api/crm/collegamenti', { project: projectId, subject_id: s.id, role: pickRole.value, auto_contacts: true });
         onChange?.();
         await done(r.links, r.auto ? `${s.name} (con ${r.auto} ${r.auto === 1 ? 'persona già nelle email o negli incontri' : 'persone già nelle email o negli incontri'})` : s.name);
-      } } },
-        ic('building', 14), h('b', s.name), h('small', [(s.roles || []).join(', '), s.city].filter(Boolean).join(' · ') || 'azienda'), h('span.rl-act', 'Collega e scegli le persone'))),
-      people.slice(0, 5).map(c => h('button.pv-res', { type: 'button', on: { click: async () => done(await link({ contact_id: c.id }, { role: pickRole.value }), fullName(c)) } },
-        ic('user', 14), h('b', fullName(c)), h('small', c.subject_name || c.links?.[0]?.subject_name || c.email || 'persona'), h('span.rl-act', 'Collega (entra anche la sua azienda)'))),
-      h('button.pv-res.new', { type: 'button', on: { click: async () => { const s = await post('/api/crm/subjects/rapida', { name: q }); done(await link({ subject_id: s.id }, { role: pickRole.value }), s.name); } } },
-        ic('plus', 14), h('b', `Crea «${q}» al volo`), h('small', 'lead da completare')));
+      });
+    });
+    const pplOpts = people.map(c => {
+      const lk = (c.links || []).find(l => !l.date_to) || c.links?.[0];
+      const co = c.subject_name || lk?.name || lk?.subject_name || '';
+      return option(h('span.rl-ic.round', { class: `t-${rlAv(fullName(c))}` }, initials(fullName(c) || '?')), fullName(c) || c.email,
+        co ? `${co} · entra anche la sua azienda` : (c.email || 'persona'),
+        async () => done(await link({ contact_id: c.id }, { role: pickRole.value }), fullName(c)));
+    });
+    const newOpt = option(h('span.rl-ic.new', ic('plus', 16)), `Crea «${q}» al volo`, 'nuovo lead da completare nel CRM',
+      async () => { const s = await post('/api/crm/subjects/rapida', { name: q }); done(await link({ subject_id: s.id }, { role: pickRole.value }), s.name); });
+    opts = [...subOpts, ...pplOpts, newOpt];
+    fill(results,
+      subOpts.length ? [h('div.rl-grp', 'Aziende ed enti'), subOpts.map(o => o.el)] : null,
+      pplOpts.length ? [h('div.rl-grp', 'Persone'), pplOpts.map(o => o.el)] : null,
+      h('div.rl-res-new', newOpt.el));
+    results.hidden = false; hint.hidden = false; goBtn.disabled = false;
+    setHi(0);
   }, 250));
+  search.addEventListener('keydown', e => {
+    if (!opts.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi(hi + 1); opts[hi]?.el.scrollIntoView({ block: 'nearest' }); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(hi - 1); opts[hi]?.el.scrollIntoView({ block: 'nearest' }); }
+    else if (e.key === 'Enter') { e.preventDefault(); opts[hi]?.run(); }
+    else if (e.key === 'Escape') { close(); }
+  });
+  pickRole.addEventListener('change', () => {
+    pickRole.classList.toggle('set', Boolean(pickRole.value));
+    opts.forEach(o => { o.el.querySelector('.rl-opt-go').textContent = goLabel(); });
+  });
+  goBtn.addEventListener('click', () => opts[hi]?.run());
 
+  // ── nuovo contatto dentro un'azienda
   const newContact = (s, after) => {
     const nome = h('input.input', { placeholder: 'Nome e cognome', 'aria-label': 'Nome e cognome' });
     const email = h('input.input', { type: 'email', placeholder: 'Email', 'aria-label': 'Email' });
@@ -583,6 +645,49 @@ export function relationsBox(projectId, { canEdit = true, onChange } = {}) {
     nome.focus();
   };
 
+  // ── una persona senza azienda: la si lega a un'azienda del CRM (che entra anche nel progetto)
+  const attach = c => {
+    const q = h('input.input', { type: 'search', placeholder: 'Cerca l\'azienda nel CRM…', 'aria-label': 'Cerca l\'azienda' });
+    const job = h('input.input', { placeholder: 'Ruolo in azienda (facoltativo)', 'aria-label': 'Ruolo in azienda' });
+    const out = h('div.rl-res.in-modal');
+    const md = modal({ title: `Collega ${c.name} a un'azienda`, body: h('div.rl-form', q, job, out), actions: [h('button.btn', { type: 'button', on: { click: () => md.close() } }, 'Annulla')] });
+    q.addEventListener('input', debounce(async () => {
+      const t = q.value.trim();
+      if (t.length < 2) { fill(out); return; }
+      const { subjects = [] } = await get(`/api/crm/subjects?q=${encodeURIComponent(t)}`, { quiet: true }).catch(() => ({}));
+      fill(out, subjects.slice(0, 6).map(s => h('button.rl-opt', { type: 'button', on: { click: async () => {
+        await api('PATCH', `/api/crm/contacts/${c.contact_id}`, { links: [{ subject_id: s.id, job: job.value.trim(), is_primary: true }] });
+        md.close();
+        draw(await link({ contact_id: c.contact_id }));
+        toast(`${c.name} ora è in ${s.name}`);
+      } } }, h('span.rl-ic', { class: `t-${rlAv(s.name)}` }, initials(s.name || '?')), h('span.rl-opt-t', h('b', s.name), h('small', [(s.roles || []).join(', '), s.city].filter(Boolean).join(' · ') || 'azienda')))),
+      subjects.length ? null : h('p.pv-empty', 'Nessuna azienda con questo nome nel CRM.'));
+    }, 250));
+    q.focus();
+  };
+
+  // ── menu «…» di una scheda
+  const moreMenu = (s, redraw) => {
+    const wrap = h('div.rl-more');
+    const menu = h('div.rl-menu', { hidden: true, role: 'menu' },
+      h('a.rl-mi', { href: `#/crm/scheda/${s.subject_id}`, role: 'menuitem' }, ic('external', 14), 'Apri nel CRM'),
+      canEdit ? h('button.rl-mi.danger', { type: 'button', role: 'menuitem', on: { click: async () => redraw(await unlink({ subject_id: s.subject_id })) } }, ic('x', 14), 'Scollega dal progetto') : null);
+    const btn = h('button.rl-ib.flat', { type: 'button', 'aria-label': `Altre azioni su ${s.name}`, 'aria-haspopup': 'menu' }, ic('more', 16));
+    const off = e => { if (!wrap.contains(e.target)) { menu.hidden = true; document.removeEventListener('click', off); } };
+    btn.addEventListener('click', () => { menu.hidden = !menu.hidden; if (!menu.hidden) setTimeout(() => document.addEventListener('click', off)); });
+    wrap.append(btn, menu);
+    return wrap;
+  };
+
+  const personRow = (p, on, { onToggle = null, extra = null } = {}) => h('div.rl-p', { class: on ? 'on' : '' },
+    h('span.rl-av', { class: on ? `t-${rlAv(p.name)}` : 't-gy' }, initials(p.name || '?')),
+    h('div.rl-p-t', h('a.rl-p-n', { href: p.href }, p.name), p.sub ? h('small', p.sub) : null),
+    p.email ? h('a.rl-ib', { href: `mailto:${p.email}`, 'aria-label': `Scrivi a ${p.name}`, title: p.email }, ic('mail', 16)) : null,
+    extra,
+    onToggle ? (on
+      ? h('button.rl-in', { type: 'button', 'aria-pressed': 'true', disabled: !canEdit, title: canEdit ? 'Tocca per toglierlo dal progetto' : null, 'aria-label': `${p.name} è nel progetto${canEdit ? ': tocca per toglierlo' : ''}`, on: { click: onToggle } }, ic('check', 13), h('span', 'Nel progetto'))
+      : canEdit ? h('button.rl-add', { type: 'button', 'aria-pressed': 'false', 'aria-label': `Aggiungi ${p.name} al progetto`, on: { click: onToggle } }, ic('plus', 13), h('span', 'Aggiungi')) : null) : null);
+
   const draw = async (links = null) => {
     if (!links) { const r = await get(`/api/crm/collegamenti?project=${projectId}`); roles = r.roles; links = r.links; }
     if (pickRole.options.length < 2) pickRole.append(...Object.entries(roles).map(([k, l]) => h('option', { value: k }, l)));
@@ -594,33 +699,60 @@ export function relationsBox(projectId, { canEdit = true, onChange } = {}) {
     const cards = subjects.map((s, k) => {
       const ppl = people[k].filter(p => !p.former || linkedC.has(p.id));
       ppl.forEach(p => shownC.add(p.id));
-      const sel = roleSel(s.role, { 'aria-label': `Ruolo di ${s.name}`, disabled: !canEdit });
+      // il ruolo: bollino colorato (select a pillola); ambra «+ Scegli il ruolo» se manca
+      const sel = h('select.rl-role', { class: s.role ? `t-${RL_TONE[s.role] || 'gy'}` : 'none', 'aria-label': `Ruolo di ${s.name}`, disabled: !canEdit },
+        h('option', { value: '' }, '+ Scegli il ruolo'), Object.entries(roles).map(([rk, l]) => h('option', { value: rk, selected: rk === s.role }, l)));
       sel.addEventListener('change', async () => draw(await link({ subject_id: s.subject_id }, { role: sel.value })));
-      return h('section.pv-card.rl-co',
-        h('div.rl-co-h', h('span.rl-ini', initials(s.name || '?')),
-          h('a.pv-grow', { href: `#/crm/scheda/${s.subject_id}` }, h('b', s.name || '—'), h('small', [s.sub, `${ppl.length} ${ppl.length === 1 ? 'persona' : 'persone'} nel CRM`].filter(Boolean).join(' · '))),
+      const sub = [s.sub, `${ppl.length} ${ppl.length === 1 ? 'persona' : 'persone'} nel CRM`].filter(Boolean).join(' · ');
+      return h('article.rl-co',
+        h('div.rl-co-h',
+          h('span.rl-logo', { class: `t-${s.role ? RL_TONE[s.role] || 'gy' : rlAv(s.name)}` }, initials(s.name || '?')),
+          h('div.rl-co-t', h('a', { href: `#/crm/scheda/${s.subject_id}` }, s.name || '—'), h('small', sub)),
           sel,
-          canEdit ? h('button.pv-x', { type: 'button', 'aria-label': `Scollega ${s.name}`, title: 'Scollega l\'azienda', on: { click: async () => draw(await unlink({ subject_id: s.subject_id })) } }, ic('x', 12)) : null),
+          moreMenu(s, draw)),
         h('div.rl-ppl',
           ppl.length ? ppl.map(p => {
             const on = linkedC.has(p.id);
-            const cb = h('input', { type: 'checkbox', checked: on, disabled: !canEdit, 'aria-label': `${p.name} c'entra` });
-            cb.addEventListener('change', async () => { cb.disabled = true; draw(cb.checked ? await link({ contact_id: p.id }) : await unlink({ contact_id: p.id })); });
-            return h('label.rl-p', { class: on ? 'on' : '' }, cb, h('span.pv-grow', h('span', p.name), p.job ? h('small', ` · ${p.job}`) : null, p.former ? h('small', ' · non lavora più qui') : null),
-              p.email ? h('small.rl-mail', p.email) : null);
-          }) : h('p.pv-empty', 'Nessuna persona di questa azienda nel CRM.'),
-          canEdit ? h('button.rl-new', { type: 'button', on: { click: () => newContact(s, draw) } }, `+ nuovo contatto in ${s.name}`) : null));
+            const toggle = async e => { e.currentTarget.disabled = true; draw(on ? await unlink({ contact_id: p.id }) : await link({ contact_id: p.id })); };
+            const sub = [p.job, p.former ? 'non lavora più qui' : '', on ? p.email : (p.job ? '' : 'nel CRM, non ancora nel progetto')].filter(Boolean).join(' · ');
+            return personRow({ name: p.name, href: `#/crm/contatti/${p.id}`, email: p.email, sub }, on, { onToggle: toggle });
+          }) : h('p.rl-none', 'Nessuna persona di questa azienda nel CRM.')),
+        canEdit ? h('div.rl-co-f', h('button.rl-new', { type: 'button', on: { click: () => newContact(s, draw) } }, ic('plus', 14), `Nuovo contatto in ${s.name}`)) : null);
     });
     const loose = contacts.filter(c => !shownC.has(c.contact_id));
+    const looseCard = loose.length ? h('article.rl-co.soft',
+      h('div.rl-co-h', h('span.rl-logo.t-gy', ic('user', 20)), h('div.rl-co-t', h('b', 'Senza azienda'), h('small', 'Persone nel progetto che nel CRM non sono legate a nessuna azienda del progetto'))),
+      h('div.rl-ppl', loose.map(c => {
+        const missing = [c.name && c.name.trim().split(/\s+/).length < 2 ? 'manca il cognome' : '', c.email ? '' : 'manca l\'email'].filter(Boolean);
+        return personRow({ name: c.name, href: `#/crm/contatti/${c.contact_id}`, email: c.email, sub: [c.job, c.works_at, c.email, ...missing].filter(Boolean).join(' · ') }, true, {
+          extra: canEdit ? [
+            c.works_at ? null : h('button.rl-link', { type: 'button', on: { click: () => attach(c) } }, 'Collega a un\'azienda'),
+            h('button.rl-ib.flat', { type: 'button', 'aria-label': `Togli ${c.name} dal progetto`, title: 'Togli dal progetto', on: { click: async () => draw(await unlink({ contact_id: c.contact_id })) } }, ic('x', 14))] : null });
+      }))) : null;
+    if (head) {
+      const noRole = subjects.filter(s => !s.role).length;
+      fill(head,
+        h('div.rl-top-l', h('div.rl-eyebrow', 'Relazioni'), h('h2.rl-h', 'Chi c\'è ', h('b', 'intorno al progetto')),
+          h('p.rl-sub', 'Aziende, enti e persone del CRM collegati qui, ognuno con il suo ruolo. Li vedi anche nella loro scheda del CRM.')),
+        h('div.rl-nums',
+          h('div', h('b', String(subjects.length)), h('small', subjects.length === 1 ? 'azienda o ente' : 'aziende ed enti')),
+          h('div', h('b', String(contacts.length)), h('small', contacts.length === 1 ? 'persona nel progetto' : 'persone nel progetto')),
+          noRole ? h('div.warn', h('b', String(noRole)), h('small', 'senza ruolo')) : null));
+    }
     fill(list,
-      cards.length || loose.length ? null : h('p.pv-empty', 'Ancora nessuno: collega i clienti target, gli sviluppatori, i partner e le persone con cui parli.'),
-      cards,
-      loose.length ? h('section.pv-card.rl-co', h('div.rl-co-h', h('span.rl-ini', ic('user', 14)), h('b.pv-grow', 'Persone senza un\'azienda collegata')),
-        h('div.rl-ppl', loose.map(c => h('div.rl-p.on', h('a.pv-grow', { href: `#/crm/contatti/${c.contact_id}` }, h('span', c.name), c.works_at ? h('small', ` · ${c.works_at}`) : null),
-          canEdit ? h('button.pv-x', { type: 'button', 'aria-label': `Scollega ${c.name}`, on: { click: async () => draw(await unlink({ contact_id: c.contact_id })) } }, ic('x', 12)) : null)))) : null);
+      cards.length || loose.length ? null : h('div.rl-empty', h('b', 'Ancora nessuno'), h('p', 'Cerca qui sopra i clienti target, gli enti, i partner e le persone con cui parli: le loro persone già nelle email del progetto entrano da sole.')),
+      cards, looseCard);
   };
   fill(box,
-    canEdit ? h('section.pv-card.rl-add', h('div.lk-add', h('div.pv-relsearch', search), h('span.lk-come', 'come'), pickRole), results) : null,
+    head,
+    before,
+    canEdit ? h('div.rl-addwrap',
+      h('section.rl-bar',
+        h('label.rl-field', ic('search', 18), search),
+        h('span.rl-sep'),
+        h('label.rl-come', h('span', 'come'), pickRole),
+        goBtn),
+      results, hint) : null,
     list);
   draw().catch(() => fill(list, h('p.pv-empty', 'Relazioni non disponibili.')));
   return box;
