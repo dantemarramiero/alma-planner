@@ -722,3 +722,18 @@ a.ld-ico:hover { background: #FF8A26; color: #fff; }
 /* gate della direzione nel calendario (ALM2-79) */
 .pv-ev.gate { background: var(--cv-bl-t); border-color: transparent; color: var(--cv-bl); }
 .pv-legend .gate::before { background: var(--cv-bl-t); border-color: var(--cv-bl-t); }
+
+/* ALM2-85: campanella, cestino e selezione nella bacheca dei compiti */
+.pv-boardwrap { display: grid; gap: 10px; }
+.pv-bulk[hidden] { display: none; }
+.pv-bulk { margin-bottom: 0; }
+.pv-colpick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.pv-colpick input, .pv-pick { width: 14px; height: 14px; margin: 0; cursor: pointer; accent-color: var(--ap-accent); flex: none; }
+.pv-bcard-top { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.pv-bcard-top .pv-pick { margin-top: 1px; }
+.pv-bcard-top .pv-bcard-t { flex: 1; min-width: 0; }
+.pv-bcard-top .t-acts { margin: -4px -5px -4px 0; }
+.pv-bcard .t-remind, .pv-bcard .t-trash { padding: 3px; }
+.pv-bcard:hover .t-remind, .pv-bcard:hover .t-trash { opacity: 1; }
+.pv-bcard:focus-visible { outline: 2px solid var(--ap-accent); outline-offset: 1px; }
+.pv-bcard.picked { box-shadow: inset 0 0 0 1.5px var(--ap-accent); background: var(--ap-orange-tint); }
