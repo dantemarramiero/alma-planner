@@ -29,6 +29,11 @@
 
 /* Condividi ovunque (ALM2-87, canvas C1–C4): come glielo mandi, cronologia con il canale */
 .btn.sh-btn { border-color: var(--cv-orange); }
+.sh-strip:empty { display: none; }
+.sh-card { display: grid; gap: 4px; }
+.sh-row { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--cv-line-2); font-size: 14px; color: var(--cv-text); }
+.cv-ch + .sh-row { border-top: 0; }
+.sh-row small { font-size: 12px; }
 .sh-pick { position: relative; }
 .sh-pick .picker { position: static; }
 .sh-pick .picker-menu { left: 0; right: 0; min-width: 0; }

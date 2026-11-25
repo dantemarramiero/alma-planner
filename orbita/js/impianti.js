@@ -7,7 +7,7 @@ import { get, post, put, del, api } from './api.js';
 import { store } from './store.js';
 import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, choiceChips, toggle } from './crm-v2.js';
 import { stepDialog, doneDialog } from './crm-commerciale.js';
-import { shareDialog, markShareOpened } from './condividi.js';
+import { shareDialog, markShareOpened, shareStrip } from './condividi.js';
 import { radarTab, openSignal, newSignalDialog, TILES } from './crm-radar.js';
 import { garaProgettisti } from './crm-progettisti.js';
 
@@ -397,6 +397,7 @@ async function oppPage(box, id) {
   fill(box,
     h('a.im-crumb', { href: '#/impianti/opportunita' }, '‹ Opportunità', o.sector ? ` · ${sectorName(o.sector)}` : ''),
     header,
+    shareStrip('impianti', id), // ALM2-87: chi l'ha condivisa, con chi e se l'hanno aperta
     h('div.im-main',
       h('section.cv-card.im-tri-card',
         h('div.im-row-top', h('div.cv-grow', h('h2', 'Chi paga, chi progetta, dove si fa'), h('p.im-sub', nOk === 3 ? 'Li conosciamo tutti e tre.' : `${['Nessuno', 'Uno', 'Due'][nOk]} su tre li conosciamo.`)),

@@ -77,17 +77,44 @@ function registerCondividi(app, { db, gov, notifier, access, crmAccess, energyAc
       let teams = '', mail = '';
       if (useTeams) {
         try { await s.teams(from, u, C.teamsHtml({ from, item, message, url, kind: key })); teams = 'ok'; out.teams.ok++; } catch (err) {
-          teams = 'errore'; errors.push(`Teams: ${C.reason(err)}`); out.teams.failed.push({ id: u.id, name: u.name, error: C.reason(err) });
+          teams = 'errore'; errors.push(`Teams: ${C.reason(err)}`); out.teams.failed.push({ id: u.id, share_id: id, name: u.name, error: C.reason(err), mail: useMail });
         }
       }
       if (useMail) {
         try { await s.mail(from, u, C.mailSubject({ from, item }), C.mailHtml({ from, to: u, item, message, url, kind: key })); mail = 'ok'; out.mail.ok++; } catch (err) {
-          mail = 'errore'; errors.push(`Email: ${C.reason(err)}`); out.mail.failed.push({ id: u.id, name: u.name, error: C.reason(err) });
+          mail = 'errore'; errors.push(`Email: ${C.reason(err)}`); out.mail.failed.push({ id: u.id, share_id: id, name: u.name, error: C.reason(err) });
         }
       }
       if (useTeams || useMail) await db.query('UPDATE crm_shares SET teams = $2, mail = $3, error = $4 WHERE id = $1', [id, teams, mail, errors.join(' · ')]);
     }
     res.status(201).json(out);
+  });
+
+  // «Mandalo per email» (canvas C4): Teams non è partito, chi ha condiviso lo rimanda per email a quei colleghi.
+  // Solo email: l'avviso in Alma c'è già, e non si crea una condivisione nuova.
+  app.post('/api/condividi/email-di-nuovo', async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.share_ids) ? req.body.share_ids : []).map(x => v.int(x, 'Condivisione', { min: 1 })))].slice(0, MAX_PEOPLE);
+    if (!ids.length) throw new HttpError(400, 'Niente da rimandare');
+    const { rows } = await db.query('SELECT id, kind, ref_id, to_user, message, mail, error FROM crm_shares WHERE id = ANY($1::int[]) AND from_user = $2', [ids, req.user.id]);
+    if (rows.length !== ids.length) throw new HttpError(404, 'Condivisione non trovata');
+    const from = (await people([req.user.id]))[0];
+    const out = { ok: 0, failed: [] };
+    const s = sender();
+    for (const r of rows) {
+      const kind = kinds[r.kind];
+      const item = await kind.load(req, r.ref_id);
+      const [to] = await people([r.to_user]);
+      if (r.mail === 'ok') { out.ok++; continue; } // già arrivata: non la si manda due volte
+      try {
+        await s.mail(from, to, C.mailSubject({ from, item }), C.mailHtml({ from, to, item, message: r.message, url: `${baseUrl}/app#${item.link}`, kind: r.kind }));
+        await db.query("UPDATE crm_shares SET mail = 'ok', error = trim(both ' ·' from regexp_replace(error, 'Email: [^·]*', '')) WHERE id = $1", [r.id]);
+        out.ok++;
+      } catch (err) {
+        await db.query("UPDATE crm_shares SET mail = 'errore', error = $2 WHERE id = $1", [r.id, [r.error.replace(/Email: [^·]*/, '').replace(/^[ ·]+|[ ·]+$/g, ''), `Email: ${C.reason(err)}`].filter(Boolean).join(' · ')]);
+        out.failed.push({ share_id: r.id, name: to.name, error: C.reason(err) });
+      }
+    }
+    res.json(out);
   });
 
   app.post('/api/condividi/:kind/:id/aperta', async (req, res) => {

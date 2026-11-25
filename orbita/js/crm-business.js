@@ -16,7 +16,7 @@ import { notesPanel } from './notes.js';
 import { projectDocuments } from './activities.js';
 import { ganttView } from './gantt.js';
 import { peoplePicker } from './people.js';
-import { shareDialog, markShareOpened } from './condividi.js';
+import { shareDialog, markShareOpened, shareStrip } from './condividi.js';
 
 const PHASES = [['esplorazione', 'Esplorazione'], ['analisi', 'Analisi'], ['piano', 'Piano'], ['ingresso', 'Ingresso'], ['consolidamento', 'Consolidamento']];
 const PHASE_KEYS = PHASES.map(([k]) => k);
@@ -511,6 +511,7 @@ async function initiativePage(container, id, tabKey, crmData) {
     gl?.late && i.phase !== 'abbandonata' ? h('div.nb-focus', ic('alert-triangle'), h('div.grow', h('b', 'Da decidere: '), `gate G${gl.n} «${gl.question}» è scaduto il ${day(gl.due_date)}.${lateTask ? ` Passo scaduto: «${lateTask.title}» (${lateTask.owner_name || '—'}).` : ''}`),
       i.canDecide ? btn('Decidi il gate', () => gateDialog(i, gl, 'prosegui', tasks, refresh), { small: true }) : null,
       lateTask ? btn('Apri il passo', () => go('piano'), { small: true, ghost: true }) : null) : null,
+    shareStrip('business', id), // ALM2-87: chi l'ha condivisa, con chi e se l'hanno aperta
     h('div.nb-tb', h('nav.nb-tabs.nb-tabs2', { role: 'tablist', 'aria-label': 'Sezioni dell\'iniziativa' },
       h('span.nb-tabgrp', 'Strategia'), TABS.map(([k]) => tabBtn(k, tabLabel(k))),
       h('span.nb-tabsep', { 'aria-hidden': 'true' }),

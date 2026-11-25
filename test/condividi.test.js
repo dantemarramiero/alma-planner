@@ -93,7 +93,7 @@ test('Teams non parte: l\'avviso in Alma sì, il motivo torna e resta nella cron
     const r = await E('POST', `/api/condividi/subjects/${s.id}`, { user_ids: [fId, gId], teams: true });
     assert.equal(r.status, 201);
     assert.equal(r.body.teams.ok, 1);
-    assert.deepEqual(r.body.teams.failed, [{ id: gId, name: r.body.teams.failed[0].name, error: 'Microsoft chiede di rientrare' }]);
+    assert.deepEqual(r.body.teams.failed.map(f => [f.id, f.error, f.mail]), [[gId, 'Microsoft chiede di rientrare', false]]);
   } finally { failTeams = ''; }
   assert.ok((await notes('reti@almacis.it')).some(n => n.link === `/crm/scheda/${s.id}`));
   // la cronologia della scheda azienda: una riga, le persone con il loro canale e il «!»
@@ -101,6 +101,29 @@ test('Teams non parte: l\'avviso in Alma sì, il motivo torna e resta nella cron
   const sh = tl.find(i => i.type === 'share');
   assert.equal(sh.to.length, 2);
   assert.match(sh.to.find(x => x.teams === 'errore').error, /Teams: Microsoft chiede di rientrare/);
+  // «Mandalo per email»: solo l'email, a chi non ha ricevuto Teams; solo chi ha condiviso può farlo
+  failTeams = 'reti@almacis.it';
+  let r2;
+  try { r2 = (await E('POST', `/api/condividi/subjects/${s.id}`, { user_ids: [gId], teams: true, message: 'Albo a gennaio' })).body; } finally { failTeams = ''; }
+  const shareId = r2.teams.failed[0].share_id;
+  assert.ok(shareId);
+  assert.equal((await F('POST', '/api/condividi/email-di-nuovo', { share_ids: [shareId] })).status, 404);
+  const before = (await notes('reti@almacis.it')).length;
+  sent.length = 0;
+  const again = await E('POST', '/api/condividi/email-di-nuovo', { share_ids: [shareId] });
+  assert.deepEqual(again.body, { ok: 1, failed: [] });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].via, 'mail');
+  assert.equal(sent[0].to, 'reti@almacis.it');
+  assert.ok(sent[0].html.includes('Albo a gennaio'));
+  assert.equal((await notes('reti@almacis.it')).length, before, 'nessun nuovo avviso in Alma');
+  const { rows: [row] } = await db.query('SELECT teams, mail, error FROM crm_shares WHERE id = $1', [shareId]);
+  assert.deepEqual([row.teams, row.mail], ['errore', 'ok']);
+  assert.match(row.error, /^Teams: /);
+  // una seconda volta non la rimanda
+  sent.length = 0;
+  assert.deepEqual((await E('POST', '/api/condividi/email-di-nuovo', { share_ids: [shareId] })).body, { ok: 1, failed: [] });
+  assert.equal(sent.length, 0);
   // e il vecchio «Condividi» (schede aperte prima del deploy) scrive ancora
   assert.equal((await E('POST', `/api/crm/subjects/${s.id}/condividi`, { user_ids: [fId] })).status, 201);
 });

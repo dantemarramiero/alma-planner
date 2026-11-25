@@ -11,7 +11,7 @@ import { meta, num, field, select, kindPill, stagePill, stageLabel, opportunityS
 import { projectDetail } from './projects.js';
 import { targetTab, selectAsTargetButton } from './energy-target.js';
 import { ownerChip } from './energy-owner.js';
-import { shareButton, markShareOpened } from './condividi.js';
+import { shareButton, markShareOpened, shareStrip } from './condividi.js';
 
 const PIPELINE_TAB = { ppa_onsite: 'ppa', revamping: 'revamping', fv_classico: 'fv' };
 const PROJECT_TABS = ['Panoramica', 'Gantt', 'Ticket', 'Documenti', 'Email', 'Incontri', 'Note', 'Membri'];
@@ -54,6 +54,7 @@ export async function opportunityPage(container, id) {
         fact('Priorità', o.priority || '—'), fact('Potenza', o.mw ? `${num(o.mw, 2)} MW` : '—'),
         fact('Capex', o.capex ? `${num(Math.round(o.capex / 1000))} k€` : '—'), fact('Luogo', [o.city, o.province].filter(Boolean).join(', ') || '—')),
       stageBar(o, refresh)),
+    shareStrip('energy', id), // ALM2-87: condivisioni dell'opportunità ancora al primo stadio
     h('nav.pj-nav', { role: 'tablist', 'aria-label': 'Sezioni dell\'opportunità' },
       h('button.pj-tab.on', { type: 'button', role: 'tab', 'aria-selected': 'true' }, 'Opportunità'),
       PROJECT_TABS.map(label => h('button.pj-tab', { type: 'button', role: 'tab', disabled: true, title: 'Arriva quando l\'opportunità supera il primo stadio' }, label))),
