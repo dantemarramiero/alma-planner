@@ -138,3 +138,32 @@ test('email suggerite da Alma (solo mie, entrano col mio sì) e persone spuntate
   assert.equal(out.auto, 1);
   assert.ok(out.links.some(l => l.contact_id === rossi.id));
 });
+
+// ALM2-90 (Dante 25/11/2026): «mi rendi eliminabili o modificabili i progetti ed i nuovi business?»
+test('elimina: l\'iniziativa porta via il suo progetto, il progetto porta via l\'iniziativa; solo responsabile e direzione', async () => {
+  const dId = await meId(D);
+  const eId = await meId(E);
+  // il responsabile (non direzione) elimina la sua iniziativa e con lei il progetto
+  const mine = (await E('POST', '/api/crm/business', { name: 'Biometano E', owner_id: eId })).body;
+  const list = (await E('GET', '/api/crm/business')).body.initiatives;
+  assert.equal(list.find(x => x.id === mine.id).canDelete, true);
+  const other = (await D('POST', '/api/crm/business', { name: 'Biometano D', owner_id: dId })).body;
+  assert.equal(list.find(x => x.id === other.id)?.canDelete ?? false, false);
+  assert.equal((await E('DELETE', `/api/crm/business/${other.id}`)).status, 403, 'non è sua');
+  assert.equal((await E('DELETE', `/api/crm/business/${mine.id}`)).status, 200);
+  assert.equal((await db.query('SELECT 1 FROM projects WHERE id = $1', [mine.project_id])).rowCount, 0, 'il progetto se ne va con l\'iniziativa');
+
+  // il progetto di un Nuovo business: le card dicono chi lo gestisce, eliminarlo elimina anche l'iniziativa
+  await db.query('UPDATE crm_initiatives SET launched_at = now() WHERE id = $1', [other.id]);
+  await db.query("UPDATE projects SET crm_kind = 'settore' WHERE id = $1", [other.project_id]);
+  const tiles = (await D('GET', '/api/crm/progetti?vista=tutti')).body.projects;
+  assert.equal(tiles.find(x => x.id === other.project_id).can_manage, true);
+  const tilesE = (await E('GET', '/api/crm/progetti?vista=tutti')).body.projects;
+  assert.equal(tilesE.find(x => x.id === other.project_id)?.can_manage ?? false, false);
+  assert.equal((await E('DELETE', `/api/crm/progetti/${other.project_id}`)).status, 403);
+  const r = await D('DELETE', `/api/crm/progetti/${other.project_id}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.initiative, true);
+  assert.equal((await db.query('SELECT 1 FROM crm_initiatives WHERE id = $1', [other.id])).rowCount, 0, 'non rinasce alla riapertura');
+  assert.equal((await D('GET', `/api/crm/progetti/${other.project_id}`)).status, 404);
+});

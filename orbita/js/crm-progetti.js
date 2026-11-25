@@ -215,7 +215,10 @@ export async function mieiProgetti(container) {
         h('div.pv-steps', p.steps.map((_, i) => h('i', { class: i < p.step ? 'done' : i === p.step ? 'now' : '' }))),
         h('div.pv-row', h('b.pv-step-l', p.steps[p.step]), h('span.pv-grow'), p.tasks_late ? h('span.pv-flag', `${p.tasks_late} in ritardo`) : null),
         h('div.pv-next', h('span.pv-k', 'Prossimo'), h('span', p.next ? [p.next.title, firstName(p.next.who), p.next.due_date ? (p.next.due_date === today() ? 'oggi' : day(p.next.due_date)) : null].filter(Boolean).join(' · ') : 'nessun compito aperto')),
-        h('div.pv-row', inis(p.team.map(t => t.name)), h('span.pv-grow'), h('small', meta))));
+        h('div.pv-row', inis(p.team.map(t => t.name)), h('span.pv-grow'), h('small', meta),
+          p.can_manage ? cardMenu([ // ALM2-90
+            ['Modifica', () => editCrmProject(p.id, again), false, 'pencil'],
+            ['Elimina', async () => { if (await deleteCrmProject(p)) again(); }, true, 'trash']], `Altro su «${p.name}»`) : null)));
   };
   const addTile = () => h('a.pv-tile.add', { href: '#/crm/radar' }, h('span.pv-add-ic', ic('plus', 18)), h('b', 'Porta avanti un\'opportunità'), h('small', 'dal Radar o da Nuovi business'));
   const section = (title, sub, list, withAdd) => [
@@ -264,6 +267,37 @@ export async function mieiProgetti(container) {
     h('div.pv-mine-side', dayBox, tasksBox)));
 }
 
+// ═══ Modifica / Elimina dalle card (ALM2-90) ═══════════════════════════════════════════════════════════
+// Menu «⋯» in alto a destra di una card che è un link: i clic nel menu non aprono la card.
+export function cardMenu(items, label = 'Altro') {
+  const list = items.filter(Boolean);
+  if (!list.length) return null;
+  const stop = e => { e.preventDefault(); e.stopPropagation(); };
+  const menu = h('details.cm-menu', { on: { click: e => e.stopPropagation() } },
+    h('summary', { 'aria-label': label, title: label, on: { click: e => { e.preventDefault(); e.stopPropagation(); menu.open = !menu.open; } } }, ic('more', 16)),
+    h('div.cm-list', list.map(([text, run, danger, icon]) => h('button.cm-item', { type: 'button', class: danger ? 'danger' : '', on: { click: e => { stop(e); menu.open = false; run(); } } },
+      icon ? ic(icon, 14) : null, text))));
+  return menu;
+}
+// un clic fuori chiude i menu «⋯» aperti (un solo ascoltatore per tutta l'app)
+document.addEventListener('click', e => { document.querySelectorAll('details.cm-menu[open]').forEach(m => { if (!m.contains(e.target)) m.open = false; }); });
+
+// Elimina un progetto del CRM; se è di un Nuovo business se ne va anche l'iniziativa. true se eliminato.
+export async function deleteCrmProject(p) {
+  const kind = p.kind || p.crm_kind;
+  const why = kind === 'settore' ? 'Se ne va anche l\'iniziativa di Nuovi business, con piano, clienti target e riflessioni.'
+    : kind === 'gara' ? 'La gara resta nel Radar.' : 'Le email collegate restano nella tua posta.';
+  if (!await confirmDialog(`Eliminare il progetto «${p.name}»? ${why} I compiti restano, senza progetto. Non si può annullare.`, { ok: 'Elimina', danger: true })) return false;
+  await del(`/api/crm/progetti/${p.id}`);
+  toast('Progetto eliminato');
+  return true;
+}
+
+async function editCrmProject(id, done) {
+  const p = await get(`/api/projects/${id}`);
+  editProject(p, done);
+}
+
 // ═══ Scheda del progetto del CRM ════════════════════════════════════════════════════════════════════
 export async function crmProjectPage(container, id) {
   fill(container, loading());
@@ -285,6 +319,7 @@ export async function crmProjectPage(container, id) {
 
   const reloadAll = reload => async () => { info = await get(`/api/crm/progetti/${id}`); if (deal) deal = (await loadDeal(id)) || deal; reload(); };
   const hero = args => (deal ? heroDeal(args) : heroBase(args));
+  const removeIt = async () => { if (await deleteCrmProject({ id, name: info.name, kind: info.kind })) location.hash = '#/crm/progetti'; };
   const heroDeal = ({ p, reload, canManage }) => {
     const member = canEdit(p);
     const again = reloadAll(reload);
@@ -296,6 +331,7 @@ export async function crmProjectPage(container, id) {
       h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
       h('button.pv-ghost', { type: 'button', on: { click: () => shareDialog({ kind: 'projects', id }) } }, ic('share-2', 13), 'Condividi'), // ALM2-87
       canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, again) } }, ic('pencil', 13), 'Modifica') : null,
+      canManage ? h('button.pv-ghost', { type: 'button', on: { click: removeIt } }, ic('trash', 13), 'Elimina') : null, // ALM2-90
       member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: again }) } }, ic('plus', 13), 'Nuovo compito') : null];
     return dealHero({ info, deal, p, member, stepper, actions, reload: again, id });
   };
@@ -334,6 +370,7 @@ export async function crmProjectPage(container, id) {
             h('a.pv-ghost', { href: `/api/crm/progetti/${id}/rendiconto?formato=csv`, download: '' }, ic('download', 13), 'Rendiconto'),
             h('button.pv-ghost', { type: 'button', on: { click: () => shareDialog({ kind: 'projects', id }) } }, ic('share-2', 13), 'Condividi'), // ALM2-87
             canManage ? h('button.pv-ghost', { type: 'button', on: { click: () => editProject(p, reload) } }, ic('pencil', 13), 'Modifica') : null,
+            canManage ? h('button.pv-ghost', { type: 'button', on: { click: removeIt } }, ic('trash', 13), 'Elimina') : null, // ALM2-90
             member ? h('button.pv-ghost.pri', { type: 'button', on: { click: () => openTicket(null, { defaults: { project_id: p.id, assignee_ids: [store.me.id] }, onSaved: () => { refreshInfo().then(reload); } }) } }, ic('plus', 13), 'Nuovo compito') : null))),
       stepper,
       h('div.pv-glasses', kpis.map(([k, v, s2]) => glassTile(k, v, s2))));

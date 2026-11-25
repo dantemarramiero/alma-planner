@@ -55,6 +55,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     return i;
   }
   const canEdit = (req, i) => req.crm.admin || [i.owner_id, i.sponsor_id, i.created_by].includes(req.user.id);
+  const canDelete = (req, i) => req.crm.admin || [i.owner_id, i.created_by].includes(req.user.id);
   const canDecide = (req, i) => req.crm.admin || i.sponsor_id === req.user.id;
   async function editable(req, id) {
     const i = await byId(id);
@@ -172,7 +173,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
          LEFT JOIN users s ON s.id = i.sponsor_id ORDER BY (i.phase = 'abbandonata'), i.updated_at DESC`);
     const list = await Promise.all(rows.map(async i => {
       const { rows: [n] } = await db.query('SELECT title, due_date FROM crm_initiative_tasks WHERE initiative_id = $1 AND done_at IS NULL ORDER BY due_date NULLS LAST, id LIMIT 1', [i.id]);
-      return { ...i, started_on: dayOf(i.started_on), nextTask: n ? `${n.title}${n.due_date ? ` · ${dayOf(n.due_date).split('-').reverse().slice(0, 2).join('/')}` : ''}` : null, ...(await stats(i)) };
+      return { ...i, canEdit: canEdit(req, i), canDelete: canDelete(req, i), started_on: dayOf(i.started_on), nextTask: n ? `${n.title}${n.due_date ? ` · ${dayOf(n.due_date).split('-').reverse().slice(0, 2).join('/')}` : ''}` : null, ...(await stats(i)) };
     }));
     const open = list.filter(i => i.phase !== 'abbandonata');
     res.json({
@@ -287,7 +288,7 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     await NBP.ensureProject(db, iid(req), req.user.id); // le iniziative nate prima di ALM2-79 lo ricevono alla prima apertura
     const i = await byId(iid(req));
     const marketGare = await countGare(db, await loadSettings(db), i).catch(() => 0);
-    res.json({ ...i, started_on: dayOf(i.started_on), ...(await stats(i)), market_gare: marketGare, canEdit: canEdit(req, i), canDecide: canDecide(req, i), ai: Boolean(aiKey()), meta: meta() });
+    res.json({ ...i, started_on: dayOf(i.started_on), ...(await stats(i)), market_gare: marketGare, canEdit: canEdit(req, i), canDelete: canDelete(req, i), canDecide: canDecide(req, i), ai: Boolean(aiKey()), meta: meta() });
   });
   app.patch('/api/crm/business/:id', async (req, res) => {
     const i = await editable(req, iid(req));
@@ -303,9 +304,14 @@ function registerCrmBusiness(app, { db, notifier, radarFetch, adminEmails = [], 
     }
     res.json(out);
   });
+  // ALM2-90: la eliminano il responsabile, chi l'ha creata e la direzione; con lei se ne va il suo progetto (i compiti restano senza progetto)
   app.delete('/api/crm/business/:id', async (req, res) => {
-    if (!req.crm.admin) throw new HttpError(403, 'Solo la direzione elimina un\'iniziativa (si può anche abbandonarla dal gate)');
-    await db.query('DELETE FROM crm_initiatives WHERE id = $1', [iid(req)]);
+    const i = await byId(iid(req));
+    if (!canDelete(req, i)) throw new HttpError(403, 'L\'iniziativa la eliminano il responsabile e la direzione (si può anche abbandonarla dal gate)');
+    await db.tx(async q => {
+      await q.query('DELETE FROM crm_initiatives WHERE id = $1', [i.id]);
+      if (i.project_id) await q.query('DELETE FROM projects WHERE id = $1', [i.project_id]);
+    });
     res.json({ ok: true });
   });
 
