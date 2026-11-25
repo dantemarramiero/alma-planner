@@ -185,4 +185,14 @@ test('ricerca unica: gruppi, visibilità come nel resto dell\'app, caratteri spe
   // % e _ sono cercati come caratteri, non come jolly
   assert.equal((await api('anna', 'GET', '/api/search?q=%25%25')).body.total, 0);
   assert.equal((await api('anna', 'GET', '/api/search?q=a')).status, 400);
+
+  // opportunità del Radar (a chi vede il CRM): per titolo, ente o luogo; le scartate no
+  await db.query(`INSERT INTO crm_signals (source, external_id, bu, title, entity, region, amount, stage, status) VALUES
+    ('manuale', 'cerca-1', 'impianti', 'Metanodotto Sulmona-Foligno DN 1200', 'Snam Rete Gas S.p.A.', 'Abruzzo', 20000000, 'programmata', 'nuovo'),
+    ('manuale', 'cerca-2', 'impianti', 'Metanodotto Sulmona vecchio tracciato', 'Snam Rete Gas S.p.A.', 'Abruzzo', 1000000, '', 'scartato')`);
+  const radar = (await api('anna', 'GET', '/api/search?q=sulmona')).body.groups.find(g => g.type === 'radar');
+  assert.equal(radar.items.length, 1);
+  assert.equal(radar.items[0].title, 'Metanodotto Sulmona-Foligno DN 1200');
+  assert.match(radar.items[0].sub, /Snam Rete Gas S\.p\.A\. · 20 M€ · Abruzzo · Programmata/);
+  assert.ok((await api('anna', 'GET', '/api/search?q=snam%20rete')).body.groups.some(g => g.type === 'radar'));
 });

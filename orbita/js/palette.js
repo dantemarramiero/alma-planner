@@ -10,7 +10,7 @@ import { get } from './api.js';
 import { store } from './store.js';
 
 const TYPE = { subject: ['Azienda', 'crm'], contact: ['Contatto', 'crm'], mail: ['Dalla posta', 'mail'], project: ['Progetto', ''], ticket: ['Ticket', ''],
-  note: ['Nota', ''], email: ['Email', 'mail'], person: ['Persona', ''], post: ['Post', ''] };
+  note: ['Nota', ''], email: ['Email', 'mail'], person: ['Persona', ''], post: ['Post', ''], radar: ['Radar', 'radar'] };
 const ROLE = { lead: 'Lead', cliente: 'Cliente', fornitore: 'Fornitore', partner: 'Partner', concorrente: 'Concorrente' };
 
 // azioni «Crea»: lettera, testo, chi le vede, cosa fanno
@@ -44,7 +44,8 @@ async function openItem(it) {
   if (it.type === 'note') { if (it.project_id) { location.hash = `#/projects/${it.project_id}/note`; return; } return (await import('./tickets.js')).openTicket(it.ticket_id, {}); }
   if (it.type === 'email') { location.hash = `#/projects/${it.project_id}/email`; return; }
   if (it.type === 'person') { location.hash = it.id ? `#/u/${it.id}` : '#/org'; return; }
-  if (it.type === 'post') location.hash = `#/p/${it.id}`;
+  if (it.type === 'post') { location.hash = `#/p/${it.id}`; return; }
+  if (it.type === 'radar') return (await import('./crm-radar.js')).openSignal(it.id, null, null);
 }
 
 // ── la finestra ──────────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ let current = null; // finestra aperta (una sola)
 export function openPalette({ mode = 'search', q = '' } = {}) {
   if (current) { current.setMode(mode); return; }
   const back = document.activeElement;
-  const input = h('input.pal-input', { type: 'text', value: q, placeholder: mode === 'new' ? 'Cosa vuoi creare? Scrivi o premi una lettera' : 'Cerca aziende, contatti, progetti, ticket, email…',
+  const input = h('input.pal-input', { type: 'text', value: q, placeholder: mode === 'new' ? 'Cosa vuoi creare? Scrivi o premi una lettera' : 'Cerca aziende, contatti, opportunità, progetti, ticket, email…',
     'aria-label': 'Cerca o crea', autocomplete: 'off', spellcheck: 'false', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'pal-list' });
   const list = h('div.pal-list', { id: 'pal-list', role: 'listbox', 'aria-label': 'Risultati' });
   const foot = h('div.pal-foot', h('span', '↑↓ per scegliere · Invio per aprire · Ctrl Invio = tutti i risultati'), h('span', 'Esc per chiudere'));
@@ -139,6 +140,7 @@ export function openPalette({ mode = 'search', q = '' } = {}) {
         ...gen('contact', crm?.contacts || [], c => ({ title: c.name, sub: [c.sub, c.email].filter(Boolean).join(' · ') })),
         ...gen('mail', crm?.mail || [], m => ({ title: m.name || m.email, sub: `${m.email} · non è nel CRM`, meta: 'Crea contatto' })),
       ] },
+      { label: 'Opportunità del Radar', rows: gen('radar', G('radar'), g => ({ title: g.title, sub: g.sub })) },
       { label: 'Progetti e ticket', rows: [
         ...gen('project', G('project'), p => ({ title: p.title, sub: p.sub || p.snippet })),
         ...gen('ticket', G('ticket'), t => ({ title: t.title, sub: t.sub })),
@@ -177,7 +179,7 @@ export function openPalette({ mode = 'search', q = '' } = {}) {
   const update = debounce(run, 180);
   input.addEventListener('input', update);
   current = {
-    setMode(m) { state.mode = m; input.placeholder = m === 'new' ? 'Cosa vuoi creare? Scrivi o premi una lettera' : 'Cerca aziende, contatti, progetti, ticket, email…'; input.value = ''; input.focus(); run(); },
+    setMode(m) { state.mode = m; input.placeholder = m === 'new' ? 'Cosa vuoi creare? Scrivi o premi una lettera' : 'Cerca aziende, contatti, opportunità, progetti, ticket, email…'; input.value = ''; input.focus(); run(); },
   };
   setTimeout(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 0);
   run();
@@ -193,7 +195,7 @@ export function setupTopbar() {
     const bar = h('header.topbar', { 'aria-label': 'Barra in alto' },
       crumb,
       h('button.tb-search', { type: 'button', 'aria-label': 'Cerca in Alma Space', 'aria-keyshortcuts': mac ? 'Meta+K' : 'Control+K', on: { click: () => openPalette() } },
-        icon('search', { size: 18 }), h('span', 'Cerca aziende, contatti, progetti, ticket, email…'), h('kbd', mac ? '⌘ K' : 'Ctrl K')),
+        icon('search', { size: 18 }), h('span', 'Cerca aziende, contatti, opportunità, progetti, ticket, email…'), h('kbd', mac ? '⌘ K' : 'Ctrl K')),
       h('div.tb-right',
         h('button.btn.btn-primary.tb-new', { type: 'button', 'aria-keyshortcuts': mac ? 'Meta+Shift+K' : 'Control+Shift+K', on: { click: () => openPalette({ mode: 'new' }) } }, icon('plus', { size: 16 }), 'Nuovo'),
         h('a.tb-ico', { href: '#/notifications', 'aria-label': 'Notifiche' }, icon('bell', { size: 18 }), h('span.nav-badge', { 'data-badge': 'notifications', hidden: true })),

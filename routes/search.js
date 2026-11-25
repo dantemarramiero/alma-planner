@@ -17,7 +17,11 @@ function snippet(text, q, size = 140) {
   return `${start ? '…' : ''}${out}${start + size < t.length ? '…' : ''}`;
 }
 
-function registerSearch(app, { db, access }) {
+// fase dell'opportunità del Radar, come le colonne della Lavagna
+const STAGE = { programmata: 'Programmata', finanziata: 'Finanziata', progetto: 'Progetto approvato', determina: 'Gara in arrivo', vinta_altri: 'Vinta da altri' };
+const eur = n => (n == null ? '' : n >= 1e6 ? `${(n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 })} M€` : n >= 1e3 ? `${Math.round(n / 1e3).toLocaleString('it-IT')} k€` : `${Math.round(n)} €`);
+
+function registerSearch(app, { db, access, crmAccess }) {
   app.get('/api/search', async (req, res) => {
     const q = (v.text(req.query.q, 'ricerca', { max: 100 }) || '').trim();
     if (q.length < 2) throw new HttpError(400, 'Scrivi almeno 2 lettere');
@@ -29,7 +33,9 @@ function registerSearch(app, { db, access }) {
     const run = async (sql, usesUser) => (await db.query(sql, usesUser ? [like, req.user.id] : [like])).rows;
     const needsUser = !access.isAdmin(req);
 
-    const [tickets, projects, notes, emails, users, orgPeople, posts] = await Promise.all([
+    // opportunità del Radar: solo a chi vede il CRM, le stesse della Lavagna (non scartate)
+    const seesRadar = crmAccess ? await crmAccess.canUse(req) : false;
+    const [tickets, projects, notes, emails, users, orgPeople, posts, signals] = await Promise.all([
       run(`SELECT t.id, t.title, t.description, t.status, t.due_date::text AS due_date, p.name AS project_name
              FROM tickets t LEFT JOIN projects p ON p.id = t.project_id
             WHERE (t.title ILIKE $1 OR t.description ILIKE $1) AND ${tf('t')}
@@ -57,6 +63,11 @@ function registerSearch(app, { db, access }) {
               AND NOT EXISTS (SELECT 1 FROM users u WHERE lower(u.email) = lower(o.email))
             ORDER BY o.name LIMIT ${LIMIT}`, false),
       run(`SELECT p.id, p.author_id, p.body, p.created_at FROM posts p WHERE p.body ILIKE $1 ORDER BY p.id DESC LIMIT ${LIMIT}`, false),
+      seesRadar ? run(`SELECT g.id, g.title, g.summary, g.entity, g.place, g.region, g.amount, g.stage, g.to_gare, g.status, s.name AS subject_name
+             FROM crm_signals g LEFT JOIN crm_subjects s ON s.id = g.subject_id
+            WHERE g.status IN ('nuovo', 'interessa', 'boss')
+              AND (g.title ILIKE $1 OR g.entity ILIKE $1 OR g.place ILIKE $1 OR g.region ILIKE $1 OR g.cig ILIKE $1 OR g.summary ILIKE $1 OR s.name ILIKE $1)
+            ORDER BY (g.title ILIKE $1) DESC, (g.stage = 'vinta_altri'), g.score DESC, g.created_at DESC LIMIT ${LIMIT}`, false) : [],
     ]);
 
     const groups = [
@@ -68,6 +79,9 @@ function registerSearch(app, { db, access }) {
         ...users.map(u => ({ id: u.id, title: u.name, sub: [u.job_title, u.email].filter(Boolean).join(' · '), avatar_id: u.avatar_id })),
         ...orgPeople.map(o => ({ oid: o.oid, title: o.name, sub: [o.job_title, o.department].filter(Boolean).join(' · ') })),
       ].slice(0, LIMIT) },
+      { type: 'radar', label: 'Opportunità del Radar', items: signals.map(g => ({ id: g.id, title: g.title,
+        sub: [g.subject_name || g.entity, eur(g.amount == null ? null : Number(g.amount)), g.place || g.region, g.to_gare ? 'Gara in arrivo' : STAGE[g.stage] || 'Programmata', g.status === 'interessa' ? 'interessa' : g.status === 'boss' ? 'su BOSS' : null].filter(Boolean).join(' · '),
+        snippet: g.title.toLowerCase().includes(q.toLowerCase()) ? '' : snippet(g.summary, q) })) },
       { type: 'post', label: 'Post', items: posts.map(p => ({ id: p.id, title: snippet(p.body, q, 90), author_id: p.author_id, sub: '' })) },
     ].filter(g => g.items.length);
     res.json({ q, groups, total: groups.reduce((n, g) => n + g.items.length, 0) });
