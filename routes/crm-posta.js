@@ -87,15 +87,19 @@ function registerCrmPosta(app, { db, auth, alerts, notifier, radarFetch, mailFak
   }
   // dove sta già una conversazione (progetto o opportunità) e dove stanno già le email (progetti)
   async function placesOf(convIds, imids) {
-    const [{ rows: th }, { rows: pe }] = await Promise.all([
+    const [{ rows: th }, { rows: pe }, { rows: en }] = await Promise.all([
       db.query(`SELECT t.conversation_id, t.project_id, t.signal_id, p.name AS project_name, g.title AS signal_title
                   FROM crm_mail_threads t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN crm_signals g ON g.id = t.signal_id
                  WHERE t.conversation_id = ANY($1::text[])`, [convIds.filter(Boolean)]),
       db.query(`SELECT e.internet_message_id, p.id, p.name FROM project_emails e JOIN projects p ON p.id = e.project_id
                  WHERE e.internet_message_id = ANY($1::text[]) AND p.status <> 'archived'`, [imids.filter(Boolean)]),
+      // ALM2-89: conversazioni già diventate un'opportunità di Alma Energy
+      db.query(`SELECT t.conversation_id, o.id, o.title FROM energy_mail_threads t JOIN energy_opportunities o ON o.id = t.opportunity_id
+                 WHERE t.conversation_id = ANY($1::text[]) ORDER BY t.id`, [convIds.filter(Boolean)]),
     ]);
+    const energyOf = c => { const r = en.find(x => x.conversation_id === c); return r ? { energy: { id: r.id, title: r.title } } : null; };
     return {
-      byConv: c => { const r = th.find(x => x.conversation_id === c && x.project_id) || th.find(x => x.conversation_id === c); return r ? (r.project_id ? { project: { id: r.project_id, name: r.project_name } } : { signal: { id: r.signal_id, title: r.signal_title } }) : null; },
+      byConv: c => { const r = th.find(x => x.conversation_id === c && x.project_id) || th.find(x => x.conversation_id === c); return r ? (r.project_id ? { project: { id: r.project_id, name: r.project_name } } : { signal: { id: r.signal_id, title: r.signal_title } }) : energyOf(c); },
       byImid: i => { const r = pe.find(x => x.internet_message_id === i); return r ? { project: { id: r.id, name: r.name } } : null; },
     };
   }

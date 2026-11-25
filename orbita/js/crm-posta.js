@@ -17,7 +17,7 @@ const userName = id => store.users.find(u => u.id === id)?.name || '';
 const handleOf = u => String(u?.email || '').split('@')[0];
 
 // ═══ Posta (tavola A) ═════════════════════════════════════════════════════════════════════════════
-export async function postaPage(container, start) {
+export async function postaPage(container, start, opts = {}) {
   // folder: 'arrivo' | 'inviate' | 'approvare' (ALM2-67) | id di una cartella di Outlook (ALM2-60); picked = email spuntate
   const st = { folder: start === 'approvare' ? 'approvare' : 'arrivo', q: '', list: [], next: null, sel: null, picked: new Set(), folders: null, pending: 0 };
   const listBox = h('div.pm-items', loading());
@@ -41,7 +41,11 @@ export async function postaPage(container, start) {
   const root = h('div.pm',
     h('section.pm-list', h('div.pm-list-h', h('div.pm-list-t', h('strong', 'Posta'), h('button.btn.btn-primary.btn-sm', { type: 'button', title: 'Nuova email (tasto N)', on: { click: () => write('nuova') } }, ic('plus', 14), 'Nuova email')), folders, searchW), bulk, listBox),
     reader);
-  fill(container, root);
+  // ALM2-89 (tavola E): in Alma Energy la stessa casella, con l'intestazione del CRM Energy
+  fill(container, opts.energy
+    ? [h('div.page-head', h('div', h('div.en-eyebrow', 'CRM Energy'), h('h1', 'La mia ', h('b', 'posta')),
+      h('p.muted', 'La tua casella, come nella Posta del CRM. Da qui un\'email diventa un\'opportunità di Alma Energy, con azienda e persona prese dalla firma.'))), root]
+    : root);
   search.addEventListener('input', debounce(() => { st.q = search.value.trim(); st.picked.clear(); load(); }, 300));
 
   async function loadFolders() {
@@ -140,7 +144,7 @@ export async function postaPage(container, start) {
         h('button.pm-item', { type: 'button', class: st.sel === m.id ? 'on' : '', on: { click: () => open(m) } },
           h('span.pm-item-r', h('b', sentLike ? (m.to[0]?.name || m.to[0]?.address || '—') : (m.from.name || m.from.address)), h('small', when(m.date))),
           h('span.pm-item-s', m.subject),
-          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))),
+          h('small.pm-item-m', m.project ? [ic('folder', 12), ` nel progetto «${m.project.name}»`] : m.signal ? [ic('radar', 12), ' nel Radar'] : m.energy ? [ic('zap', 12), ` opportunità Energy «${m.energy.title}»`] : m.in_page > 1 ? `${m.in_page} email` : m.preview.slice(0, 70))),
         // cestino sulla riga (Dante 22/11): elimina con un clic, senza aprire l'email
         inTrash() ? null : h('button.pm-rowdel', { type: 'button', title: 'Elimina (va in «Posta eliminata» di Outlook)', 'aria-label': `Elimina «${m.subject}»`, on: { click: () => move([m.id], { del: true }) } }, ic('trash', 15)));
     }),
@@ -191,7 +195,8 @@ export async function postaPage(container, start) {
     const e = await get(`/api/crm/posta/${encodeURIComponent(m.id)}`);
     if (st.sel !== m.id) return;
     const place = e.project ? h('a.btn.pm-in', { href: `#/crm/progetto/${e.project.id}` }, ic('folder', 15), `Nel progetto ${e.project.name}`, ic('chevron-right', 14))
-      : e.signal ? h('a.btn.pm-in', { href: `#/crm/lancio/s/${e.signal.id}` }, ic('radar', 15), 'Nel Radar · portala avanti', ic('chevron-right', 14)) : null;
+      : e.signal ? h('a.btn.pm-in', { href: `#/crm/lancio/s/${e.signal.id}` }, ic('radar', 15), 'Nel Radar · portala avanti', ic('chevron-right', 14))
+      : e.energy ? h('a.btn.pm-in', { href: `#/energy/opportunita/${e.energy.id}` }, ic('zap', 15), `Opportunità Energy · ${e.energy.title}`, ic('chevron-right', 14)) : null;
     st.cur = e;
     const aiBox = h('div.pm-ai');
     const long = e.conversation_count >= 3 || (e.body.match(/\S+/g) || []).length > 150;
@@ -215,8 +220,11 @@ export async function postaPage(container, start) {
         inTrash() ? null : h('button.btn.btn-sm.pm-del', { type: 'button', title: 'Va in «Posta eliminata» di Outlook: si recupera (tasto Canc)', on: { click: () => move([e.id], { del: true }) } }, ic('trash', 14), 'Elimina')),
       h('div.pm-rhead',
         h('div.pm-rtitle', h('h1', e.subject), h('span.pm-rmeta', `${e.from.name || ''} <${e.from.address}> · a ${e.to.map(x => x.name || x.address).join(', ')}${e.cc.length ? `, cc ${e.cc.map(x => x.name || x.address).join(', ')}` : ''}`), h('small.cv-muted', `${fmtDate(String(e.date).slice(0, 10), { year: true })} ${String(e.date).slice(11, 16)}${e.conversation_count > 1 ? ` · ${e.conversation_count} email nella conversazione` : ''}`)),
-        place || h('button.btn.btn-primary.pm-create', { type: 'button', on: { click: () => openProposal(e.id) } }, ic('sparkles', 15), 'Crea progetto commerciale'),
-        place ? null : h('button.btn', { type: 'button', on: { click: () => addToProject(e) } }, 'Aggiungi a un progetto')),
+        // ALM2-89: nella Posta di Alma Energy un'email diventa un'opportunità di Energy
+        place || (opts.energy
+          ? h('button.btn.btn-primary.pm-create', { type: 'button', on: { click: () => addEnergyOpportunity(e) } }, ic('sparkles', 15), 'Crea opportunità Energy')
+          : h('button.btn.btn-primary.pm-create', { type: 'button', on: { click: () => openProposal(e.id) } }, ic('sparkles', 15), 'Crea progetto commerciale')),
+        place || opts.energy ? null : h('button.btn', { type: 'button', on: { click: () => addToProject(e) } }, 'Aggiungi a un progetto')),
       aiBox,
       fromMailBar(e, () => open({ id: e.id })),
       h('div.pm-body', e.body.trim()),

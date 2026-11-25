@@ -163,3 +163,24 @@ test('kanban: le schede portano chi le segue, per cambiarlo dalla scheda', async
   assert.equal(card.owner_id, tullio);
   assert.ok(card.owner_name);
 });
+
+test('ALM2-89: la Posta segna le conversazioni già opportunità di Energy; Contatti dell\'area Energy anche senza azienda', async () => {
+  const list = (await D('GET', '/api/crm/posta')).body;
+  const row = (list.emails || list.messages || list.items || []).find(m => m.id === 'm-fv-1');
+  assert.ok(row?.energy?.id, 'la riga dice in quale opportunità di Energy sta');
+  const one = (await D('GET', '/api/crm/posta/m-fv-1')).body;
+  assert.equal(one.energy.id, row.energy.id);
+
+  await db.query(`INSERT INTO energy_people (first_name, last_name, email, owner_id, created_by) VALUES ('Lina', 'Senzaditta', 'lina@esempio.it', $1, $1)`, [dante]);
+  const c = (await D('GET', '/api/crm/contacts?asa=energy&q=Senzaditta')).body.contacts;
+  assert.equal(c.length, 1);
+  assert.equal((await D('GET', '/api/crm/contacts?asa=impianti&q=Senzaditta')).body.contacts.length, 0);
+});
+
+test('ALM2-89: i numeri del CRM visto da Alma Energy contano solo l\'area Energy', async () => {
+  await D('POST', '/api/crm/subjects', { name: 'Lead Impianti Srl', kind: 'impresa', roles: ['lead'], asa: ['impianti'] });
+  await D('POST', '/api/crm/subjects', { name: 'Lead Energia Srl', kind: 'impresa', roles: ['lead'], asa: ['energy'] });
+  const all = (await D('GET', '/api/crm')).body.counts.lead;
+  const en = (await D('GET', '/api/crm?asa=energy')).body.counts.lead;
+  assert.ok(en >= 1 && en < all);
+});
