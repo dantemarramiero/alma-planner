@@ -351,3 +351,4 @@ tr:hover .t-remind { opacity: 1; }
 .m-pick { display: grid; place-items: center; align-self: center; padding: 8px 2px 8px 6px; cursor: pointer; }
 .m-pick input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--ap-accent); }
 .m-ticket.picked { border-color: var(--ap-accent); background: var(--ap-orange-tint); }
+.view-stage { display: contents; } /* ALM2-97: palco della pagina dentro #view */

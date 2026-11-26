@@ -142,3 +142,25 @@ a.pj-crumb:hover { color: var(--ink); }
 
 /* incontri fatti senza note: pallino rosso sul tab (11/11/2026) */
 .pj-nonotes { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-left: 6px; vertical-align: middle; }
+
+/* ── tipi di progetto: tag sulla card e filtri a pillola (ALM2-97) ───────────────────────────── */
+.pk-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 var(--ap-space-5); }
+.pk-pill { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 8px 0 14px; border-radius: 999px; border: 1px solid var(--rule); background: var(--card);
+  color: var(--mid); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+.pk-pill:hover { border-color: var(--ap-grey-300); color: var(--ink); }
+.pk-pill .pk-n { min-width: 22px; height: 22px; padding: 0 7px; display: grid; place-items: center; border-radius: 999px; background: var(--bg); font-size: 12px; color: var(--muted); }
+.pk-pill.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.pk-pill.on .pk-n { background: rgba(255, 255, 255, .18); color: #fff; }
+.pk-pill:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.pk-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.proj-card h2 { margin-top: -4px; }
+.pk-tag { --k: var(--mid); display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  color: var(--k); background: color-mix(in srgb, var(--k) 11%, var(--ap-white)); white-space: nowrap; }
+.pk-tag small { font-weight: 500; opacity: .8; font-size: 11.5px; }
+.pk-progetto { --k: var(--ap-graphite, #2C2C2C); }
+.pk-a3 { --k: var(--ap-info); }
+.pk-business { --k: var(--ap-success); }
+.pk-opportunita { --k: var(--ap-orange-hover); }
+.pk-pill.on.pk-a3 { background: var(--ap-info); border-color: var(--ap-info); }
+.pk-pill.on.pk-business { background: var(--ap-success); border-color: var(--ap-success); }
+.pk-pill.on.pk-opportunita { background: var(--ap-orange-hover); border-color: var(--ap-orange-hover); }
