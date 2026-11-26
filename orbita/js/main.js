@@ -40,9 +40,20 @@ import { openFeedback, feedbackView } from './feedback.js';
 import { postaVocePage } from './posta-voce.js';
 import { firmaView } from './firma.js';
 import { postaMiaView } from './posta-mia.js';
+import { navTrack, navDone, navBack, navButtons } from './nav-history.js';
 
-const view = document.getElementById('view');
+const viewRoot = document.getElementById('view');
 let cleanup = null;
+// ALM2-97: ogni cambio di pagina ha il suo numero e il suo «palco» dentro #view. Una pagina lenta (per
+// esempio un A3 di Alma Strategy) che finisce di caricare dopo che si è già cambiato modulo scrive sul suo
+// palco staccato e non ricopre più la pagina nuova: prima restava lì e sembrava di non poter cambiare modulo.
+let routeSeq = 0;
+// la pulizia di una pagina superata si fa subito, senza toccare quella della pagina corrente
+const keep = (seq, fn) => {
+  if (seq === routeSeq) return fn;
+  try { fn?.(); } catch { /* niente */ }
+  return cleanup;
+};
 
 // Cambiando pagina si chiudono le finestre aperte (es. da un post al profilo di chi ha commentato).
 function closeOverlays() {
@@ -188,10 +199,15 @@ function setupModules() {
   document.addEventListener('click', e => { if (!e.target.closest('#ws-switch')) setModuleMenu(false); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') setModuleMenu(false); });
 }
-function goBack() {
-  const stack = readStack();
-  if (stack.length > 1) history.back();
-  else location.hash = '#/';
+// freccia del telefono e vecchia «← Indietro»: stessa logica delle frecce in alto (nav-history.js)
+const goBack = () => navBack();
+// le frecce Indietro/Avanti a sinistra del percorso, nella barra in alto del computer
+function setupNavButtons() {
+  const crumb = document.getElementById('tb-crumb');
+  if (!crumb || crumb.parentElement.classList.contains('tb-left')) return;
+  const left = h('div.tb-left', navButtons(key => MODULES.find(m => m.key === key)));
+  crumb.replaceWith(left);
+  left.append(crumb);
 }
 
 async function route() {
@@ -213,6 +229,7 @@ async function route() {
     return;
   }
 
+  const seq = ++routeSeq;
   closeOverlays();
   // in Alma Energy la voce attiva è la sezione (energy-ppa, energy-aziende…)
   const navKey = section === 'u' && Number(parts[1]) === store.me.id ? 'me' : section === 'p' ? 'home'
@@ -230,18 +247,22 @@ async function route() {
   const modLabel = MODULES.find(m => m.key === moduleOf(section))?.label || 'Alma Agorà';
   document.title = section === 'direct' ? `Chat · ${modLabel}` : modLabel;
   trackBack(section);
+  navTrack(location.hash || '#/', MODULES.find(m => m.key === moduleOf(section)) || MODULES[0]);
   drawModule(section);
   markPlace(section); // telefono: posto acceso nella barra in basso
   cleanup?.();
   cleanup = null;
-  clear(view).append(loading());
+  const view = document.createElement('div');
+  view.className = 'view-stage';
+  view.append(loading());
+  viewRoot.replaceChildren(view);
 
   switch (section) {
     case 'home':
-      cleanup = homeView(view, params);
+      cleanup = keep(seq, homeView(view, params));
       break;
     case 'p':
-      cleanup = homeView(view, new URLSearchParams());
+      cleanup = keep(seq, homeView(view, new URLSearchParams()));
       openPost(Number(parts[1]));
       break;
     case 'u':
@@ -250,7 +271,7 @@ async function route() {
     case 'direct': {
       // Chat = chat di Microsoft Teams (public/js/teams.js, a cura della sessione Teams).
       const teams = await import('./teams.js').catch(() => null);
-      if (teams) cleanup = (await teams.teamsView(view, params)) || null;
+      if (teams) cleanup = keep(seq, (await teams.teamsView(view, params)) || null);
       else {
         clear(view).append(h('div.card.empty',
           h('p', 'Qui arriveranno le chat di Microsoft Teams.'),
@@ -262,7 +283,7 @@ async function route() {
       rdaView(view);
       break;
     case 'notifications':
-      cleanup = notificationsView(view);
+      cleanup = keep(seq, notificationsView(view));
       break;
     case 'notifiche': // Profilo → Notifiche: campanella, telefono, email
       await notifSettingsView(view);
@@ -289,7 +310,7 @@ async function route() {
       break;
     case 'calendar': {
       const c = calendarView(view, params);
-      cleanup = c.destroy;
+      cleanup = keep(seq, c.destroy);
       break;
     }
     case 'drive':
@@ -299,13 +320,13 @@ async function route() {
       searchView(view, params);
       break;
     case 'benvenuto': // sul telefono la Home è Alma Agorà (app 3.0, 20/11): la bacheca con la riga «Oggi»
-      if (isMobile()) cleanup = agoraView(view, params);
+      if (isMobile()) cleanup = keep(seq, agoraView(view, params));
       else await welcomeView(view);
       break;
     case 'cantieri': // storie dai cantieri (app 3.0): foto, diario, elenco (cantieri = commesse BOSS, BSAL-1725)
       if (!isMobile()) { clear(view).append(h('div.card.empty', h('p', 'Le foto e il diario dei cantieri per ora si usano dal telefono.'))); break; }
-      if (parts[1] === 'foto') cleanup = (await fotoPage(view)) || null;
-      else if (Number(parts[1])) cleanup = (await diarioPage(view, Number(parts[1]), params)) || null;
+      if (parts[1] === 'foto') cleanup = keep(seq, (await fotoPage(view)) || null);
+      else if (Number(parts[1])) cleanup = keep(seq, (await diarioPage(view, Number(parts[1]), params)) || null);
       else await cantieriPage(view);
       break;
     case 'compiti': // telefono: ticket, passi del CRM e RDA in una lista sola
@@ -355,7 +376,7 @@ async function route() {
       // telefono (app 3.0): CRM essenziale, scheda del contatto e scansione dei biglietti; il resto come sul computer
       if (isMobile() && !parts[1]) await crmHome(view, params);
       else if (isMobile() && parts[1] === 'persona' && Number(parts[2])) await contactPage3(view, Number(parts[2]));
-      else if (isMobile() && parts[1] === 'scansiona') cleanup = (await scanPage(view, params)) || null;
+      else if (isMobile() && parts[1] === 'scansiona') cleanup = keep(seq, (await scanPage(view, params)) || null);
       else if (parts[1] === 'persona') location.replace(`#/crm/contatti/${Number(parts[2]) || ''}`); // link del telefono aperto dal computer
       else if (parts[1] === 'scansiona') location.replace('#/crm/contatti/biglietti');
       else if (parts[1] === 'segnale') { // ALM2-94: link da Teams, email e avvisi; ?decidi=tieni|scarta = la scelta già fatta
@@ -384,7 +405,7 @@ async function route() {
       break;
     }
     case 'posta-voce': // Posta in macchina (ALM2-57): solo Dante, a voce con Alma
-      cleanup = (await postaVocePage(view)) || null;
+      cleanup = keep(seq, (await postaVocePage(view)) || null);
       break;
     case 'firma': // La mia firma nelle email (ALM2-64)
       await firmaView(view);
@@ -393,23 +414,35 @@ async function route() {
       await postaMiaView(view);
       break;
     case 'biglietto': // il mio biglietto da visita con QR (canvas CRM v10; sul telefono la versione dell'app 3.0)
-      if (isMobile() && !params.get('modifica')) cleanup = (await mioBiglietto(view)) || null;
+      if (isMobile() && !params.get('modifica')) cleanup = keep(seq, (await mioBiglietto(view)) || null);
       else await mioBigliettoView(view);
       break;
     case 'impostazioni': // Impostazioni uniche (amministratori; Costi AI anche per chi ha «Costi AI: Tutto»)
       await renderImpostazioni(view, parts);
       break;
     case 'feedback': // «I miei feedback»: esito dei feedback su Alma Space (ALM2-56)
-      cleanup = (await feedbackView(view)) || null;
+      cleanup = keep(seq, (await feedbackView(view)) || null);
       break;
     case 'alma': // Alma, l'assistente: chat e (amministratori) impostazioni
-      cleanup = (await almaView(view, parts, params)) || null;
+      cleanup = keep(seq, (await almaView(view, parts, params)) || null);
       break;
     default:
       clear(view).append(h('div.card.empty', 'Pagina non trovata.'));
   }
-  view.focus({ preventScroll: true });
+  if (seq !== routeSeq) return; // nel frattempo si è andati altrove
+  viewRoot.focus({ preventScroll: true });
   trackRecent();
+  // titolo della pagina per la cronologia: la voce del menu se la pagina è proprio quella (niente «Buongiorno, …»),
+  // altrimenti il titolo della pagina (il nome del progetto, dell'A3, dell'azienda…)
+  navDone('');
+  setTimeout(() => {
+    if (seq !== routeSeq) return;
+    const a = document.querySelector('.sidebar .nav:not([hidden]) a.active');
+    const menuLabel = a ? [...a.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim() : '';
+    const sameAsMenu = a && (a.getAttribute('href') || '').split('?')[0] === (location.hash || '#/').split('?')[0];
+    const t = (sameAsMenu && menuLabel) || viewRoot.querySelector('h1')?.textContent?.trim() || menuLabel || '';
+    navDone(t.replace(/\s+/g, ' '));
+  }, 700);
 }
 
 // ── contatori nel menu ──────────────────────────────────────────────────────
@@ -446,7 +479,7 @@ async function start() {
   await Promise.all([loadUsers(), loadProjects()]);
   drawMe();
   setupMobile();
-  setupSearch(); // casella di ricerca nella barra laterale, lente sul telefono, «/» e Ctrl+K
+  setupSearch(); setupNavButtons(); // casella di ricerca nella barra laterale, lente sul telefono, «/» e Ctrl+K
   setupAlma(); // tasto «Alma» in basso a destra: l'assistente da ogni pagina
   document.addEventListener('me-changed', drawMe);
   document.addEventListener('badges-changed', refreshBadges); // es. richiesta di un mezzo appena approvata

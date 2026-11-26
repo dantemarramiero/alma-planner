@@ -27,23 +27,52 @@ const FOLDED_KEY = 'alma.areasFolded';
 const readLocal = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const writeLocal = (k, val) => { try { localStorage.setItem(k, JSON.stringify(val)); } catch { /* niente */ } };
 
+// ── tipi di progetto (ALM2-97) ──
+// In Alma Project si vedono insieme tutti i lavori: i progetti normali, gli A3 di Alma Strategy, i Nuovi business
+// e le opportunità del CRM (gare, trattative) e di Alma Energy. Un tag li distingue, i filtri a pillola li separano.
+export const PROJECT_KINDS = [
+  { key: 'progetto', label: 'Progetto', plural: 'Progetti', icon: 'folder' },
+  { key: 'a3', label: 'A3', plural: 'A3', icon: 'target' },
+  { key: 'business', label: 'Nuovo business', plural: 'Nuovi business', icon: 'rocket' },
+  { key: 'opportunita', label: 'Opportunità', plural: 'Opportunità', icon: 'radar' },
+];
+export const projectKind = p => (p.hk ? 'a3' : p.crm_kind === 'settore' ? 'business' : p.crm_kind || p.energy ? 'opportunita' : 'progetto');
+const KIND_SUB = p => (p.energy ? 'Energy' : p.crm_kind === 'gara' ? 'Gara' : p.crm_kind === 'trattativa' ? 'Trattativa' : '');
+export function kindTag(p) {
+  const k = PROJECT_KINDS.find(x => x.key === projectKind(p));
+  const sub = KIND_SUB(p);
+  return h(`span.pk-tag.pk-${k.key}`, { title: sub ? `${k.label} · ${sub}` : k.label }, icon(k.icon, { size: 13 }), k.label, sub ? h('small', `· ${sub}`) : null);
+}
+const KIND_KEY = 'alma.projectKind';
+
 export async function projectsView(container) {
   clear(container).append(loading());
   await Promise.all([loadProjects(), loadAreas()]);
   let showArchived = false;
+  let kindFilter = readLocal(KIND_KEY, ''); // '' = tutti i tipi
   let areaFilter = readLocal(AREA_KEY, ''); // '' = tutte, 'none' = senza macro area, altrimenti l'id
   const folded = new Set(readLocal(FOLDED_KEY, []));
 
   const body = h('div.areas');
+  const kindBar = h('div.pk-filters', { role: 'tablist', 'aria-label': 'Tipo di progetto' });
   const archivedToggle = h('label.check', h('input', { type: 'checkbox', on: { change: e => { showArchived = e.target.checked; draw(); } } }), 'Mostra archiviati');
   const areaSelect = h('select.select', { 'aria-label': 'Macro area', on: { change: e => { areaFilter = e.target.value; writeLocal(AREA_KEY, areaFilter); draw(); } } });
   const newProject = defaults => editProject(null, async p => { location.hash = `#/projects/${p.id}`; }, defaults);
   clear(container).append(
-    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'I progetti di cui sei responsabile o membro, raggruppati nelle tue macro aree: ognuno raccoglie Gantt, ticket, documenti e persone.')),
+    h('div.page-head', h('div', h('h1', 'Progetti'), h('div.sub', 'Tutto quello su cui lavori: progetti, A3, Nuovi business e opportunità, raggruppati nelle tue macro aree.')),
       h('div.row', areaSelect, archivedToggle,
         h('button.btn', { type: 'button', on: { click: () => manageAreas(draw) } }, 'Macro aree'),
         h('button.btn.btn-primary', { type: 'button', on: { click: () => newProject(areaFilter && areaFilter !== 'none' ? { area_id: Number(areaFilter) } : {}) } }, '+ Nuovo progetto'))),
+    kindBar,
     body);
+
+  function drawKinds(all) {
+    const count = k => all.filter(p => !k || projectKind(p) === k).length;
+    const pill = (key, label, ico) => h('button.pk-pill', { type: 'button', role: 'tab', 'aria-selected': String(kindFilter === key), class: kindFilter === key ? `on pk-${key || 'tutti'}` : `pk-${key || 'tutti'}`,
+      on: { click: () => { kindFilter = key; writeLocal(KIND_KEY, key); draw(); } } },
+      ico ? icon(ico, { size: 15 }) : null, label, h('span.pk-n', String(count(key))));
+    fill(kindBar, pill('', 'Tutti', 'layers'), PROJECT_KINDS.map(k => pill(k.key, k.plural, k.icon)));
+  }
 
   function drawSelect() {
     if (areaFilter && areaFilter !== 'none' && !areaById(Number(areaFilter))) areaFilter = '';
@@ -57,7 +86,8 @@ export async function projectsView(container) {
   function card(p) {
     const owner = userById(p.owner_id);
     return h('div.card.proj-card', { style: { '--c': p.color }, on: { click: () => { location.hash = `#/projects/${p.id}`; } } },
-      h('div.spread', h('h2', p.name), h('span.pill', PROJECT_STATUS[p.status])),
+      h('div.pk-top', kindTag(p), h('span.pill', PROJECT_STATUS[p.status])),
+      h('h2', p.name),
       p.description ? h('p', p.description) : null,
       h('div', h('div.spread.small.muted', { style: { marginBottom: '5px' } }, h('span', `${p.done_count}/${p.ticket_count} ticket fatti`), h('span', `${pct(p)}%`)),
         h('div.progress', h('i', { style: { width: `${pct(p)}%` } }))),
@@ -87,11 +117,14 @@ export async function projectsView(container) {
   function draw() {
     drawSelect();
     clear(body);
-    // i progetti delle opportunità di Alma Energy si aprono da Alma Energy (ALM2-24)
-    const list = store.projects.filter(p => !p.energy && (showArchived || p.status !== 'archived'));
+    // ALM2-97: anche le opportunità di Alma Energy (si aprono comunque nella loro pagina di Energy)
+    const all = store.projects.filter(p => showArchived || p.status !== 'archived');
+    if (kindFilter && !PROJECT_KINDS.some(k => k.key === kindFilter)) kindFilter = '';
+    drawKinds(all);
+    const list = all.filter(p => !kindFilter || projectKind(p) === kindFilter);
     if (!store.areas.length) {
       // senza macro aree: la griglia di sempre, con l'invito a crearle
-      if (!list.length) return body.append(h('div.card.empty', 'Ancora nessun progetto.'));
+      if (!list.length) return body.append(h('div.card.empty', kindFilter ? `Nessun lavoro di tipo «${PROJECT_KINDS.find(k => k.key === kindFilter).plural}».` : 'Ancora nessun progetto.'));
       return body.append(
         h('div.area-hint.small.muted', 'Puoi raggruppare i progetti nelle tue macro aree (es. Clienti, Marketing, Interni); sono solo tue, gli altri non le vedono: ',
           h('button.btn-link', { type: 'button', on: { click: () => manageAreas(draw) } }, 'crea la prima macro area'), '.'),

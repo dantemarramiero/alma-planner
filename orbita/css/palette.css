@@ -54,3 +54,37 @@
 .pal-foot { display: flex; justify-content: space-between; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--muted); background: var(--hover); flex: none; }
 @media (prefers-color-scheme: dark) { .pal-type.crm, .pal-plus.t-a { background: color-mix(in srgb, #1B7A45 22%, transparent); color: #7FD3A2; }
   .pal-type.mail, .pal-plus.t-c { background: color-mix(in srgb, #0057B8 24%, transparent); color: #8DB8F0; } .pal-plus.t-p { background: color-mix(in srgb, #6B3FB8 24%, transparent); color: #C3A6F0; } }
+
+/* ── Indietro / Avanti / Pagine visitate (ALM2-97) ─────────────────────────────────────────────── */
+.tb-left { display: flex; align-items: center; gap: var(--ap-space-3); min-width: 0; }
+.nh { display: inline-flex; align-items: center; gap: 2px; padding: 3px; flex: none; border-radius: 999px; background: var(--card); border: 1px solid var(--rule); }
+.nh-btn { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--ink); cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, transform .12s ease; }
+.nh-btn:hover:not(:disabled) { background: var(--orange-soft); color: var(--orange-dark); }
+.nh-btn:active:not(:disabled) { transform: scale(.92); }
+.nh-btn:first-child:hover:not(:disabled) svg { transform: translateX(-2px); }
+.nh-btn:nth-child(2):hover:not(:disabled) svg { transform: translateX(2px); }
+.nh-btn svg { transition: transform .15s ease; }
+.nh-btn:disabled { color: var(--ap-grey-300); cursor: default; }
+.nh-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
+.nh-hist { width: 30px; color: var(--muted); border-left: 1px solid var(--rule); border-radius: 0 999px 999px 0; margin-left: 2px; }
+.nh-tip { position: fixed; z-index: 1000; padding: 5px 10px; border-radius: 8px; background: var(--ap-graphite, #2C2C2C); color: #fff; font-size: 12.5px; font-weight: 500;
+  max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; animation: nh-in .12s ease; }
+.nh-menu { position: fixed; z-index: 1000; width: 340px; max-height: min(480px, 70vh); overflow: auto; padding: 6px; border-radius: 18px; background: var(--card);
+  border: 1px solid var(--rule); box-shadow: 0 18px 48px rgba(44, 44, 44, .16), 0 2px 6px rgba(44, 44, 44, .06); animation: nh-in .16s ease; }
+.nh-menu-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+.nh-menu-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; margin-top: 4px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--muted); }
+.nh-menu-foot kbd { font-family: inherit; font-size: 11px; font-weight: 500; color: var(--mid); background: var(--bg); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 6px; padding: 0 6px; line-height: 18px; }
+.nh-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; text-align: left; cursor: pointer; color: var(--ink); font: inherit; }
+.nh-row:hover, .nh-row:focus-visible { background: var(--hover); outline: none; }
+.nh-row.on { background: var(--orange-soft); }
+.nh-ico { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--bg); color: var(--mid); }
+.nh-row.on .nh-ico { background: var(--orange); color: #fff; }
+.nh-txt { flex: 1; min-width: 0; display: grid; }
+.nh-txt b { font-weight: 500; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nh-txt small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nh-here { color: var(--orange-dark); flex: none; }
+@keyframes nh-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .nh-btn, .nh-btn svg, .nh-tip, .nh-menu { transition: none; animation: none; } }
+/* sul computer le frecce in alto sostituiscono la vecchia «← Indietro» sopra la pagina */
+@media (min-width: 761px) { .has-topbar .backbar { display: none !important; } }
