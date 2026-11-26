@@ -5,7 +5,7 @@ import { h, fill, toast, fmtDate, fmtDateTime, loading } from './ui.js';
 import { get, post, put, del, patch } from './api.js';
 import { ic, dots, pill, pageTop, title, card, link, emptyState, cvModal, seg } from './crm-v2.js';
 
-const STATE_TONE = { da_caricare: 'line', in_verifica: 'bl', respinto: 'rd', approvato: 'gr', in_scadenza: 'am', scaduto: 'rd' };
+const STATE_TONE = { da_caricare: 'line', in_verifica: 'bl', respinto: 'rd', integrazione: 'rd', approvato: 'gr', in_scadenza: 'am', scaduto: 'rd' };
 const STATUS_TONE = { registrato: 'line', in_qualifica: 'am', attivo: 'gr', sospeso: 'rd', terminato: 'line' };
 const KIND_LABEL = { fornitore: 'Dell\'azienda', risorsa: 'Dei dipendenti', mezzo: 'Dei mezzi' };
 let cfgCache = null;
@@ -22,6 +22,8 @@ export async function hqseView(container, parts = []) {
   fill(container, body);
   const cfg = await config();
   if (page === 'fornitore' && Number(parts[2])) return supplierPage(body, Number(parts[2]), cfg);
+  if (page === 'verifica') return Number(parts[2]) ? reviewPage(body, Number(parts[2]), cfg) : queuePage(body);
+  if (page === 'qualita') return qualityPage(body);
   if (page === 'widget') return widgetPage(body, cfg);
   if (page === 'regole') return rulesPage(body, cfg, { checklist: Number(parts[2]) || null, doc: Number(parts[3]) || null });
   return suppliersPage(body, cfg);
@@ -124,7 +126,7 @@ async function supplierPage(box, id, cfg) {
       sub: h('span.hq-tags', pill(cfg.status[s.status], STATUS_TONE[s.status]), s.risk ? pill(`Rischio ${cfg.risks[s.risk].toLowerCase()}`, 'line') : null,
         s.whitelist === true ? pill('Whitelist: sì', 'line') : s.whitelist === false ? pill('Whitelist: no', 'line') : null,
         h('a.cv-pill.line', { href: `#/crm/scheda/${s.subject_id}` }, 'Scheda CRM')),
-      actions: [h('button.btn', { type: 'button', on: { click: () => invite(s, reload) } }, ic('send', 16), 'Invita al portale'), h('button.btn', { type: 'button', on: { click: () => editQualifica(s, cfg, reload) } }, 'Modifica qualifica')],
+      actions: [h('button.btn', { type: 'button', on: { click: () => levelDialog(s, cfg, reload) } }, 'Livello proposto'), h('button.btn', { type: 'button', on: { click: () => invite(s, reload) } }, ic('send', 16), 'Invita al portale'), h('button.btn', { type: 'button', on: { click: () => editQualifica(s, cfg, reload) } }, 'Modifica qualifica')],
     }),
     h('section.hq-tiles',
       tile('Livello di qualifica', cfg.levels[s.level], extra ? `+ ${extra} ${extra === 1 ? 'certificazione' : 'certificazioni'} della CL6` : 'deciso da HQSE', true),
@@ -369,4 +371,156 @@ async function widgetPage(box, cfg) {
         h('section.hq-tiles2',
           h('div.cv-card.hq-tile', h('span.hq-lbl', 'Nuovi in 30 giorni'), h('span.hq-big', String(w.stats?.nuovi ?? 0))),
           h('div.cv-card.hq-tile', h('span.hq-lbl', 'Non sono mai entrati'), h('span.hq-big', String(w.stats?.mai ?? 0)))))));
+}
+
+// ── fase 3 (ALM2-103): coda «Da verificare», scrivania, esito, qualità dell'AI, livello ────────────
+const PROP = { approvabile: ['Approvabile', 'gr'], respingere: ['Da respingere', 'rd'], incerto: ['Incerto', 'am'] };
+const propPill = p => (p ? pill(PROP[p][0], PROP[p][1]) : pill('Da leggere', 'line'));
+const ago = iso => { const d = Math.floor((Date.now() - new Date(iso)) / 864e5); return d <= 0 ? 'oggi' : d === 1 ? 'ieri' : `${d} giorni fa`; };
+const whoOf = r => dots([r.worker, r.vehicle, r.supplier]);
+
+async function queuePage(box) {
+  let filtro = 'tutti';
+  const list = h('section.cv-card.hq-q');
+  const head = h('div');
+  const load = async () => {
+    const q = await get(`/api/hqse/verifica?filtro=${filtro}`);
+    const c = q.counts;
+    fill(head,
+      top(`${c.tutti} documenti`, c.bloccanti ? `${c.bloccanti} bloccano un cantiere` : 'da verificare', 'L\'AI ha letto ogni documento e propone un esito; decidi tu.',
+        [q.rows[0] ? h('a.btn.btn-primary', { href: `#/hqse/verifica/${q.rows[0].id}` }, 'Inizia dal più urgente') : null]),
+      h('section.hq-tiles',
+        h('div.cv-card.hq-tile.acc', h('span.hq-lbl', 'Bloccano un cantiere'), h('span.hq-big', String(c.bloccanti)), h('span.hq-sub', 'il fornitore è atteso in cantiere')),
+        h('div.cv-card.hq-tile', h('span.hq-lbl', 'Proposta: approvabile'), h('span.hq-big', String(c.approvabili)), h('span.hq-sub', c.rapidi ? `${c.rapidi} con l'approvazione rapida` : 'tutti da confermare')),
+        h('div.cv-card.hq-tile', h('span.hq-lbl', 'Da guardare bene'), h('span.hq-big', String(c.respingere + c.incerti)), h('span.hq-sub', `${c.respingere} da respingere · ${c.incerti} incerti`)),
+        h('div.cv-card.hq-tile', h('span.hq-lbl', 'Il più vecchio'), h('span.hq-big', c.tutti ? `${q.oldest_days} ${q.oldest_days === 1 ? 'giorno' : 'giorni'}` : '—'), h('span.hq-sub', 'obiettivo: entro 2 giorni lavorativi'))),
+      h('div.hq-bar', seg([['tutti', 'Tutti', c.tutti], ['bloccanti', 'Bloccano un cantiere', c.bloccanti], ['approvabili', 'Approvabili', c.approvabili], ['respingere', 'Da respingere', c.respingere], ['incerti', 'Incerti', c.incerti]], filtro, k => { filtro = k; load(); }, { label: 'Filtro' })));
+    fill(list,
+      c.rapidi ? h('div.hq-qbar', h('span', h('b', `${c.rapidi} approvabili`), ' di tipi con l\'approvazione rapida accesa'),
+        h('button.btn.btn-primary', { type: 'button', on: { click: async () => { const r = await post('/api/hqse/verifica/rapida', {}); toast(`Approvati ${r.approvati} documenti`); load(); } } }, `Approva i ${c.rapidi}`)) : null,
+      q.rows.length ? h('div.hq-scroll', h('table.hq-t.hq-tq',
+        h('thead', h('tr', h('th', 'Documento'), h('th', 'Di chi'), h('th', 'Proposta dell\'AI'), h('th', 'Urgenza'), h('th', 'Caricato'))),
+        h('tbody', q.rows.map(r => h('tr', { class: r.urgent ? 'urg' : '', on: { click: () => go(`#/hqse/verifica/${r.id}`) } },
+          h('td', h('a', { href: `#/hqse/verifica/${r.id}` }, r.type), r.why ? h('div.hq-sub', r.why) : null),
+          h('td', whoOf(r)),
+          h('td', propPill(r.proposal)),
+          h('td', r.urgent ? pill(`Cantiere ${r.sites}`, 'dark') : r.escalated ? pill('Segnalato alla direzione', 'am') : pill('—', 'line')),
+          h('td.hq-sub', ago(r.created_at)))))))
+        : emptyState('shield-check', filtro === 'tutti' ? 'Niente da verificare: la coda è vuota.' : 'Nessun documento con questo filtro.'));
+  };
+  fill(box, head, list);
+  await load();
+}
+
+async function reviewPage(box, id, cfg) {
+  const d = await get(`/api/hqse/documenti/${id}`);
+  const ai = d.ai || { checks: [] };
+  const fileUrl = `/api/hqse/documenti/${d.id}/file`;
+  const isPdf = /\.pdf$/i.test(d.file_name);
+  const preview = /\.(png|jpe?g|webp)$/i.test(d.file_name) ? h('img.hq-prev', { src: fileUrl, alt: d.file_name }) : isPdf ? h('iframe.hq-prev', { src: fileUrl, title: d.file_name }) : h('div.hq-sub', 'Anteprima non disponibile: apri il file.');
+  const decided = d.status !== 'in_verifica';
+  const reload = () => reviewPage(box, id, cfg);
+  const next = async () => {
+    const q = await get('/api/hqse/verifica');
+    const n = q.rows.find(r => r.id !== d.id);
+    go(n ? `#/hqse/verifica/${n.id}` : '#/hqse/verifica');
+  };
+  const approve = async () => {
+    try { await post(`/api/hqse/documenti/${d.id}/esito`, { esito: 'approvato' }); toast('Approvato'); next(); } catch (e) { toast(e.message, 'err'); }
+  };
+  fill(box,
+    h('a.cv-crumb', { href: '#/hqse/verifica' }, ic('chevron-left', 14), 'Da verificare'),
+    pageTop({
+      eyebrow: dots(['Da verificare', d.worker ? `dipendente di ${d.supplier}` : d.supplier]),
+      heading: title('', d.type, d.worker ? `di ${d.worker}` : d.vehicle ? `· ${d.vehicle}` : `di ${d.supplier}`),
+      sub: h('span.hq-tags', d.blocking ? pill('Bloccante', 'rd') : null, d.urgent ? pill(`Cantiere ${d.sites}`, 'dark') : null, pill(dots([d.type_info.validity, `caricato ${ago(d.created_at)}`]), 'line'), d.previous ? pill('Rinnovo', 'bl') : null),
+    }),
+    h('div.hq-two.hq-rev',
+      card({ title: d.file_name || 'Documento', icon: 'file-text', right: h('a.cv-lnk', { href: fileUrl, target: '_blank', rel: 'noopener' }, 'Apri a tutto schermo') }, preview),
+      h('section.cv-card.hq-ed',
+        h('span.hq-accent', { 'aria-hidden': 'true' }),
+        h('div.hq-ai-h', h('span.hq-lbl', 'Proposta dell\'AI'), propPill(d.proposal)),
+        d.ai_status === 'fatto' ? null : h('p.hq-sub', d.ai_status === 'attesa' ? 'L\'AI sta ancora leggendo il documento.' : (ai.notes || []).join(' ') || 'Senza lettura dell\'AI: guarda tu il documento.'),
+        ai.checks.length ? h('div', ai.checks.map(c => h('div.hq-chk', h('span', { class: c.ok === true ? 'ok' : c.ok === false ? 'no' : 'nd', 'aria-label': c.ok === true ? 'superato' : c.ok === false ? 'non superato' : 'non verificato' }, c.ok === true ? '✓' : c.ok === false ? '✕' : '?'),
+          h('span', h('span', { class: c.ok === false ? 'hq-strong' : '' }, c.text), c.nota ? h('span.hq-sub', ` · ${c.nota}`) : null)))) : null,
+        d.declared?.ccnl || d.declared?.medico ? h('p.hq-sub', `Dichiarato dall'azienda: ${dots([d.declared.ccnl && `CCNL ${d.declared.ccnl}`, d.declared.medico && `medico ${d.declared.medico}`])}`) : null,
+        ai.reason ? h('div.hq-why', h('b', 'Motivo proposto per il fornitore: '), ai.reason) : null,
+        ai.escalate && !d.escalated ? h('div.hq-why.am', h('b', 'Conflitto d\'interessi dichiarato. '), 'Segnalalo alla direzione prima di decidere.',
+          h('div', { style: { marginTop: '8px' } }, h('button.btn', { type: 'button', on: { click: async () => { await post(`/api/hqse/documenti/${d.id}/segnala`, {}); toast('Segnalato alla direzione'); reload(); } } }, 'Segnala alla direzione'))) : null,
+        decided ? h('p.hq-sub', `Già deciso: ${cfg.doc_states[d.status] || d.status}.`) : h('div.hq-ed-f',
+          h('button.cv-lnk', { type: 'button', on: { click: async () => { await post(`/api/hqse/documenti/${d.id}/rileggi`, {}); toast('Lettura rifatta'); reload(); } } }, 'Fai rileggere all\'AI'),
+          h('div.pr-acts',
+            h('button.btn', { type: 'button', on: { click: () => outcome(d, 'integrazione', next) } }, 'Chiedi un\'integrazione'),
+            h('button.btn', { type: 'button', on: { click: () => outcome(d, 'respinto', next) } }, 'Respingi'),
+            h('button.btn.btn-primary', { type: 'button', on: { click: approve } }, d.proposal === 'approvabile' ? 'Approva' : 'Approva comunque'))),
+        h('p.hq-sub', 'L\'esito porta il tuo nome e l\'ora; il fornitore riceve subito l\'email.'))));
+}
+
+// respingere o chiedere un'integrazione (tavola 17)
+function outcome(d, esito, next) {
+  const chosen = new Set();
+  const motivi = h('div.hq-chips', d.motivi.map(m => {
+    const b = h('button.cv-chip', { type: 'button', 'aria-pressed': 'false', on: { click: () => { if (chosen.has(m)) chosen.delete(m); else chosen.add(m); b.classList.toggle('on', chosen.has(m)); b.setAttribute('aria-pressed', String(chosen.has(m))); } } }, m);
+    return b;
+  }));
+  const reason = h('textarea.input', { rows: 4 }, d.ai?.reason || '');
+  const cm = h('input', { type: 'checkbox', checked: Boolean(d.urgent) });
+  const ok = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+    ok.disabled = true;
+    try {
+      await post(`/api/hqse/documenti/${d.id}/esito`, { esito, motivi: [...chosen], reason: reason.value, avvisa_capocommessa: cm.checked });
+      m.close(); toast(esito === 'respinto' ? 'Respinto: il fornitore è avvisato' : 'Integrazione chiesta'); next();
+    } catch (e) { ok.disabled = false; toast(e.message, 'err'); }
+  } } }, esito === 'respinto' ? 'Respingi e avvisa' : 'Chiedi e avvisa');
+  const m = cvModal({
+    title: `${esito === 'respinto' ? 'Respingi' : 'Chiedi un\'integrazione per'} «${d.type}»`,
+    body: h('div.hq-form',
+      h('p.hq-sub', esito === 'respinto' ? 'Il documento non vale: il fornitore ne carica un altro.' : 'Il documento va bene ma manca un pezzo: il fornitore lo completa.'),
+      h('div.cv-fld', h('span', 'Perché · uno o più motivi'), motivi),
+      fld('Cosa leggerà il fornitore', reason, d.ai?.reason ? 'Scritto dall\'AI: puoi cambiarlo.' : null),
+      d.sites ? h('label.hq-check', cm, `Avvisa anche il capocommessa (${d.sites})`) : null),
+    actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok],
+  });
+}
+
+// qualità dell'AI (tavola 20)
+async function qualityPage(box) {
+  const q = await get('/api/hqse/qualita');
+  const t = q.total;
+  fill(box,
+    top('HQSE conferma l\'AI', t.pct === null ? 'nei prossimi giorni' : `il ${t.pct}% delle volte`, 'Ultimi 90 giorni. Dove l\'AI sbaglia spesso, correggi i controlli in Checklist e regole.'),
+    h('section.hq-tiles',
+      h('div.cv-card.hq-tile.acc', h('span.hq-lbl', 'Documenti decisi'), h('span.hq-big', String(t.n)), h('span.hq-sub', 'con una proposta dell\'AI')),
+      h('div.cv-card.hq-tile', h('span.hq-lbl', 'Tempo per l\'esito'), h('span.hq-big', t.giorni === null ? '—' : `${String(t.giorni).replace('.', ',')} gg`), h('span.hq-sub', 'dal caricamento alla decisione')),
+      h('div.cv-card.hq-tile', h('span.hq-lbl', 'Costo dell\'AI'), h('span.hq-big', `${(q.cost_usd * 0.95).toLocaleString('it-IT', { maximumFractionDigits: 2 })} €`), h('span.hq-sub', 'nel budget AI di Alma')),
+      h('div.cv-card.hq-tile', h('span.hq-lbl', 'Approvazione rapida'), h('span.hq-big', `${q.rapidi_accesi} ${q.rapidi_accesi === 1 ? 'tipo' : 'tipi'}`), h('span.hq-sub', `si accende sopra il ${q.soglia.pct}% e ${q.soglia.min} documenti`))),
+    card({ title: 'Per tipo di documento', icon: 'list-checks', count: q.types.length },
+      q.types.length ? h('div.hq-scroll', h('table.hq-t',
+        h('thead', h('tr', h('th', 'Documento'), h('th', 'Decisi'), h('th', 'HQSE conferma l\'AI'), h('th', 'Quando sbaglia, di solito'), h('th', 'Approvazione rapida'))),
+        h('tbody', q.types.map(r => {
+          const sw = h('input', { type: 'checkbox', role: 'switch', checked: r.quick_approve, disabled: !r.eligible && !r.quick_approve, 'aria-label': `Approvazione rapida per ${r.name}`,
+            on: { change: async e => { try { await put(`/api/hqse/doc-types/${r.id}/rapida`, { on: e.target.checked }); toast(e.target.checked ? 'Approvazione rapida accesa' : 'Spenta'); } catch (err) { e.target.checked = !e.target.checked; toast(err.message, 'err'); } } } });
+          return h('tr', h('td', h('b', r.name)), h('td', String(r.n)),
+            h('td', r.pct === null ? '—' : h('span.hq-pct', h('span.hq-bar-p', { class: r.pct >= q.soglia.pct ? 'gr' : '' }, h('i', { style: { width: `${r.pct}%` } })), `${r.pct}%`)),
+            h('td.hq-sub', r.errore || '—'),
+            h('td', h('label.hq-check', sw, r.quick_approve ? 'accesa' : r.eligible ? 'si può accendere' : 'sotto la soglia')));
+        })))) : emptyState('list-checks', 'Ancora nessun documento deciso: le statistiche arrivano con le prime verifiche.')));
+}
+
+// livello di qualifica proposto (tavola 19)
+async function levelDialog(s, cfg, reload) {
+  const l = await get(`/api/hqse/fornitori/${s.id}/livello`);
+  const order = ['non_valutato', 'non_qualificabile', 'sufficiente', 'buono', 'certificato'];
+  const ok = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+    await patch(`/api/hqse/fornitori/${s.id}`, { level: l.proposed }); m.close(); toast(`Livello: ${l.label}`); reload();
+  } } }, `Conferma ${l.label}`);
+  const m = cvModal({
+    title: `Livello di qualifica di ${s.name}`,
+    body: h('div.hq-form',
+      h('div.hq-steps', order.map((k, i) => h('div.hq-step', { class: k === l.proposed ? 'on' : k === l.current ? 'cur' : '' }, h('span', String(i + 1)), cfg.levels[k]))),
+      h('p', 'Alma propone ', h('b', l.label), l.current !== l.proposed ? ` (oggi: ${cfg.levels[l.current]})` : ''),
+      h('div', l.factors.map(f => h('div.hq-ev', h('span', pill(f.effect, f.tone), ' ', f.text)))),
+      h('p.hq-sub', `Regole (proposta da confermare con HQSE): sufficiente = ${l.rules.sufficiente}; buono = ${l.rules.buono}; certificato = ${l.rules.certificato}; non qualificabile = ${l.rules.non_qualificabile}.`)),
+    actions: [h('button.btn', { type: 'button', on: { click: () => { m.close(); editQualifica(s, cfg, reload); } } }, 'Scegli un altro livello'), ok],
+  });
 }

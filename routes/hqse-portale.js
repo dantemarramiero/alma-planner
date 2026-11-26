@@ -15,6 +15,7 @@ const { rateLimit } = require('../lib/security');
 const H = require('../lib/hqse');
 const S = require('../lib/hqse-stato');
 const P = require('../lib/hqse-portale');
+const AI = require('../lib/hqse-ai');
 
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const MAX_FILE = 8 * 1024 * 1024;
@@ -53,6 +54,8 @@ function registerHqsePortale(app, { db, auth, config, hqseMailer }) {
     saluto: pu.name ? `Buongiorno ${pu.name.split(' ')[0]},` : 'Buongiorno,',
     righe: [`grazie per aver registrato <b>${P.esc(supplierName)}</b>. Per completare la qualifica${tipoLabel ? ` come «${P.esc(tipoLabel)}»` : ''} entra nel portale e carica i documenti richiesti.`],
   });
+
+  router.use((_req, _res, next) => H.ready(db).then(() => next(), next)); // catalogo pronto anche se il primo è un fornitore
 
   // ── pagina del portale e widget ────────────────────────────────────────────────────────────────
   router.get('/', (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'orbita', 'portale.html')));
@@ -240,7 +243,7 @@ function registerHqsePortale(app, { db, auth, config, hqseMailer }) {
     const st = (await S.computeStates(db, [id], todayRome()))[id];
     res.json(rows.map(r => {
       const docs = st.worker_docs[r.id] || [];
-      return { ...r, docs, missing: docs.filter(d => d.state === 'da_caricare' || d.state === 'respinto' || d.state === 'scaduto').length, ok: docs.length && docs.every(d => H.isOk(d.state)) };
+      return { ...r, docs, missing: docs.filter(d => ['da_caricare', 'respinto', 'integrazione', 'scaduto'].includes(d.state)).length, ok: docs.length && docs.every(d => H.isOk(d.state)) };
     }));
   });
   router.post('/api/dipendenti', async (req, res) => {
@@ -352,6 +355,27 @@ function registerHqsePortale(app, { db, auth, config, hqseMailer }) {
   });
 
   // ── documenti ─────────────────────────────────────────────────────────────────────────────────
+  // lettura prima dell'invio (tavola 12): tipo, intestatario, date; il fornitore conferma le date
+  router.post('/api/leggi', async (req, res) => {
+    needUpload(req);
+    const b = req.body || {};
+    const id = sid(req);
+    const workerId = Number(b.worker_id) || null;
+    const { rows: [t] } = await db.query(`SELECT t.* FROM hqse_assignments a JOIN hqse_checklist_docs d ON d.checklist_id = a.checklist_id
+       JOIN hqse_doc_types t ON t.id = d.doc_type_id WHERE a.supplier_id = $1 AND COALESCE(a.worker_id, 0) = $2 AND COALESCE(a.vehicle_id, 0) = $3 AND t.id = $4 LIMIT 1`,
+    [id, workerId || 0, Number(b.vehicle_id) || 0, Number(b.doc_type_id)]);
+    if (!t) throw new HttpError(400, 'Questo documento non è tra quelli richiesti');
+    const mime = String(b.file?.mime || '').toLowerCase();
+    const data = Buffer.from(String(b.file?.base64 || ''), 'base64');
+    if (!ACCEPT.test(mime) || !data.length || data.length > MAX_FILE) throw new HttpError(400, 'Carica un PDF, una foto o un documento Word fino a 8 MB');
+    const expected = await AI.expectedFor(db, { supplier_id: id, worker_id: workerId });
+    const r = await AI.read({ type: t, file: { data, mime, name: String(b.file?.nome || 'documento') }, expected });
+    if (r.status !== 'fatto') return res.json({ status: r.status });
+    AI.remember(t.id, data, r);
+    res.json({ status: 'fatto', tipo_ok: r.checks.find(c => c.text.startsWith('È un'))?.ok ?? null, tipo_letto: r.read.tipo_letto, intestatario: r.read.intestatario,
+      data_documento: r.read.data_documento, scadenza: r.read.scadenza, valid_to: r.valid_to, problemi: r.checks.filter(c => c.ok === false).map(c => ({ text: c.text, nota: c.nota })) });
+  });
+
   router.post('/api/documenti', async (req, res) => {
     needUpload(req);
     const b = req.body || {};
@@ -381,12 +405,15 @@ function registerHqsePortale(app, { db, auth, config, hqseMailer }) {
         [id, name, mime, data.length, require('crypto').createHash('sha256').update(data).digest('hex'), data]);
       // un caricamento nuovo sostituisce quelli respinti o ancora da guardare; l'approvato resta finché il nuovo non è approvato
       await q.query(`UPDATE hqse_documents SET status = 'superato' WHERE supplier_id = $1 AND COALESCE(worker_id, 0) = $2 AND COALESCE(vehicle_id, 0) = $3
-          AND doc_type_id = $4 AND status IN ('in_verifica', 'respinto')`, [id, workerId || 0, vehicleId || 0, typeId]);
+          AND doc_type_id = $4 AND status IN ('in_verifica', 'respinto', 'integrazione')`, [id, workerId || 0, vehicleId || 0, typeId]);
       const { rows: [d] } = await q.query(`INSERT INTO hqse_documents (supplier_id, worker_id, vehicle_id, doc_type_id, status, file_name, file_id, issued_on, valid_to, uploaded_by, portal_user_id)
           VALUES ($1, $2, $3, $4, 'in_verifica', $5, $6, $7, $8, $9, $10) RETURNING id, status, valid_to`, [id, workerId, vehicleId, typeId, name, file.id, issued, validTo, req.portal.email, req.portal.id]);
       await q.query('INSERT INTO hqse_events (supplier_id, text) VALUES ($1, $2)', [id, `${req.portal.name || req.portal.email} ha caricato «${t.name}»`]);
       return d;
     });
+    // lettura dell'AI (la stessa fatta prima dell'invio, se c'è: niente seconda spesa)
+    const ai = AI.analyze(db, doc.id, { cached: AI.recall(typeId, data) }).catch(e => console.warn('[hqse] lettura AI:', e.message));
+    if (process.env.NODE_TEST_CONTEXT) await ai;
     res.status(201).json(doc);
   });
   router.get('/api/documenti/:id/file', async (req, res) => {

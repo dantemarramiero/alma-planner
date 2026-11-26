@@ -55,6 +55,7 @@ const { createImpiantiMailFake } = require('./lib/impianti-fake');
 const { registerProcurement } = require('./routes/procurement');
 const { registerHqse } = require('./routes/hqse');
 const { registerHqsePortale } = require('./routes/hqse-portale');
+const { registerHqseVerifica } = require('./routes/hqse-verifica');
 const { createProcurementFake } = require('./lib/procurement-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
@@ -298,6 +299,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerProcurement(app, { ...deps, mailFake: procurementFake }); // Alma Procurement (ALM2-81): capitolato, fornitori, Chiedi ad Alma, quotazioni
   const hqsePortale = registerHqsePortale(app, deps); // HQSE fase 2 (ALM2-101): widget sul sito e portale del fornitore (/fornitori)
   registerHqse(app, { ...deps, hqsePortale }); // HQSE (ALM2-98): qualifica di fornitori e subappaltatori al posto di Vittoria
+  registerHqseVerifica(app, { ...deps, hqsePortale }); // HQSE fase 3 (ALM2-103): verifica dei documenti con l'AI, scrivania HQSE
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza

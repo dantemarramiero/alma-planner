@@ -39,13 +39,13 @@ async function api(method, path, body) {
   if (!res.ok) throw new Error(data.error || 'Qualcosa non è andato, riprova');
   return data;
 }
-const STATE = { da_caricare: ['Da caricare', ''], in_verifica: ['In verifica', 'bl'], respinto: ['Respinto', 'rd'], approvato: ['Approvato', 'gr'], in_scadenza: ['In scadenza', 'am'], scaduto: ['Scaduto', 'rd'] };
+const STATE = { da_caricare: ['Da caricare', ''], in_verifica: ['In verifica', 'bl'], respinto: ['Respinto', 'rd'], integrazione: ['Da completare', 'rd'], approvato: ['Approvato', 'gr'], in_scadenza: ['In scadenza', 'am'], scaduto: ['Scaduto', 'rd'] };
 const statePill = d => {
   if (d.state === 'in_scadenza' && d.days !== undefined) return h('span.pf-pill.am', d.days === 0 ? 'Scade oggi' : `Scade tra ${d.days} ${d.days === 1 ? 'giorno' : 'giorni'}`);
   const [label, tone] = STATE[d.state] || [d.state, ''];
   return h(`span.pf-pill${tone ? `.${tone}` : ''}`, d.renewal_pending ? `${label} · rinnovo in verifica` : label);
 };
-const needsAction = d => ['da_caricare', 'respinto', 'scaduto', 'in_scadenza'].includes(d.state) && !d.renewal_pending;
+const needsAction = d => ['da_caricare', 'respinto', 'integrazione', 'scaduto', 'in_scadenza'].includes(d.state) && !d.renewal_pending;
 const btn = (text, onClick, cls = '') => h(`button.pf-btn${cls}`, { type: 'button', on: { click: onClick } }, text);
 const field = (label, input, hint) => h('label.pf-fld', label, input, hint ? h('span.pf-sub', hint) : null);
 
@@ -180,7 +180,7 @@ function todoPage() {
   const opt = optionalTypes();
   const req = requiredTypes();
   const all = [...new Map(ctx.checklists.flatMap(c => c.docs.map(d => ({ ...d, checklist: c.name, optional: opt.has(d.type_id) && !req.has(d.type_id) }))).map(d => [d.type_id, d])).values()];
-  const todo = all.filter(d => !d.optional && needsAction(d)).sort((a, b) => ['respinto', 'scaduto', 'in_scadenza', 'da_caricare'].indexOf(a.state) - ['respinto', 'scaduto', 'in_scadenza', 'da_caricare'].indexOf(b.state));
+  const todo = all.filter(d => !d.optional && needsAction(d)).sort((a, b) => ['respinto', 'integrazione', 'scaduto', 'in_scadenza', 'da_caricare'].indexOf(a.state) - ['respinto', 'integrazione', 'scaduto', 'in_scadenza', 'da_caricare'].indexOf(b.state));
   const waiting = all.filter(d => d.state === 'in_verifica' || d.renewal_pending);
   const extra = all.filter(d => d.optional);
   const d = ctx.docs;
@@ -199,8 +199,8 @@ function todoPage() {
       todo.map(x => h('div.pf-card.pf-todo',
         h('div', { style: { display: 'grid', gap: '6px' } },
           h('div.pf-todo-t', h('b', x.name), statePill(x), h('span.pf-pill', x.checklist)),
-          x.state === 'respinto' && x.reason ? h('span', { style: { fontSize: '14px', lineHeight: '20px' } }, h('b', { style: { fontWeight: 500 } }, 'Perché: '), x.reason) : h('span.pf-sub', [x.instructions, x.validity !== 'Data sul documento' && x.validity !== 'Non scade' ? `Vale ${x.validity.toLowerCase()}.` : ''].filter(Boolean).join(' '))),
-        ctx.me.can_upload ? btn(x.state === 'respinto' ? 'Ricarica' : x.state === 'in_scadenza' || x.state === 'scaduto' ? 'Carica il rinnovo' : 'Carica', () => upload(x), '.pri') : null))) : null,
+          (x.state === 'respinto' || x.state === 'integrazione') && x.reason ? h('span', { style: { fontSize: '14px', lineHeight: '20px' } }, h('b', { style: { fontWeight: 500 } }, x.state === 'integrazione' ? 'Cosa manca: ' : 'Perché: '), x.reason) : h('span.pf-sub', [x.instructions, x.validity !== 'Data sul documento' && x.validity !== 'Non scade' ? `Vale ${x.validity.toLowerCase()}.` : ''].filter(Boolean).join(' '))),
+        ctx.me.can_upload ? btn(x.state === 'respinto' || x.state === 'integrazione' ? 'Ricarica' : x.state === 'in_scadenza' || x.state === 'scaduto' ? 'Carica il rinnovo' : 'Carica', () => upload(x), '.pri') : null))) : null,
     ctx.workers.missing ? h('a.pf-card', { href: '#/dipendenti', style: { padding: '18px 24px', display: 'flex', justifyContent: 'space-between', textDecoration: 'none', color: 'var(--cv-ink)' } },
       h('span', h('b', { style: { fontWeight: 500 } }, `${ctx.workers.missing} ${ctx.workers.missing === 1 ? 'dipendente ha' : 'dipendenti hanno'}`), ' documenti da caricare'), h('span', { style: { color: 'var(--cv-or-ink)', fontWeight: 500 } }, 'Vai ai dipendenti →')) : null,
     waiting.length ? h('section', { style: { display: 'grid', gap: '10px' } }, h('span.pf-lbl', 'In verifica da Almacis'),
@@ -228,6 +228,27 @@ function upload(doc, target = {}) {
   const msg = h('p.pf-err', { role: 'alert' });
   const label = { firma: 'Data della firma', rilascio: 'Data di rilascio', attestato: 'Data dell\'attestato' }[rule];
   const close = () => box.remove();
+  // appena scelto il file, l'AI lo legge (tavola 12): tipo, intestatario, date; il fornitore controlla e invia
+  const readBox = h('div');
+  const toBase64 = f => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ko; r.readAsDataURL(f); });
+  file.addEventListener('change', async () => {
+    const f = file.files[0];
+    fill(readBox);
+    if (!f || f.size > 8 * 1024 * 1024) return;
+    fill(readBox, h('div.pf-note', 'Stiamo leggendo il documento…'));
+    try {
+      const r = await api('POST', '/leggi', { doc_type_id: doc.type_id, worker_id: target.worker_id || null, vehicle_id: target.vehicle_id || null, file: { nome: f.name, mime: f.type || 'application/pdf', base64: await toBase64(f) } });
+      if (r.status !== 'fatto') { fill(readBox); return; }
+      if (r.data_documento && needsIssued && !issued.value) { issued.value = r.data_documento; issued.dispatchEvent(new Event('input')); }
+      if (r.scadenza && rule === 'documento' && !until.value) until.value = r.scadenza;
+      const ok = [r.tipo_ok === true && `È un «${doc.name}»`, r.intestatario && `Intestato a ${r.intestatario}`, r.data_documento && `Data del documento: ${dmy(r.data_documento)}`, r.scadenza && `Scadenza scritta: ${dmy(r.scadenza)}`].filter(Boolean);
+      fill(readBox, h('div.pf-note', { style: { display: 'grid', gap: '6px', background: r.problemi.length ? 'var(--cv-or-t)' : 'var(--cv-gr-t)' } },
+        h('b', { style: { fontWeight: 500, color: 'var(--cv-ink)' } }, r.problemi.length ? 'Abbiamo letto il documento: controlla' : 'Abbiamo letto il documento'),
+        ok.map(t => h('span', `✓ ${t}`)),
+        r.problemi.map(p => h('span', { style: { color: 'var(--cv-rd)' } }, `✕ ${p.text}${p.nota ? `: ${p.nota}` : ''}`)),
+        r.problemi.length ? h('span.pf-sub', 'Se è il file sbagliato scegline un altro; se pensi sia giusto, invialo lo stesso: lo guarda una persona.') : h('span.pf-sub', 'Le date le abbiamo messe noi: controlla che siano giuste.')));
+    } catch { fill(readBox); }
+  });
   const send = btn('Invia ad Almacis', async () => {
     msg.textContent = '';
     const f = file.files[0];
@@ -250,8 +271,9 @@ function upload(doc, target = {}) {
         h('button.pf-x', { type: 'button', 'aria-label': 'Chiudi', on: { click: close } }, '×')),
       h('div.pf-dlg-b',
         doc.instructions ? h('div.pf-note', doc.instructions) : null,
-        doc.state === 'respinto' && doc.reason ? h('div.pf-note', { style: { background: 'var(--cv-rd-t)' } }, h('b', { style: { fontWeight: 500 } }, 'L\'ultima volta: '), doc.reason) : null,
+        (doc.state === 'respinto' || doc.state === 'integrazione') && doc.reason ? h('div.pf-note', { style: { background: 'var(--cv-rd-t)' } }, h('b', { style: { fontWeight: 500 } }, 'L\'ultima volta: '), doc.reason) : null,
         field('File (PDF, foto o Word, al massimo 8 MB)', file),
+        readBox,
         needsIssued ? h('div.pf-grid2', field(label, issued), field('Vale fino al', calc)) : null,
         rule === 'documento' ? field('Vale fino al (la data scritta sul documento)', until) : null,
         needsIssued ? h('span.pf-sub', `Vale ${doc.validity.toLowerCase()}: la scadenza la calcoliamo noi e ti avvisiamo 30 giorni prima.`) : rule === 'nessuna' ? h('span.pf-sub', 'Questo documento non scade: se cambia, ricaricalo.') : null,

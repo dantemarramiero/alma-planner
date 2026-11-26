@@ -11,11 +11,9 @@ const BASE = '/api/hqse';
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 
 function registerHqse(app, { db, hqsePortale }) {
-  let catalog = null; // il catalogo si carica alla prima richiesta (dopo le migrazioni)
-  const ready = () => (catalog ||= H.ensureCatalog(db).catch(err => { catalog = null; throw err; }));
 
   app.use(BASE, (req, _res, next) => next(req.user && H.canSee(req.user.email) ? undefined : new HttpError(403, 'HQSE non è ancora aperto a te')));
-  app.use(BASE, (_req, _res, next) => ready().then(() => next(), next));
+  app.use(BASE, (_req, _res, next) => H.ready(db).then(() => next(), next));
 
   const event = (supplierId, text, actorId) => db.query('INSERT INTO hqse_events (supplier_id, text, actor_id) VALUES ($1, $2, $3)', [supplierId, text, actorId || null]);
   const typeOut = t => ({ ...t, validity: H.validityLabel(t.validity_rule, t.validity_months) });
