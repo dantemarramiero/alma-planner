@@ -64,7 +64,7 @@ function trackBack(section) {
   else if (stack[stack.length - 1] !== here) stack.push(here);
   saveStack(stack);
   // nella scheda di un progetto il percorso «‹ Progetti» in alto fa già da indietro; in Alma Energy bastano i tab
-  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || section === 'impianti' || section === 'procurement' || section === 'hr' || section === 'alma' || /^#\/projects\/\d+/.test(here);
+  document.getElementById('backbar').hidden = isRoot(section) || section === 'home' || section === 'benvenuto' || section === 'energy' || section === 'strategy' || section === 'crm' || section === 'impianti' || section === 'procurement' || section === 'hqse' || section === 'hr' || section === 'alma' || /^#\/projects\/\d+/.test(here);
 }
 
 // ── barra laterale a icone: «Tieni aperta» la fissa, e la scelta resta per le volte dopo ──
@@ -124,6 +124,8 @@ const MODULES = [
   { key: 'impianti', label: 'Alma Impianti', icon: 'factory', home: '#/impianti/home', can: () => Boolean(store.me.crm) },
   // Alma Procurement (ALM2-81): capitolato merci, fornitori, Chiedi ad Alma, richieste di quotazione; sopra il CRM comune
   { key: 'procurement', label: 'Alma Procurement', icon: 'package', home: '#/procurement/home', can: () => Boolean(store.me.procurement) },
+  // HQSE (ALM2-98): qualifica di fornitori e subappaltatori al posto di Vittoria; per ora solo Dante
+  { key: 'hqse', label: 'HQSE', icon: 'shield-check', home: '#/hqse/fornitori', can: () => Boolean(store.me.hqse) },
   // Alma HR: griglia salary grade, mansionario e il mio percorso per tutti; persone, RAL e pannello solo al team HR
   { key: 'hr', label: 'Alma HR', icon: 'id-card', home: '#/hr/percorso', can: () => Boolean(store.me?.hr_on) }, // nascosto a tutti finché HR_ATTIVO non è 1
 ];
@@ -133,7 +135,7 @@ let lastModule = 'planet';
 const ENERGY_CRM = new Set(['scheda', 'contatti', 'lead', 'clienti', 'fornitori', 'partner', 'tutte', 'progetto', 'posta', 'doppioni']);
 const moduleOf = section => (section === 'search' ? lastModule
   : PROJECT_SECTIONS.has(section) ? 'project'
-  : section === 'energy' || section === 'strategy' || section === 'it' || section === 'crm' || section === 'hr' || section === 'impianti' || section === 'procurement' ? section : 'planet');
+  : section === 'energy' || section === 'strategy' || section === 'it' || section === 'crm' || section === 'hr' || section === 'impianti' || section === 'procurement' || section === 'hqse' ? section : 'planet');
 const MOD_KEY = 'alma.modulePages';
 const readPages = () => { try { return JSON.parse(sessionStorage.getItem(MOD_KEY)) || {}; } catch { return {}; } };
 const availableModules = () => MODULES.filter(m => m.can());
@@ -218,6 +220,7 @@ async function route() {
     : section === 'crm' ? `crm-${parts[1] === 'scheda' ? '' : parts[1] === 'progetto' ? 'progetti' : parts[1] === 'prima' ? 'concorrenza' : parts[1] === 'lancio' ? (parts[2] === 'i' ? 'business' : 'radar') : parts[1] || 'settimana'}`
     : section === 'impianti' ? (parts[1] === 'crm' ? `impianti-crm-${parts[2] || 'lead'}` : parts[1] === 'nuovi-lead' ? 'impianti-crm-lead' : parts[1] === 'dare-avere' ? 'impianti-progettisti' : `impianti-${parts[1] || 'home'}`)
     : section === 'procurement' ? `procurement-${parts[1] || 'home'}`
+    : section === 'hqse' ? `hqse-${parts[1] === 'fornitore' ? 'fornitori' : parts[1] || 'fornitori'}`
     : section === 'strategy' ? `strategy-${parts[1] === 'matrix' || !parts[1] ? 'hoshin' : parts[1]}`
     : section === 'hr' ? `hr-${parts[1] === 'persona' ? 'persone' : parts[1] === 'ruolo' ? 'mansionario' : parts[1] === 'candidato' ? 'richieste' : ['incontro', 'fineprova', 'onboarding'].includes(parts[1]) ? (store.me?.hr ? 'onboarding' : 'onboarding-mie') : ['valutazione', 'semestre'].includes(parts[1]) ? 'valutazioni' : parts[1] === 'esito' ? 'percorso' : parts[1] || 'percorso'}`
     : section === 'org' ? 'persone' : section === 'mine' ? 'tickets'
@@ -364,6 +367,11 @@ async function route() {
       else await crmView(view, parts);
       attachHelp(view); // «Come si usa»: il manuale della pagina (ALM2-72)
       break;
+    case 'hqse': { // HQSE · Qualifica fornitori (ALM2-98)
+      const { hqseView } = await import('./hqse.js');
+      await hqseView(view, parts);
+      break;
+    }
     case 'procurement': { // Alma Procurement (ALM2-81)
       const { procurementView } = await import('./procurement.js');
       await procurementView(view, parts);

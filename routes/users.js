@@ -17,6 +17,7 @@ function registerUsers(app, { db, auth, isAdmin, softwareAccess, fleet, energyAc
       energy: energyAccess ? await energyAccess.canUse(req) : false,
       crm: crmAccess ? await crmAccess.canUse(req) : false,
       procurement: (crmAccess ? await crmAccess.canUse(req) : false) && require('../lib/procurement').canSee(req.user.email), // Alma Procurement: per ora solo Dante (ALM2-81)
+      hqse: require('../lib/hqse').canSee(req.user.email), // HQSE (ALM2-98): per ora solo Dante
       hr: gov ? gov.roleOf(req.user.email).key === 'hr' : false,
       ruolo_hr: gov ? gov.roleOf(req.user.email).key : null, // direzione e cfo vedono revisione e avanzamento (Fase 5)
       qhse: gov ? gov.roleOf(req.user.email).key === 'qhse' : false,

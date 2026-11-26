@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portale fornitori · Almacis</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/brand/tokens.css">
+  <link rel="stylesheet" href="/css/crm-v2.css">
+  <link rel="stylesheet" href="/css/hqse-portale.css">
+</head>
+<body class="pf">
+  <!-- HQSE fase 2 (ALM2-101): portale del fornitore, tavole 3, 4 e 10–15 del canvas approvato -->
+  <header class="pf-top">
+    <a class="pf-brand" href="/fornitori"><img src="/brand/almacis/almacis-logo.png" alt="Almacis" height="30"><span class="pf-sep" aria-hidden="true"></span><span class="pf-muted">Portale fornitori</span></a>
+    <nav class="pf-tabs" id="tabs" aria-label="Portale" hidden></nav>
+    <span class="pf-who" id="who"></span>
+  </header>
+  <main class="pf-main" id="app"><div class="pf-loading">Un attimo…</div></main>
+  <div id="overlay"></div>
+  <div id="toast" class="pf-toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/js/hqse-portale.js"></script>
+</body>
+</html>
