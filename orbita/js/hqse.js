@@ -335,8 +335,9 @@ async function widgetPage(box, cfg) {
   const tipi = w.tipi.map(t => {
     const ck = h('input', { type: 'checkbox', checked: chosen.has(t.key), on: { change: e => { if (e.target.checked) chosen.add(t.key); else chosen.delete(t.key); } } });
     const cl = cfg.tipi_appalto.find(x => x.key === t.key)?.checklists || [];
-    return h('label.hq-wrow', h('span', h('b', t.label), h('span.hq-sub', ` · ${cl.length ? cl.join(' + ') : 'solo anagrafica'}`)), ck);
+    return h('label.hq-wrow', ck, h('b', t.label), h('span.hq-sub', cl.length ? `Checklist ${cl.join(' + ')}` : 'Solo anagrafica'));
   });
+  const cb = (...kids) => h('div.hq-cb', ...kids);
   const snippet = `<div id="alma-fornitori"></div>\n<script src="${location.origin}/fornitori/widget.js" async></script>`;
   const save = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
     save.disabled = true;
@@ -349,21 +350,22 @@ async function widgetPage(box, cfg) {
   fill(box,
     top('Quello che i fornitori', 'vedono sul sito', 'Il widget di registrazione su almacis.it: i testi si cambiano da qui, senza toccare il sito.',
       [h('a.btn', { href: '/fornitori', target: '_blank', rel: 'noopener' }, 'Apri il portale'), save]),
-    h('div.hq-two',
+    h('div.hq-two.hq-wpage',
       card({ title: 'Testi', icon: 'file-text' },
-        h('div.hq-form', fld('Titolo', titolo), fld('Testo di presentazione', testo), fld('Messaggio dopo l\'invio', grazie),
-          h('div.cv-fld', h('span', 'Tipi di appalto nel modulo'), h('span.cv-hint', 'Ognuno porta le sue checklist (si cambiano in Checklist e regole)'), h('div.hq-wlist', tipi)),
-          fld('Link all\'informativa privacy', privacy))),
+        cb(h('div.hq-form', fld('Titolo', titolo), fld('Testo di presentazione', testo), fld('Messaggio dopo l\'invio', grazie),
+          h('div.cv-fld', h('span', 'Tipi di appalto nel modulo'), h('div.hq-wlist', tipi), h('span.cv-hint', 'Ognuno porta le sue checklist: si cambiano in Checklist e regole.')),
+          fld('Link all\'informativa privacy', privacy)))),
       h('div.hq-col',
-        card({ title: 'Codice da incollare sul sito', icon: 'file-text' },
-          h('p.hq-sub', 'Una volta sola, in un blocco HTML della pagina Fornitori. Poi i testi si cambiano solo da qui.'),
-          h('pre.hq-code', snippet),
-          h('button.btn', { type: 'button', on: { click: () => navigator.clipboard.writeText(snippet).then(() => toast('Codice copiato')) } }, 'Copia il codice')),
+        card({ title: 'Codice da incollare sul sito', icon: 'globe' },
+          cb(h('p.hq-sub', 'Una volta sola, in un blocco HTML della pagina Fornitori. Poi i testi si cambiano solo da qui.'),
+            h('pre.hq-code', snippet),
+            h('div', h('button.btn', { type: 'button', on: { click: () => navigator.clipboard.writeText(snippet).then(() => toast('Codice copiato')) } }, ic('copy', 16), 'Copia il codice')))),
         card({ title: 'Sicurezza e avvisi', icon: 'shield-check' },
-          h('div.hq-ev', h('span', 'Siti autorizzati'), h('span.hq-sub', w.origins.join(', '))),
-          h('div.hq-ev', h('span', 'Contro i robot'), h('span.hq-sub', 'campo esca nascosto e limite di invii per rete')),
-          h('div.hq-ev', h('span', 'Partita IVA già registrata'), h('span.hq-sub', 'manda il link solo se l\'email è di chi entra già nel portale')),
-          fld('Avvisa di ogni registrazione', avvisa, 'Un\'email per ogni fornitore nuovo (vuoto = nessuno)')),
+          cb(h('div.hq-evs',
+            h('div.hq-ev', h('span', 'Siti autorizzati'), h('span.hq-sub', w.origins.join(', '))),
+            h('div.hq-ev', h('span', 'Contro i robot'), h('span.hq-sub', 'Campo esca nascosto e limite di invii per rete')),
+            h('div.hq-ev', h('span', 'Partita IVA già registrata'), h('span.hq-sub', 'Manda il link solo se l\'email è di chi entra già nel portale'))),
+            fld('Avvisa di ogni registrazione', avvisa, 'Un\'email per ogni fornitore nuovo (vuoto = nessuno)'))),
         h('section.hq-tiles2',
           h('div.cv-card.hq-tile', h('span.hq-lbl', 'Nuovi in 30 giorni'), h('span.hq-big', String(w.stats?.nuovi ?? 0))),
           h('div.cv-card.hq-tile', h('span.hq-lbl', 'Non sono mai entrati'), h('span.hq-big', String(w.stats?.mai ?? 0)))))));

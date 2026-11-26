@@ -95,8 +95,21 @@
 
 /* fase 2: widget del sito, file dei documenti */
 .hq-doc-r { display: inline-flex; gap: 10px; align-items: center; }
-.hq-wlist { display: grid; }
-.hq-wrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--cv-line); font-size: 14px; color: var(--cv-text); }
+/* corpo delle card: stesso margine dell'intestazione (.cv-ch 24px ai lati) */
+.hq-cb { padding: 4px 24px 24px; display: grid; gap: 14px; min-width: 0; }
+.hq-wpage { max-width: 1320px; }
+.hq-wpage .hq-form { gap: 18px; }
+.hq-wpage textarea.input { min-height: 88px; resize: vertical; }
+.hq-wlist { display: grid; border: 1px solid var(--cv-line); border-radius: 12px; overflow: hidden; }
+.hq-wrow { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--cv-line); font-size: 14px; color: var(--cv-text); cursor: pointer; }
+.hq-wrow:first-child { border-top: 0; }
+.hq-wrow:hover { background: var(--cv-soft); }
 .hq-wrow b { font-weight: 500; color: var(--cv-ink); }
+.hq-wrow .hq-sub { justify-self: end; text-align: right; }
+.hq-wrow input[type=checkbox] { width: 18px; height: 18px; margin: 0; accent-color: var(--cv-orange); cursor: pointer; }
+.hq-evs { display: grid; border: 1px solid var(--cv-line); border-radius: 12px; padding: 0 16px; }
+.hq-evs .hq-ev:first-child { border-top: 0; }
+.hq-wpage .hq-tile { padding: 20px 24px; }
+.hq-wpage .hq-big { font-size: 32px; }
 .hq-code { margin: 0; padding: 16px; border-radius: 12px; background: var(--cv-dark); color: var(--cv-on-dark); font-size: 12.5px; line-height: 19px; white-space: pre-wrap; overflow-x: auto; }
 .hq-tiles2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
