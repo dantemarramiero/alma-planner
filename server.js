@@ -57,6 +57,7 @@ const { registerHqse } = require('./routes/hqse');
 const { registerHqsePortale } = require('./routes/hqse-portale');
 const { registerHqseVerifica } = require('./routes/hqse-verifica');
 const { registerHqseScadenze } = require('./routes/hqse-scadenze');
+const { registerHqseImport } = require('./routes/hqse-import');
 const { createProcurementFake } = require('./lib/procurement-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
@@ -235,6 +236,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   app.use('/api/alma/chat', express.json({ limit: '12mb' })); // Alma: foto dei biglietti da visita (al massimo 5, già rimpicciolite)
   app.use('/api/hr/richieste/:id/candidati', express.json({ limit: '8mb' })); // Alma HR: CV caricati dal team HR
   app.use(['/api/hr/formazione/attestati', '/api/hr/documenti'], express.json({ limit: '12mb' })); // Alma HR: attestati e documenti in PDF
+  app.use('/api/hqse/import', express.json({ limit: '40mb' })); // HQSE (ALM2-105): CSV dell'export di Vittoria e file fino a 25 MB
   app.use('/api/feedback', express.json({ limit: '22mb' })); // feedback su Alma Space: fino a 3 foto dello schermo da 5 MB
   app.use(['/api/crm/posta/:id/componi', '/api/crm/posta/:id/rispondi', '/api/crm/posta/nuova'], express.json({ limit: '36mb' })); // Posta: allegati delle risposte e degli inoltri (25 MB in base64)
   app.use('/api', express.json({ limit: '1mb' }));
@@ -302,6 +304,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   registerHqse(app, { ...deps, hqsePortale }); // HQSE (ALM2-98): qualifica di fornitori e subappaltatori al posto di Vittoria
   registerHqseVerifica(app, { ...deps, hqsePortale }); // HQSE fase 3 (ALM2-103): verifica dei documenti con l'AI, scrivania HQSE
   registerHqseScadenze(app, { ...deps, hqsePortale }); // HQSE fase 4 (ALM2-104): cantieri, rinnovi, proroghe, deroghe, reminder
+  registerHqseImport(app, { ...deps, hqsePortale }); // HQSE fase 5 (ALM2-105): import da Vittoria e passaggio al portale
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza

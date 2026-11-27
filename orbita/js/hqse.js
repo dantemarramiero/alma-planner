@@ -24,6 +24,10 @@ export async function hqseView(container, parts = []) {
   if (page === 'fornitore' && Number(parts[2])) return supplierPage(body, Number(parts[2]), cfg);
   if (page === 'verifica') return Number(parts[2]) ? reviewPage(body, Number(parts[2]), cfg) : queuePage(body);
   if (page === 'qualita') return qualityPage(body);
+  if (page === 'import' || page === 'passaggio') { // fase 5 (ALM2-105)
+    const M = await import('./hqse-import.js');
+    return page === 'import' ? M.importPage(body) : M.passaggioPage(body);
+  }
   if (['rinnovi', 'cantieri', 'reminder'].includes(page)) { // fase 4 (ALM2-104)
     const Z = await import('./hqse-scadenze.js');
     if (page === 'rinnovi') return Z.renewalsPage(body);

@@ -173,3 +173,15 @@ a.hq-ev { text-decoration: none; }
   .hq-cb { padding: 4px 14px 16px; }
   .hq .cv-card > .hq-prev { width: calc(100% - 28px); }
 }
+
+/* fase 5 (ALM2-105): import da Vittoria e passaggio al portale */
+.hq-steps-bar { display: flex; flex-wrap: wrap; gap: 28px; padding: 16px 24px; }
+.hq-stepi { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--cv-muted, #6B6B6B); }
+.hq-stepi b { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #F0EEEA; font-size: 13px; font-weight: 500; }
+.hq-stepi.on { color: var(--cv-ink, #2C2C2C); font-weight: 500; }
+.hq-stepi.on b { background: #FF8A26; color: #fff; }
+.hq-stepi.done b { background: #2C2C2C; color: #fff; }
+.hq-acts { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.hq-file { cursor: pointer; }
+.hq-file input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.hq-t select.input { min-width: 180px; padding: 6px 10px; }

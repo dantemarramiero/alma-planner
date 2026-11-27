@@ -432,7 +432,7 @@ function registerHqsePortale(app, { db, auth, config, hqseMailer }) {
   });
 
   app.use('/fornitori', router);
-  return { mailer, sendWelcome: welcome };
+  return { mailer, sendWelcome: welcome, sendLink };
 }
 
 module.exports = { registerHqsePortale };
