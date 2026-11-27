@@ -156,3 +156,20 @@ a.hq-ev { text-decoration: none; }
 .hq-set input { width: 18px; height: 18px; flex: none; }
 .hq-two-f { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hq > .cv-card + .cv-card { margin-top: 0; }
+
+/* Corpo delle card con intestazione: stesso margine di .cv-ch (24px ai lati, 14px sul telefono),
+   così campi, righe ed elenchi non toccano più il bordo. Vale per tutte le pagine HQSE. */
+.hq .cv-card:has(> .cv-ch) > :not(.cv-ch):not(.hq-cb) { margin-left: 24px; margin-right: 24px; }
+.hq .cv-card:has(> .cv-ch) > :last-child:not(.cv-ch):not(.hq-cb) { margin-bottom: 22px; }
+.hq .cv-card > .cv-ch + .hq-set, .hq .cv-card > .cv-ch + .hq-ev { border-top: 0; }
+.hq .cv-card > .hq-form { gap: 18px; }
+.hq .cv-card > .cv-fld { padding: 4px 0 13px; }
+.hq .cv-card > .hq-prev { width: calc(100% - 48px); }
+.hq-set { cursor: pointer; }
+.hq-set input, .hq-wrow input[type=checkbox] { accent-color: var(--cv-orange); cursor: pointer; }
+.hq .cv-card textarea.input { min-height: 120px; resize: vertical; }
+@media (max-width: 760px) {
+  .hq .cv-card:has(> .cv-ch) > :not(.cv-ch):not(.hq-cb) { margin-left: 14px; margin-right: 14px; }
+  .hq-cb { padding: 4px 14px 16px; }
+  .hq .cv-card > .hq-prev { width: calc(100% - 28px); }
+}
