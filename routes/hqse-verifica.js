@@ -17,7 +17,7 @@ const BASE = '/api/hqse';
 const todayRome = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
 const QUICK_MIN = 30;
 const QUICK_PCT = 95;
-const MOTIVI = ['Manca una firma', 'Documento scaduto', 'Non è il documento richiesto', 'Intestato ad altri', 'Illeggibile o incompleto', 'Massimale insufficiente', 'Autodichiarazione non ammessa', 'Altro'];
+const MOTIVI = ['Manca una firma', 'Documento scaduto', 'Non è il documento richiesto', 'Intestato ad altri', 'Illeggibile o incompleto', 'Formazione non conforme (ore, ente, aggiornamento)', 'Non coerente con le lavorazioni', 'Patente a crediti non valida o sotto 15 crediti', 'Massimale insufficiente', 'Autodichiarazione non ammessa', 'Altro'];
 
 function registerHqseVerifica(app, { db, config, hqsePortale }) {
   const mailer = hqsePortale?.mailer;
@@ -119,6 +119,10 @@ function registerHqseVerifica(app, { db, config, hqsePortale }) {
     const reason = v.text(req.body.reason, 'motivo', { max: 1200 }) || '';
     if (esito !== 'approvato' && !reason) throw new HttpError(400, 'Scrivi cosa deve sistemare il fornitore');
     const validTo = v.date(req.body.valid_to, 'scadenza') ?? null;
+    // casi dubbi: prima si sente l'Ufficio QHSE (criteri di Aristide, 27/11/2026); approvare un documento segnalato chiede il suo parere
+    const parere = v.text(req.body.parere, 'parere', { max: 600 }) || '';
+    if (esito === 'approvato' && r.escalated_at && parere.length < 3) throw new HttpError(400, 'Documento segnalato all\'Ufficio QHSE: scrivi il suo parere prima di approvare');
+    if (parere) await event(r.supplier_id, `Parere dell'Ufficio QHSE su «${r.type_name}»: ${parere}`, req.user.id);
     const out = await decide(r, { esito, motivi, reason, validTo, userId: req.user.id, userName: req.user.name, notifyCm: req.body.avvisa_capocommessa === true });
     res.json({ ok: true, ...out });
   });
@@ -132,15 +136,16 @@ function registerHqseVerifica(app, { db, config, hqsePortale }) {
   app.post(`${BASE}/documenti/:id/segnala`, async (req, res) => {
     const r = await docOr404(Number(req.params.id));
     await db.query('UPDATE hqse_documents SET escalated_at = now() WHERE id = $1', [r.id]);
-    await event(r.supplier_id, `Segnalato alla direzione: «${r.type_name}» (${v.text(req.body.nota, 'nota', { max: 300 }) || 'conflitto d\'interessi dichiarato'})`, req.user.id);
+    const nota = v.text(req.body.nota, 'nota', { max: 300 }) || r.ai_result?.escalate_reason || 'conflitto d\'interessi dichiarato';
+    await event(r.supplier_id, `Chiesto il parere dell'Ufficio QHSE su «${r.type_name}» (${nota})`, req.user.id);
     const to = String(process.env.HQSE_DIREZIONE || '').split(/[,;\s]+/).filter(P.validEmail);
-    if (mailer) for (const e of to) await mailer.send({ to: e, subject: `HQSE · da decidere: ${r.supplier_name}`, html: P.emailHtml(baseUrl, { righe: [`${P.esc(r.supplier_name)} ha dichiarato un conflitto d'interessi nell'«${P.esc(r.type_name)}». Serve la decisione della direzione prima della qualifica.`], bottone: 'Apri in Alma', link: `${baseUrl}/app#/hqse/verifica/${r.id}` }) }).catch(() => {});
+    if (mailer) for (const e of to) await mailer.send({ to: e, subject: `HQSE · parere QHSE: ${r.supplier_name}`, html: P.emailHtml(baseUrl, { righe: [`Serve il parere dell'Ufficio QHSE su «${P.esc(r.type_name)}» di ${P.esc(r.supplier_name)} prima dell'approvazione.`, `Il caso: ${P.esc(nota)}.`], bottone: 'Apri in Alma', link: `${baseUrl}/app#/hqse/verifica/${r.id}` }) }).catch(() => {});
     res.json({ ok: true });
   });
 
   app.post(`${BASE}/verifica/rapida`, async (req, res) => {
     const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
-    const { rows } = await db.query(`${DOC_SQL} WHERE d.status = 'in_verifica' AND d.ai_proposal = 'approvabile' AND t.quick_approve ${ids.length ? 'AND d.id = ANY($1::int[])' : ''}`, ids.length ? [ids] : []);
+    const { rows } = await db.query(`${DOC_SQL} WHERE d.status = 'in_verifica' AND d.ai_proposal = 'approvabile' AND t.quick_approve AND d.escalated_at IS NULL ${ids.length ? 'AND d.id = ANY($1::int[])' : ''}`, ids.length ? [ids] : []);
     for (const r of rows) await decide(r, { esito: 'approvato', userId: req.user.id, userName: req.user.name, quick: true });
     res.json({ ok: true, approvati: rows.length });
   });

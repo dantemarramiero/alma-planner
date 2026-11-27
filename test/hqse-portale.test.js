@@ -131,7 +131,7 @@ test('questionario, dipendenti con le domande, mezzi, documenti caricati, colleg
   assert.equal(ws.body[0].docs.length, 10, 'tolto il primo soccorso, tolti i suoi 2 documenti');
   // mezzo
   const m = await c.call('POST', '/fornitori/api/mezzi', { kind: 'Autocarro con gru', plate: 'EF123GH' });
-  assert.equal((await c.call('GET', '/fornitori/api/mezzi')).body[0].docs.length, 2);
+  assert.equal((await c.call('GET', '/fornitori/api/mezzi')).body[0].docs.length, 4, 'CE, disponibilità, manutenzione e verifiche periodiche (criteri QHSE)');
   // documento: la visura vale 6 mesi dal rilascio, la scadenza la calcoliamo noi
   const { rows: types } = await db.query("SELECT code, id FROM hqse_doc_types WHERE code IN ('cciaa', 'durc', 'r_pes', 'm_ce')");
   const T = Object.fromEntries(types.map(t => [t.code, t.id]));

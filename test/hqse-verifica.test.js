@@ -17,7 +17,7 @@ const plusDays = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10
 AI.setReader(async ({ file }) => {
   const n = file.name;
   if (n.startsWith('dvr')) return { json: { tipo_ok: true, intestatario: 'EDIL ESEMPIO SRL', piva_o_cf: '01234567890', campi: { firme_mancanti: ['RLS', 'medico competente'] } }, model: 'finto', cost: 0.01 };
-  if (n.startsWith('durc')) return { json: { tipo_ok: true, intestatario: 'Edil Esempio S.r.l.', piva_o_cf: 'IT01234567890', scadenza: plusDays(100) }, model: 'finto', cost: 0.01 };
+  if (n.startsWith('durc')) return { json: { tipo_ok: true, intestatario: 'Edil Esempio S.r.l.', piva_o_cf: 'IT01234567890', scadenza: plusDays(100), campi: { esito: 'regolare' }, controlli: [{ n: 1, ok: true }, { n: 2, ok: true }] }, model: 'finto', cost: 0.01 };
   if (n.startsWith('visura')) return { json: { tipo_ok: true, intestatario: 'Edil Esempio', piva_o_cf: '01234567890', data_documento: today }, model: 'finto', cost: 0.01 };
   if (n.startsWith('aut')) return { json: { tipo_ok: true, intestatario: 'Edil Esempio', piva_o_cf: '01234567890', data_documento: today, campi: { conflitto_interessi: true } }, model: 'finto', cost: 0.01 };
   return null;
@@ -148,4 +148,61 @@ test('approvazione rapida solo sopra la soglia; qualità dell\'AI; livello propo
   assert.ok(lv.body.factors.some(f => /non ancora approvati/.test(f.text)));
   const sk = await D('GET', `/api/hqse/fornitori/${supplierId}`);
   assert.match(sk.body.history.map(h => h.text).join(' | '), /Respinto «DVR»/);
+});
+
+// criteri dell'Ufficio QHSE (email di Aristide, 27/11/2026)
+test('criteri QHSE: patente a crediti, DURC non regolare, idoneità con prescrizioni', () => {
+  const exp = { supplier: 'Edil Esempio S.r.l.', vat: '01234567890' };
+  const base = { tipo_ok: true, intestatario: 'Edil Esempio', piva_o_cf: '01234567890' };
+  const pat = { code: 'patente_crediti', name: 'Patente a crediti', validity_rule: 'nessuna' };
+  assert.equal(AI.decide({ type: pat, json: { ...base, campi: { crediti: 12 } }, expected: exp }).proposal, 'respingere');
+  assert.equal(AI.decide({ type: pat, json: { ...base, campi: { crediti: 30 } }, expected: exp }).proposal, 'approvabile');
+  assert.equal(AI.decide({ type: pat, json: { ...base, campi: { classifica_soa: 'II' } }, expected: exp }).proposal, 'respingere', 'SOA sotto la III');
+  assert.equal(AI.decide({ type: pat, json: { ...base, campi: { classifica_soa: 'IV-bis' } }, expected: exp }).proposal, 'approvabile');
+  assert.equal(AI.decide({ type: { code: 'durc', name: 'DURC', validity_rule: 'documento' }, json: { ...base, scadenza: plusDays(60), campi: { esito: 'NON REGOLARE' } }, expected: exp }).proposal, 'respingere');
+  const id = AI.decide({ type: { code: 'r_idoneita', name: 'Idoneità', validity_rule: 'documento' }, json: { ...base, scadenza: plusDays(60), campi: { esito: 'Idoneo con prescrizioni' } }, expected: exp });
+  assert.equal(id.proposal, 'incerto');
+  assert.equal(id.escalate, true);
+  const pr = AI.prompt({ type: { name: 'Formazione', validity_rule: 'attestato', validity_months: 60, ai_checks: [] }, expected: { ...exp, mansioni: 'lavora su piattaforme elevabili (PLE)' } });
+  assert.match(pr, /Accordo Stato-Regioni del 17 aprile 2025/);
+  assert.match(pr, /Mansioni dichiarate del lavoratore: lavora su piattaforme elevabili/);
+});
+
+test('catalogo v2 su un database già avviato: controlli, documenti nuovi, modifiche di HQSE rispettate', async () => {
+  const H = require('../lib/hqse');
+  // simula il database di prima: niente controlli, formazione a «scadenza scritta», documenti nuovi assenti, un tipo cambiato da HQSE
+  await db.query("DELETE FROM send_log WHERE key LIKE 'hqse:catalogo:%'");
+  await db.query("UPDATE hqse_doc_types SET ai_checks = '[]'");
+  await db.query("UPDATE hqse_doc_types SET validity_rule = 'documento', validity_months = NULL WHERE code = 'r_art37'");
+  await db.query("UPDATE hqse_doc_types SET updated_by = (SELECT id FROM users LIMIT 1) WHERE code = 'r_preposto'");
+  await db.query("DELETE FROM hqse_checklist_docs WHERE doc_type_id IN (SELECT id FROM hqse_doc_types WHERE code IN ('format_macchine', 'm_verifiche'))");
+  await db.query("DELETE FROM hqse_doc_types WHERE code IN ('format_macchine', 'm_verifiche')");
+  assert.equal(await H.updateCatalog(db), true);
+  assert.equal(await H.updateCatalog(db), false, 'una volta sola');
+  const { rows } = await db.query("SELECT code, validity_rule, validity_months, jsonb_array_length(ai_checks) AS n FROM hqse_doc_types WHERE code IN ('r_art37', 'r_preposto', 'dvr', 'format_macchine', 'm_verifiche') ORDER BY code");
+  const by = Object.fromEntries(rows.map(r => [r.code, r]));
+  assert.equal(by.r_art37.validity_rule, 'attestato');
+  assert.equal(by.r_art37.validity_months, 60);
+  assert.ok(by.dvr.n >= 3);
+  assert.equal(by.r_preposto.n, 0, 'cambiato da HQSE: non si tocca');
+  assert.ok(by.format_macchine && by.m_verifiche, 'documenti nuovi creati');
+  const { rows: cl } = await db.query("SELECT c.code FROM hqse_checklist_docs x JOIN hqse_checklists c ON c.id = x.checklist_id JOIN hqse_doc_types t ON t.id = x.doc_type_id WHERE t.code IN ('format_macchine', 'm_verifiche') ORDER BY c.code");
+  assert.deepEqual(cl.map(r => r.code), ['CL7', 'M-BASE']);
+});
+
+test('parere dell\'Ufficio QHSE: chiesto con una nota, obbligatorio per approvare, nello storico', async () => {
+  const up = await upload('cciaa', 'visura-qhse.pdf', { issued_on: today });
+  assert.ok(up.status < 300, JSON.stringify(up.body));
+  const doc = (await D('GET', '/api/hqse/verifica')).body.rows.find(r => r.type.startsWith('Visura'));
+  assert.equal((await D('POST', `/api/hqse/documenti/${doc.id}/segnala`, { nota: 'Visura con un socio che non torna' })).status, 200);
+  const q = (await D('GET', '/api/hqse/verifica')).body.rows.find(r => r.id === doc.id);
+  assert.equal(q.escalated, true);
+  const no = await D('POST', `/api/hqse/documenti/${doc.id}/esito`, { esito: 'approvato' });
+  assert.equal(no.status, 400);
+  assert.match(no.body.error || '', /parere/);
+  assert.equal((await D('POST', `/api/hqse/documenti/${doc.id}/esito`, { esito: 'approvato', parere: 'Aristide: va bene, socio uscito nel 2024' })).status, 200);
+  const sk = await D('GET', `/api/hqse/fornitori/${supplierId}`);
+  const hist = sk.body.history.map(h => h.text).join(' | ');
+  assert.match(hist, /Chiesto il parere dell'Ufficio QHSE su «Visura camerale \(CCIAA\)» \(Visura con un socio che non torna\)/);
+  assert.match(hist, /Parere dell'Ufficio QHSE su «Visura camerale \(CCIAA\)»: Aristide/);
 });

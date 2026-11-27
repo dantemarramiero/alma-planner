@@ -414,7 +414,7 @@ async function queuePage(box) {
           h('td', h('a', { href: `#/hqse/verifica/${r.id}` }, r.type), r.why ? h('div.hq-sub', r.why) : null),
           h('td', whoOf(r)),
           h('td', propPill(r.proposal)),
-          h('td', r.urgent ? pill(`Cantiere ${r.sites}`, 'dark') : r.escalated ? pill('Segnalato alla direzione', 'am') : pill('—', 'line')),
+          h('td', r.urgent ? pill(`Cantiere ${r.sites}`, 'dark') : r.escalated ? pill('Parere QHSE chiesto', 'am') : pill('—', 'line')),
           h('td.hq-sub', ago(r.created_at)))))))
         : emptyState('shield-check', filtro === 'tutti' ? 'Niente da verificare: la coda è vuota.' : 'Nessun documento con questo filtro.'));
   };
@@ -435,7 +435,25 @@ async function reviewPage(box, id, cfg) {
     const n = q.rows.find(r => r.id !== d.id);
     go(n ? `#/hqse/verifica/${n.id}` : '#/hqse/verifica');
   };
+  // casi dubbi (criteri dell'Ufficio QHSE, 27/11/2026): si chiede il parere prima di approvare
+  const askQhse = () => {
+    const nota = h('textarea.input', { rows: 3, placeholder: 'Es. attestato di un ente che non conosciamo, idoneità con limitazioni…' }, ai.escalate_reason || '');
+    const ok = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+      ok.disabled = true;
+      try { await post(`/api/hqse/documenti/${d.id}/segnala`, { nota: nota.value }); m.close(); toast('Chiesto il parere dell\'Ufficio QHSE'); reload(); } catch (e) { ok.disabled = false; toast(e.message, 'err'); }
+    } } }, 'Chiedi il parere');
+    const m = cvModal({ title: 'Chiedi all\'Ufficio QHSE', body: h('div.hq-form', h('p.hq-sub', 'Il documento resta in verifica finché non c\'è il parere: per approvarlo andrà scritto.'), h('label.cv-fld', h('span', 'Il dubbio'), nota)), actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok] });
+  };
   const approve = async () => {
+    if (d.escalated) {
+      const parere = h('textarea.input', { rows: 3, placeholder: 'Es. Aristide: ente accreditato in Regione, va bene' });
+      const ok = h('button.btn.btn-primary', { type: 'button', on: { click: async () => {
+        ok.disabled = true;
+        try { await post(`/api/hqse/documenti/${d.id}/esito`, { esito: 'approvato', parere: parere.value }); m.close(); toast('Approvato'); next(); } catch (e) { ok.disabled = false; toast(e.message, 'err'); }
+      } } }, 'Approva');
+      const m = cvModal({ title: `Approva «${d.type}»`, body: h('div.hq-form', h('label.cv-fld', h('span', 'Parere dell\'Ufficio QHSE'), parere, h('span.cv-hint', 'Resta nello storico del fornitore con il tuo nome.'))), actions: [h('button.btn', { type: 'button', on: { click: () => m.close() } }, 'Annulla'), ok] });
+      return;
+    }
     try { await post(`/api/hqse/documenti/${d.id}/esito`, { esito: 'approvato' }); toast('Approvato'); next(); } catch (e) { toast(e.message, 'err'); }
   };
   fill(box,
@@ -455,10 +473,12 @@ async function reviewPage(box, id, cfg) {
           h('span', h('span', { class: c.ok === false ? 'hq-strong' : '' }, c.text), c.nota ? h('span.hq-sub', ` · ${c.nota}`) : null)))) : null,
         d.declared?.ccnl || d.declared?.medico ? h('p.hq-sub', `Dichiarato dall'azienda: ${dots([d.declared.ccnl && `CCNL ${d.declared.ccnl}`, d.declared.medico && `medico ${d.declared.medico}`])}`) : null,
         ai.reason ? h('div.hq-why', h('b', 'Motivo proposto per il fornitore: '), ai.reason) : null,
-        ai.escalate && !d.escalated ? h('div.hq-why.am', h('b', 'Conflitto d\'interessi dichiarato. '), 'Segnalalo alla direzione prima di decidere.',
-          h('div', { style: { marginTop: '8px' } }, h('button.btn', { type: 'button', on: { click: async () => { await post(`/api/hqse/documenti/${d.id}/segnala`, {}); toast('Segnalato alla direzione'); reload(); } } }, 'Segnala alla direzione'))) : null,
+        ai.escalate && !d.escalated ? h('div.hq-why.am', h('b', `Da sentire l'Ufficio QHSE: ${ai.escalate_reason || 'conflitto d\'interessi dichiarato'}. `), 'Chiedi il parere prima di decidere.',
+          h('div', { style: { marginTop: '8px' } }, h('button.btn', { type: 'button', on: { click: askQhse } }, 'Chiedi all\'Ufficio QHSE'))) : null,
+        d.escalated && !decided ? h('div.hq-why.am', h('b', 'Parere dell\'Ufficio QHSE chiesto. '), 'Per approvare scrivi il parere ricevuto.') : null,
         decided ? h('p.hq-sub', `Già deciso: ${cfg.doc_states[d.status] || d.status}.`) : h('div.hq-ed-f',
-          h('button.cv-lnk', { type: 'button', on: { click: async () => { await post(`/api/hqse/documenti/${d.id}/rileggi`, {}); toast('Lettura rifatta'); reload(); } } }, 'Fai rileggere all\'AI'),
+          h('span', h('button.cv-lnk', { type: 'button', on: { click: async () => { await post(`/api/hqse/documenti/${d.id}/rileggi`, {}); toast('Lettura rifatta'); reload(); } } }, 'Fai rileggere all\'AI'),
+            d.escalated ? null : [' · ', h('button.cv-lnk', { type: 'button', on: { click: askQhse } }, 'Chiedi all\'Ufficio QHSE')]),
           h('div.pr-acts',
             h('button.btn', { type: 'button', on: { click: () => outcome(d, 'integrazione', next) } }, 'Chiedi un\'integrazione'),
             h('button.btn', { type: 'button', on: { click: () => outcome(d, 'respinto', next) } }, 'Respingi'),
