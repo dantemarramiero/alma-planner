@@ -56,6 +56,7 @@ const { registerProcurement } = require('./routes/procurement');
 const { registerHqse } = require('./routes/hqse');
 const { registerHqsePortale } = require('./routes/hqse-portale');
 const { registerHqseVerifica } = require('./routes/hqse-verifica');
+const { registerHqseScadenze } = require('./routes/hqse-scadenze');
 const { createProcurementFake } = require('./lib/procurement-fake');
 const { createPostaFake } = require('./lib/crm-posta-fake');
 const { registerCrmPosta } = require('./routes/crm-posta');
@@ -300,6 +301,7 @@ async function createApp(config, { db, confirmAccount, energyFetch, pushSender, 
   const hqsePortale = registerHqsePortale(app, deps); // HQSE fase 2 (ALM2-101): widget sul sito e portale del fornitore (/fornitori)
   registerHqse(app, { ...deps, hqsePortale }); // HQSE (ALM2-98): qualifica di fornitori e subappaltatori al posto di Vittoria
   registerHqseVerifica(app, { ...deps, hqsePortale }); // HQSE fase 3 (ALM2-103): verifica dei documenti con l'AI, scrivania HQSE
+  registerHqseScadenze(app, { ...deps, hqsePortale }); // HQSE fase 4 (ALM2-104): cantieri, rinnovi, proroghe, deroghe, reminder
   registerBiglietti(app, deps); // Biglietti da visita: «Il mio biglietto» con QR, pagina pubblica /biglietto/:token
   registerCrmBusiness(app, deps); // CRM: Nuovi business (iniziative, chat, clienti target, gap, piano, analisi)
   registerCrmFonti(app, deps); // CRM: «Da dove vengono i dati» (fonti, completezza, limiti) per Mercato e Concorrenza
@@ -353,6 +355,7 @@ if (require.main === module) {
     digest.start();
     energyReminders.start(); // ogni 5 minuti, di giorno: scadenze delle opportunità di Alma Energy
     energyScreening.start().catch(err => console.warn('[energy] screening non ripartito', err.message)); // giri in coda dopo un riavvio
+    app.locals.hqseScheduler?.start(); // HQSE (ALM2-104): giro delle scadenze una volta al giorno, feriali dalle 7
     fleet.start(); // ogni 5 minuti: promemoria di riconsegna (a chi ha il mezzo e ai gestori) e delle scadenze dei mezzi // ogni 5 minuti: solleciti nell'app e riepiloghi del mattino (ora italiana, giorni lavorativi)
     setInterval(() => auth.purgeSessions().catch(() => {}), 6 * 3600 * 1000).unref();
     gov.start(); // ruoli e privacy riletti ogni 5 minuti

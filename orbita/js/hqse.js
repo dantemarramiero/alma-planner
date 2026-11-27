@@ -24,6 +24,12 @@ export async function hqseView(container, parts = []) {
   if (page === 'fornitore' && Number(parts[2])) return supplierPage(body, Number(parts[2]), cfg);
   if (page === 'verifica') return Number(parts[2]) ? reviewPage(body, Number(parts[2]), cfg) : queuePage(body);
   if (page === 'qualita') return qualityPage(body);
+  if (['rinnovi', 'cantieri', 'reminder'].includes(page)) { // fase 4 (ALM2-104)
+    const Z = await import('./hqse-scadenze.js');
+    if (page === 'rinnovi') return Z.renewalsPage(body);
+    if (page === 'reminder') return Z.remindersPage(body);
+    return Number(parts[2]) ? Z.sitePage(body, Number(parts[2])) : Z.sitesPage(body);
+  }
   if (page === 'widget') return widgetPage(body, cfg);
   if (page === 'regole') return rulesPage(body, cfg, { checklist: Number(parts[2]) || null, doc: Number(parts[3]) || null });
   return suppliersPage(body, cfg);
@@ -138,7 +144,7 @@ async function supplierPage(box, id, cfg) {
       h('div.hq-col',
         peopleCard(s),
         card({ title: 'Cantieri', icon: 'hard-hat', count: s.sites.length },
-          s.sites.length ? s.sites.map(x => h('div.hq-ev', h('span', h('b', x.code), ` · ${x.name}`))) : emptyState('hard-hat', 'L\'associazione ai cantieri arriva con la fase 4.')),
+          s.sites.length ? s.sites.map(x => h('a.hq-ev', { href: `#/hqse/cantieri/${x.id}` }, h('span', h('b', x.code), ` · ${x.name}`))) : emptyState('hard-hat', 'Non è ancora associato a un cantiere: si fa dalla pagina Cantieri.', h('a.btn', { href: '#/hqse/cantieri' }, 'Vai ai cantieri'))),
         card({ title: 'Storico', icon: 'clock', count: s.history.length },
           s.history.length ? s.history.map(e => h('div.hq-ev', h('span', e.text), h('span.hq-sub', dots([e.actor ? `da ${e.actor}` : 'automatico', fmtDateTime(e.at)])))) : emptyState('clock', 'Niente ancora.')))));
 }

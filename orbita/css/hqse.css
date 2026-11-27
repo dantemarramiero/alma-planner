@@ -141,3 +141,18 @@
 .hq-step.cur span { background: var(--cv-gr-t); color: var(--cv-gr); }
 .hq-step.on { color: var(--cv-ink); font-weight: 500; }
 .hq-step.on span { background: var(--cv-orange); color: #fff; }
+
+/* fase 4 (ALM2-104): cantieri, persone idonee, impostazioni dei reminder */
+a.hq-ev { text-decoration: none; }
+.hq-ev:has(> button) { grid-template-columns: 1fr auto; align-items: center; }
+.hq-people { display: grid; gap: 8px; margin-top: 12px; }
+.hq-person { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--cv-line); border-radius: 12px; background: #fff; }
+.hq-person .hq-row-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.hq-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #2E9B5B; }
+.hq-person.ko .hq-dot { background: #D64545; }
+.hq-person.ko { border-color: #F2C9C9; background: #FFF8F8; }
+.hq-set { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid var(--cv-line); }
+.hq-set .hq-row-main { display: grid; gap: 2px; }
+.hq-set input { width: 18px; height: 18px; flex: none; }
+.hq-two-f { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hq > .cv-card + .cv-card { margin-top: 0; }
